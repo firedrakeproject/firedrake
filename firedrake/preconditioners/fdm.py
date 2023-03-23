@@ -594,12 +594,7 @@ class FDMPC(PCBase):
         try:
             return cache[key]
         except KeyError:
-            if not block_diagonal or not V.shape:
-                tensor = firedrake.Function(Z)
-                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
-                                              form_compiler_parameters=form_compiler_parameters)]
-            else:
+            if block_diagonal and V.shape:
                 M = firedrake.assemble(mixed_form, mat_type="matfree",
                                        form_compiler_parameters=form_compiler_parameters)
                 coefficients = dict()
@@ -609,6 +604,11 @@ class FDMPC(PCBase):
                     ctx = sub.getPythonContext()
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
+            else:
+                tensor = firedrake.Function(Z)
+                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
+                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
+                                              form_compiler_parameters=form_compiler_parameters)]
             return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -760,7 +760,7 @@ def load_c_code(code, name, **kwargs):
                   **kwargs)
 
     def get_pointer(obj):
-        if isinstance(obj, (PETSc.Mat, PETSc.Vec)):
+        if isinstance(obj, PETSc.Object):
             return obj.handle
         elif isinstance(obj, numpy.ndarray):
             return obj.ctypes.data
@@ -1001,23 +1001,24 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     e0, e1 = elements[::len(elements)-1]
 
     degree = e0.degree()
+    tdim = Vc.mesh().topological_dimension()
     A11 = numpy.eye(degree, dtype=PETSc.RealType)
     A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
     A10 = fiat_reference_prolongator(e0, e1, derivative=True)
-
-    tdim = Vc.mesh().topological_dimension()
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy=True)
 
-    scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
-    fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-    cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
-    fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-    cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
-    temp = Dhat
-    Dhat = temp.createSubMatrix(fises, cises)
-    fises.destroy()
-    cises.destroy()
-    temp.destroy()
+    if any(is_restricted(ec)) or any(is_restricted(ef)):
+        scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
+        fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
+        cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+        fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
+        temp = Dhat
+        Dhat = temp.createSubMatrix(fises, cises)
+        temp.destroy()
+        fises.destroy()
+        cises.destroy()
+
     if Vf.value_size > 1:
         temp = Dhat
         eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType))
@@ -1136,7 +1137,7 @@ class PoissonFDMPC(FDMPC):
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
         line_elements, = line_elements
-        self.axes_shifts, = shifts
+        axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
         eta = float(self.appctx.get("eta", degree*(degree+1)))
@@ -1151,7 +1152,7 @@ class PoissonFDMPC(FDMPC):
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
                 Dfdm[0] = None
-        return Afdm, Dfdm, bdof
+        return Afdm, Dfdm, bdof, axes_shifts
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
@@ -1169,9 +1170,11 @@ class PoissonFDMPC(FDMPC):
         condense_element_mat = lambda x: x
 
         get_rindices = self.cell_to_global[Vrow]
-        rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
-        self.reference_tensor_on_diag[Vrow] = rtensor
-        Afdm, Dfdm, bdof = rtensor
+        try:
+            rtensor = self.reference_tensor_on_diag[Vrow]
+        except KeyError:
+            rtensor = self.reference_tensor_on_diag.setdefault(Vrow, self.assemble_reference_tensor(Vrow))
+        Afdm, Dfdm, bdof, axes_shifts = rtensor
 
         Gq = self.coefficients.get("alpha")
         Bq = self.coefficients.get("beta")
@@ -1184,7 +1187,7 @@ class PoissonFDMPC(FDMPC):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()
-        shift = self.axes_shifts * bsize
+        shift = axes_shifts * bsize
 
         index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
         index_bc, _ = extrude_node_map(bcflags.cell_node_map())
@@ -1297,6 +1300,7 @@ class PoissonFDMPC(FDMPC):
             index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
             index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
+            formdegree = V.finat_element.formdegree
 
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
@@ -1322,8 +1326,8 @@ class PoissonFDMPC(FDMPC):
                         continue
 
                     if PT_facet:
-                        k0 = iord0[k] if shift != 1 else tdim-1-iord0[-k-1]
-                        k1 = iord1[k] if shift != 1 else tdim-1-iord1[-k-1]
+                        k0 = iord0[k] if formdegree > 1 else tdim-1-iord0[-k-1]
+                        k1 = iord1[k] if formdegree > 1 else tdim-1-iord1[-k-1]
                         Piola = Pfacet[[0, 1], [k0, k1]]
                         mu = Gfacet[[0, 1], idir]
                     else:
