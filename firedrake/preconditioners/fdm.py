@@ -79,20 +79,20 @@ class FDMPC(PCBase):
     _cache = {}
 
     @staticmethod
-    def load_set_values(triu=False):
+    def setSubMatCSR(comm, triu=False):
         """
-        Compile C code to insert sparse element matrices and store in class cache
+        Compile C code to insert sparse submatrices and store in class cache
 
         :arg triu: are we inserting onto the upper triangular part of the matrix?
 
         :returns: a python wrapper for the matrix insertion function
         """
+        cache = FDMPC._cache.setdefault("setSubMatCSR", {})
         key = triu
-        cache = FDMPC._cache.setdefault("load_set_values", {})
         try:
             return cache[key]
         except KeyError:
-            return cache.setdefault(key, load_assemble_csr(PETSc.COMM_SELF, triu=triu))
+            return cache.setdefault(key, load_setSubMatCSR(comm, triu))
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
@@ -123,8 +123,8 @@ class FDMPC(PCBase):
             bcs = tuple(ctx._problem.bcs)
             mat_type = ctx.mat_type
 
-        # For static condensation with SLATE, we might extract the form on the
-        # interface-interface block like this:
+        # TODO assemble Schur complements specified by a SLATE Tensor
+        # we might extract the form on the interface-interface block like this:
         #
         # if isinstance(J, firedrake.slate.TensorBase) and use_static_condensation:
         #     J = J.children[0].form
@@ -237,8 +237,8 @@ class FDMPC(PCBase):
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
         self.submats = [None for _ in range(7)]
 
-        self.reference_tensor_on_diag = dict()
-        self.get_static_condensation = dict()
+        self.reference_tensor_on_diag = {}
+        self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
@@ -256,9 +256,9 @@ class FDMPC(PCBase):
             return lgmap.apply(result, result=result)
 
         # Create data structures needed for assembly
-        self.cell_to_global = dict()
-        self.lgmaps = dict()
-        bc_rows = dict()
+        self.cell_to_global = {}
+        self.lgmaps = {}
+        bc_rows = {}
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
@@ -286,9 +286,9 @@ class FDMPC(PCBase):
         self.get_coeffs = get_coeffs
 
         self.nel = nel
-        self.work_mats = dict()
+        self.work_mats = {}
 
-        Pmats = dict()
+        Pmats = {}
         addv = PETSc.InsertMode.ADD_VALUES
         symmetric = pmat_type.endswith("sbaij")
 
@@ -414,11 +414,11 @@ class FDMPC(PCBase):
             return R.transposeMatMult(RtAP.buff, result=result)
         RtAP.buff = None
 
-        set_values_csr = self.load_set_values(triu=triu)
+        set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
-            update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, rindices, addv)
+            update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, rindices, addv)
             # moments of orthogonalized basis against basis tabulation and derivative tabulation
             rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
             # element matrix obtained via Equation (3.9) of Brubeck2022b
@@ -426,7 +426,7 @@ class FDMPC(PCBase):
             condense_element_mat = self.get_static_condensation.get(Vrow)
         else:
             get_cindices = self.cell_to_global[Vcol]
-            update_A = lambda Ae, rindices, cindices: set_values_csr(A, Ae, rindices, cindices, addv)
+            update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
             rtensor = self.assemble_reference_tensor(Vrow)
             ctensor = self.assemble_reference_tensor(Vcol)
             assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
@@ -583,7 +583,7 @@ class FDMPC(PCBase):
         # Transform the exterior derivative and the original arguments of J to arguments in Z
         args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
         repargs = {t: v[0] for t, v in zip(args_J, args)}
-        repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else dict()
+        repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else {}
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
@@ -594,21 +594,21 @@ class FDMPC(PCBase):
         try:
             return cache[key]
         except KeyError:
-            if not block_diagonal or not V.shape:
-                tensor = firedrake.Function(Z)
-                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
-                                              form_compiler_parameters=form_compiler_parameters)]
-            else:
+            if block_diagonal and V.shape:
                 M = firedrake.assemble(mixed_form, mat_type="matfree",
                                        form_compiler_parameters=form_compiler_parameters)
-                coefficients = dict()
+                coefficients = {}
                 assembly_callables = []
                 for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
                     sub = M.petscmat.createSubMatrix(iset, iset)
                     ctx = sub.getPythonContext()
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
+            else:
+                tensor = firedrake.Function(Z)
+                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
+                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
+                                              form_compiler_parameters=form_compiler_parameters)]
             return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -720,7 +720,7 @@ def factor_interior_mat(A00):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_mat(A, i0, i1, submats):
-    # Return the Schur complement associated to indices in i1, condensing i0 out
+    """Return the Schur complement associated to indices in i1, condensing i0 out"""
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
     structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
@@ -736,7 +736,7 @@ def condense_element_mat(A, i0, i1, submats):
 
 @PETSc.Log.EventDecorator("FDMCondense")
 def condense_element_pattern(A, i0, i1, submats):
-    # Add zeroes on the statically condensed pattern so that you can run ICC(0)
+    """Add zeroes on the statically condensed pattern so that you can run ICC(0)"""
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
     structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
@@ -760,7 +760,7 @@ def load_c_code(code, name, **kwargs):
                   **kwargs)
 
     def get_pointer(obj):
-        if isinstance(obj, (PETSc.Mat, PETSc.Vec)):
+        if isinstance(obj, PETSc.Object):
             return obj.handle
         elif isinstance(obj, numpy.ndarray):
             return obj.ctypes.data
@@ -772,9 +772,9 @@ def load_c_code(code, name, **kwargs):
     return wrapper
 
 
-def load_assemble_csr(comm, triu=False):
-    # Insert one sparse matrix into another sparse matrix.
-    # Done in C for efficiency, since it loops over rows.
+def load_setSubMatCSR(comm, triu=False):
+    """Insert one sparse matrix into another sparse matrix.
+       Done in C for efficiency, since it loops over rows."""
     if triu:
         name = "setSubMatCSR_SBAIJ"
         select_cols = "icol < irow ? -1: icol"
@@ -827,18 +827,14 @@ PetscErrorCode {name}(Mat A,
 
 
 def is_restricted(finat_element):
-    # Determine if an element is a restriction onto interior or facets
+    """Determine if an element is a restriction onto interior or facets"""
     is_interior = True
     is_facet = True
-    tdim = finat_element.cell.get_spatial_dimension()
+    cell_dim = finat_element.cell.get_dimension()
     entity_dofs = finat_element.entity_dofs()
-    for edim in sorted(entity_dofs):
-        if any(len(entity_dofs[edim][entity]) > 0 for entity in entity_dofs[edim]):
-            try:
-                edim = sum(edim)
-            except TypeError:
-                pass
-            if edim == tdim:
+    for dim in sorted(entity_dofs):
+        if any(len(entity_dofs[dim][entity]) > 0 for entity in entity_dofs[dim]):
+            if dim == cell_dim:
                 is_facet = False
             else:
                 is_interior = False
@@ -846,8 +842,8 @@ def is_restricted(finat_element):
 
 
 def sort_interior_dofs(idofs, A):
-    # Permute `idofs` to have A[idofs, idofs] with square blocks of
-    # increasing dimension along its diagonal.
+    """Permute `idofs` to have A[idofs, idofs] with square blocks of
+       increasing dimension along its diagonal."""
     Aii = A.createSubMatrix(idofs, idofs)
     indptr, indices, _ = Aii.getValuesCSR()
     n = idofs.getSize()
@@ -867,19 +863,20 @@ def sort_interior_dofs(idofs, A):
 
 
 def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
-    # Convert dense numpy matrix into a sparse PETSc matrix
-    Amax = max(A_numpy.min(), A_numpy.max(), key=abs)
-    atol = rtol*Amax
-    nnz = numpy.count_nonzero(abs(A_numpy) > atol, axis=1).astype(PETSc.IntType)
+    """Convert dense numpy matrix into a sparse PETSc matrix"""
+    atol = rtol * max(A_numpy.min(), A_numpy.max(), key=abs)
+    sparsity = abs(A_numpy) > atol
+    nnz = numpy.count_nonzero(sparsity, axis=1).astype(PETSc.IntType)
     A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
-    for row, Arow in enumerate(A_numpy):
-        cols = numpy.argwhere(abs(Arow) > atol).astype(PETSc.IntType).flat
+    for row, (Arow, Srow) in enumerate(zip(A_numpy, sparsity)):
+        cols = numpy.argwhere(Srow).astype(PETSc.IntType).flat
         A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
     A.assemble()
     return A
 
 
 def kron3(A, B, C, scale=None):
+    """Returns scale * kron(A, kron(B, C))"""
     temp = B.kron(C)
     if scale is not None:
         temp.scale(scale)
@@ -889,8 +886,8 @@ def kron3(A, B, C, scale=None):
 
 
 def block_mat(A_blocks, destroy=False):
-    # Return a concrete Mat corresponding to a block matrix given as a list of lists
-    # Optionally, destroys the input Mats if a new Mat is created
+    """Return a concrete Mat corresponding to a block matrix given as a list of lists.
+       Optionally, destroys the input Mats if a new Mat is created."""
     if len(A_blocks) == 1:
         if len(A_blocks[0]) == 1:
             return A_blocks[0][0]
@@ -906,8 +903,8 @@ def block_mat(A_blocks, destroy=False):
 
 
 def mass_blocks(tdim, formdegree, B00, B11, comm=None):
-    # Construct mass block matrix on reference cell from 1D mass matrices B00 and B11.
-    # The 1D matrices may come with different test and trial spaces.
+    """Construct mass block matrix on reference cell from 1D mass matrices B00 and B11.
+       The 1D matrices may come with different test and trial spaces."""
     if comm is None:
         comm = PETSc.COMM_SELF
     if tdim == 1:
@@ -944,9 +941,9 @@ def mass_blocks(tdim, formdegree, B00, B11, comm=None):
 
 
 def diff_blocks(tdim, formdegree, A00, A11, A10, comm=None):
-    # Construct exterior derivative block matrix on reference cell from 1D mass matrices A00 and A11,
-    # and exterior derivative moments A10.
-    # The 1D matrices may come with different test and trial spaces.
+    """Construct exterior derivative block matrix on reference cell from 1D
+       mass matrices A00 and A11, and exterior derivative moments A10.
+       The 1D matrices may come with different test and trial spaces."""
     if comm is None:
         comm = PETSc.COMM_SELF
     if formdegree == tdim:
@@ -1001,23 +998,24 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     e0, e1 = elements[::len(elements)-1]
 
     degree = e0.degree()
+    tdim = Vc.mesh().topological_dimension()
     A11 = numpy.eye(degree, dtype=PETSc.RealType)
     A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
     A10 = fiat_reference_prolongator(e0, e1, derivative=True)
-
-    tdim = Vc.mesh().topological_dimension()
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy=True)
 
-    scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
-    fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-    cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
-    fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-    cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
-    temp = Dhat
-    Dhat = temp.createSubMatrix(fises, cises)
-    fises.destroy()
-    cises.destroy()
-    temp.destroy()
+    if any(is_restricted(ec)) or any(is_restricted(ef)):
+        scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
+        fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
+        cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+        fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
+        temp = Dhat
+        Dhat = temp.createSubMatrix(fises, cises)
+        temp.destroy()
+        fises.destroy()
+        cises.destroy()
+
     if Vf.value_size > 1:
         temp = Dhat
         eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType))
@@ -1035,7 +1033,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
         return lgmap.apply(result, result=result)
 
     imode = PETSc.InsertMode.INSERT
-    update_Dmat = FDMPC.load_set_values()
+    update_Dmat = FDMPC.setSubMatCSR(PETSc.COMM_SELF, triu=False)
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
@@ -1068,7 +1066,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
 
 
 def unrestrict_element(ele):
-    # Get an element that might or might not be restricted and return the parent unrestricted element.
+    """Get an element that might or might not be restricted and
+       return the parent unrestricted element."""
     if isinstance(ele, ufl.VectorElement):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
     elif isinstance(ele, ufl.TensorElement):
@@ -1136,7 +1135,7 @@ class PoissonFDMPC(FDMPC):
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
         line_elements, = line_elements
-        self.axes_shifts, = shifts
+        axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
         eta = float(self.appctx.get("eta", degree*(degree+1)))
@@ -1151,7 +1150,7 @@ class PoissonFDMPC(FDMPC):
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
                 Dfdm[0] = None
-        return Afdm, Dfdm, bdof
+        return Afdm, Dfdm, bdof, axes_shifts
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
@@ -1164,14 +1163,16 @@ class PoissonFDMPC(FDMPC):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg triu: are we assembling only the upper triangular part?
         """
-        set_values_csr = self.load_set_values(triu=triu)
-        update_A = lambda A, Ae, rindices: set_values_csr(A, Ae, rindices, rindices, addv)
+        set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
+        update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
 
         get_rindices = self.cell_to_global[Vrow]
-        rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
-        self.reference_tensor_on_diag[Vrow] = rtensor
-        Afdm, Dfdm, bdof = rtensor
+        try:
+            rtensor = self.reference_tensor_on_diag[Vrow]
+        except KeyError:
+            rtensor = self.reference_tensor_on_diag.setdefault(Vrow, self.assemble_reference_tensor(Vrow))
+        Afdm, Dfdm, bdof, axes_shifts = rtensor
 
         Gq = self.coefficients.get("alpha")
         Bq = self.coefficients.get("beta")
@@ -1184,7 +1185,7 @@ class PoissonFDMPC(FDMPC):
         ncomp = V.ufl_element().reference_value_size()
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()
-        shift = self.axes_shifts * bsize
+        shift = axes_shifts * bsize
 
         index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
         index_bc, _ = extrude_node_map(bcflags.cell_node_map())
@@ -1322,8 +1323,8 @@ class PoissonFDMPC(FDMPC):
                         continue
 
                     if PT_facet:
-                        k0 = iord0[k] if shift != 1 else tdim-1-iord0[-k-1]
-                        k1 = iord1[k] if shift != 1 else tdim-1-iord1[-k-1]
+                        k0 = iord0[k] if shift[1] != 1 else tdim-1-iord0[-k-1]
+                        k1 = iord1[k] if shift[1] != 1 else tdim-1-iord1[-k-1]
                         Piola = Pfacet[[0, 1], [k0, k1]]
                         mu = Gfacet[[0, 1], idir]
                     else:
@@ -1377,7 +1378,7 @@ class PoissonFDMPC(FDMPC):
                     Ae.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coef(self, J, form_compiler_parameters, discard_mixed=True, cell_average=True):
+    def assemble_coef(self, J, form_compiler_parameters):
         coefficients = {}
         assembly_callables = []
 
@@ -1396,12 +1397,8 @@ class PoissonFDMPC(FDMPC):
         quad_deg = (form_compiler_parameters or {}).get("degree", quad_deg)
         dx = firedrake.dx(degree=quad_deg)
 
-        if cell_average:
-            family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
-            degree = 0
-        else:
-            family = "Quadrature"
-            degree = quad_deg
+        family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
+        degree = 0
 
         # extract coefficients directly from the bilinear form
         integrals_J = J.integrals_by_type("cell")
@@ -1432,18 +1429,15 @@ class PoissonFDMPC(FDMPC):
         if Piola:
             beta = ufl.replace(beta, {dummy_Piola: Piola})
 
+        # discard mixed derivatives and mixed components
         G = alpha
-        if discard_mixed:
-            # discard mixed derivatives and mixed components
-            if len(G.ufl_shape) == 2:
-                G = ufl.diag_vector(G)
-            else:
-                Gshape = G.ufl_shape
-                Gshape = Gshape[:len(Gshape)//2]
-                G = ufl.as_tensor(numpy.reshape([G[i+i] for i in numpy.ndindex(Gshape)], (Gshape[0], -1)))
-            Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape)
+        if len(G.ufl_shape) == 2:
+            G = ufl.diag_vector(G)
         else:
-            Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape, symmetry=True)
+            Gshape = G.ufl_shape
+            Gshape = Gshape[:len(Gshape)//2]
+            G = ufl.as_tensor(numpy.reshape([G[i+i] for i in numpy.ndindex(Gshape)], (Gshape[0], -1)))
+        Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape)
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):

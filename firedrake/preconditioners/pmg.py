@@ -1481,8 +1481,8 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
     def _standalones(self):
         standalones = []
         for i, (uc_sub, uf_sub) in enumerate(zip(self.uc.subfunctions, self.uf.subfunctions)):
-            Vc_sub_bcs = [bc for bc in self.Vc_bcs if bc.function_space().index == i]
-            Vf_sub_bcs = [bc for bc in self.Vf_bcs if bc.function_space().index == i]
+            Vc_sub_bcs = tuple(bc for bc in self.Vc_bcs if bc.function_space().index == i)
+            Vf_sub_bcs = tuple(bc for bc in self.Vf_bcs if bc.function_space().index == i)
             standalone = StandaloneInterpolationMatrix(uc_sub, uf_sub, Vc_sub_bcs, Vf_sub_bcs)
             standalones.append(standalone)
         return standalones
