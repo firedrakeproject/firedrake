@@ -111,7 +111,7 @@ class FDMPC(PCBase):
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
 
         appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        fcp = appctx.get("form_compiler_parameters") or {}
         self.appctx = appctx
 
         # Get original Jacobian form and bcs
@@ -203,14 +203,14 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def assemble_fdm_op(self, V, J, bcs, form_compiler_parameters, pmat_type, use_static_condensation):
+    def assemble_fdm_op(self, V, J, bcs, fcp, pmat_type, use_static_condensation):
         """
         Assemble the sparse preconditioner from diagonal mass matrices.
 
         :arg V: the :class:`.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
-        :arg form_compiler_parameters: parameters to assemble diagonal factors
+        :arg fcp: form compiler parameters to assemble coefficients
         :arg pmat_type: the preconditioner `PETSc.Mat.Type`
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
 
@@ -273,7 +273,7 @@ class FDMPC(PCBase):
             bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
             bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
 
-        coefficients, assembly_callables = self.assemble_coef(J, form_compiler_parameters)
+        coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         coeffs = [coefficients.get(k) for k in ("beta", "alpha")]
         cmaps = [extrude_node_map(ck.cell_node_map())[0] for ck in coeffs]
 
@@ -508,14 +508,14 @@ class FDMPC(PCBase):
             RtAP.buff.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coef(self, J, form_compiler_parameters):
+    def assemble_coefficients(self, J, fcp):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
         See Section 3.2 of Brubeck2022b.
 
         :arg J: the Jacobian bilinear :class:`ufl.Form`,
-        :arg form_compiler_parameters: a `dict` with tsfc parameters.
+        :arg fcp: form compiler parameters to assemble the diagonal matrices.
 
         :returns: a 2-tuple of a `dict` with the zero-th order and second
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
@@ -600,7 +600,7 @@ class FDMPC(PCBase):
             from firedrake.assemble import assemble
             if block_diagonal and V.shape:
                 M = assemble(mixed_form, mat_type="matfree",
-                             form_compiler_parameters=form_compiler_parameters)
+                             form_compiler_parameters=fcp)
                 coefficients = {}
                 assembly_callables = []
                 for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
@@ -612,7 +612,7 @@ class FDMPC(PCBase):
                 tensor = Function(Z)
                 coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
                 assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
-                                              form_compiler_parameters=form_compiler_parameters)]
+                                              form_compiler_parameters=fcp)]
             return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -1207,7 +1207,7 @@ class PoissonFDMPC(FDMPC):
 
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
-        # the FDM eigenbases for CG(k) and DG(k-1) are not orthogonal to each other
+        # the FDM eigenbases for CG(k) and CG(k-1) are not orthogonal to each other
         rindices = None
         use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
         if not use_diag_Bq:
@@ -1246,10 +1246,10 @@ class PoissonFDMPC(FDMPC):
 
             # get second order coefficient on this cell
             if Gq is not None:
-                mue.flat[:] = numpy.sum(Gq.dat.data_ro[je], axis=0)
+                numpy.sum(Gq.dat.data_ro[je], axis=0, out=mue)
             # get zero-th order coefficient on this cell
             if Bq is not None:
-                bqe.flat[:] = numpy.sum(Bq.dat.data_ro[je], axis=0)
+                numpy.sum(Bq.dat.data_ro[je], axis=0, out=bqe)
 
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
@@ -1382,7 +1382,7 @@ class PoissonFDMPC(FDMPC):
                     Ae.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coef(self, J, form_compiler_parameters):
+    def assemble_coefficients(self, J, fcp):
         from firedrake.assemble import assemble
         coefficients = {}
         assembly_callables = []
@@ -1399,11 +1399,9 @@ class PoissonFDMPC(FDMPC):
         except TypeError:
             pass
         quad_deg = 2*degree+1
-        quad_deg = (form_compiler_parameters or {}).get("degree", quad_deg)
-        dx = ufl.dx(degree=quad_deg)
-
+        quad_deg = fcp.get("degree", quad_deg)
+        dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
-        degree = 0
 
         # extract coefficients directly from the bilinear form
         integrals_J = J.integrals_by_type("cell")
@@ -1435,22 +1433,19 @@ class PoissonFDMPC(FDMPC):
             beta = ufl.replace(beta, {dummy_Piola: Piola})
 
         # discard mixed derivatives and mixed components
-        G = alpha
-        if len(G.ufl_shape) == 2:
-            G = ufl.diag_vector(G)
+        if len(alpha.ufl_shape) == 2:
+            alpha = ufl.diag_vector(alpha)
         else:
-            Gshape = G.ufl_shape
-            Gshape = Gshape[:len(Gshape)//2]
-            G = ufl.as_tensor(numpy.reshape([G[i+i] for i in numpy.ndindex(Gshape)], (Gshape[0], -1)))
-        Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default", shape=G.ufl_shape)
+            ashape = alpha.ufl_shape
+            ashape = ashape[:len(ashape)//2]
+            alpha = ufl.as_tensor(numpy.reshape([alpha[i+i] for i in numpy.ndindex(ashape)], (ashape[0], -1)))
+        Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=0, shape=alpha.ufl_shape)
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, Qe)
-            q = TestFunction(Q)
-            Gq = Function(Q)
-            coefficients["alpha"] = Gq
-            assembly_callables.append(partial(assemble, ufl.inner(G, q)*dx, Gq))
+            tensor = coefficients.setdefault("alpha", Function(Q))
+            assembly_callables.append(partial(assemble, ufl.inner(TestFunction(Q), alpha)*dx, tensor))
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
@@ -1458,42 +1453,36 @@ class PoissonFDMPC(FDMPC):
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
             shape = beta.ufl_shape
-            Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default")
+            Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
             if shape:
                 Qe = ufl.TensorElement(Qe, shape=shape)
             Q = FunctionSpace(mesh, Qe)
-            q = TestFunction(Q)
-            Bq = Function(Q)
-            coefficients["beta"] = Bq
-            assembly_callables.append(partial(assemble, ufl.inner(beta, q)*dx, Bq))
+            tensor = coefficients.setdefault("beta", Function(Q))
+            assembly_callables.append(partial(assemble, ufl.inner(TestFunction(Q), beta)*dx, tensor))
 
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
             extruded = mesh.cell_set._extruded
             dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
-            ele = ufl.BrokenElement(ufl.FiniteElement("DGT", mesh.ufl_cell(), 0))
-            area = ufl.FacetArea(mesh)
+            ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/ufl.FacetArea(mesh))*dS_int
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
             alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
                                                      ref_grad[0]), ref_grad[1]) for i in integrals_J]))
-            vol = abs(ufl.JacobianDeterminant(mesh))
-            G = vol * alpha
+            G = alpha
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
+            G = G * abs(ufl.JacobianDeterminant(mesh))
 
+            ele = ufl.BrokenElement(ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0))
             Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=G.ufl_shape))
-            q = TestFunction(Q)
-            Gq_facet = Function(Q)
-            coefficients["Gq_facet"] = Gq_facet
-            assembly_callables.append(partial(assemble, ((ufl.inner(q('+'), G('+')) + ufl.inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
+            tensor = coefficients.setdefault("Gq_facet", Function(Q))
+            assembly_callables.append(partial(assemble, ifacet_inner(TestFunction(Q), G), tensor))
 
             PT = Piola.T
             Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=PT.ufl_shape))
-            q = TestFunction(Q)
-            PT_facet = Function(Q)
-            coefficients["PT_facet"] = PT_facet
-            assembly_callables.append(partial(assemble, ((ufl.inner(q('+'), PT('+')) + ufl.inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
+            tensor = coefficients.setdefault("PT_facet", Function(Q))
+            assembly_callables.append(partial(assemble, ifacet_inner(TestFunction(Q), PT), tensor))
 
         # make DGT functions with BC flags
         rvs = V.ufl_element().reference_value_shape()
@@ -1525,8 +1514,8 @@ class PoissonFDMPC(FDMPC):
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                assembly_callables.append(partial(assemble, form, bcflags))
                 coefficients["bcflags"] = bcflags
+                assembly_callables.append(partial(assemble, form, bcflags))
 
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
