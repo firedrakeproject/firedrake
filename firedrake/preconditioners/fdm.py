@@ -8,6 +8,10 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
+from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+
 from firedrake_citations import Citations
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
@@ -17,7 +21,6 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 
 import firedrake.dmhooks as dmhooks
-import firedrake
 import ctypes
 import numpy
 import ufl
@@ -140,7 +143,7 @@ class FDMPC(PCBase):
             V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
         else:
             # Reconstruct Jacobian and bcs with variant element
-            V_fdm = firedrake.FunctionSpace(V.mesh(), e_fdm)
+            V_fdm = FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
             bcs_fdm = []
             for bc in bcs:
@@ -221,7 +224,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = firedrake.FunctionSpace(V.mesh(), ebig)
+            Vbig = FunctionSpace(V.mesh(), ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
@@ -578,10 +581,10 @@ class FDMPC(PCBase):
         elements = list(map(ufl.BrokenElement, elements))
         if V.shape:
             elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-        Z = firedrake.FunctionSpace(mesh, ufl.MixedElement(elements))
+        Z = FunctionSpace(mesh, ufl.MixedElement(elements))
 
         # Transform the exterior derivative and the original arguments of J to arguments in Z
-        args = (firedrake.TestFunctions(Z), firedrake.TrialFunctions(Z))
+        args = (TestFunctions(Z), TrialFunctions(Z))
         repargs = {t: v[0] for t, v in zip(args_J, args)}
         repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else {}
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
@@ -594,9 +597,10 @@ class FDMPC(PCBase):
         try:
             return cache[key]
         except KeyError:
+            from firedrake.assemble import assemble
             if block_diagonal and V.shape:
-                M = firedrake.assemble(mixed_form, mat_type="matfree",
-                                       form_compiler_parameters=form_compiler_parameters)
+                M = assemble(mixed_form, mat_type="matfree",
+                             form_compiler_parameters=form_compiler_parameters)
                 coefficients = {}
                 assembly_callables = []
                 for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
@@ -605,9 +609,9 @@ class FDMPC(PCBase):
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
             else:
-                tensor = firedrake.Function(Z)
+                tensor = Function(Z)
                 coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [partial(firedrake.assemble, mixed_form, tensor=tensor, diagonal=True,
+                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
                                               form_compiler_parameters=form_compiler_parameters)]
             return cache.setdefault(key, (coefficients, assembly_callables))
 
@@ -1379,6 +1383,7 @@ class PoissonFDMPC(FDMPC):
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coef(self, J, form_compiler_parameters):
+        from firedrake.assemble import assemble
         coefficients = {}
         assembly_callables = []
 
@@ -1395,7 +1400,7 @@ class PoissonFDMPC(FDMPC):
             pass
         quad_deg = 2*degree+1
         quad_deg = (form_compiler_parameters or {}).get("degree", quad_deg)
-        dx = firedrake.dx(degree=quad_deg)
+        dx = ufl.dx(degree=quad_deg)
 
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
         degree = 0
@@ -1441,11 +1446,11 @@ class PoissonFDMPC(FDMPC):
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
-            Q = firedrake.FunctionSpace(mesh, Qe)
-            q = firedrake.TestFunction(Q)
-            Gq = firedrake.Function(Q)
+            Q = FunctionSpace(mesh, Qe)
+            q = TestFunction(Q)
+            Gq = Function(Q)
             coefficients["alpha"] = Gq
-            assembly_callables.append(partial(firedrake.assemble, ufl.inner(G, q)*dx, Gq))
+            assembly_callables.append(partial(assemble, ufl.inner(G, q)*dx, Gq))
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
@@ -1456,17 +1461,17 @@ class PoissonFDMPC(FDMPC):
             Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=degree, quad_scheme="default")
             if shape:
                 Qe = ufl.TensorElement(Qe, shape=shape)
-            Q = firedrake.FunctionSpace(mesh, Qe)
-            q = firedrake.TestFunction(Q)
-            Bq = firedrake.Function(Q)
+            Q = FunctionSpace(mesh, Qe)
+            q = TestFunction(Q)
+            Bq = Function(Q)
             coefficients["beta"] = Bq
-            assembly_callables.append(partial(firedrake.assemble, ufl.inner(beta, q)*dx, Bq))
+            assembly_callables.append(partial(assemble, ufl.inner(beta, q)*dx, Bq))
 
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
             extruded = mesh.cell_set._extruded
-            dS_int = firedrake.dS_h(degree=quad_deg) + firedrake.dS_v(degree=quad_deg) if extruded else firedrake.dS(degree=quad_deg)
+            dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
             ele = ufl.BrokenElement(ufl.FiniteElement("DGT", mesh.ufl_cell(), 0))
             area = ufl.FacetArea(mesh)
 
@@ -1477,18 +1482,18 @@ class PoissonFDMPC(FDMPC):
             G = vol * alpha
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
 
-            Q = firedrake.TensorFunctionSpace(mesh, ele, shape=G.ufl_shape)
-            q = firedrake.TestFunction(Q)
-            Gq_facet = firedrake.Function(Q)
+            Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=G.ufl_shape))
+            q = TestFunction(Q)
+            Gq_facet = Function(Q)
             coefficients["Gq_facet"] = Gq_facet
-            assembly_callables.append(partial(firedrake.assemble, ((ufl.inner(q('+'), G('+')) + ufl.inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
+            assembly_callables.append(partial(assemble, ((ufl.inner(q('+'), G('+')) + ufl.inner(q('-'), G('-')))/area)*dS_int, Gq_facet))
 
             PT = Piola.T
-            Q = firedrake.TensorFunctionSpace(mesh, ele, shape=PT.ufl_shape)
-            q = firedrake.TestFunction(Q)
-            PT_facet = firedrake.Function(Q)
+            Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=PT.ufl_shape))
+            q = TestFunction(Q)
+            PT_facet = Function(Q)
             coefficients["PT_facet"] = PT_facet
-            assembly_callables.append(partial(firedrake.assemble, ((ufl.inner(q('+'), PT('+')) + ufl.inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
+            assembly_callables.append(partial(assemble, ((ufl.inner(q('+'), PT('+')) + ufl.inner(q('-'), PT('-')))/area)*dS_int, PT_facet))
 
         # make DGT functions with BC flags
         rvs = V.ufl_element().reference_value_shape()
@@ -1498,9 +1503,9 @@ class PoissonFDMPC(FDMPC):
         Qe = ufl.FiniteElement(family, cell=cell, degree=degree)
         if rvs:
             Qe = ufl.TensorElement(Qe, shape=rvs)
-        Q = firedrake.FunctionSpace(mesh, Qe)
-        q = firedrake.TestFunction(Q)
-        bcflags = firedrake.Function(Q)
+        Q = FunctionSpace(mesh, Qe)
+        q = TestFunction(Q)
+        bcflags = Function(Q)
 
         ref_args = [ufl.variable(t) for t in args_J]
         replace_args = {t: s for t, s in zip(args_J, ref_args)}
@@ -1520,7 +1525,7 @@ class PoissonFDMPC(FDMPC):
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                assembly_callables.append(partial(firedrake.assemble, form, bcflags))
+                assembly_callables.append(partial(assemble, form, bcflags))
                 coefficients["bcflags"] = bcflags
 
         # set arbitrary non-zero coefficients for preallocation
@@ -1643,7 +1648,7 @@ def get_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    if isinstance(V, firedrake.Function):
+    if isinstance(V, Function):
         V = V.function_space()
     mesh = V.mesh()
     intfacets = mesh.interior_facets
