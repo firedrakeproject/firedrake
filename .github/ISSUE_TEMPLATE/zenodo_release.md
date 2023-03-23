@@ -1,5 +1,5 @@
 ---
-name: "\U001F1FF Zenodo release"
+name: "\U0001F1FF Zenodo release"
 description: Request a Zenodo release
 title: 'Zenodo release: '
 labels: [Zenodo release]
