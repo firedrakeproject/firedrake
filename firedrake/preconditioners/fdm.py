@@ -833,8 +833,7 @@ def is_restricted(finat_element):
     tdim = finat_element.cell.get_spatial_dimension()
     entity_dofs = finat_element.entity_dofs()
     for edim in sorted(entity_dofs):
-        v = sum(list(entity_dofs[edim].values()), [])
-        if len(v):
+        if any(len(entity_dofs[edim][entity]) > 0 for entity in entity_dofs[edim]):
             try:
                 edim = sum(edim)
             except TypeError:
