@@ -74,6 +74,7 @@ class CoefficientCollector(MultiFunction):
     def _scalar(self, o):
         return ((Constant(o), 1),)
 
+    #TODO delete?
     int_value = _scalar
     float_value = _scalar
     zero = _scalar
@@ -88,6 +89,9 @@ class CoefficientCollector(MultiFunction):
         return a
 
     def coefficient(self, o):
+        return ((o, 1),)
+
+    def constant_value(self, o):
         return ((o, 1),)
 
     def expr(self, o, *operands):
