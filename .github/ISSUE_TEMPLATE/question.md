@@ -12,5 +12,3 @@ functionality) on our [Github discussions
 page](https://github.com/firedrakeproject/firedrake/discussions) or on
 the [Firedrake slack
 channel](https://firedrakeproject.org/contact.html).
-
-
