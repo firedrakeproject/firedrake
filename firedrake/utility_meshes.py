@@ -513,9 +513,6 @@ def UnitTriangleMesh(
     plex = mesh.plex_from_cell_list(
         2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
-     comm=COMM_WORLD,
-     name=mesh.DEFAULT_MESH_NAME,
-     distribution_name=None,
 
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
