@@ -492,6 +492,7 @@ def OneElementThickMesh(
 @PETSc.Log.EventDecorator()
 def UnitTriangleMesh(
     comm=COMM_WORLD,
+    refinement_level=0,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
@@ -512,6 +513,24 @@ def UnitTriangleMesh(
     plex = mesh.plex_from_cell_list(
         2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
+     comm=COMM_WORLD,
+     name=mesh.DEFAULT_MESH_NAME,
+     distribution_name=None,
+
+    # mark boundary facets
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    labels = [1,2,0] # Faces are y=0, x+y=0, x=0.
+    boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+    for face, label in zip(boundary_faces, labels):
+        plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, label)
+    plex.removeLabel("boundary_faces")
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
     return mesh.Mesh(
         plex,
         reorder=False,
