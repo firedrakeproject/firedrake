@@ -238,14 +238,17 @@ class FDMPC(PCBase):
         dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
-        self.submats = [None for _ in range(7)]
+        self.submats = [None for _ in range(8)]
 
         self.reference_tensor_on_diag = {}
         self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
+            diagonal_interior = Vfacet.finat_element.formdegree == 0 and value_size == 1
+            factor = factor_diagonal_mat if diagonal_interior else factor_block_diagonal_mat
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
-            self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1], self.submats)
+            self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1],
+                                                                                  self.submats, factor)
 
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
@@ -272,23 +275,24 @@ class FDMPC(PCBase):
             own = Vsub.dof_dset.layout_vec.getLocalSize()
             bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
             bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
+        self.nel = nel
 
         coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
-        coeffs = [coefficients.get(k) for k in ("beta", "alpha")]
-        cmaps = [extrude_node_map(ck.cell_node_map())[0] for ck in coeffs]
+        coeffs = [coefficients.get(name) for name in ("beta", "alpha")]
+        cdata = [c.dat.data_ro for c in coeffs]
+        cmaps = [extrude_node_map(c.cell_node_map())[0] for c in coeffs]
+        cindices = [cmap(0) if self.nel else None for cmap in cmaps]
 
         @PETSc.Log.EventDecorator("FDMGetCoeffs")
         def get_coeffs(e, result=None):
             # Get vector for betas and alphas on a cell
-            vals = []
-            for k, (coeff, cmap) in enumerate(zip(coeffs, cmaps)):
-                get_coeffs.indices[k] = cmap(e, result=get_coeffs.indices[k])
-                vals.append(coeff.dat.data_ro[get_coeffs.indices[k]])
-            return numpy.concatenate(vals, out=result)
-        get_coeffs.indices = [None for _ in range(len(coeffs))]
-        self.get_coeffs = get_coeffs
+            if result is None:
+                return numpy.concatenate([c[cmap(e, result=idx)] for c, cmap, idx in zip(cdata, cmaps, cindices)], out=result)
+            numpy.take(cdata[0], cmaps[0](e, result=cindices[0]), axis=0, out=result[:cindices[0].size])
+            numpy.take(cdata[1], cmaps[1](e, result=cindices[1]), axis=0, out=result[cindices[0].size:])
+            return result
 
-        self.nel = nel
+        self.get_coeffs = get_coeffs
         self.work_mats = {}
 
         Pmats = {}
@@ -446,28 +450,28 @@ class FDMPC(PCBase):
         if A.getType() != PETSc.Mat.Type.PREALLOCATOR:
             Ae = self.work_mats[Vrow, Vcol]
             De = self.work_mats[common_key]
-            data = self.work_csr[2]
             insert = PETSc.InsertMode.INSERT
             work_vec = De.getDiagonal()
+            data = self.work_csr[2]
             if len(data.shape) == 3:
                 @PETSc.Log.EventDecorator("FDMUpdateDiag")
-                def update_De(data):
+                def update_De():
                     De.setValuesCSR(*self.work_csr, addv=insert)
                     De.assemble()
                     return De
             else:
                 @PETSc.Log.EventDecorator("FDMUpdateDiag")
-                def update_De(data):
-                    work_vec.setArray(data)
+                def update_De():
                     De.setDiagonal(work_vec, addv=insert)
                     return De
+                data = work_vec.array_w
 
             # Core assembly loop
             for e in range(self.nel):
                 rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
                 data = self.get_coeffs(e, result=data)
-                Ae = assemble_element_mat(update_De(data), result=Ae)
+                Ae = assemble_element_mat(update_De(), result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
 
             work_vec.destroy()
@@ -682,13 +686,26 @@ class FDMPC(PCBase):
             return cache.setdefault(key, result)
 
 
-def factor_interior_mat(A00):
+@PETSc.Log.EventDecorator("FDMFactor")
+def factor_diagonal_mat(A, work_vec=None):
     """
-    Used in static condensation. Take in A00 on a cell, return its Cholesky
+    Used in static condensation. Take in A on a cell, return its Cholesky
+    factorisation.
+    """
+    work_vec = A.getDiagonal(result=work_vec)
+    work_vec.reciprocal()
+    work_vec.sqrtabs()
+    A.setDiagonal(work_vec)
+
+
+@PETSc.Log.EventDecorator("FDMFactor")
+def factor_block_diagonal_mat(A, work_vec=None):
+    """
+    Used in static condensation. Take in A on a cell, return its Cholesky
     factorisation. Assumes that interior DOF have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    indptr, indices, data = A00.getValuesCSR()
+    indptr, indices, data = A.getValuesCSR()
     degree = numpy.diff(indptr)
 
     # TODO handle non-symmetric case with LU, requires scipy
@@ -703,26 +720,25 @@ def factor_interior_mat(A00):
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
         flops += nblocks * (((k+1)**3 + 5*(k+1)-12)//3 + k**3)
-
+    A.setValuesCSR(indptr, indices, data)
+    A.assemble()
     PETSc.Log.logFlops(flops)
-    A00.setValuesCSR(indptr, indices, data)
-    A00.assemble()
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(A, i0, i1, submats):
+def condense_element_mat(A, i0, i1, submats, factor):
     """Return the Schur complement associated to indices in i1, condensing i0 out"""
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
-    structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
+    structure = PETSc.Mat.Structure.SUBSET if submats[7] else None
     submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
     A00, A01, A10, A11 = submats[:4]
-    factor_interior_mat(A00)
-    submats[4] = A00.matMult(A01, result=submats[4])
-    submats[5] = A10.matTransposeMult(A00, result=submats[5])
-    submats[6] = submats[5].matMult(submats[4], result=submats[6])
-    submats[6].aypx(-1.0, A11, structure=structure)
-    return submats[6]
+    factor(A00, submats[4])
+    submats[5] = A00.matMult(A01, result=submats[5])
+    submats[6] = A10.matTransposeMult(A00, result=submats[6])
+    submats[7] = submats[6].matMult(submats[5], result=submats[7])
+    submats[7].aypx(-1.0, A11, structure=structure)
+    return submats[7]
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
@@ -730,14 +746,14 @@ def condense_element_pattern(A, i0, i1, submats):
     """Add zeroes on the statically condensed pattern so that you can run ICC(0)"""
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
-    structure = PETSc.Mat.Structure.SUBSET if submats[6] else None
+    structure = PETSc.Mat.Structure.SUBSET if submats[7] else None
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
-    submats[4] = A10.matTransposeMult(A00, result=submats[4])
     submats[5] = A00.matMult(A01, result=submats[5])
-    submats[6] = submats[4].matMult(submats[5], result=submats[6])
-    submats[6].aypx(0.0, A, structure=structure)
-    return submats[6]
+    submats[6] = A10.matTransposeMult(A00, result=submats[6])
+    submats[7] = submats[6].matMult(submats[5], result=submats[7])
+    submats[7].aypx(0.0, A, structure=structure)
+    return submats[7]
 
 
 @PETSc.Log.EventDecorator("LoadCode")
