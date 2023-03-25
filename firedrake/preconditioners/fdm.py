@@ -508,14 +508,15 @@ class FDMPC(PCBase):
             RtAP.buff.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coefficients(self, J, fcp):
+    def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
         See Section 3.2 of Brubeck2022b.
 
         :arg J: the Jacobian bilinear :class:`ufl.Form`,
-        :arg fcp: form compiler parameters to assemble the diagonal matrices.
+        :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
+        :arg block_diagonal: are we assembling the block diagonal of the mass matrices?
 
         :returns: a 2-tuple of a `dict` with the zero-th order and second
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
@@ -593,12 +594,11 @@ class FDMPC(PCBase):
         # Return coefficients and assembly callables, and cache them class
         key = (mixed_form.signature(), mesh)
         cache = self._cache.setdefault("coefficients", {})
-        block_diagonal = True
         try:
             return cache[key]
         except KeyError:
-            from firedrake.assemble import assemble
             if block_diagonal and V.shape:
+                from firedrake.assemble import assemble
                 M = assemble(mixed_form, mat_type="matfree",
                              form_compiler_parameters=fcp)
                 coefficients = {}
@@ -609,10 +609,11 @@ class FDMPC(PCBase):
                     coefficients[name] = ctx._block_diagonal
                     assembly_callables.append(ctx._assemble_block_diagonal)
             else:
+                from firedrake.assemble import OneFormAssembler
                 tensor = Function(Z)
                 coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [partial(assemble, mixed_form, tensor=tensor, diagonal=True,
-                                              form_compiler_parameters=fcp)]
+                assembly_callables = [OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
+                                                       form_compiler_parameters=fcp).assemble]
             return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -657,24 +658,10 @@ class FDMPC(PCBase):
             e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
-            if hasattr(eq.dual, "rule"):
-                rule = eq.dual.rule
-            else:
-                rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
 
-            pts = rule.get_points()
-            wts = rule.get_weights()
-
-            phiq = eq.tabulate(0, pts)
-            phi1 = e1.tabulate(0, pts)
-            phi0 = e0.tabulate(1, pts)
-
-            moments = lambda v, u: numpy.dot(numpy.multiply(v, wts), u.T)
-            A00 = moments(phiq[(0, )], phi0[(0, )])
-            A11 = moments(phi1[(0, )], phi1[(0, )])
-            A10 = moments(phi1[(0, )], phi0[(1, )])
-            A10 = numpy.linalg.solve(A11, A10)
-            A11 = numpy.eye(A11.shape[0])
+            A00 = fiat_reference_prolongator(e0, eq)
+            A10 = fiat_reference_prolongator(e0, e1, derivative=True)
+            A11 = numpy.eye(e1.space_dimension(), dtype=A00.dtype)
 
             B_blocks = mass_blocks(tdim, formdegree, A00, A11)
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
@@ -1383,7 +1370,7 @@ class PoissonFDMPC(FDMPC):
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp):
-        from firedrake.assemble import assemble
+        from firedrake.assemble import OneFormAssembler
         coefficients = {}
         assembly_callables = []
 
@@ -1445,7 +1432,8 @@ class PoissonFDMPC(FDMPC):
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, Qe)
             tensor = coefficients.setdefault("alpha", Function(Q))
-            assembly_callables.append(partial(assemble, ufl.inner(TestFunction(Q), alpha)*dx, tensor))
+            assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
+                                                       form_compiler_parameters=fcp).assemble)
 
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
@@ -1458,7 +1446,8 @@ class PoissonFDMPC(FDMPC):
                 Qe = ufl.TensorElement(Qe, shape=shape)
             Q = FunctionSpace(mesh, Qe)
             tensor = coefficients.setdefault("beta", Function(Q))
-            assembly_callables.append(partial(assemble, ufl.inner(TestFunction(Q), beta)*dx, tensor))
+            assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
+                                                       form_compiler_parameters=fcp).assemble)
 
         if Piola:
             # make DGT functions with the second order coefficient
@@ -1477,12 +1466,14 @@ class PoissonFDMPC(FDMPC):
             ele = ufl.BrokenElement(ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0))
             Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q))
-            assembly_callables.append(partial(assemble, ifacet_inner(TestFunction(Q), G), tensor))
+            assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
+                                                       form_compiler_parameters=fcp).assemble)
 
             PT = Piola.T
             Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q))
-            assembly_callables.append(partial(assemble, ifacet_inner(TestFunction(Q), PT), tensor))
+            assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
+                                                       form_compiler_parameters=fcp).assemble)
 
         # make DGT functions with BC flags
         rvs = V.ufl_element().reference_value_shape()
@@ -1515,7 +1506,8 @@ class PoissonFDMPC(FDMPC):
             form = sum(forms)
             if len(form.arguments()) == 1:
                 coefficients["bcflags"] = bcflags
-                assembly_callables.append(partial(assemble, form, bcflags))
+                assembly_callables.append(OneFormAssembler(form, tensor=bcflags,
+                                                           form_compiler_parameters=fcp).assemble)
 
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
