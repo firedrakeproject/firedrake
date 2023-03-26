@@ -41,6 +41,12 @@ _cells = {
 }
 
 
+_supported_embedded_cell_types = [ufl.Cell('interval', 2),
+                                  ufl.Cell('triangle', 3),
+                                  ufl.Cell("quadrilateral", 3),
+                                  ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), geometric_dimension=3)]
+
+
 unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
@@ -2172,11 +2178,7 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in (ufl.Cell('interval', 2),
-                                   ufl.Cell('triangle', 3),
-                                   ufl.Cell("quadrilateral", 3),
-                                   ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
-                                                         geometric_dimension=3)):
+        if self.ufl_cell() not in _supported_embedded_cell_types:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self.topology, '_cell_orientations'):
