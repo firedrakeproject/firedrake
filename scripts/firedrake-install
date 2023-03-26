@@ -1159,9 +1159,8 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        #
-        # Choosing 10.15 as the oldest MacOS version supported as at 2022-04-07
-        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.15")
+        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
         with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1593,6 +1592,7 @@ if mode == "install" or not args.update_script:
                              "gfortran",
                              "git",
                              "libcurl4-openssl-dev",
+                             "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
                              "python3-dev",
