@@ -245,10 +245,10 @@ class FDMPC(PCBase):
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
             diagonal_interior = Vfacet.finat_element.formdegree == 0 and value_size == 1
-            factor = factor_diagonal_mat if diagonal_interior else factor_block_diagonal_mat
+            get_schur = schur_complement_diagonal if diagonal_interior else schur_complement_block_qr
             self.reference_tensor_on_diag[Vfacet] = self.assemble_reference_tensor(Vbig)
             self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1],
-                                                                                  self.submats, factor)
+                                                                                  self.submats, get_schur)
 
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
@@ -426,7 +426,7 @@ class FDMPC(PCBase):
         if Vrow == Vcol:
             get_cindices = lambda e, result=None: result
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, rindices, addv)
-            # moments of orthogonalized basis against basis tabulation and derivative tabulation
+            # interpolator of basis and exterior derivative onto broken spaces
             rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
             # element matrix obtained via Equation (3.9) of Brubeck2022b
             assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
@@ -628,8 +628,8 @@ class FDMPC(PCBase):
 
         :arg V: a :class:`.FunctionSpace`
 
-        :returns: a :class:`PETSc.Mat` with the moments of orthogonalized bases
-                  against the basis and its exterior derivative.
+        :returns: a :class:`PETSc.Mat` interpolating V^k * d(V^k) onto
+                  broken(V^k) * broken(V^{k+1}) on the reference element.
         """
         tdim = V.mesh().topological_dimension()
         value_size = V.value_size
@@ -686,59 +686,160 @@ class FDMPC(PCBase):
             return cache.setdefault(key, result)
 
 
-@PETSc.Log.EventDecorator("FDMFactor")
-def factor_diagonal_mat(A, work_vec=None):
+@PETSc.Log.EventDecorator("FDMGetSchur")
+def schur_complement_diagonal(submats):
     """
-    Used in static condensation. Take in A on a cell, return its Cholesky
-    factorisation.
+    Used in static condensation. Take in blocks A00, A01, A10, A11,
+    return the Schur complement A11 - A10 * inv(A00) * A01.
+
+    Assumes A00 is diagonal.
     """
-    work_vec = A.getDiagonal(result=work_vec)
-    work_vec.reciprocal()
-    work_vec.sqrtabs()
-    A.setDiagonal(work_vec)
+    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    A00, A01, A10, A11 = submats[:4]
+    submats[4] = A00.getDiagonal(result=submats[4])
+    submats[4].reciprocal()
+    submats[4].scale(-1)
+    A01.diagonalScale(L=submats[4])
+    submats[-1] = A10.matMult(A01, result=submats[-1])
+    submats[-1].axpy(1.0, A11, structure=structure)
+    return submats[-1]
 
 
-@PETSc.Log.EventDecorator("FDMFactor")
-def factor_block_diagonal_mat(A, work_vec=None):
+@PETSc.Log.EventDecorator("FDMGetSchur")
+def schur_complement_block_cholesky(submats):
     """
-    Used in static condensation. Take in A on a cell, return its Cholesky
-    factorisation. Assumes that interior DOF have been reordered to make A00
+    Used in static condensation. Take in blocks A00, A01, A10, A11,
+    return A11 - A10 * inv(A00) * A01.
+
+    Assumes that interior DOFs have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    indptr, indices, data = A.getValuesCSR()
+    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    A00, A01, A10, A11 = submats[:4]
+    indptr, indices, R = A00.getValuesCSR()
     degree = numpy.diff(indptr)
 
-    # TODO handle non-symmetric case with LU, requires scipy
-    invchol = lambda X: numpy.linalg.inv(numpy.linalg.cholesky(X))
     nblocks = numpy.count_nonzero(degree == 1)
     zlice = slice(0, nblocks)
-    numpy.sqrt(data[zlice], out=data[zlice])
-    numpy.reciprocal(data[zlice], out=data[zlice])
-    flops = nblocks * 2
+    numpy.sqrt(R[zlice], out=R[zlice])
+    numpy.reciprocal(R[zlice], out=R[zlice])
+    flops = 2*nblocks
     for k in range(2, degree[-1]+1):
         nblocks = numpy.count_nonzero(degree == k)
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
-        data[zlice] = invchol(data[zlice].reshape((-1, k, k))).reshape((-1,))
-        flops += nblocks * (((k+1)**3 + 5*(k+1)-12)//3 + k**3)
-    A.setValuesCSR(indptr, indices, data)
-    A.assemble()
+        A = R[zlice].reshape((-1, k, k))
+        R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
+        flops += nblocks * ((k**3)//3 + k**3)
+
     PETSc.Log.logFlops(flops)
+    A00.setValuesCSR(indptr, indices, R)
+    A00.assemble()
+    submats[4] = A10.matTransposeMult(A00, result=submats[4])
+    submats[5] = A00.matMult(A01, result=submats[5])
+    submats[-1] = submats[4].matMult(submats[5], result=submats[-1])
+    submats[-1].aypx(-1.0, A11, structure=structure)
+    return submats[-1]
+
+
+@PETSc.Log.EventDecorator("FDMGetSchur")
+def schur_complement_block_qr(submats):
+    """
+    Used in static condensation. Take in blocks A00, A01, A10, A11,
+    return A11 - A10 * inv(A00) * A01.
+
+    Assumes that interior DOFs have been reordered to make A00
+    block diagonal with blocks of increasing dimension.
+    """
+    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    A00, A01, A10, A11 = submats[:4]
+    indptr, indices, R = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+    Q = numpy.ones(R.shape, dtype=R.dtype)
+
+    nblocks = numpy.count_nonzero(degree == 1)
+    zlice = slice(0, nblocks)
+    numpy.reciprocal(R[zlice], out=R[zlice])
+    flops = nblocks
+    for k in range(2, degree[-1]+1):
+        nblocks = numpy.count_nonzero(degree == k)
+        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
+        A = R[zlice].reshape((-1, k, k))
+        q, r = numpy.linalg.qr(A, mode="complete")
+        R[zlice] = numpy.linalg.inv(r).reshape((-1,))
+        Q[zlice] = q.reshape((-1,))
+        flops += nblocks * ((4*k**3)//3 + k**3)
+
+    PETSc.Log.logFlops(flops)
+    A00.setValuesCSR(indptr, indices, R)
+    A00.assemble()
+    submats[4] = A10.matMult(A00, result=submats[4])
+    A00.setValuesCSR(indptr, indices, Q)
+    A00.assemble()
+    submats[5] = A00.transposeMatMult(A01, result=submats[5])
+    submats[-1] = submats[4].matMult(submats[5], result=submats[-1])
+    submats[-1].aypx(-1.0, A11, structure=structure)
+    return submats[-1]
+
+
+@PETSc.Log.EventDecorator("FDMGetSchur")
+def schur_complement_block_svd(submats):
+    """
+    Used in static condensation. Take in blocks A00, A01, A10, A11,
+    return A11 - A10 * inv(A00) * A01.
+
+    Assumes that interior DOFs have been reordered to make A00
+    block diagonal with blocks of increasing dimension.
+    """
+    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    A00, A01, A10, A11 = submats[:4]
+    indptr, indices, U = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+    V = numpy.ones(U.shape, dtype=U.dtype)
+    submats[4] = A00.getDiagonal(result=submats[4])
+    D = submats[4]
+
+    nblocks = numpy.count_nonzero(degree == 1)
+    bslice = slice(0, nblocks)
+    dslice = slice(0, nblocks)
+    numpy.sign(D.array_r[dslice], out=U[bslice])
+
+    flops = nblocks
+    for k in range(2, degree[-1]+1):
+        nblocks = numpy.count_nonzero(degree == k)
+        bslice = slice(bslice.stop, bslice.stop + k*nblocks)
+        dslice = slice(dslice.stop, dslice.stop + nblocks)
+        A = U[bslice].reshape((-1, k, k))
+
+        u, s, v = numpy.linalg.svd(A, full_matrices=False)
+        D.array_w[dslice] = s.reshape((-1,))
+        U[bslice] = u.reshape((-1,))
+        V[bslice] = v.reshape((-1,))
+        flops += nblocks * ((4*k**3)//3 + 4*k**3)
+
+    PETSc.Log.logFlops(flops)
+
+    A00.setValuesCSR(indptr, indices, V)
+    A00.assemble()
+    D.sqrtabs()
+    D.reciprocal()
+    A00.diagonalScale(L=D)
+    submats[5] = A10.matTransposeMult(A00, result=submats[5])
+    A00.setValuesCSR(indptr, indices, U)
+    A00.assemble()
+    A00.diagonalScale(R=D)
+    submats[6] = A00.transposeMatMult(A01, result=submats[6])
+    submats[-1] = submats[5].matMult(submats[6], result=submats[-1])
+    submats[-1].aypx(-1.0, A11, structure=structure)
+    return submats[-1]
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(A, i0, i1, submats, factor):
+def condense_element_mat(A, i0, i1, submats, get_schur_complement):
     """Return the Schur complement associated to indices in i1, condensing i0 out"""
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
-    structure = PETSc.Mat.Structure.SUBSET if submats[7] else None
     submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    A00, A01, A10, A11 = submats[:4]
-    factor(A00, submats[4])
-    submats[5] = A00.matMult(A01, result=submats[5])
-    submats[6] = A10.matTransposeMult(A00, result=submats[6])
-    submats[7] = submats[6].matMult(submats[5], result=submats[7])
-    submats[7].aypx(-1.0, A11, structure=structure)
-    return submats[7]
+    return get_schur_complement(submats)
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
@@ -750,7 +851,7 @@ def condense_element_pattern(A, i0, i1, submats):
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
     submats[5] = A00.matMult(A01, result=submats[5])
-    submats[6] = A10.matTransposeMult(A00, result=submats[6])
+    submats[6] = A10.matMult(A00, result=submats[6])
     submats[7] = submats[6].matMult(submats[5], result=submats[7])
     submats[7].aypx(0.0, A, structure=structure)
     return submats[7]
