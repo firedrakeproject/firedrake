@@ -6,6 +6,8 @@ labels: [DO NOT MERGE]
 assignees: ''
 
 ---
+Be sure to read the information here:
+https://github.com/firedrakeproject/firedrake/wiki/Running-the-Firedrake-test-suite-with-different-branches-for-subpackages
 
 # Description
 Please link all of the pull requests of the external package(s) that
