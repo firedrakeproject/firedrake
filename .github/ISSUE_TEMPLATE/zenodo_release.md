@@ -11,6 +11,6 @@ Can you please create a Zenodo release for my upcoming publication:
 
 ### On analytic and algebraic topology of locally Euclidean parameterization of infinitely differentiable Riemannian manifold
 
-Delete this line once you have uploaded the `firedrake.json` created by
-running `firedrake-zenodo -t "My paper title"` or `firedrake-zenodo -t
-"My paper title" --info-file README.txt`.
+Attach the `firedrake.json` created by running
+`firedrake-zenodo -t "My paper title"` or
+`firedrake-zenodo -t "My paper title" --info-file README.txt`.
