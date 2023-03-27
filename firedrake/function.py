@@ -268,11 +268,15 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self.function_space().ufl_function_space(), count=count
         )
 
-        if cachetools:
-            # LRU cache for expressions assembled onto this function
-            self._expression_cache = cachetools.LRUCache(maxsize=50)
-        else:
-            self._expression_cache = None
+        # LRU cache for expressions assembled onto this function
+        try:
+            self._expression_cache = self._function_space._expression_cache
+        except:
+            if cachetools:
+                self._expression_cache = cachetools.LRUCache(maxsize=50)
+            else:
+                self._expression_cache = None
+            self._function_space._expression_cache = self._expression_cache
 
         if isinstance(function_space, Function):
             self.assign(function_space)
