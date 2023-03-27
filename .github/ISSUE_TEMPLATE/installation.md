@@ -1,6 +1,6 @@
 ---
 name: "\U00002699 Installation"
-description: Create a report for a bug you have found
+description: Create a report for an installation issue
 title: 'BUG: '
 labels: [installation]
 assignees: ''
@@ -30,10 +30,10 @@ found in the virtualenv directory.
 Additionally please include the PETSc configure log located in
 `$VIRTUAL_ENV/src/petsc/configure.log`.
 
-**Environemnt:**
+**Environment:**
  - OS: [eg: Linux, MacOS, WSL (Windows Subsystem for Linux)] add this as a label too!
  - Python version: [eg: 3.9.7]
- - Any relevant environment variables or modificatiosn [eg: PETSC_CONFIGURE_OPTIONS=...]
+ - Any relevant environment variables or modifications [eg: PETSC_CONFIGURE_OPTIONS=...]
 
 **Additional context**
 Add any other context about the problem here.

@@ -7,7 +7,7 @@ assignees: ''
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
+**Describe the current issue**
 Describe what the problem is and link any other similar issues. Please
 do not create a duplicate issue for the same problem, but instead add
 to the existing conversation.

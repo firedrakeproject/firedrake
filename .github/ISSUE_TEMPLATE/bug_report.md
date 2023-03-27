@@ -14,7 +14,6 @@ A short description of what the bug is.
 Steps to reproduce the behavior:
 1. Code/test/example that was run  '...' (as minimal as possible)
 2. Command executed '...'
-3. See error
 
 **Expected behavior**
 Describe what you expected to happen, in the case of a regression,
@@ -25,11 +24,11 @@ Add error message with full backtrace, or log.
 Please add these as text using three backticks (`) for highlighting.
 Please do not add screenshots unless the bug is purely graphical.
 
-**Environemnt:**
+**Environment:**
  - OS: [eg: Linux, MacOS, WSL (Windows Subsystem for Linux)] add this as a label too!
  - Python version: [eg: 3.9.7]
  - Output of `firedrake-status`
- - Any relevant environment variables or modificatiosn [eg: PYOP2_DEBUG=1]
+ - Any relevant environment variables or modifications [eg: PYOP2_DEBUG=1]
 
-**Additional context**
+**Additional Info**
 Add any other context about the problem here.

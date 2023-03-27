@@ -17,13 +17,13 @@ associated issues.
 - Make a list (with links!)
 - [Like this PR#691](https://github.com/OP2/PyOP2/pull/691)
 
-##Fixes Issues:
+## Fixes Issues:
 - Make a list of issues (with links!)
 - [Like this Issue#2824](https://github.com/firedrakeproject/firedrake/issues/2824)
 
 Ensure above issues are linked, so they are closed when this PR is merged.
 
-# Checklist:
+# Checklist for author:
 
 <!--
 If you think an option is not relevant to your PR, do not delete it but use ~strikethrough formating on it~. This helps keeping track of the entire list.
@@ -52,7 +52,7 @@ If you think an option is not relevant to your PR, do not delete it but use ~str
 
 Feel free to add reviewers if you know there is someone who is already aware of this work.
 
-Please open this PR initiall as a draft and mark as ready for review once CI tests are passing.
+Please open this PR initially as a draft and mark as ready for review once CI tests are passing.
 
 <!--
 Thanks for contributing!
