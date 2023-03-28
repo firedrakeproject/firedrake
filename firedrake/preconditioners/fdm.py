@@ -463,8 +463,8 @@ class FDMPC(PCBase):
 
             # Core assembly loop
             for e in range(self.nel):
-                rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
+                rindices = get_rindices(e, result=rindices)
                 data = self.get_coeffs(e, result=data)
                 Ae = assemble_element_mat(update_De(), result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
@@ -496,8 +496,8 @@ class FDMPC(PCBase):
             Se = condense_element_mat(Ae)
 
             for e in range(self.nel):
-                rindices = get_rindices(e, result=rindices)
                 cindices = get_cindices(e, result=cindices)
+                rindices = get_rindices(e, result=rindices)
                 update_A(Se, rindices, cindices)
         else:
             self.work_csr = (None, None, None)
