@@ -12,7 +12,6 @@ from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from pyop2 import op2, PermutedMap
 from tsfc import compile_expression_dual_evaluation
 from tsfc.finatinterface import create_element
-from FIAT.reference_element import LINE
 
 import firedrake
 import finat
@@ -642,7 +641,7 @@ def get_permutation_to_line_elements(finat_element):
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = [e.fiat_equivalent for e in reversed(factors)]
-        if any(e.get_reference_element().shape != LINE for e in fiat_factors):
+        if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
             raise ValueError("Failed to decompose %s into line elements" % fiat_factors)
 
         # use the same FIAT element if it appears multiple times in the expansion
