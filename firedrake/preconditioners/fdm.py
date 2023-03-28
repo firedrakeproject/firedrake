@@ -1,4 +1,4 @@
-from functools import partial, lru_cache
+from functools import partial
 from itertools import product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -11,14 +11,13 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
-
 from firedrake_citations import Citations
-from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
-from pyop2.sparsity import get_preallocation
-from tsfc.finatinterface import create_element
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
+from tsfc.finatinterface import create_element
+from pyop2.compilation import load
+from pyop2.sparsity import get_preallocation
+from pyop2.utils import get_petsc_dir
 
 import firedrake.dmhooks as dmhooks
 import ctypes
@@ -1286,8 +1285,14 @@ class PoissonFDMPC(FDMPC):
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
         bdof = []  # indices of point evaluation dofs for each direction
+        cache = {}
         for e in line_elements:
-            Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(fdm_setup_ipdg(e, eta)))
+            key = e.degree()
+            try:
+                rtensor = cache[key]
+            except KeyError:
+                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=PETSc.COMM_SELF))
+            Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(rtensor))
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
                 Dfdm[0] = None
@@ -1436,8 +1441,8 @@ class PoissonFDMPC(FDMPC):
             eta = float(self.appctx.get("eta"))
 
             lgmap = self.lgmaps[V]
-            index_facet, local_facet_data, nfacets = get_interior_facet_maps(V)
-            index_coef, _, _ = get_interior_facet_maps(Gq_facet or Gq)
+            index_facet, local_facet_data, nfacets = extrude_interior_facet_maps(V)
+            index_coef, _, _ = extrude_interior_facet_maps(Gq_facet or Gq)
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
 
             for e in range(nfacets):
@@ -1685,7 +1690,7 @@ def pull_axis(x, pshape, idir):
     return numpy.reshape(numpy.moveaxis(numpy.reshape(x.copy(), pshape), idir, 0), x.shape)
 
 
-def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
+def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False, comm=None):
     """
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
     If dense_indices is empty, then also include the off-diagonal corners of the matrix.
@@ -1696,8 +1701,7 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
     nnz[dense_indices] = len(dense_indices) if block else n
 
     imode = PETSc.InsertMode.INSERT
-    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=PETSc.COMM_SELF)
-
+    A_petsc = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
     idx = numpy.arange(n, dtype=PETSc.IntType)
     if block:
         values = A_numpy[dense_indices, :][:, dense_indices]
@@ -1706,18 +1710,15 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False):
         for j in dense_indices:
             A_petsc.setValues(j, idx, A_numpy[j, :], imode)
             A_petsc.setValues(idx, j, A_numpy[:, j], imode)
-
     if diag:
         idx = idx[:, None]
         values = A_numpy.diagonal()[:, None]
         A_petsc.setValuesRCV(idx, idx, values, imode)
-
     A_petsc.assemble()
     return A_petsc
 
 
-@lru_cache(maxsize=10)
-def fdm_setup_ipdg(fdm_element, eta):
+def fdm_setup_ipdg(fdm_element, eta, comm=None):
     """
     Setup for the fast diagonalisation method for the IP-DG formulation.
     Compute sparsified interval stiffness and mass matrices
@@ -1725,6 +1726,7 @@ def fdm_setup_ipdg(fdm_element, eta):
 
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
+    :arg comm: a :class:`PETSc.Comm`
 
     :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices
@@ -1735,10 +1737,7 @@ def fdm_setup_ipdg(fdm_element, eta):
     """
     ref_el = fdm_element.get_reference_element()
     degree = fdm_element.degree()
-    if hasattr(fdm_element.dual, "rule"):
-        rule = fdm_element.dual.rule
-    else:
-        rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
+    rule = FIAT.quadrature.make_quadrature(ref_el, degree+1)
     edof = fdm_element.entity_dofs()
     bdof = edof[0][0] + edof[0][1]
 
@@ -1753,7 +1752,7 @@ def fdm_setup_ipdg(fdm_element, eta):
     Dfacet = basis[(1,)]
     Dfacet[:, 0] = -Dfacet[:, 0]
 
-    Afdm = [numpy_to_petsc(Bhat, bdof, block=True)]
+    Afdm = [numpy_to_petsc(Bhat, bdof, block=True, comm=comm)]
     for bc in range(4):
         bcs = (bc % 2, bc//2)
         Abc = Ahat.copy()
@@ -1763,12 +1762,11 @@ def fdm_setup_ipdg(fdm_element, eta):
                 Abc[:, j] -= Dfacet[:, k]
                 Abc[j, :] -= Dfacet[:, k]
                 Abc[j, j] += eta
-        Afdm.append(numpy_to_petsc(Abc, bdof))
+        Afdm.append(numpy_to_petsc(Abc, bdof, comm=comm))
     return Afdm, Dfacet, bdof
 
 
-@lru_cache(maxsize=10)
-def get_interior_facet_maps(V):
+def extrude_interior_facet_maps(V):
     """
     Extrude V.interior_facet_node_map and V.mesh().interior_facets.local_facet_dat
 
@@ -1841,7 +1839,6 @@ def get_interior_facet_maps(V):
     return facet_to_nodes_fun, local_facet_data_fun, nfacets
 
 
-@lru_cache(maxsize=20)
 def extrude_node_map(node_map, bsize=1):
     """
     Construct a (possibly vector-valued) cell to node map from an un-extruded scalar map.
