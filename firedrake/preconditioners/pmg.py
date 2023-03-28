@@ -9,10 +9,9 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
-from pyop2 import op2, PermutedMap
 from tsfc import compile_expression_dual_evaluation
 from tsfc.finatinterface import create_element
-from FIAT.reference_element import LINE
+from pyop2 import op2
 
 import firedrake
 import finat
@@ -559,8 +558,9 @@ def expand_element(ele):
 
 
 def evaluate_dual(source, target, alpha=None):
-    # Evaluate the action of a set of dual functionals of the target element
-    # on the (derivatives of the) basis functions of the source element.
+    """Evaluate the action of a set of dual functionals of the target element
+       on the (derivative of order alpha of the) basis functions of the source
+       element."""
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
@@ -642,7 +642,7 @@ def get_permutation_to_line_elements(finat_element):
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = [e.fiat_equivalent for e in reversed(factors)]
-        if any(e.get_reference_element().shape != LINE for e in fiat_factors):
+        if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
             raise ValueError("Failed to decompose %s into line elements" % fiat_factors)
 
         # use the same FIAT element if it appears multiple times in the expansion
@@ -1142,7 +1142,7 @@ def get_permuted_map(V):
     indices, _, _ = get_permutation_to_line_elements(V.finat_element)
     if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
-    return PermutedMap(V.cell_node_map(), indices)
+    return op2.PermutedMap(V.cell_node_map(), indices)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -1237,7 +1237,6 @@ class StandaloneInterpolationMatrix(object):
                            type(self).__name__)
 
     def getInfo(self, mat, info=None):
-        from mpi4py import MPI
         memory = self.uf.dat.nbytes + self.uc.dat.nbytes
         if self._weight is not None:
             memory += self._weight.dat.nbytes
@@ -1246,10 +1245,10 @@ class StandaloneInterpolationMatrix(object):
         if info == PETSc.Mat.InfoType.LOCAL:
             return {"memory": memory}
         elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
-            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.SUM)
+            gmem = mat.comm.tompi4py().allreduce(memory, op=op2.MPI.SUM)
             return {"memory": gmem}
         elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
-            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.MAX)
+            gmem = mat.comm.tompi4py().allreduce(memory, op=op2.MPI.MAX)
             return {"memory": gmem}
         else:
             raise ValueError("Unknown info type %s" % info)
