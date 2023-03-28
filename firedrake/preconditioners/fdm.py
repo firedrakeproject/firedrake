@@ -416,28 +416,24 @@ class FDMPC(PCBase):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg triu: are we assembling only the upper triangular part?
         """
-        def RtAP(R, A, P, result=None):
-            RtAP.buff = A.matMult(P, result=RtAP.buff)
-            return R.transposeMatMult(RtAP.buff, result=result)
-        RtAP.buff = None
-
         set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
+            condense_element_mat = self.get_static_condensation.get(Vrow)
             get_cindices = lambda e, result=None: result
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, rindices, addv)
-            # interpolator of basis and exterior derivative onto broken spaces
-            rtensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
-            # element matrix obtained via Equation (3.9) of Brubeck2022b
-            assemble_element_mat = lambda De, result=None: De.PtAP(rtensor, result=result)
-            condense_element_mat = self.get_static_condensation.get(Vrow)
+            # interpolators of basis and exterior derivative onto broken spaces
+            ctensor = self.reference_tensor_on_diag.get(Vrow) or self.assemble_reference_tensor(Vrow)
+            rtensor = PETSc.Mat().createTranspose(ctensor).convert(ctensor.getType())
         else:
+            condense_element_mat = None
             get_cindices = self.cell_to_global[Vcol]
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
-            rtensor = self.assemble_reference_tensor(Vrow)
             ctensor = self.assemble_reference_tensor(Vcol)
-            assemble_element_mat = lambda De, result=None: RtAP(rtensor, De, ctensor, result=result)
-            condense_element_mat = None
+            rtensor = self.assemble_reference_tensor(Vrow, transpose=True)
+
+        # element matrix obtained via Equation (3.9) of Brubeck2022b
+        assemble_element_mat = lambda De, result=None: rtensor.matMatMult(De, ctensor, result=result)
 
         do_sort = True
         if condense_element_mat is None:
@@ -508,8 +504,8 @@ class FDMPC(PCBase):
             self.work_csr = (None, None, None)
             self.work_mats[common_key] = None
             self.work_mats[Vrow, Vcol] = None
-        if RtAP.buff:
-            RtAP.buff.destroy()
+        if Vcol == Vrow:
+            rtensor.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -621,7 +617,7 @@ class FDMPC(PCBase):
             return cache.setdefault(key, (coefficients, assembly_callables))
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
-    def assemble_reference_tensor(self, V):
+    def assemble_reference_tensor(self, V, transpose=False):
         """
         Return the reference tensor used in the diagonal factorisation of the
         sparse cell matrices.  See Section 3.2 of Brubeck2022b.
@@ -642,12 +638,17 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(V.finat_element)
-        key = (degree, tdim, formdegree, value_size, is_interior, is_facet)
+        key = (degree, tdim, formdegree, value_size, is_interior, is_facet, transpose)
         cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
         except KeyError:
-            full_key = (degree, tdim, formdegree, value_size, False, False)
+            if transpose:
+                result = self.assemble_reference_tensor(V, transpose=False)
+                result = PETSc.Mat().createTranspose(result).convert(result.getType())
+                return cache.setdefault(key, result)
+
+            full_key = (degree, tdim, formdegree, value_size, False, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
@@ -706,6 +707,40 @@ def schur_complement_diagonal(submats):
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
+def schur_complement_block_inv(submats):
+    """
+    Used in static condensation. Take in blocks A00, A01, A10, A11,
+    return A11 - A10 * inv(A00) * A01.
+
+    Assumes that interior DOFs have been reordered to make A00
+    block diagonal with blocks of increasing dimension.
+    """
+    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    A00, A01, A10, A11 = submats[:4]
+    indptr, indices, R = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+
+    nblocks = numpy.count_nonzero(degree == 1)
+    zlice = slice(0, nblocks)
+    numpy.reciprocal(R[zlice], out=R[zlice])
+    flops = nblocks
+    for k in range(2, degree[-1]+1):
+        nblocks = numpy.count_nonzero(degree == k)
+        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
+        A = R[zlice].reshape((-1, k, k))
+        R[zlice] = numpy.linalg.inv(A).reshape((-1,))
+        flops += nblocks * (k**3)
+
+    PETSc.Log.logFlops(flops)
+    A00.setValuesCSR(indptr, indices, R)
+    A00.assemble()
+    A00.scale(-1.0)
+    submats[-1] = A10.matMatMult(A00, A01, result=submats[-1])
+    submats[-1].axpy(1.0, A11, structure=structure)
+    return submats[-1]
+
+
+@PETSc.Log.EventDecorator("FDMGetSchur")
 def schur_complement_block_cholesky(submats):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
@@ -735,9 +770,9 @@ def schur_complement_block_cholesky(submats):
     A00.setValuesCSR(indptr, indices, R)
     A00.assemble()
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
-    submats[5] = A00.matMult(A01, result=submats[5])
-    submats[-1] = submats[4].matMult(submats[5], result=submats[-1])
-    submats[-1].aypx(-1.0, A11, structure=structure)
+    A00.scale(-1.0)
+    submats[-1] = submats[4].matMatMult(A00, A01, result=submats[-1])
+    submats[-1].axpy(1.0, A11, structure=structure)
     return submats[-1]
 
 
@@ -765,19 +800,19 @@ def schur_complement_block_qr(submats):
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         A = R[zlice].reshape((-1, k, k))
         q, r = numpy.linalg.qr(A, mode="complete")
-        R[zlice] = numpy.linalg.inv(r).reshape((-1,))
         Q[zlice] = q.reshape((-1,))
+        R[zlice] = numpy.linalg.inv(r).reshape((-1,))
         flops += nblocks * ((4*k**3)//3 + k**3)
 
     PETSc.Log.logFlops(flops)
-    A00.setValuesCSR(indptr, indices, R)
-    A00.assemble()
-    submats[4] = A10.matMult(A00, result=submats[4])
     A00.setValuesCSR(indptr, indices, Q)
     A00.assemble()
-    submats[5] = A00.transposeMatMult(A01, result=submats[5])
-    submats[-1] = submats[4].matMult(submats[5], result=submats[-1])
-    submats[-1].aypx(-1.0, A11, structure=structure)
+    submats[4] = A00.transposeMatMult(A01, result=submats[4])
+    A00.setValuesCSR(indptr, indices, R)
+    A00.assemble()
+    A00.scale(-1.0)
+    submats[-1] = A10.matMatMult(A00, submats[4], result=submats[-1])
+    submats[-1].axpy(1.0, A11, structure=structure)
     return submats[-1]
 
 
@@ -812,24 +847,23 @@ def schur_complement_block_svd(submats):
 
         u, s, v = numpy.linalg.svd(A, full_matrices=False)
         D.array_w[dslice] = s.reshape((-1,))
-        U[bslice] = u.reshape((-1,))
-        V[bslice] = v.reshape((-1,))
+        U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
+        V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
         flops += nblocks * ((4*k**3)//3 + 4*k**3)
 
     PETSc.Log.logFlops(flops)
-
-    A00.setValuesCSR(indptr, indices, V)
-    A00.assemble()
     D.sqrtabs()
     D.reciprocal()
-    A00.diagonalScale(L=D)
-    submats[5] = A10.matTransposeMult(A00, result=submats[5])
-    A00.setValuesCSR(indptr, indices, U)
+    A00.setValuesCSR(indptr, indices, V)
     A00.assemble()
     A00.diagonalScale(R=D)
-    submats[6] = A00.transposeMatMult(A01, result=submats[6])
-    submats[-1] = submats[5].matMult(submats[6], result=submats[-1])
-    submats[-1].aypx(-1.0, A11, structure=structure)
+    submats[5] = A10.matMult(A00, result=submats[5])
+    D.scale(-1.0)
+    A00.setValuesCSR(indptr, indices, U)
+    A00.assemble()
+    A00.diagonalScale(L=D)
+    submats[-1] = submats[5].matMatMult(A00, A01, result=submats[-1])
+    submats[-1].axpy(1.0, A11, structure=structure)
     return submats[-1]
 
 
@@ -847,14 +881,13 @@ def condense_element_pattern(A, i0, i1, submats):
     """Add zeroes on the statically condensed pattern so that you can run ICC(0)"""
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
-    structure = PETSc.Mat.Structure.SUBSET if submats[7] else None
+    structure = PETSc.Mat.Structure.SUBSET if submats[3] else None
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
-    submats[5] = A00.matMult(A01, result=submats[5])
-    submats[6] = A10.matMult(A00, result=submats[6])
-    submats[7] = submats[6].matMult(submats[5], result=submats[7])
-    submats[7].aypx(0.0, A, structure=structure)
-    return submats[7]
+    A00.scale(0.0)
+    submats[3] = A10.matMatMult(A00, A01, result=submats[3])
+    submats[3].axpy(1.0, A, structure=structure)
+    return submats[3]
 
 
 @PETSc.Log.EventDecorator("LoadCode")
