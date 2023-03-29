@@ -23,15 +23,15 @@ backend = load_backend("pytorch")
 
 if backend:
     # PyTorch is installed
-    BackendFunction = backend.backend.autograd.Function
+    PytorchFunction = backend.backend.autograd.Function
 else:
-    class BackendFunction():
+    class PytorchFunction():
         """Dummy class that exceptions on instantiation."""
         def __init__(self):
             raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 
-class FiredrakeTorchOperator(BackendFunction):
+class FiredrakeTorchOperator(PytorchFunction):
     """
     PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
     `FiredrakeTorchOperator` is a wrapper around `torch.autograd.Function` that executes forward and backward
