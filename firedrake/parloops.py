@@ -193,12 +193,12 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
     :arg kernel_kwargs: keyword arguments to be passed to the
-        :class:`~pyop2.op2.Kernel` constructor
+        ``pyop2.Kernel`` constructor
     :arg kwargs: additional keyword arguments are passed to the underlying
-        :class:`~pyop2.par_loop`
+        ``pyop2.par_loop``
 
     :kwarg iterate: Optionally specify which region of an
-                    :class:`ExtrudedSet` to iterate over.
+                    :class:`pyop2.types.set.ExtrudedSet` to iterate over.
                     Valid values are the following objects from pyop2:
 
                     - ``ON_BOTTOM``: iterate over the bottom layer of cells.

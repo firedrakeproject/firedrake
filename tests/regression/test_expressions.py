@@ -374,7 +374,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     u = Function(cg1)
     v = Function(vcg1)
 
-    w1, w2 = w.split()
+    w1, w2 = w.subfunctions
 
     w1.assign(4)
     w2.assign(10)
@@ -389,7 +389,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     Q = vcg1*cg1
     q = Function(Q)
 
-    q1, q2 = q.split()
+    q1, q2 = q.subfunctions
 
     q1.assign(11)
     q2.assign(12)
@@ -453,7 +453,7 @@ def test_assign_mixed_multiple_shaped():
     z2.dat[3].data[:] = [[15, 16], [17, 18]]
 
     q = assemble(z1 - z2)
-    for q, p1, p2 in zip(q.split(), z1.split(), z2.split()):
+    for q, p1, p2 in zip(q.subfunctions, z1.subfunctions, z2.subfunctions):
         assert np.allclose(q.dat.data_ro, p1.dat.data_ro - p2.dat.data_ro)
 
 

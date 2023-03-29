@@ -32,10 +32,10 @@ def adjoint_example(mesh):
     # InterpolateBlock
     m = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
 
-    u, v = w.split()
+    u, v = w.subfunctions
     # FunctionAssignBlock, FunctionMergeBlock
     v.assign(m)
-    # FunctionSplitBlock, GenericSolveBlock
+    # SubfunctionBlock, GenericSolveBlock
     u.project(v)
 
     # AssembleBlock

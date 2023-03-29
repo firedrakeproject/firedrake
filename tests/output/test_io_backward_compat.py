@@ -57,9 +57,7 @@ def _get_expr(V):
     raise ValueError(f"Invalid shape {shape}")
 
 
-@pytest.mark.skipcomplex
-@pytest.mark.parallel(nprocs=3)
-def test_io_backward_compat_load_146397af52673c7adffbc12b4e0492d4b357069a():
+def _old_mesh_filename():
     """
     ---------------------------------------------------------------------------
     |Package             |Branch                        |Revision  |Modified  |
@@ -81,57 +79,71 @@ def test_io_backward_compat_load_146397af52673c7adffbc12b4e0492d4b357069a():
     |ufl                 |master                        |0c592ec5  |False     |
     ---------------------------------------------------------------------------
     """
-    filename = join(cwd, "test_io_backward_compat_files", "test_io_backward_compat_146397af52673c7adffbc12b4e0492d4b357069a.h5")
-    filename = COMM_WORLD.bcast(filename, root=0)
-    afile = CheckpointFile(filename, 'r', comm=COMM_WORLD)
-    # Base
-    for cell_type, family, degree in [("triangle", "P", 5),
-                                      ("triangle", "RTE", 4),
-                                      ("triangle", "RTF", 4),
-                                      ("triangle", "BDME", 4),
-                                      ("triangle", "BDMF", 4),
-                                      ("triangle", "DP", 6),
-                                      ("tetrahedra", "P", 6),
-                                      ("tetrahedra", "N1E", 2),  # slow if high order
-                                      ("tetrahedra", "N1F", 5),
-                                      ("tetrahedra", "N2E", 2),  # slow if high order
-                                      ("tetrahedra", "N2F", 5),
-                                      ("tetrahedra", "DP", 5),
-                                      ("quadrilateral", "Q", 7),
-                                      ("quadrilateral", "RTCE", 5),
-                                      ("quadrilateral", "RTCF", 5),
-                                      ("quadrilateral", "DQ", 7),
-                                      ("quadrilateral", "S", 5),
-                                      ("quadrilateral", "DPC", 5)]:
-        # meshes and functions have been saved as (in 'w' mode using 2 processes):
-        # >>> mesh = _get_mesh(cell_type, _generate_mesh_name(cell_type), COMM_WORLD)
-        # >>> V = FunctionSpace(mesh, family, degree)
-        # >>> f = Function(V, name=_generate_func_name(mesh.name, family, degree))
-        # >>> _initialise_function(f, _get_expr(V))
-        # >>> afile.save_function(f)
+    fname = join(cwd, "test_io_backward_compat_files",
+                 "test_io_backward_compat_146397af52673c7adffbc12b4e0492d4b357069a.h5")
+    fname = COMM_WORLD.bcast(fname, root=0)
+    return fname
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize(("cell_type", "family", "degree"),
+                         [("triangle", "P", 5),
+                          ("triangle", "RTE", 4),
+                          ("triangle", "RTF", 4),
+                          ("triangle", "BDME", 4),
+                          ("triangle", "BDMF", 4),
+                          ("triangle", "DP", 6),
+                          ("tetrahedra", "P", 6),
+                          ("tetrahedra", "N1E", 2),  # slow if high order
+                          ("tetrahedra", "N1F", 5),
+                          ("tetrahedra", "N2E", 2),  # slow if high order
+                          ("tetrahedra", "N2F", 5),
+                          ("tetrahedra", "DP", 5),
+                          ("quadrilateral", "Q", 7),
+                          ("quadrilateral", "RTCE", 5),
+                          ("quadrilateral", "RTCF", 5),
+                          ("quadrilateral", "DQ", 7),
+                          ("quadrilateral", "S", 5),
+                          ("quadrilateral", "DPC", 5)])
+def test_io_backward_compat_load(cell_type, family, degree):
+    # meshes and functions have been saved as (in 'w' mode using 2 processes):
+    # >>> mesh = _get_mesh(cell_type, _generate_mesh_name(cell_type), COMM_WORLD)
+    # >>> V = FunctionSpace(mesh, family, degree)
+    # >>> f = Function(V, name=_generate_func_name(mesh.name, family, degree))
+    # >>> _initialise_function(f, _get_expr(V))
+    # >>> afile.save_function(f)
+    filename = _old_mesh_filename()
+    with CheckpointFile(filename, "r", comm=COMM_WORLD) as afile:
         mesh = afile.load_mesh(_generate_mesh_name(cell_type))
         f = afile.load_function(mesh, _generate_func_name(mesh.name, family, degree))
-        V = f.function_space()
-        fe = Function(V)
-        _initialise_function(fe, _get_expr(V))
-        assert assemble(inner(f - fe, f - fe) * dx) < 5.e-12
-    # Extrusion
-    for cell_type, family, degree, vfamily, vdegree in [("triangle", "BDMF", 4, "DG", 3),
-                                                        ("quadrilateral", "RTCF", 4, "DG", 3)]:
-        # meshes and functions have been saved as (in 'w' mode using 2 processes):
-        # >>> mesh = _get_mesh(cell_type, _generate_mesh_name(cell_type), COMM_WORLD)
-        # >>> extm = ExtrudedMesh(mesh, 4, layer_height=[0.2, 0.3, 0.5, 0.7], name=_generate_extruded_mesh_name(cell_type))
-        # >>> helem = FiniteElement(family, cell_type, degree)
-        # >>> velem = FiniteElement(vfamily, "interval", vdegree)
-        # >>> elem = HDiv(TensorProductElement(helem, velem))
-        # >>> V = FunctionSpace(extm, elem)
-        # >>> f = Function(V, name=_generate_func_name(extm.name, family, degree))
-        # >>> _initialise_function(f, _get_expr(V))
-        # >>> afile.save_function(f)
+    V = f.function_space()
+    fe = Function(V)
+    _initialise_function(fe, _get_expr(V))
+    assert assemble(inner(f - fe, f - fe) * dx) < 5.e-12
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize(("cell_type", "family", "degree", "vfamily", "vdegree"),
+                         [("triangle", "BDMF", 4, "DG", 3),
+                          ("quadrilateral", "RTCF", 4, "DG", 3)])
+def test_io_backward_compat_load_extruded(cell_type, family, degree, vfamily, vdegree):
+    # meshes and functions have been saved as (in 'w' mode using 2 processes):
+    # >>> mesh = _get_mesh(cell_type, _generate_mesh_name(cell_type), COMM_WORLD)
+    # >>> extm = ExtrudedMesh(mesh, 4, layer_height=[0.2, 0.3, 0.5, 0.7], name=_generate_extruded_mesh_name(cell_type))
+    # >>> helem = FiniteElement(family, cell_type, degree)
+    # >>> velem = FiniteElement(vfamily, "interval", vdegree)
+    # >>> elem = HDiv(TensorProductElement(helem, velem))
+    # >>> V = FunctionSpace(extm, elem)
+    # >>> f = Function(V, name=_generate_func_name(extm.name, family, degree))
+    # >>> _initialise_function(f, _get_expr(V))
+    # >>> afile.save_function(f)
+    filename = _old_mesh_filename()
+    with CheckpointFile(filename, "r", comm=COMM_WORLD) as afile:
         extm = afile.load_mesh(_generate_extruded_mesh_name(cell_type))
         f = afile.load_function(extm, _generate_func_name(extm.name, family, degree))
-        V = f.function_space()
-        fe = Function(V)
-        _initialise_function(fe, _get_expr(V))
-        assert assemble(inner(f - fe, f - fe) * dx) < 5.e-12
-    afile.close()
+    V = f.function_space()
+    fe = Function(V)
+    _initialise_function(fe, _get_expr(V))
+    assert assemble(inner(f - fe, f - fe) * dx) < 5.e-12

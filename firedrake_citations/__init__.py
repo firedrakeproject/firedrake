@@ -47,7 +47,7 @@ class Citations(dict):
 
         :arg key: The key of the relevant citation.
 
-        :raises: :exc:`~.exceptions.KeyError` if no such citation is
+        :raises: :exc:`KeyError` if no such citation is
             found in the database.
 
         Papers to be cited can be added using :meth:`add`.
@@ -275,5 +275,19 @@ Citations().add("Kolev2009", """
   number =       5,
   pages =        {604--623},
   url =          {https://www.jstor.org/stable/43693530}
+}
+""")
+
+Citations().add("Hiptmair1998", """
+@Misc{Hiptmair1998,
+  author =       {Hiptmair, Ralf},
+  title =        {{Multigrid Method for Maxwell's Equations}},
+  journal =      {SIAM Journal on Numerical Analysis},
+  volume =       {36},
+  number =       {1},
+  pages =        {204-225},
+  year =         {1998},
+  doi =          {10.1137/S0036142997326203},
+  url =          {https://doi.org/10.1137/S0036142997326203},
 }
 """)

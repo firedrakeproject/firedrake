@@ -522,23 +522,25 @@ def sniff_compiler(exe):
     else:
         name = "unknown"
     # VERSION
-    try:
-        output = subprocess.run(
-            [exe, "-dumpversion"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-            encoding="utf-8"
-        ).stdout
-        version = Version(output)
-    except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
-        version = None
+    version = None
+    for dumpstring in ["-dumpfullversion", "-dumpversion"]:
+        try:
+            output = subprocess.run(
+                [exe, dumpstring],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                encoding="utf-8"
+            ).stdout
+            version = Version(output)
+            break
+        except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+            continue
     return name, version
 
 
 # Temporary catch for tigerlake processors with gcc/g++/gfortran 9.3
-# But only for Linux
-if platform.system() == "Linux":
+if platform.system() == "Linux" and mode == "install":
     # Get the cpu information
     try:
         cpuinfostring = subprocess.run(
@@ -1157,9 +1159,9 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        #
-        # Choosing 10.15 as the oldest MacOS version supported as at 2022-04-07
-        with environment(MACOSX_DEPLOYMENT_TARGET="10.15"):
+        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
+        with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
         if args.remove_build_files and not args.honour_petsc_dir:
@@ -1431,6 +1433,7 @@ def install_documentation_dependencies():
     run_pip(["install", "-U", "sphinx"])
     run_pip(["install", "-U", "sphinx-autobuild"])
     run_pip(["install", "-U", "sphinxcontrib-bibtex"])
+    run_pip(["install", "-U", "sphinxcontrib-svg2pdfconverter"])
     run_pip(["install", "-U", "bibtexparser"])
     run_pip(["install", "-U", "sphinxcontrib-youtube"])
     run_pip(["install", "-U", "numpydoc"])
@@ -1589,7 +1592,10 @@ if mode == "install" or not args.update_script:
                              "cmake",
                              "gfortran",
                              "git",
+                             "libcurl4-openssl-dev",
+                             "pkgconf",  # for p4est
                              "libtool",
+                             "libxml2-dev",
                              "python3-dev",
                              "python3-pip",
                              "python3-tk",
@@ -1726,13 +1732,15 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
-    # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
-    run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+# Ensure pip, setuptools, hatchling and wheel are at the latest version.
+run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
+run_pip(["install", "-U", "hatch"])
+run_pip(["install", "-U", "pip"])
+run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:

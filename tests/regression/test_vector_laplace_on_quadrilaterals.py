@@ -46,7 +46,7 @@ def vector_laplace(n, degree):
                              'fieldsplit_1_pc_type': 'lu',
                              'ksp_monitor': None})
 
-    out_s, out_u = out.split()
+    out_s, out_u = out.subfunctions
 
     return (sqrt(assemble(inner(out_u - exact_u, out_u - exact_u) * dx)),
             sqrt(assemble(inner(out_s - exact_s, out_s - exact_s) * dx)))

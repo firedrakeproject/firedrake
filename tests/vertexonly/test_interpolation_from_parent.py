@@ -11,16 +11,16 @@ import subprocess
 @pytest.fixture(params=["interval",
                         "square",
                         "squarequads",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere",
                                      # CalledProcessError is so the parallel tests correctly xfail
                                      marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
                                                              reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh",
-                                     marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))],
+                        "periodicrectangle",
+                        "shiftedmesh"],
                 ids=lambda x: f"{x}-mesh")
 def parentmesh(request):
     if request.param == "interval":
@@ -30,7 +30,9 @@ def parentmesh(request):
     elif request.param == "squarequads":
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -40,7 +42,7 @@ def parentmesh(request):
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
-        m = UnitSquareMesh(1, 1)
+        m = UnitSquareMesh(10, 10)
         m.coordinates.dat.data[:] -= 0.5
         return m
 
@@ -116,7 +118,7 @@ def pseudo_random_coords(size):
 # NOTE: these _spatialcoordinate tests should be equivalent to some kind of
 # interpolation from a CG1 VectorFunctionSpace (I think)
 def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     # Reshaping because for all meshes, we want (-1, gdim) but
     # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
     # () and shape (1,).
@@ -128,7 +130,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 
 def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
     if (
@@ -150,13 +152,13 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
     # use it again for a different Function in V
-    v = Function(V).assign(Constant(2))
+    v = Function(V).assign(Constant(2, domain=parentmesh))
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, 2)
 
 
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
@@ -166,7 +168,7 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     vfs_fam, vfs_deg, vfs_typ = vfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -192,7 +194,7 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)
@@ -208,7 +210,7 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -242,7 +244,7 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
 @pytest.mark.xfail(raises=NotImplementedError, reason="Interpolation of UFL expressions into mixed functions not supported")
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     V1 = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     V2 = FunctionSpace(parentmesh, "CG", 1)
@@ -252,7 +254,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     W = W1 * W2
     x = SpatialCoordinate(parentmesh)
     v = Function(V)
-    v1, v2 = v.split()
+    v1, v2 = v.subfunctions
     # Get Function in V1
     # use outer product to check Regge works
     expr1 = outer(x, x)
@@ -268,7 +270,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # Interpolate Function in V into W
     w_v = interpolate(v, W)
     # Split result and check
-    w_v1, w_v2 = w_v.split()
+    w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
     assert np.allclose(w_v2.dat.data_ro, result2)
     # try and make reusable Interpolator from V to W
@@ -276,31 +278,79 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)
     # Split result and check
-    w_v1, w_v2 = w_v.split()
+    w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
     assert np.allclose(w_v2.dat.data_ro, result2)
     # Enough tests - don't both using it again for a different Function in V
 
 
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    v = interpolate(Constant(1.0), V)
+    # Remove below when interpolating constant onto Real works for extruded
+    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
+        with pytest.raises(ValueError):
+            interpolate(Constant(1.0, domain=parentmesh), V)
+        return
+    v = interpolate(Constant(1.0, domain=parentmesh), V)
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
 def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # try and make reusable Interpolator from V to W
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    v = interpolate(Constant(1.0), V)
+    # Remove below when interpolating constant onto Real works for extruded
+    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
+        with pytest.raises(ValueError):
+            interpolate(Constant(1.0, domain=parentmesh), V)
+        return
+    v = interpolate(Constant(1.0, domain=parentmesh), V)
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, 1.)
+
+
+def test_extruded_cell_parent_cell_list():
+    # If we make a function space that has 1 dof per cell, then we can use the
+    # cell_parent_list directly to see if we get expected values. This is a
+    # carbon copy of tests/regression/test_locate_cell.py
+
+    ms = UnitSquareMesh(3, 3, quadrilateral=True)
+    mx = ExtrudedMesh(UnitIntervalMesh(3), 3)
+
+    # coords at locations from tests/regression/test_locate_cell.py - note that
+    # we are not at the cell midpoints
+    coords = np.array([[0.2, 0.1], [0.5, 0.2], [0.7, 0.1], [0.2, 0.4], [0.4, 0.4], [0.8, 0.5], [0.1, 0.7], [0.5, 0.9], [0.9, 0.8]])
+
+    vms = VertexOnlyMesh(ms, coords, missing_points_behaviour=None)
+    vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour=None)
+    assert vms.num_cells() == len(coords)
+    assert vmx.num_cells() == len(coords)
+    assert np.equal(vms.coordinates.dat.data_ro, coords).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords).all()
+
+    # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
+    # per cell which is the expression evaluated at the cell midpoint.
+    Vs = FunctionSpace(ms, 'DG', 0)
+    Vx = FunctionSpace(mx, 'DG', 0)
+    fs = Function(Vs)
+    fx = Function(Vx)
+    xs = SpatialCoordinate(ms)
+    xx = SpatialCoordinate(mx)
+    fs.interpolate(3*xs[0] + 9*xs[1] - 1)
+    fx.interpolate(3*xx[0] + 9*xx[1] - 1)
+
+    # expected values at coordinates from tests/regression/test_locate_cell.py
+    expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    assert np.allclose(fs.at(coords), expected)
+    assert np.allclose(fx.at(coords), expected)
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected)
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected)
 
 
 @pytest.mark.parallel

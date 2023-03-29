@@ -11,19 +11,19 @@ condition. The strong form of the equation we set out to solve is:
    \frac{\partial^2\phi}{\partial t^2} - \nabla^2 \phi = 0
 
    \nabla \phi \cdot n = 0 \ \textrm{on}\ \Gamma_N
-   
+
    \phi = \frac{1}{10\pi}\cos(10\pi t)  \ \textrm{on}\ \Gamma_D
 
 To facilitate our choice of time integrator, we make the substitution:
 
 .. math::
-   
+
    \frac{\partial\phi}{\partial t} = - p
 
    \frac{\partial p}{\partial t} + \nabla^2 \phi = 0
 
    \nabla \phi \cdot n = 0 \ \textrm{on}\ \Gamma_N
-   
+
    p = \sin(10\pi t)  \ \textrm{on}\ \Gamma_D
 
 We then form the weak form of the equation for :math:`p`. Find
@@ -107,7 +107,7 @@ options at this point, we may either `lump` the mass, which reduces
 the inversion to a pointwise division::
 
       if lump_mass:
-          p += assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx) / assemble(v*dx)
+          p += interpolate(assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx) / assemble(v*dx), V)
 
 In the mass lumped case, we must now ensure that the resulting
 solution for :math:`p` satisfies the boundary conditions::
@@ -147,6 +147,6 @@ visualising the results Paraview will use it::
 .. only:: latex
 
    An animation, produced in Paraview, illustrating the output of this simulation can be found `on youtube <https://www.youtube.com/watch?v=xhxvM1N8mDQ>`_.
-  
 
-A python script version of this demo can be found `here <linear_wave_equation.py>`__. The gmsh input file is `here <wave_tank.geo>`__.
+
+A python script version of this demo can be found :demo:`here <linear_wave_equation.py>`. The gmsh input file is :demo:`here <wave_tank.geo>`.
