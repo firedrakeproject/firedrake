@@ -2438,7 +2438,6 @@ def Mesh(meshfile, **kwargs):
         mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
         mesh.comm = user_comm
         # Refine Method
-
         def refine_marked_elements(self, mark):
             with mark.dat.vec as marked:
                 marked0 = marked
