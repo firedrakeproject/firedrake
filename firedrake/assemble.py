@@ -282,8 +282,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      form_compiler_parameters=form_compiler_parameters,
                                      needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
-        assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters, weight,
-                                     needs_zeroing=False)
+        assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
+                                     needs_zeroing=False,weight=weight)
     else:
         raise AssertionError
 
@@ -680,7 +680,6 @@ class ExplicitMatrixAssembler(FormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
-            print("weight: {}".format(self.weight))
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
 
             # Handle off-diagonal block involving real function space.
