@@ -235,7 +235,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                    options_prefix=None,
                    form_compiler_parameters=None,
                    zero_bc_nodes=False,
-                   weight = 1.0):
+                   weight=1.0):
     """Assemble a form.
 
     See :func:`assemble` for a description of the arguments to this function.
@@ -283,7 +283,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
         assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
-                                     needs_zeroing=False,weight=weight)
+                                     needs_zeroing=False, weight=weight)
     else:
         raise AssertionError
 
@@ -393,7 +393,7 @@ class FormAssembler(abc.ABC):
     :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
     """
 
-    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True,weight=1.0):
+    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True, weight=1.0):
         assert tensor is not None
 
         bcs = solving._extract_bcs(bcs)
