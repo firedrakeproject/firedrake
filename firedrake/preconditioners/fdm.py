@@ -1835,31 +1835,41 @@ def extrude_node_map(node_map, bsize=1):
     """
     nel = node_map.values.shape[0]
     if node_map.offset is None:
-        def scalar_map(e, result=None):
-            return numpy.take(node_map.values_with_halo, e, axis=0, out=result)
+        def scalar_map(map_values, e, result=None):
+            if result is None:
+                result = numpy.empty_like(map_values[e])
+            numpy.copyto(result, map_values[e])
+            return result
+
+        scalar_map = partial(_scalar_map, node_map.values_with_halo)
     else:
         layers = node_map.iterset.layers_array
         if layers.shape[0] == 1:
-            def _scalar_map(node_map, nelz, e, result=None):
-                result = numpy.take(node_map.values_with_halo, e // nelz, axis=0, out=result)
-                result += (e % nelz)*node_map.offset
+            def _scalar_map(map_values, offset, nelz, e, result=None):
+                if result is None:
+                    result = numpy.empty_like(offset)
+                numpy.copyto(result, offset)
+                result *= (e % nelz)
+                result += map_values[e // nelz]
                 return result
 
             nelz = layers[0, 1]-layers[0, 0]-1
             nel *= nelz
-            scalar_map = partial(_scalar_map, node_map, nelz)
-
+            scalar_map = partial(_scalar_map, node_map.values_with_halo, node_map.offset, nelz)
         else:
-            def _scalar_map(node_map, to_base, to_layer, e, result=None):
-                result = numpy.take(node_map.values_with_halo, to_base[e], axis=0, out=result)
-                result += to_layer[e]*node_map.offset
+            def _scalar_map(map_values, offset, to_base, to_layer, e, result=None):
+                if result is None:
+                    result = numpy.empty_like(offset)
+                numpy.copyto(result, offset)
+                result *= to_layer[e]
+                result += map_values[to_base[e]]
                 return result
 
             nelz = layers[:, 1]-layers[:, 0]-1
             nel = sum(nelz[:nel])
             to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
             to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-            scalar_map = partial(_scalar_map, node_map, to_base, to_layer)
+            scalar_map = partial(_scalar_map, node_map.values_with_halo, node_map.offset, to_base, to_layer)
 
     if bsize == 1:
         return scalar_map, nel
