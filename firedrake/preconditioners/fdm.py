@@ -1649,7 +1649,6 @@ class PoissonFDMPC(FDMPC):
                 tensor = coefficients.setdefault("bcflags", Function(Q))
                 assembly_callables.append(OneFormAssembler(form, tensor=tensor,
                                                            form_compiler_parameters=fcp).assemble)
-
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
@@ -1834,51 +1833,36 @@ def extrude_node_map(node_map, bsize=1):
 
     :returns: a 2-tuple with the cell to node map and the number of cells owned by this process
     """
-    nelv = node_map.values.shape[0]
+    nel = node_map.values.shape[0]
     if node_map.offset is None:
-        nel = nelv
-
         def scalar_map(e, result=None):
-            if result is None:
-                result = numpy.copy(node_map.values_with_halo[e])
-            else:
-                numpy.copyto(result, node_map.values_with_halo[e])
-            return result
-
+            return numpy.take(node_map.values_with_halo, e, axis=0, out=result)
     else:
         layers = node_map.iterset.layers_array
         if layers.shape[0] == 1:
-            nelz = layers[0, 1]-layers[0, 0]-1
-            nel = nelz*nelv
-
             def _scalar_map(node_map, nelz, e, result=None):
-                if result is None:
-                    result = numpy.copy(node_map.values_with_halo[e // nelz])
-                else:
-                    numpy.copyto(result, node_map.values_with_halo[e // nelz])
+                result = numpy.take(node_map.values_with_halo, e // nelz, axis=0, out=result)
                 result += (e % nelz)*node_map.offset
                 return result
+
+            nelz = layers[0, 1]-layers[0, 0]-1
+            nel *= nelz
             scalar_map = partial(_scalar_map, node_map, nelz)
 
         else:
-            nelz = layers[:, 1]-layers[:, 0]-1
-            nel = sum(nelz[:nelv])
-            to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
-            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-
             def _scalar_map(node_map, to_base, to_layer, e, result=None):
-                if result is None:
-                    result = numpy.copy(node_map.values_with_halo[to_base[e]])
-                else:
-                    numpy.copyto(result, node_map.values_with_halo[to_base[e]])
+                result = numpy.take(node_map.values_with_halo, to_base[e], axis=0, out=result)
                 result += to_layer[e]*node_map.offset
                 return result
+
+            nelz = layers[:, 1]-layers[:, 0]-1
+            nel = sum(nelz[:nel])
+            to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
+            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
             scalar_map = partial(_scalar_map, node_map, to_base, to_layer)
 
     if bsize == 1:
         return scalar_map, nel
-
-    ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
 
     def vector_map(bsize, ibase, e, result=None):
         index = None
@@ -1888,4 +1872,5 @@ def extrude_node_map(node_map, bsize=1):
         index *= bsize
         return numpy.add.outer(index, ibase, out=result)
 
+    ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
     return partial(vector_map, bsize, ibase), nel
