@@ -328,7 +328,8 @@ def test_p_multigrid_mixed(mat_type):
     basis.orthonormalize()
     nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
     problem = NonlinearVariationalProblem(F, z, bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp,
+                                        nullspace=nullspace)
     solver.solve()
     assert solver.snes.ksp.its <= 7
     ppc = solver.snes.ksp.pc.getPythonContext().ppc

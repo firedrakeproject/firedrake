@@ -203,7 +203,7 @@ class PMGBase(PCSNESBase):
             return a
 
         cJ = _coarsen_form(fctx.J)
-        cJp = _coarsen_form(fctx.Jp)
+        cJp = cJ if fctx.Jp is fctx.J else _coarsen_form(fctx.Jp)
         # This fixes a subtle bug where you are applying PMGPC on a mixed
         # problem with geometric multigrid only on one block and an non-Lagrange element
         # on the other block (gmg breaks for non-Lagrange elements)
@@ -268,20 +268,20 @@ class PMGBase(PCSNESBase):
 
         if cu in cJ.coefficients():
             # Only inject state if the coarse state is a dependency of the coarse Jacobian.
-            inject_petscmat = cdm.createInjection(fdm)
+            inject = cdm.createInjection(fdm)
 
             def inject_state():
                 with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
-                    inject_petscmat.mult(xf, xc)
+                    inject.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
 
         # Coarsen the nullspace basis
-        def coarsen_nullspace(coarse_V, mat, fine_nullspace):
+        def coarsen_nullspace(coarse_V, interpolate, fine_nullspace):
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
-                if mat.type == 'python':
-                    mat = mat.getPythonContext()
-                submats = [mat.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
+                if interpolate.getType() == "python":
+                    interpolate = interpolate.getPythonContext()
+                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
                 coarse_bases = []
                 for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
                     if isinstance(basis, VectorSpaceBasis):
@@ -294,10 +294,7 @@ class PMGBase(PCSNESBase):
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(coarse_V)
                     with wc.dat.vec_wo as xc:
-                        if mat.getSize()[1] == xf.getSize():
-                            mat.mult(xf, xc)
-                        else:
-                            mat.multTranspose(xf, xc)
+                        interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
                 vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
                 vsb.orthonormalize()
@@ -305,16 +302,24 @@ class PMGBase(PCSNESBase):
             else:
                 return fine_nullspace
 
-        if fctx._nullspace or fctx._near_nullspace or fctx._nullspace_T:
-            interp_petscmat, _ = cdm.createInterpolation(fdm)
+        interpolate = None
+        if fctx._nullspace or fctx._nullspace_T or fctx._near_nullspace:
+            interpolate, _ = cdm.createInterpolation(fdm)
+        cctx._nullspace = coarsen_nullspace(cV, interpolate, fctx._nullspace)
+        if fctx._nullspace_T is fctx._nullspace:
+            cctx._nullspace_T = cctx._nullspace
         else:
-            interp_petscmat = None
-        cctx._nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace)
+            cctx._nullspace_T = coarsen_nullspace(cV, interpolate, fctx._nullspace_T)
+        if fctx._near_nullspace is fctx._nullspace:
+            cctx._near_nullspace = cctx._nullspace
+        elif fctx._near_nullspace is fctx._nullspace_T:
+            cctx._near_nullspace = cctx._nullspace_T
+        else:
+            cctx._near_nullspace = coarsen_nullspace(cV, interpolate, fctx._near_nullspace)
+
         cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
-        cctx._near_nullspace = coarsen_nullspace(cV, interp_petscmat, fctx._near_nullspace)
-        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
-        cctx._nullspace_T = coarsen_nullspace(cV, interp_petscmat, fctx._nullspace_T)
         cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
+        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
         return cdm
 
     def coarsen_quadrature(self, metadata, fdeg, cdeg):
