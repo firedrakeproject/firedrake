@@ -265,7 +265,7 @@ class FDMPC(PCBase):
         self.lgmaps = {}
         bc_rows = {}
         for Vsub in V:
-            lgmap = Vsub.local_to_global_map([bc.reconstruct(V=Vsub, g=0) for bc in bcs])
+            lgmap = Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
             cell_to_local, nel = extrude_node_map(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
@@ -335,7 +335,7 @@ class FDMPC(PCBase):
         if len(V) == 1:
             Pmat = Pmats[V, V]
         else:
-            Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=V.comm)
+            Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
 
         @PETSc.Log.EventDecorator("FDMAssemble")
         def assemble_P():
@@ -1540,10 +1540,10 @@ class PoissonFDMPC(FDMPC):
             degree = max(degree)
         except TypeError:
             pass
-        quad_deg = 2*degree+1
-        quad_deg = fcp.get("degree", quad_deg)
+        quad_deg = fcp.get("degree", 2*degree+1)
         dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
+        DG = ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
 
         # extract coefficients directly from the bilinear form
         integrals_J = J.integrals_by_type("cell")
@@ -1556,24 +1556,8 @@ class PoissonFDMPC(FDMPC):
             replace_grad = {ufl.grad(t): ufl.dot(Piola, ufl.dot(dt, Finv)) for t, dt in zip(args_J, ref_grad)}
         else:
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
-
         alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
                                                  ref_grad[0]), ref_grad[1]) for i in integrals_J]))
-
-        # get zero-th order coefficent
-        ref_val = [ufl.variable(t) for t in args_J]
-        if Piola:
-            dummy_element = ufl.TensorElement("DQ", cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
-            dummy_Piola = ufl.Coefficient(ufl.FunctionSpace(mesh, dummy_element))
-            replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
-        else:
-            replace_val = {t: s for t, s in zip(args_J, ref_val)}
-
-        beta = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
-                                                ref_val[0]), ref_val[1]) for i in integrals_J]))
-        if Piola:
-            beta = ufl.replace(beta, {dummy_Piola: Piola})
-
         # discard mixed derivatives and mixed components
         if len(alpha.ufl_shape) == 2:
             alpha = ufl.diag_vector(alpha)
@@ -1581,35 +1565,46 @@ class PoissonFDMPC(FDMPC):
             ashape = alpha.ufl_shape
             ashape = ashape[:len(ashape)//2]
             alpha = ufl.as_tensor(numpy.reshape([alpha[i+i] for i in numpy.ndindex(ashape)], (ashape[0], -1)))
-        Qe = ufl.TensorElement(family, mesh.ufl_cell(), degree=0, shape=alpha.ufl_shape)
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
-            Q = FunctionSpace(mesh, Qe)
+            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=alpha.ufl_shape))
             tensor = coefficients.setdefault("alpha", Function(Q))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
+        # get zero-th order coefficent
+        ref_val = [ufl.variable(t) for t in args_J]
+        if Piola:
+            dummy_element = ufl.TensorElement(family, cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
+            dummy_Piola = ufl.Coefficient(ufl.FunctionSpace(mesh, dummy_element))
+            replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
+        else:
+            replace_val = {t: s for t, s in zip(args_J, ref_val)}
+        beta = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
+                                                ref_val[0]), ref_val[1]) for i in integrals_J]))
+        if Piola:
+            beta = ufl.replace(beta, {dummy_Piola: Piola})
         # assemble zero-th order coefficient
         if not isinstance(beta, ufl.constantvalue.Zero):
             if Piola:
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
-            shape = beta.ufl_shape
-            Qe = ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
-            if shape:
-                Qe = ufl.TensorElement(Qe, shape=shape)
-            Q = FunctionSpace(mesh, Qe)
+            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
             tensor = coefficients.setdefault("beta", Function(Q))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
+        family = "CG" if tdim == 1 else "DGT"
+        degree = 1 if tdim == 1 else 0
+        DGT = ufl.BrokenElement(ufl.FiniteElement(family, cell=mesh.ufl_cell(), degree=degree))
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
             extruded = mesh.cell_set._extruded
             dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
-            ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/ufl.FacetArea(mesh))*dS_int
+            area = ufl.FacetArea(mesh)
+            ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
             alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
@@ -1618,29 +1613,20 @@ class PoissonFDMPC(FDMPC):
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
             G = G * abs(ufl.JacobianDeterminant(mesh))
 
-            ele = ufl.BrokenElement(ufl.FiniteElement("DGT", cell=mesh.ufl_cell(), degree=0))
-            Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=G.ufl_shape))
+            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
-
             PT = Piola.T
-            Q = FunctionSpace(mesh, ufl.TensorElement(ele, shape=PT.ufl_shape))
+            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         # make DGT functions with BC flags
-        rvs = V.ufl_element().reference_value_shape()
-        cell = mesh.ufl_cell()
-        family = "CG" if cell.topological_dimension() == 1 else "DGT"
-        degree = 1 if cell.topological_dimension() == 1 else 0
-        Qe = ufl.FiniteElement(family, cell=cell, degree=degree)
-        if rvs:
-            Qe = ufl.TensorElement(Qe, shape=rvs)
-        Q = FunctionSpace(mesh, Qe)
-        q = TestFunction(Q)
-        bcflags = Function(Q)
+        shape = V.ufl_element().reference_value_shape()
+        Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=shape) if shape else DGT)
+        test = TestFunction(Q)
 
         ref_args = [ufl.variable(t) for t in args_J]
         replace_args = {t: s for t, s in zip(args_J, ref_args)}
@@ -1652,16 +1638,16 @@ class PoissonFDMPC(FDMPC):
             if itype.startswith("exterior_facet"):
                 beta = ufl.diff(ufl.diff(ufl.replace(it.integrand(), replace_args), ref_args[0]), ref_args[1])
                 beta = expand_derivatives(beta)
-                if rvs:
+                if beta.ufl_shape:
                     beta = ufl.diag_vector(beta)
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
-                forms.append(ufl.inner(q, beta)*ds_ext)
+                forms.append(ufl.inner(test, beta)*ds_ext)
 
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                coefficients["bcflags"] = bcflags
-                assembly_callables.append(OneFormAssembler(form, tensor=bcflags,
+                tensor = coefficients.setdefault("bcflags", Function(Q))
+                assembly_callables.append(OneFormAssembler(form, tensor=tensor,
                                                            form_compiler_parameters=fcp).assemble)
 
         # set arbitrary non-zero coefficients for preallocation
