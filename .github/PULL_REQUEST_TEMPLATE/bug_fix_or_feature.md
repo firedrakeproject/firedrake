@@ -10,8 +10,8 @@ assignees: ''
 # Description
 Please include a summary of the changes introduced by this PR.
 Additionally include any relevant motivation and context. List any
-dependencies that are required for this change, other PRs and
-associated issues.
+dependencies that are required for this change, other PRs upon
+which this may depend, and associated issues.
 
 ## Associated Pull Requests:
 - Make a list (with links!)
@@ -21,7 +21,8 @@ associated issues.
 - Make a list of issues (with links!)
 - [Like this Issue#2824](https://github.com/firedrakeproject/firedrake/issues/2824)
 
-Ensure above issues are linked, so they are closed when this PR is merged.
+If issues are fixed by this PR, prepend each of them with the word "fixes", so they are 
+automatically closed when this PR is merged. For example "fixes #123, fixes #456".
 
 # Checklist for author:
 
@@ -48,7 +49,7 @@ If you think an option is not relevant to your PR, do not delete it but use ~str
 - [ ] No bad "code smells"
 - [ ] No issues in parallel
 - [ ] No CI issues (excessive parallelism/memory usage/time/warnings generated)
-- [ ] Upstream/dependent branches are ready
+- [ ] Upstream/dependent branches and PRs are ready
 
 Feel free to add reviewers if you know there is someone who is already aware of this work.
 

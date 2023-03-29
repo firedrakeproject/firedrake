@@ -1,6 +1,6 @@
 ---
 name: "\U0001F4DC Documentation"
-description: Suggest an idea for this project
+description: Highlight a documentation issue
 title: 'DOCS: '
 labels: [documentation]
 assignees: ''

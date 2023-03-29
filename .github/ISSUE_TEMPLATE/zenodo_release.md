@@ -9,8 +9,8 @@ assignees: ''
 
 Can you please create a Zenodo release for my upcoming publication:
 
-### On analytic and algebraic topology of locally Euclidean parameterization of infinitely differentiable Riemannian manifold
+### My Paper Title
 
 Attach the `firedrake.json` created by running
-`firedrake-zenodo -t "My paper title"` or
-`firedrake-zenodo -t "My paper title" --info-file README.txt`.
+`firedrake-zenodo -t "My Paper Title"` or similar.
+For full documentation see [Firedrake's documentation on creating Zenodo releases](https://www.firedrakeproject.org/zenodo.html).

@@ -1,7 +1,7 @@
 ---
 name: "\U00002699 Installation"
 description: Create a report for an installation issue
-title: 'BUG: '
+title: 'INSTALL: '
 labels: [installation]
 assignees: ''
 
@@ -31,7 +31,7 @@ Additionally please include the PETSc configure log located in
 `$VIRTUAL_ENV/src/petsc/configure.log`.
 
 **Environment:**
- - OS: [eg: Linux, MacOS, WSL (Windows Subsystem for Linux)] add this as a label too!
+ - OS: [eg: Linux, MacOS, WSL (Windows Subsystem for Linux)] add this as an issue label too! Please be specific: state the Linux distribution or MacOS version you are attempting to install on.
  - Python version: [eg: 3.9.7]
  - Any relevant environment variables or modifications [eg: PETSC_CONFIGURE_OPTIONS=...]
 
