@@ -1155,9 +1155,8 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        #
-        # Choosing 10.15 as the oldest MacOS version supported as at 2022-04-07
-        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.15")
+        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
         with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1580,6 +1579,7 @@ if mode == "install" or not args.update_script:
                              "gfortran",
                              "git",
                              "libcurl4-openssl-dev",
+                             "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
                              "python3-dev",
@@ -1716,13 +1716,15 @@ if mode == "install":
         log.debug("bootstrapping pip succeeded")
         log.debug("Removing get-pip.py")
         os.remove("get-pip.py")
-    # Ensure pip, setuptools and wheel are at the latest version.
-    run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
-    run_pip(["install", "-U", "pip"])
-    run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
     # We haven't activated the venv so we need to manually set the environment.
     os.environ["VIRTUAL_ENV"] = firedrake_env
+
+# Ensure pip, setuptools, hatchling and wheel are at the latest version.
+run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
+run_pip(["install", "-U", "hatch"])
+run_pip(["install", "-U", "pip"])
+run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
