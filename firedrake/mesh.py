@@ -980,7 +980,6 @@ class MeshTopology(AbstractMeshTopology):
 
         def callback(self):
             """Finish initialisation."""
-            del self._callback
             if self.comm.size > 1:
                 add_overlap()
             if self.sfXB is not None:
@@ -1028,7 +1027,8 @@ class MeshTopology(AbstractMeshTopology):
                 entity_dofs[-2] = 1
                 facet_numbering = self.create_section(entity_dofs)
                 self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
-        self._callback = callback
+        # as in, do this immediately
+        callback(self)
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -1724,13 +1724,13 @@ class MeshGeometryCargo:
     def ufl_id(self):
         return self._ufl_id
 
-    def init(self, coordinates):
+    def init(self, topology, coordinates):
         """Initialise the cargo.
 
         This function is separate to __init__ because of the two-step process we have
         for initialising a :class:`MeshGeometry`.
         """
-        self.topology = coordinates.function_space().mesh()
+        self.topology = topology
         self.coordinates = coordinates
         self.geometric_shared_data_cache = defaultdict(dict)
 
@@ -1738,34 +1738,39 @@ class MeshGeometryCargo:
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
-        """Create mesh geometry object."""
-        utils._init()
-        mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid()
-        mesh.uid = uid
-        cargo = MeshGeometryCargo(uid)
-        assert isinstance(element, ufl.FiniteElementBase)
-        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
-        return mesh
+    # def __new__(cls, element):
+    #     """Create mesh geometry object."""
+    #     utils._init()
+    #     mesh = super(MeshGeometry, cls).__new__(cls)
+    #     uid = utils._new_uid()
+    #     mesh.uid = uid
+    #     cargo = MeshGeometryCargo(uid)
+    #     assert isinstance(element, ufl.FiniteElementBase)
+    #     ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
+    #     return mesh
 
     @MeshGeometryMixin._ad_annotate_init
-    def __init__(self, coordinates):
+    def __init__(self, topology, element, coordinates):
         """Initialise a mesh geometry from coordinates.
 
         :arg coordinates: a coordinateless function containing the coordinates
+
+        FIXME now an array!
         """
-        topology = coordinates.function_space().mesh()
+        # previously in __new__
+        utils._init()
+        uid = utils._new_uid()
+        self.uid = uid
+        cargo = MeshGeometryCargo(uid)
+        assert isinstance(element, ufl.FiniteElementBase)
+        ufl.Mesh.__init__(self, element, ufl_id=self.uid, cargo=cargo)
 
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
         self.variable_layers = self.extruded and topology.variable_layers
 
         # initialise the mesh cargo
-        self.ufl_cargo().init(coordinates)
-
-        # Cache mesh object on the coordinateless coordinates function
-        coordinates._as_mesh_geometry = weakref.ref(self)
+        self.ufl_cargo().init(topology, coordinates)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -1776,8 +1781,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         this is carried out automatically, however, in some cases (for
         example accessing a property of the mesh directly after
         constructing it) you need to call this manually."""
-        if hasattr(self, '_callback'):
-            self._callback(self)
+        pass
 
     def _init_topology(self, topology):
         """Initialise the topology.
@@ -1789,24 +1793,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         its topology. We also set the `_callback` attribute that is
         later called to set its coordinates and finalise the initialisation.
         """
-        import firedrake.functionspace as functionspace
-        import firedrake.function as function
-
         self._topology = topology
-
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
-            # Finish the initialisation of mesh topology
-            self.topology.init()
-            coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name=_generate_default_mesh_coordinates_name(self.name))
-            self.__init__(coordinates)
-        self._callback = callback
 
     @property
     def topology(self):
@@ -1859,18 +1846,23 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     @MeshGeometryMixin._ad_annotate_coordinates_function
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
-        import firedrake.functionspaceimpl as functionspaceimpl
         import firedrake.function as function
+        from firedrake import functionspace
 
+
+
+        # do it lazily!
         if hasattr(self.ufl_cargo(), "_coordinates_function"):
             return self.ufl_cargo()._coordinates_function
         else:
-            self.init()
-            coordinates_fs = self._coordinates.function_space()
-            V = functionspaceimpl.WithGeometry.create(coordinates_fs, self)
-            f = function.Function(V, val=self._coordinates)
-            self.ufl_cargo()._coordinates_function = f
-            return f
+            coordinates_fs = functionspace.FunctionSpace(self, self.ufl_coordinate_element())
+            coordinates_data = dmcommon.reordered_coords(self.topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+            coordinates = function.Function(coordinates_fs, val=coordinates_data,
+                                            name=_generate_default_mesh_coordinates_name(self.name))
+
+            self.ufl_cargo()._coordinates_function = coordinates
+            return coordinates
 
     @property
     def coordinates(self):
@@ -2236,6 +2228,7 @@ def make_mesh_from_coordinates(coordinates, name):
     :arg coordinates: A :class:`~.Function`.
     :arg name: The name of the mesh.
     """
+    raise NotImplementedError
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
         if mesh is not None:
@@ -2250,7 +2243,7 @@ def make_mesh_from_coordinates(coordinates, name):
     cell = element.cell().reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    # mesh = MeshGeometry(, element)
     mesh.__init__(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
@@ -2258,7 +2251,7 @@ def make_mesh_from_coordinates(coordinates, name):
     return mesh
 
 
-def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
+def make_mesh_from_mesh_topology(topology, coordinates, name, comm=COMM_WORLD):
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
@@ -2266,8 +2259,7 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
     element = ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
-    mesh._init_topology(topology)
+    mesh = MeshGeometry(topology, element, coordinates)
     mesh.name = name
     return mesh
 
@@ -2409,7 +2401,7 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm, tolerance=tolerance)
-    return make_mesh_from_mesh_topology(topology, name)
+    return make_mesh_from_mesh_topology(topology, coordinates, name)
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
