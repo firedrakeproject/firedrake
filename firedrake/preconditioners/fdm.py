@@ -1835,7 +1835,7 @@ def extrude_node_map(node_map, bsize=1):
     """
     nel = node_map.values.shape[0]
     if node_map.offset is None:
-        def scalar_map(map_values, e, result=None):
+        def _scalar_map(map_values, e, result=None):
             if result is None:
                 result = numpy.empty_like(map_values[e])
             numpy.copyto(result, map_values[e])
