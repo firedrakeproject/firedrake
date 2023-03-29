@@ -105,9 +105,6 @@ class ImplicitMatrixContext(object):
         self.row_bcs = tuple(bc for bc in itertools.chain(*row_bcs) if isinstance(bc, DirichletBC))
         self.col_bcs = tuple(bc for bc in itertools.chain(*col_bcs) if isinstance(bc, DirichletBC))
 
-        self._lscale = None
-        self._rscale = None
-
         # create functions from test and trial space to help
         # with 1-form assembly
         test_space, trial_space = [
@@ -193,80 +190,14 @@ class ImplicitMatrixContext(object):
             bc.set(self._diagonal, 1)
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
-            if self._lscale:
-                v.pointwiseMult(v, self._lscale)
-            if self._rscale:
-                v.pointwiseMult(v, self._rscale)
 
     def missingDiagonal(self, mat):
         return (False, -1)
 
-    def diagonalScale(self, mat, L=None, R=None):
-        if L and self._lscale:
-            self._lscale.pointwiseMult(self._lscale, L)
-        elif L:
-            self._lscale = L.copy()
-        if R and self._rscale:
-            self._rscale.pointwiseMult(self._rscale, R)
-        elif R:
-            self._rscale = R.copy()
-
-    @cached_property
-    def _block_diagonal(self):
-        from firedrake import Function, FunctionSpace
-        from ufl import MixedElement, TensorElement, VectorElement
-        assert self.on_diag
-
-        V = self._x.function_space()
-        scalar_element = V.ufl_element()
-        if isinstance(scalar_element, MixedElement):
-            if isinstance(scalar_element, (TensorElement, VectorElement)):
-                scalar_element = scalar_element.sub_elements()[0]
-            else:
-                raise NotImplementedError("Block diagonal assembly not implemented")
-        tensor_element = TensorElement(scalar_element, shape=self.block_size)
-        W = FunctionSpace(V.mesh(), tensor_element)
-        return Function(W)
-
-    @cached_property
-    def _assemble_block_diagonal(self):
-        from firedrake.ufl_expr import TestFunction, TrialFunction
-        from firedrake.assemble import OneFormAssembler
-        W = self._block_diagonal.function_space()
-        v = TestFunction(W)
-        u = TrialFunction(W)
-        v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
-        u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
-
-        form = self.a(v, u, coefficients={})
-        return OneFormAssembler(form, tensor=self._block_diagonal,
-                                form_compiler_parameters=self.fc_params,
-                                diagonal=True).assemble
-
-    def invertBlockDiagonal(self, mat):
-        import numpy
-
-        self._assemble_block_diagonal()
-        result = numpy.linalg.inv(self._block_diagonal.dat.data_ro)
-        if self._rscale or self._lscale:
-            raise NotImplementedError()
-
-        # FIXME cache bcdofs
-        W = self._block_diagonal.function_space()
-        wbcs = [bc.reconstruct(V=W, g=0) for bc in self.bcs]
-        bcdofs = W.local_to_global_map([]).indices[W.local_to_global_map(wbcs).indices < 0]
-        result.flat[bcdofs] = numpy.reshape(numpy.tile(numpy.eye(self.block_size[0]), (result.shape[0], 1, 1)), (-1,))
-
-        self._block_diag_inverse = numpy.asfortranarray(result.transpose((1, 2, 0)))
-        return self._block_diag_inverse
-
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
-            if self._rscale:
-                v.pointwiseMult(self._rscale, X)
-            else:
-                X.copy(v)
+            X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
         # identity block corresponding to the Dirichlet boundary conditions.
@@ -295,10 +226,7 @@ class ImplicitMatrixContext(object):
                 bc.zero(self._y)
 
         with self._y.dat.vec_ro as v:
-            if self._lscale:
-                Y.pointwiseMult(self._lscale, v)
-            else:
-                v.copy(Y)
+            v.copy(Y)
 
     @PETSc.Log.EventDecorator()
     def multTranspose(self, mat, Y, X):
@@ -338,10 +266,7 @@ class ImplicitMatrixContext(object):
 
         """
         with self._y.dat.vec_wo as v:
-            if self._lscale:
-                v.pointwiseMult(self._lscale, Y)
-            else:
-                Y.copy(v)
+            Y.copy(v)
 
         if len(self.bcs) > 0:
             # Accumulate values in self._x
@@ -372,10 +297,7 @@ class ImplicitMatrixContext(object):
                 bc.zero(self._x)
 
         with self._x.dat.vec_ro as v:
-            if self._rscale:
-                X.pointwiseMult(self._rscale, v)
-            else:
-                v.copy(X)
+            v.copy(X)
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -469,14 +391,6 @@ class ImplicitMatrixContext(object):
         submat.setPythonContext(submat_ctx)
         submat.setUp()
 
-        if self._rscale or self._lscale:
-            L = self._lscale
-            if L:
-                L = L.getSubVector(col_is)
-            R = self._lscale
-            if R:
-                R = R.getSubVector(row_is)
-            submat.diagonalScale(L=L, R=R)
         return submat
 
     @PETSc.Log.EventDecorator()
@@ -495,6 +409,4 @@ class ImplicitMatrixContext(object):
                         bsize=newmat_ctx.block_size)
         newmat.setPythonContext(newmat_ctx)
         newmat.setUp()
-        if self._rscale or self._lscale:
-            newmat.diagonalScale(L=self._lscale, R=self._rscale)
         return newmat
