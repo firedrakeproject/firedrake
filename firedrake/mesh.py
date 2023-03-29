@@ -30,6 +30,7 @@ from firedrake.adjoint import MeshGeometryMixin
 
 try:
     import netgen
+    from ngsolve import ngs2petsc
 except ImportError:
     netgen = None
 
@@ -264,63 +265,8 @@ def _from_netgen(ngmesh, comm=None):
     and then distribute. We should find a way of taking adventage of the fact that
     NetGen can act as a parallel mesher.
     """
-    if ngmesh.dim == 3:
-        if comm.Get_rank() == 0:
-            V = ngmesh.Coordinates()
-            T = ngmesh.Elements3D().NumPy()["nodes"]
-            T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            surfMesh, dim = False, 3
-            if len(T) == 0:
-                surfMesh, dim = True, 2
-                T = ngmesh.Elements2D().NumPy()["nodes"]
-                T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            plex = PETSc.DMPlex().createFromCellList(dim, T, V, comm=comm)
-            plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
-            vStart, vEnd = plex.getDepthStratum(0)
-            if surfMesh:
-                for e in ngmesh.Elements1D():
-                    join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.surfaces[1]))
-            else:
-                for e in ngmesh.Elements2D():
-                    join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-                for e in ngmesh.Elements1D():
-                    join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-                    plex.setLabelValue(dmcommon.EDGE_SETS_LABEL, join[0], int(e.index))
-            return plex
-        else:
-            plex = PETSc.DMPlex().createFromCellList(3,
-                                                     np.zeros((0, 4), dtype=np.int32),
-                                                     np.zeros((0, 3), dtype=np.double),
-                                                     comm=comm)
-            return plex
-    elif ngmesh.dim == 2:
-        if comm.Get_rank() == 0:
-            V = ngmesh.Coordinates()
-            T = ngmesh.Elements2D().NumPy()["nodes"]
-            T = np.array([list(np.trim_zeros(a, 'b')) for a in list(T)])-1
-            plex = PETSc.DMPlex().createFromCellList(2, T, V, comm=comm)
-            plex.setName(_generate_default_mesh_topology_name(ngmesh.GetMeshName()))
-            vStart, vEnd = plex.getDepthStratum(0)   # vertices
-            for e in ngmesh.Elements1D():
-                join = plex.getJoin([vStart+v.nr-1 for v in e.vertices])
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, join[0], int(e.index))
-            if not ((1 == ngmesh.Elements2D().NumPy()["index"]).all()):
-                for e in ngmesh.Elements2D():
-                    join = plex.getFullJoin([vStart+v.nr-1 for v in e.vertices])
-                    plex.setLabelValue(dmcommon.CELL_SETS_LABEL, join[0], int(e.index))
-
-            return plex
-        else:
-            plex = PETSc.DMPlex().createFromCellList(2,
-                                                     np.zeros((0, 3), dtype=np.int32),
-                                                     np.zeros((0, 2), dtype=np.double),
-                                                     comm=comm)
-            return plex
-
-    else:
-        raise Exception("Mesh of dimension {} are not supported.".format(ngmesh.dim))
+    meshMap = ngs2petsc.DMPlexMapping(ngmesh)
+    return meshMap.plex
 
 
 @PETSc.Log.EventDecorator()
