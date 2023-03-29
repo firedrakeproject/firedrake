@@ -663,13 +663,16 @@ class FDMPC(PCBase):
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-            A00 = fiat_reference_prolongator(e0, eq)
-            A10 = fiat_reference_prolongator(e0, e1, derivative=True)
-            A11 = numpy.eye(e1.space_dimension(), dtype=A00.dtype)
-
+            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
+            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
+            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
             B_blocks = mass_blocks(tdim, formdegree, A00, A11)
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
             result = block_mat(B_blocks + A_blocks, destroy=True)
+            A00.destroy()
+            A10.destroy()
+            A11.destroy()
+
             if value_size != 1:
                 eye = petsc_sparse(numpy.eye(value_size))
                 temp = result
@@ -1042,85 +1045,67 @@ def block_mat(A_blocks, destroy=False):
     return result
 
 
-def mass_blocks(tdim, formdegree, B00, B11, comm=None):
+def mass_blocks(tdim, formdegree, B00, B11):
     """Construct mass block matrix on reference cell from 1D mass matrices B00 and B11.
        The 1D matrices may come with different test and trial spaces."""
-    if comm is None:
-        comm = PETSc.COMM_SELF
     if tdim == 1:
-        return [[petsc_sparse(B11 if formdegree else B00, comm=comm)]]
-
-    B00 = petsc_sparse(B00, comm=comm)
-    B11 = petsc_sparse(B11, comm=comm)
-    if tdim == 2:
+        Bdiag = [B11 if formdegree else B00]
+    elif tdim == 2:
         if formdegree == 0:
-            B_diag = [B00.kron(B00)]
+            Bdiag = [B00.kron(B00)]
         elif formdegree == 1:
-            B_diag = [B00.kron(B11), B11.kron(B00)]
+            Bdiag = [B00.kron(B11), B11.kron(B00)]
         else:
-            B_diag = [B11.kron(B11)]
+            Bdiag = [B11.kron(B11)]
     elif tdim == 3:
         if formdegree == 0:
-            B_diag = [kron3(B00, B00, B00)]
+            Bdiag = [kron3(B00, B00, B00)]
         elif formdegree == 1:
-            B_diag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
+            Bdiag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
         elif formdegree == 2:
-            B_diag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
+            Bdiag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
         else:
-            B_diag = [kron3(B11, B11, B11)]
+            Bdiag = [kron3(B11, B11, B11)]
 
-    B00.destroy()
-    B11.destroy()
-    n = len(B_diag)
+    n = len(Bdiag)
     if n == 1:
-        return [B_diag]
+        return [Bdiag]
     else:
-        B_zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=comm)
-        B_zero.assemble()
-        return [[B_diag[i] if i == j else B_zero for j in range(n)] for i in range(n)]
+        Bzero = PETSc.Mat().createAIJ(Bdiag[0].getSize(), nnz=(0, 0), comm=Bdiag[0].getComm())
+        Bzero.assemble()
+        return [[Bdiag[i] if i == j else Bzero for j in range(n)] for i in range(n)]
 
 
-def diff_blocks(tdim, formdegree, A00, A11, A10, comm=None):
+def diff_blocks(tdim, formdegree, A00, A11, A10):
     """Construct exterior derivative block matrix on reference cell from 1D
        mass matrices A00 and A11, and exterior derivative moments A10.
        The 1D matrices may come with different test and trial spaces."""
-    if comm is None:
-        comm = PETSc.COMM_SELF
     if formdegree == tdim:
         ncols = A10.shape[0]**tdim
-        A_zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=comm)
-        A_zero.assemble()
-        return [[A_zero]]
-
-    A10 = petsc_sparse(A10, comm=comm)
-    if tdim == 1:
-        return [[A10]]
-
-    A00 = petsc_sparse(A00, comm=comm)
-    A11 = petsc_sparse(A11, comm=comm)
-    if tdim == 2:
+        Azero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=A10.getComm())
+        Azero.assemble()
+        Ablocks = [[A_zero]]
+    elif tdim == 1:
+        Ablocks = [[A10]]
+    elif tdim == 2:
         if formdegree == 0:
-            A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
+            Ablocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
-            A_blocks = [[A10.kron(A11), A11.kron(A10)]]
-            A_blocks[-1][-1].scale(-1)
+            Ablocks = [[A10.kron(A11), A11.kron(A10)]]
+            Ablocks[-1][-1].scale(-1)
     elif tdim == 3:
         if formdegree == 0:
-            A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
+            Ablocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
             size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
-            A_zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=comm)
-            A_zero.assemble()
-            A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), A_zero],
-                        [kron3(A10, A00, A11, scale=-1), A_zero, kron3(A11, A00, A10)],
-                        [A_zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
+            Azero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
+            Azero.assemble()
+            Ablocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), Azero],
+                       [kron3(A10, A00, A11, scale=-1), Azero, kron3(A11, A00, A10)],
+                       [Azero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
         elif formdegree == 2:
-            A_blocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
-
-    A00.destroy()
-    A11.destroy()
-    A10.destroy()
-    return A_blocks
+            Ablocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
+    return Ablocks
 
 
 def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
@@ -1139,10 +1124,13 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
 
     degree = e0.degree()
     tdim = Vc.mesh().topological_dimension()
-    A11 = numpy.eye(degree, dtype=PETSc.RealType)
-    A00 = numpy.eye(degree+1, dtype=PETSc.RealType)
-    A10 = fiat_reference_prolongator(e0, e1, derivative=True)
+    A00 = petsc_sparse(numpy.eye(degree+1, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+    A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
+    A11 = petsc_sparse(numpy.eye(degree, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy=True)
+    A00.destroy()
+    A10.destroy()
+    A11.destroy()
 
     if any(is_restricted(ec)) or any(is_restricted(ef)):
         scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
