@@ -260,9 +260,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg weight: weight of the boundary condition, i.e. the scalar in front of the
-        identity matrix corresponding to the boundary nodes, 1.0 by default.
-        To discretise eigenvalue problems set the weight equal to 0.0.
     :arg method: the method for determining boundary nodes.
         DEPRECATED. The only way boundary nodes are identified is by
         topological association.
@@ -270,7 +267,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, weight=1.0, method=None):
+    def __init__(self, V, g, sub_domain, method=None):
         if method == "geometric":
             raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
         if method not in {None, "topological"}:
@@ -288,7 +285,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
         self.function_arg = g
         self._original_arg = g
         self.is_linear = True
-        self.weight = weight
         self.Jp_eq_J = True
 
     def dirichlet_bcs(self):
