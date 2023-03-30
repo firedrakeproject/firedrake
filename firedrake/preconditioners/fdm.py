@@ -455,10 +455,10 @@ class FDMPC(PCBase):
             get_cindices = self.cell_to_global[Vcol]
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
 
-        # interpolators of basis and exterior derivative onto broken spaces
+        De = self._coefficient_mat
+        # interpolation of basis and exterior derivative onto broken spaces
         ctensor = self.assemble_reference_tensor(Vbig or Vcol)
         rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
-        De = self._coefficient_mat
         # element matrix obtained via Equation (3.9) of Brubeck2022b
         assemble_element_mat = partial(rtensor.matMatMult, De, ctensor)
         try:
@@ -1268,9 +1268,9 @@ class PoissonFDMPC(FDMPC):
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
         bdof = []  # indices of point evaluation dofs for each direction
-        cache = {}
+        cache = self._cache.setdefault("ipdg_reference_tensor", {})
         for e in line_elements:
-            key = e.degree()
+            key = (e.degree(), eta)
             try:
                 rtensor = cache[key]
             except KeyError:
@@ -1297,11 +1297,7 @@ class PoissonFDMPC(FDMPC):
         condense_element_mat = lambda x: x
 
         get_rindices = self.cell_to_global[Vrow]
-        try:
-            rtensor = self.reference_tensor_on_diag[Vrow]
-        except KeyError:
-            rtensor = self.reference_tensor_on_diag.setdefault(Vrow, self.assemble_reference_tensor(Vrow))
-        Afdm, Dfdm, bdof, axes_shifts = rtensor
+        Afdm, Dfdm, bdof, axes_shifts = self.assemble_reference_tensor(Vrow)
 
         Gq = self.coefficients.get("alpha")
         Bq = self.coefficients.get("beta")
