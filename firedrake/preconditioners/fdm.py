@@ -240,21 +240,19 @@ class FDMPC(PCBase):
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
         self.submats = [None for _ in range(8)]
 
-        self.Vbig = {}
         self.reference_tensor_on_diag = {}
         self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            self.Vbig[Vfacet] = Vbig
             diagonal_interior = Vfacet.finat_element.formdegree == 0 and value_size == 1
             get_schur = schur_complement_diagonal if diagonal_interior else schur_complement_block_qr
-            self.get_static_condensation[Vfacet] = lambda A: condense_element_mat(A, self.ises[0], self.ises[1],
-                                                                                  self.submats, get_schur)
+            self.get_static_condensation[Vfacet] = Vbig, lambda A: condense_element_mat(A, self.ises[0], self.ises[1],
+                                                                                        self.submats, get_schur)
 
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
-            self.get_static_condensation[V] = lambda Ae: condense_element_pattern(Ae, self.ises[0], i1, self.submats)
+            self.get_static_condensation[V] = Vbig, lambda Ae: condense_element_pattern(Ae, self.ises[0], i1, self.submats)
 
         @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
@@ -445,41 +443,34 @@ class FDMPC(PCBase):
             # This MPI rank does not own any elements, nothing to be done
             return
 
+        Vbig = None
+        condense_element_mat = lambda x: x
         set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
-            condense_element_mat = self.get_static_condensation.get(Vrow)
             get_cindices = lambda e, result=None: result
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, rindices, addv)
-            # interpolators of basis and exterior derivative onto broken spaces
-            Vbig = self.Vbig.get(Vrow, Vrow)
-            ctensor = self.assemble_reference_tensor(Vbig)
-            rtensor = self.assemble_reference_tensor(Vbig, transpose=True)
+            Vbig, condense_element_mat = self.get_static_condensation.get(Vrow, (Vbig, condense_element_mat))
         else:
-            condense_element_mat = None
             get_cindices = self.cell_to_global[Vcol]
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
-            ctensor = self.assemble_reference_tensor(Vcol)
-            rtensor = self.assemble_reference_tensor(Vrow, transpose=True)
 
-        do_sort = True
-        if condense_element_mat is None:
-            condense_element_mat = lambda x: x
-            do_sort = False
-
-        rindices = None
-        cindices = None
+        # interpolators of basis and exterior derivative onto broken spaces
+        ctensor = self.assemble_reference_tensor(Vbig or Vcol)
+        rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
         De = self._coefficient_mat
         # element matrix obtained via Equation (3.9) of Brubeck2022b
-        assemble_element_mat = lambda result=None: rtensor.matMatMult(De, ctensor, result=result)
+        assemble_element_mat = partial(rtensor.matMatMult, De, ctensor)
         try:
             Ae = self.work_mats[Vrow, Vcol]
         except KeyError:
             Ae = self.work_mats.setdefault((Vrow, Vcol), assemble_element_mat())
 
+        cindices = None
+        rindices = None
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             # Preallocation of the sparsity pattern
-            if do_sort:
+            if Vbig is not None:
                 sort_interior_dofs(self.ises[0], Ae)
             Se = condense_element_mat(Ae)
             for e in range(self.nel):
@@ -494,14 +485,12 @@ class FDMPC(PCBase):
 
                 def update_De():
                     De.setDiagonal(diagonal, addv=insert)
-                    return De
             else:
                 ai, aj, data = self._coefficient_csr
 
                 def update_De():
                     De.setValuesCSR(ai, aj, data, addv=insert)
                     De.assemble()
-                    return De
 
             # Core assembly loop
             for e in range(self.nel):
