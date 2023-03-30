@@ -404,7 +404,7 @@ class FDMPC(PCBase):
                 obj.destroy()
 
     @cached_property
-    def _coefficient_mat(self):
+    def _element_mass_matrix(self):
         data = self.get_coeffs(0)
         data.fill(1.0E0)
         shape = data.shape + (1,)*(3-len(data.shape))
@@ -414,12 +414,12 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        De = PETSc.Mat().createAIJ((nrows, nrows), bsize=shape[2], csr=(ai, aj, data), comm=PETSc.COMM_SELF)
-        return self.work_mats.setdefault("coefficient_mat", De)
+        Me = PETSc.Mat().createAIJ((nrows, nrows), bsize=shape[2], csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        return self.work_mats.setdefault("mass_matrix", Me)
 
     @cached_property
-    def _coefficient_diagonal(self):
-        return self.work_mats.setdefault("coefficient_diagonal", self._coefficient_mat.getDiagonal())
+    def _element_mass_diagonal(self):
+        return self.work_mats.setdefault("mass_diagonal", self._element_mass_matrix.getDiagonal())
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
@@ -449,12 +449,12 @@ class FDMPC(PCBase):
             get_cindices = self.cell_to_global[Vcol]
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
 
-        De = self._coefficient_mat
+        Me = self._element_mass_matrix
         # interpolation of basis and exterior derivative onto broken spaces
         ctensor = self.assemble_reference_tensor(Vbig or Vcol)
         rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
         # element matrix obtained via Equation (3.9) of Brubeck2022b
-        assemble_element_mat = partial(rtensor.matMatMult, De, ctensor)
+        assemble_element_mat = partial(rtensor.matMatMult, Me, ctensor)
         try:
             Ae = self.work_mats[Vrow, Vcol]
         except KeyError:
@@ -462,41 +462,40 @@ class FDMPC(PCBase):
 
         cindices = None
         rindices = None
+        insert = PETSc.InsertMode.INSERT
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
-            # Preallocation of the sparsity pattern
+            # Empty kernel for preallocation
             if Vbig is not None:
                 sort_interior_dofs(self.ises[0], Ae)
             Se = condense_element_mat(Ae)
-            for e in range(self.nel):
-                cindices = get_cindices(e, result=cindices)
-                rindices = get_rindices(e, result=rindices)
-                update_A(Se, rindices, cindices)
+            element_kernel = lambda e, result=None: result
+            condense_element_mat = lambda Ae: Se
+        elif Me.getBlockSize() == 1:
+            # Kernel with diagonal mass matrix
+            diagonal = self._element_mass_diagonal
+            data = diagonal.array_w.reshape((-1,) + Vrow.shape)
+
+            def element_kernel(e, result=None):
+                self.get_coeffs(e, result=data)
+                Me.setDiagonal(diagonal, addv=insert)
+                return assemble_element_mat(result=result)
         else:
-            insert = PETSc.InsertMode.INSERT
-            if De.getBlockSize() == 1:
-                diagonal = self._coefficient_diagonal
-                data = diagonal.array_w.reshape((-1,) + Vrow.shape)
+            # Kernel with block diagonal mass matrix
+            ai, aj, data = Me.getValuesCSR()
+            data = data.reshape((-1,) + Vrow.shape * 2)
 
-                def update_De(e):
-                    self.get_coeffs(e, result=data)
-                    De.setDiagonal(diagonal, addv=insert)
+            def element_kernel(e, result=None):
+                self.get_coeffs(e, result=data)
+                Me.setValuesCSR(ai, aj, data, addv=insert)
+                Me.assemble()
+                return assemble_element_mat(result=result)
 
-            else:
-                ai, aj, data = De.getValuesCSR()
-                data = data.reshape((-1,) + Vrow.shape * 2)
-
-                def update_De(e):
-                    self.get_coeffs(e, result=data)
-                    De.setValuesCSR(ai, aj, data, addv=insert)
-                    De.assemble()
-
-            # Core assembly loop
-            for e in range(self.nel):
-                cindices = get_cindices(e, result=cindices)
-                rindices = get_rindices(e, result=rindices)
-                update_De(e)
-                Ae = assemble_element_mat(result=Ae)
-                update_A(condense_element_mat(Ae), rindices, cindices)
+        # Core assembly loop
+        for e in range(self.nel):
+            cindices = get_cindices(e, result=cindices)
+            rindices = get_rindices(e, result=rindices)
+            Ae = element_kernel(e, result=Ae)
+            update_A(condense_element_mat(Ae), rindices, cindices)
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -1094,8 +1093,8 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
             zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
             zero.assemble()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), zero],
-                       [kron3(A10, A00, A11, scale=-1), zero, kron3(A11, A00, A10)],
-                       [zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
+                        [kron3(A10, A00, A11, scale=-1), zero, kron3(A11, A00, A10)],
+                        [zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
         elif formdegree == 2:
             A_blocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
     return A_blocks
