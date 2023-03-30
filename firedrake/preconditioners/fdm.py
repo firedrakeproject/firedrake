@@ -240,7 +240,7 @@ class FDMPC(PCBase):
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
         self.submats = [None for _ in range(8)]
 
-        self.reference_tensor_on_diag = {}
+        # Dictionary with the parent space and a method to form the Schur complement
         self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
@@ -404,23 +404,18 @@ class FDMPC(PCBase):
                 obj.destroy()
 
     @cached_property
-    def _coefficient_csr(self):
+    def _coefficient_mat(self):
         data = self.get_coeffs(0)
         data.fill(1.0E0)
         shape = data.shape + (1,)*(3-len(data.shape))
         nrows = shape[0] * shape[1]
+        bsize = shape[2]
         ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
         aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
-        if shape[2] > 1:
-            ai *= shape[2]
-            data = numpy.tile(numpy.eye(shape[2]), shape[:1] + (1,)*(len(shape)-1))
-        return ai, aj, data
-
-    @cached_property
-    def _coefficient_mat(self):
-        csr = self._coefficient_csr
-        nrows = len(csr[0]) - 1
-        De = PETSc.Mat().createAIJ((nrows, nrows), csr=csr, comm=PETSc.COMM_SELF)
+        if bsize > 1:
+            ai *= bsize
+            data = numpy.tile(numpy.eye(bsize, dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
+        De = PETSc.Mat().createAIJWithArrays((nrows, nrows), (ai, aj, data), bsize=bsize, comm=PETSc.COMM_SELF)
         return self.work_mats.setdefault("coefficient_mat", De)
 
     @cached_property
@@ -479,16 +474,18 @@ class FDMPC(PCBase):
                 update_A(Se, rindices, cindices)
         else:
             insert = PETSc.InsertMode.INSERT
-            if Vrow.value_size == 1:
+            if De.getBlockSize() == 1:
                 diagonal = self._coefficient_diagonal
-                data = diagonal.array_w
 
-                def update_De():
+                def update_De(e):
+                    self.get_coeffs(e, result=diagonal.array_w)
                     De.setDiagonal(diagonal, addv=insert)
-            else:
-                ai, aj, data = self._coefficient_csr
 
-                def update_De():
+            else:
+                ai, aj, data = De.getValuesCSR()
+
+                def update_De(e):
+                    self.get_coeffs(e, result=data)
                     De.setValuesCSR(ai, aj, data, addv=insert)
                     De.assemble()
 
@@ -496,8 +493,7 @@ class FDMPC(PCBase):
             for e in range(self.nel):
                 cindices = get_cindices(e, result=cindices)
                 rindices = get_rindices(e, result=rindices)
-                data = self.get_coeffs(e, result=data)
-                update_De()
+                update_De(e)
                 Ae = assemble_element_mat(result=Ae)
                 update_A(condense_element_mat(Ae), rindices, cindices)
 
@@ -645,7 +641,7 @@ class FDMPC(PCBase):
             full_key = (degree, tdim, formdegree, value_size, False, False, False)
             if is_facet and full_key in cache:
                 result = cache[full_key]
-                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
+                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
                 result = result.createSubMatrix(noperm, self.ises[1])
                 noperm.destroy()
                 return cache.setdefault(key, result)
@@ -658,18 +654,19 @@ class FDMPC(PCBase):
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
-            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+            comm = PETSc.COMM_SELF
+            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=comm)
+            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=comm)
+            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=comm)
             B_blocks = mass_blocks(tdim, formdegree, A00, A11)
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
-            result = block_mat(B_blocks + A_blocks, destroy=True)
+            result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
             A00.destroy()
             A10.destroy()
             A11.destroy()
 
             if value_size != 1:
-                eye = petsc_sparse(numpy.eye(value_size))
+                eye = petsc_sparse(numpy.eye(value_size), comm=comm)
                 temp = result
                 result = temp.kron(eye)
                 temp.destroy()
@@ -677,7 +674,7 @@ class FDMPC(PCBase):
 
             if is_facet:
                 cache[full_key] = result
-                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.comm)
+                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
                 result = result.createSubMatrix(noperm, self.ises[1])
                 noperm.destroy()
 
@@ -1023,7 +1020,7 @@ def kron3(A, B, C, scale=None):
     return result
 
 
-def block_mat(A_blocks, destroy=False):
+def block_mat(A_blocks, destroy_blocks=False):
     """Return a concrete Mat corresponding to a block matrix given as a list of lists.
        Optionally, destroys the input Mats if a new Mat is created."""
     if len(A_blocks) == 1:
@@ -1033,7 +1030,7 @@ def block_mat(A_blocks, destroy=False):
     result = PETSc.Mat().createNest(A_blocks, comm=A_blocks[0][0].getComm())
     # A nest Mat would not allow us to take matrix-matrix products
     result = result.convert(mat_type=A_blocks[0][0].getType())
-    if destroy:
+    if destroy_blocks:
         for row in A_blocks:
             for mat in row:
                 mat.destroy()
@@ -1044,31 +1041,31 @@ def mass_blocks(tdim, formdegree, B00, B11):
     """Construct mass block matrix on reference cell from 1D mass matrices B00 and B11.
        The 1D matrices may come with different test and trial spaces."""
     if tdim == 1:
-        Bdiag = [B11 if formdegree else B00]
+        B_diag = [B11 if formdegree else B00]
     elif tdim == 2:
         if formdegree == 0:
-            Bdiag = [B00.kron(B00)]
+            B_diag = [B00.kron(B00)]
         elif formdegree == 1:
-            Bdiag = [B00.kron(B11), B11.kron(B00)]
+            B_diag = [B00.kron(B11), B11.kron(B00)]
         else:
-            Bdiag = [B11.kron(B11)]
+            B_diag = [B11.kron(B11)]
     elif tdim == 3:
         if formdegree == 0:
-            Bdiag = [kron3(B00, B00, B00)]
+            B_diag = [kron3(B00, B00, B00)]
         elif formdegree == 1:
-            Bdiag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
+            B_diag = [kron3(B00, B00, B11), kron3(B00, B11, B00), kron3(B11, B00, B00)]
         elif formdegree == 2:
-            Bdiag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
+            B_diag = [kron3(B00, B11, B11), kron3(B11, B00, B11), kron3(B11, B11, B00)]
         else:
-            Bdiag = [kron3(B11, B11, B11)]
+            B_diag = [kron3(B11, B11, B11)]
 
-    n = len(Bdiag)
+    n = len(B_diag)
     if n == 1:
-        return [Bdiag]
+        return [B_diag]
     else:
-        Bzero = PETSc.Mat().createAIJ(Bdiag[0].getSize(), nnz=(0, 0), comm=Bdiag[0].getComm())
-        Bzero.assemble()
-        return [[Bdiag[i] if i == j else Bzero for j in range(n)] for i in range(n)]
+        zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=B_diag[0].getComm())
+        zero.assemble()
+        return [[B_diag[i] if i == j else zero for j in range(n)] for i in range(n)]
 
 
 def diff_blocks(tdim, formdegree, A00, A11, A10):
@@ -1077,37 +1074,39 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
        The 1D matrices may come with different test and trial spaces."""
     if formdegree == tdim:
         ncols = A10.shape[0]**tdim
-        Azero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=A10.getComm())
-        Azero.assemble()
-        Ablocks = [[Azero]]
+        zero = PETSc.Mat().createAIJ((1, ncols), nnz=(0, 0), comm=A10.getComm())
+        zero.assemble()
+        A_blocks = [[zero]]
     elif tdim == 1:
-        Ablocks = [[A10]]
+        A_blocks = [[A10]]
     elif tdim == 2:
         if formdegree == 0:
-            Ablocks = [[A00.kron(A10)], [A10.kron(A00)]]
+            A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
-            Ablocks = [[A10.kron(A11), A11.kron(A10)]]
-            Ablocks[-1][-1].scale(-1)
+            A_blocks = [[A10.kron(A11), A11.kron(A10)]]
+            A_blocks[-1][-1].scale(-1)
     elif tdim == 3:
         if formdegree == 0:
-            Ablocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
+            A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
             size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
-            Azero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
-            Azero.assemble()
-            Ablocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), Azero],
-                       [kron3(A10, A00, A11, scale=-1), Azero, kron3(A11, A00, A10)],
-                       [Azero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
+            zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
+            zero.assemble()
+            A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), zero],
+                       [kron3(A10, A00, A11, scale=-1), zero, kron3(A11, A00, A10)],
+                       [zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
         elif formdegree == 2:
-            Ablocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
-    return Ablocks
+            A_blocks = [[kron3(A10, A11, A11, scale=-1), kron3(A11, A10, A11), kron3(A11, A11, A10)]]
+    return A_blocks
 
 
-def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     """
     Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
     Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
     """
+    if comm is None:
+        comm = Vf.comm
     ec = Vc.finat_element
     ef = Vf.finat_element
     if ef.formdegree - ec.formdegree != 1:
@@ -1122,7 +1121,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     A00 = petsc_sparse(numpy.eye(degree+1, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
     A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
     A11 = petsc_sparse(numpy.eye(degree, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
-    Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy=True)
+    Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A10.destroy()
     A11.destroy()
@@ -1141,7 +1140,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
 
     if Vf.value_size > 1:
         temp = Dhat
-        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType))
+        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
         Dhat = temp.kron(eye)
         temp.destroy()
         eye.destroy()
@@ -1160,7 +1159,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
-    preallocator = PETSc.Mat().create(comm=Vf.comm)
+    preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
     preallocator.setUp()
@@ -1175,7 +1174,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[]):
     preallocator.assemble()
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
-    Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=Vf.comm)
+    Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
 
     for e in range(nel):
