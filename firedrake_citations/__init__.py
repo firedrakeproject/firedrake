@@ -47,7 +47,7 @@ class Citations(dict):
 
         :arg key: The key of the relevant citation.
 
-        :raises: :exc:`~.exceptions.KeyError` if no such citation is
+        :raises: :exc:`KeyError` if no such citation is
             found in the database.
 
         Papers to be cited can be added using :meth:`add`.

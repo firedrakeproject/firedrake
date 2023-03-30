@@ -4,10 +4,10 @@ import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake import dmhooks
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
-
+from pyop2.mpi import internal_comm, decref
 
 __all__ = ["LinearSolver"]
 
@@ -50,11 +50,13 @@ class LinearSolver(OptionsManager):
         if P is not None and not isinstance(P, matrix.MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
+        solver_parameters = flatten_parameters(solver_parameters or {})
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        A.a.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
+        self._comm = internal_comm(self.comm)
         self.P = P if P is not None else A
 
         # Set up parameters mixin
@@ -67,7 +69,7 @@ class LinearSolver(OptionsManager):
         if isinstance(self.P, matrix.ImplicitMatrix):
             self.set_default_parameter("pc_type", "jacobi")
 
-        self.ksp = PETSc.KSP().create(comm=self.comm)
+        self.ksp = PETSc.KSP().create(comm=self._comm)
 
         W = self.test_space
         # DM provides fieldsplits (but not operators)
@@ -98,6 +100,10 @@ class LinearSolver(OptionsManager):
         # Set from options now (we're not allowed to change parameters
         # anyway).
         self.set_from_options(self.ksp)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @cached_property
     def test_space(self):
@@ -160,3 +166,7 @@ class LinearSolver(OptionsManager):
         r = self.ksp.getConvergedReason()
         if r < 0:
             raise ConvergenceError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
+
+        # Grab the comm associated with `x` and call PETSc's garbage cleanup routine
+        comm = x.function_space().mesh()._comm
+        PETSc.garbage_cleanup(comm=comm)

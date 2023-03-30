@@ -145,6 +145,10 @@ class PMGBase(PCSNESBase):
         viewer.printfASCII("p-multigrid PC\n")
         self.ppc.view(viewer)
 
+    def destroy(self, pc):
+        if hasattr(self, "ppc"):
+            self.ppc.destroy()
+
     def coarsen(self, fdm, comm):
         # Coarsen the _SNESContext of a DM fdm
         # return the coarse DM cdm of the coarse _SNESContext
@@ -762,13 +766,13 @@ def make_mapping_code(Q, fmapping, cmapping, t_in, t_out):
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
+    prolong_map_code = cache_generate_code(prolong_map_kernel, Q._comm)
     prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
     coefficients.remove(u)
 
     expr = ufl.dot(u, tensor)
     restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
+    restrict_map_code = cache_generate_code(restrict_map_kernel, Q._comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
     restrict_map_code = restrict_map_code.replace("#include <complex.h>", "")
@@ -1149,7 +1153,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         self.uc = Vc if isinstance(Vc, firedrake.Function) else firedrake.Function(Vc)
 
         self.standalones = []
-        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.split(), self.uc.split())):
+        for (i, (uf_sub, uc_sub)) in enumerate(zip(self.uf.subfunctions, self.uc.subfunctions)):
             Vf_sub_bcs = [bc for bc in Vf_bcs if bc.function_space().index == i]
             Vc_sub_bcs = [bc for bc in Vc_bcs if bc.function_space().index == i]
             standalone = StandaloneInterpolationMatrix(uf_sub, uc_sub, Vf_sub_bcs, Vc_sub_bcs)
@@ -1162,7 +1166,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         if i == j:
             s = self.standalones[i]
             sizes = (s.uf.dof_dset.layout_vec.getSizes(), s.uc.dof_dset.layout_vec.getSizes())
-            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
+            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf._comm)
             M_shll.setUp()
             return M_shll
         else:
@@ -1232,7 +1236,7 @@ def prolongation_matrix_matfree(Vf, Vc, Vf_bcs=[], Vc_bcs=[]):
         ctx = StandaloneInterpolationMatrix(Vf, Vc, Vf_bcs, Vc_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
-    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.comm)
+    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
     M_shll.setUp()
 
     return M_shll

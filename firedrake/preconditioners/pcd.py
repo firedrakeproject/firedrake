@@ -17,8 +17,9 @@ class PCDPC(PCBase):
 
        S^{-1} \sim K^{-1} F_p M^{-1}
 
-    Where :math:`K = \\nabla^2`, :math:`M = \mathbb{I}` and
-    :math:`F_p = 1/\mathrm{Re} \\nabla^2 + u\cdot\\nabla`.
+    Where :math:`K = \nabla^2`,
+    :math:`F_p = (1/\mathrm{Re}) \nabla^2 + u\cdot\nabla`
+    and :math:`M = \mathbb{I}`.
 
     The inverse of :math:`K` is approximated by a KSP which can be
     controlled using the options prefix ``pcd_Kp_``.
@@ -143,3 +144,14 @@ class PCDPC(PCBase):
         self.Kksp.view(viewer)
         viewer.printfASCII("KSP solver for M^-1:\n")
         self.Mksp.view(viewer)
+
+    def destroy(self, pc):
+        if hasattr(self, "workspace"):
+            for vec in self.workspace:
+                vec.destroy()
+        if hasattr(self, "Kksp"):
+            self.Kksp.destroy()
+        if hasattr(self, "Fp"):
+            self.Fp.petscmat.destroy()
+        if hasattr(self, "Mksp"):
+            self.Mksp.destroy()

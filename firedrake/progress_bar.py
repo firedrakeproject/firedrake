@@ -21,7 +21,7 @@ class _NullProgressBar:
 class ProgressBar(FillingSquaresBar):
     """A progress bar for simulation execution.
 
-    This is a subclass of :class:`progress.bar.FillingSquaresBar` which is
+    This is a subclass of ``progress.bar.FillingSquaresBar`` which is
     configured to be suitable for tracking progress in forward and adjoint
     simulations. It is also extended to only output on rank 0 in parallel.
 
@@ -46,7 +46,7 @@ class ProgressBar(FillingSquaresBar):
     --------
 
     To apply a progress bar to a loop, wrap the loop iterator in the
-    :meth:`iter` method of a `ProgressBar`:
+    ``iter`` method of a ``ProgressBar``:
 
     >>> for t in ProgressBar("Timestep").iter(np.linspace(0.0, 1.0, 10)):
     ...    sleep(0.2)
@@ -54,7 +54,7 @@ class ProgressBar(FillingSquaresBar):
     Timestep ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 10/10 [0:00:02]
 
     To see progress bars for functional, adjoint and Hessian evaluations in an
-    adjoint simulation, set the :attr:`progress_bar` attribute of the tape to
+    adjoint simulation, set the ``progress_bar`` attribute of the tape to
     `ProgressBar`:
 
     >>> get_working_tape().progress_bar = ProgressBar

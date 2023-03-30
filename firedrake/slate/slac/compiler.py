@@ -10,7 +10,7 @@ expressions (finite element variational forms written in UFL).
 COFFEE's AST base helps with the construction of code blocks
 throughout the kernel returned by: `compile_expression`.
 
-The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
+The Eigen C++ library (https://eigen.tuxfamily.org/) is required, as
 all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
@@ -31,7 +31,6 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode, ScalarType_c, as_cstr
-from ufl.log import GREEN
 from gem.utils import groupby
 from gem import impero_utils
 from itertools import chain
@@ -52,6 +51,8 @@ import copy
 from petsc4py import PETSc
 
 __all__ = ['compile_expression']
+
+GREEN = "\033[1;37;32m%s\033[0m"
 
 
 try:
@@ -102,13 +103,13 @@ class SlateKernel(TSFCKernel):
 
 def compile_expression(slate_expr, compiler_parameters=None, coffee=False):
     """Takes a Slate expression `slate_expr` and returns the appropriate
-    :class:`firedrake.op2.Kernel` object representing the Slate expression.
+    ``pyop2.op2.Kernel`` object representing the Slate expression.
 
-    :arg slate_expr: a :class:'TensorBase' expression.
+    :arg slate_expr: a :class:`~.Tensor` expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
         be passed to TSFC during the compilation of ufl forms.
 
-    Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
+    Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
     if complex_mode:
         raise NotImplementedError("SLATE doesn't work in complex mode yet")

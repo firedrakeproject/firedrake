@@ -26,12 +26,12 @@ set of equations are then
 .. math::
 
    -\int_\Omega \! q \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x
-   + \int_{\Gamma_\rlap{\mathrm{ext, outflow}}} \! \phi q \vec{u} \cdot \vec{n}
+   + \int_{\Gamma_{\mathrlap{\mathrm{ext, outflow}}}} \! \phi q \vec{u} \cdot \vec{n}
    \, \mathrm{d} s
    + \int_{\Gamma_\mathrm{int}} \! (\phi_+ \vec{u} \cdot \vec{n}_+ +
      \phi_- \vec{u} \cdot \vec{n}_-) \widetilde{q} \, \mathrm{d} S
    \quad = \quad
-   -\int_{\Gamma_\rlap{\mathrm{ext, inflow}}} \phi q_\mathrm{in} \vec{u} \cdot
+   -\int_{\Gamma_{\mathrlap{\mathrm{ext, inflow}}}} \phi q_\mathrm{in} \vec{u} \cdot
    \vec{n} \, \mathrm{d} s \quad \forall \ \phi \in V,
 
 We will take the domain :math:`\Omega` to be the cuboid
@@ -147,4 +147,4 @@ We finally compare our solution to the expected solution: ::
   assert max(abs(out.dat.data - exact.dat.data)) < 1e-10
 
 This demo can be found as a script in
-`extruded_continuity.py <extruded_continuity.py>`__.
+:demo:`extruded_continuity.py <extruded_continuity.py>`.

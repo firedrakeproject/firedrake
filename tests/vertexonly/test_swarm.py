@@ -15,8 +15,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    if isinstance(m.topology, mesh.ExtrudedMeshTopology):
-        raise NotImplementedError("Extruded meshes are not supported")
     m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
@@ -24,9 +22,10 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = m.cell_set.size
+    num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
-    local_midpoints = f.dat.data_ro
+    # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
@@ -38,19 +37,22 @@ def cell_midpoints(m):
 
 @pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
-                        pytest.param("periodicrectangle"),
-                        pytest.param("shiftedmesh", marks=pytest.mark.skip(reason="meshes with modified coordinate fields are not supported"))])
+                        "periodicrectangle",
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -60,25 +62,52 @@ def parentmesh(request):
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
-        m = UnitSquareMesh(1, 1)
+        m = UnitSquareMesh(10, 10)
         m.coordinates.dat.data[:] -= 0.5
         return m
 
 
+@pytest.fixture(params=["redundant", "nonredundant"])
+def redundant(request):
+    if request.param == "redundant":
+        return True
+    else:
+        return False
+
+
 # pic swarm tests
 
-def test_pic_swarm_in_mesh(parentmesh):
+def test_pic_swarm_in_mesh(parentmesh, redundant):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
 
     # Setup
-
     parentmesh.init()
+    # The coords dat version is > 0 for a shifted mesh. We need to save the it
+    # here because a bug somewhere in the kernel generation of
+    # MeshGeometry.locate_cell_and_reference_coordinate changes its value.
+    # Accessing the coordinates ought to be a read only operation but, for some
+    # reason, it increments the dat version.
+    coords_dat_version = parentmesh.coordinates.dat.dat_version
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
-    swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+
+    if redundant:
+        # check redundant argument broadcasts from rank 0 by only supplying the
+        # global cell midpoints only on rank 0. Note that this is the default
+        # behaviour so it needn't be specified explicitly.
+        if MPI.COMM_WORLD.rank == 0:
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+        else:
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
+    else:
+        # When redundant == False we expect the same behaviour by only
+        # supplying the local cell midpoints on each MPI ranks. Note that this
+        # is not the default behaviour so it must be specified explicitly.
+        swarm = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
+
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
     swarm.restoreField("DMSwarmPIC_coor")
@@ -115,38 +144,55 @@ def test_pic_swarm_in_mesh(parentmesh):
                        np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
-    # Check there are as many local points as there are local cells
-    # (excluding ghost cells in the halo)
-    assert len(localpointcoords) == parentmesh.cell_set.size
+    if not parentmesh.extruded:
+        # Check there are as many local points as there are local cells
+        # (excluding ghost cells in the halo). This won't be true for extruded
+        # meshes as the cell_set.size is the number of base mesh cells.
+        assert len(localpointcoords) == parentmesh.cell_set.size
+    else:
+        if parentmesh.variable_layers:
+            ncells = sum(height - 1 for _, height in parentmesh.layers)
+        else:
+            ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
+        assert len(localpointcoords) == ncells
     # Check total number of points on all MPI ranks is correct
     # (excluding ghost cells in the halo)
     assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
-    # Check the parent cell indexes match those in the parent mesh
+    # Check the parent cell indexes match those in the parent mesh unless
+    # parent mesh is shifted, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        assert np.any(index == cell_indexes)
+        if coords_dat_version > 0:
+            assert index == -1
+        else:
+            assert np.any(index == cell_indexes)
 
     # Now have DMPLex compute the cell IDs in cases where it can:
-    if parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange":
+    if (
+        parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
+        and not parentmesh.extruded
+        and not coords_dat_version > 0
+    ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
         petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
         swarm.restoreField("DMSwarm_cellid")
-        # Check that we agree with PETSc
         assert np.all(petsclocalparentcellindices == localparentcellindices)
 
 
 @pytest.mark.parallel
-def test_pic_swarm_in_mesh_parallel(parentmesh):
-    test_pic_swarm_in_mesh(parentmesh)
+def test_pic_swarm_in_mesh_parallel(parentmesh, redundant):
+    test_pic_swarm_in_mesh(parentmesh, redundant)
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
 def test_pic_swarm_in_mesh_2d_2procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
 
 
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
 def test_pic_swarm_in_mesh_2d_3procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1))
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)

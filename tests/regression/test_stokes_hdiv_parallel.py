@@ -117,7 +117,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
               appctx=appctx)
 
-        u, p = UP.split()
+        u, p = UP.subfunctions
         u_error = u - u_exact
         p_error = p - p_exact
         err_u.append(sqrt(abs(assemble(inner(u_error, u_error) * dx))))

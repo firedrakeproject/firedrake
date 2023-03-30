@@ -66,7 +66,7 @@ def test_mixed_direct_par_loop(f_mixed):
         """
         par_loop((domain, instructions), direct, {'c': (f_mixed, WRITE)},
                  is_loopy_kernel=True)
-        assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.split())
+        assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.subfunctions)
 
 
 @pytest.mark.parametrize('idx', [0, 1])
@@ -123,7 +123,7 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
         """
         par_loop((domain, instructions), dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)},
                  is_loopy_kernel=True)
-        assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.split())
+        assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.subfunctions)
 
 
 @pytest.mark.parallel(nprocs=2)

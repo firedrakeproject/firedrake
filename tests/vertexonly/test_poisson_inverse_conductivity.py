@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation, continue_annotation, set_working_tape
+from pyadjoint.tape import get_working_tape, pause_annotation
 
 
 @pytest.fixture(autouse=True)
@@ -24,16 +24,22 @@ def handle_annotation():
         pause_annotation()
 
 
+@pytest.fixture(params=["sparse",
+                        "per_cell",
+                        "dense"])
+def num_points(request):
+    if request.param == "sparse":
+        return 2
+    elif request.param == "per_cell":
+        return 8
+    elif request.param == "dense":
+        return 1024
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_poisson_inverse_conductivity():
+def test_poisson_inverse_conductivity(num_points):
     # Have to import inside test to make sure cleanup fixtures work as intended
     from firedrake_adjoint import Control, ReducedFunctional, minimize
-
-    # Manually set up annotation since test suite may have stopped it
-    tape = get_working_tape()
-    tape.clear_tape()
-    set_working_tape(tape)
-    continue_annotation()
 
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
@@ -50,14 +56,13 @@ def test_poisson_inverse_conductivity():
     # Compute the true solution of the PDE.
     u_true = Function(V)
     v = TestFunction(V)
-    f = Constant(1.0)
-    k0 = Constant(0.5)
+    f = Constant(1.0, domain=m)
+    k0 = Constant(0.5, domain=m)
     bc = DirichletBC(V, 0, 'on_boundary')
     F = (k0 * exp(q_true) * inner(grad(u_true), grad(v)) - f * v) * dx
     solve(F == 0, u_true, bc)
 
     # Generate random point cloud
-    num_points = 2
     np.random.seed(0)
     xs = np.random.random_sample((num_points, 2))
     point_cloud = VertexOnlyMesh(m, xs)
@@ -70,7 +75,7 @@ def test_poisson_inverse_conductivity():
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    σ = Constant(u_range / signal_to_noise)
+    σ = Constant(u_range / signal_to_noise, domain=point_cloud)
     ζ = generator.standard_normal(len(xs))
     u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
 
@@ -88,7 +93,7 @@ def test_poisson_inverse_conductivity():
 
     # Two terms in the functional
     misfit_expr = 0.5 * ((u_obs - interpolate(u, P0DG)) / σ)**2
-    α = Constant(0.5)
+    α = Constant(0.5, domain=m)
     regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
 
     # Form functional and reduced functional
@@ -98,7 +103,3 @@ def test_poisson_inverse_conductivity():
 
     # Estimate q using Newton-CG which evaluates the hessian action
     minimize(Ĵ, method='Newton-CG', options={'disp': True})
-
-    # Make sure annotation is stopped
-    tape.clear_tape()
-    pause_annotation()
