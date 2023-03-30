@@ -71,9 +71,6 @@ class FDMPC(PCBase):
     The PETSc options inspected by this class are:
     - 'fdm_mat_type': can be either 'aij' or 'sbaij'
     - 'fdm_static_condensation': are we assembling the Schur complement on facets?
-
-    Static condensation is currently only implemented for the symmetric case,
-    use it at your own risk.
     """
 
     _prefix = "fdm_"
@@ -216,7 +213,7 @@ class FDMPC(PCBase):
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
         """
-        ifacet, = numpy.nonzero([is_restricted(Vsub.finat_element)[1] for Vsub in V])
+        ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
         if len(ifacet) == 0:
             Vfacet = None
             Vbig = V
@@ -238,7 +235,7 @@ class FDMPC(PCBase):
         dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
         self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
-        self.submats = [None for _ in range(8)]
+        self.submats = [None for _ in range(7)]
 
         # Dictionary with the parent space and a method to form the Schur complement
         self.get_static_condensation = {}
@@ -460,8 +457,6 @@ class FDMPC(PCBase):
         except KeyError:
             Ae = self.work_mats.setdefault((Vrow, Vcol), assemble_element_mat())
 
-        cindices = None
-        rindices = None
         insert = PETSc.InsertMode.INSERT
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             # Empty kernel for preallocation
@@ -490,6 +485,8 @@ class FDMPC(PCBase):
                 Me.assemble()
                 return assemble_element_mat(result=result)
 
+        cindices = None
+        rindices = None
         # Core assembly loop
         for e in range(self.nel):
             cindices = get_cindices(e, result=cindices)
