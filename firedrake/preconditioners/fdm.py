@@ -414,7 +414,7 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        De = PETSc.Mat().createAIJ((nrows, nrows), bsize=shape[1], csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        De = PETSc.Mat().createAIJ((nrows, nrows), bsize=shape[2], csr=(ai, aj, data), comm=PETSc.COMM_SELF)
         return self.work_mats.setdefault("coefficient_mat", De)
 
     @cached_property
@@ -473,21 +473,17 @@ class FDMPC(PCBase):
                 update_A(Se, rindices, cindices)
         else:
             insert = PETSc.InsertMode.INSERT
-            bsize = De.getBlockSize()
-            ai, aj, data = De.getValuesCSR()
-            if data.size == De.getSize()[0]:
+            if De.getBlockSize() == 1:
                 diagonal = self._coefficient_diagonal
-                data = diagonal.array_w
-                if bsize > 1:
-                    data = data.reshape((-1, bsize))
+                data = diagonal.array_w.reshape((-1,) + Vrow.shape)
 
                 def update_De(e):
                     self.get_coeffs(e, result=data)
                     De.setDiagonal(diagonal, addv=insert)
 
             else:
-                if bsize > 1:
-                    data = data.reshape((-1, bsize, bsize))
+                ai, aj, data = De.getValuesCSR()
+                data = data.reshape((-1,) + Vrow.shape * 2)
 
                 def update_De(e):
                     self.get_coeffs(e, result=data)
