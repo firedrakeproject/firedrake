@@ -19,9 +19,9 @@ def _globalify(value, comm):
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data, comm=comm)
+        dat = op2.compute_backend.Global(1, data, comm=comm)
     else:
-        dat = op2.Global(shape, data, comm=comm)
+        dat = op2.compute_backend.Global(shape, data, comm=comm)
     return dat, rank, shape
 
 

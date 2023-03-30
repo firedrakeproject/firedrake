@@ -342,7 +342,7 @@ class _SNESContext(object):
                 subu = function.Function(V, val=val)
                 subsplit = (subu, )
             else:
-                val = op2.MixedDat(pieces)
+                val = op2.compute_backend.MixedDat(pieces)
                 subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
