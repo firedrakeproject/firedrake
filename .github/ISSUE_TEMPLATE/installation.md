@@ -1,6 +1,6 @@
 ---
 name: "\U00002699 Installation"
-description: Create a report for an installation issue
+about: Create a report for an installation issue
 title: 'INSTALL: '
 labels: [installation]
 assignees: ''
