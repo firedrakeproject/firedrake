@@ -1,6 +1,6 @@
 ---
 name: "\U0001F41B Bug report"
-description: Create a report for a bug you have found, or regression you have noticed
+about: Create a report for a bug you have found, or regression you have noticed
 title: 'BUG: '
 labels: [bug]
 assignees: ''

@@ -1,6 +1,6 @@
 ---
 name: "\U00002728 Feature request"
-description: Suggest an idea for this project
+about: Suggest an idea for this project
 title: ''
 labels: [enhancement]
 assignees: ''
