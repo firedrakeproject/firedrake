@@ -2449,10 +2449,10 @@ def Mesh(meshfile, **kwargs):
                     mark = marked0.getArray()
                     for i, el in enumerate(self.netgen_mesh.Elements2D()):
                         if mark[getIdx(i)]:
-                            el.SetRefinementFlag(1)
+                            el.refine = True
                         else:
-                            el.SetRefinementFlag(0)
-                    self.netgen_mesh.RefineFlaged(0, True)
+                            el.refine = False
+                    self.netgen_mesh.Refine(adaptive=True)
                     return Mesh(self.netgen_mesh)
                 else:
                     return Mesh(netgen.libngpy._meshing.Mesh(2))
