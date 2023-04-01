@@ -21,9 +21,13 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
-    from firedrake.ml_coupling import load_backend
 
-    ml_backend = load_backend("pytorch")
+    try:
+        import firedrake.ml as fd_ml
+        del fd_ml
+        ml_backend = True
+    except ImportError:
+        ml_backend = False
 
     for item in items:
         if complex_mode:

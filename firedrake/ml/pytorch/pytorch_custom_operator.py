@@ -1,7 +1,8 @@
+import torch
 import collections
 from functools import partial
 
-from firedrake.ml_coupling import load_backend
+from firedrake.ml import load_backend
 from firedrake.function import Function
 from firedrake_citations import Citations
 
@@ -21,17 +22,8 @@ Citations().add("Bouziani2023", """
 
 backend = load_backend("pytorch")
 
-if backend:
-    # PyTorch is installed
-    PytorchFunction = backend.backend.autograd.Function
-else:
-    class PytorchFunction():
-        """Dummy class that exceptions on instantiation."""
-        def __init__(self):
-            raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
-
-class FiredrakeTorchOperator(PytorchFunction):
+class FiredrakeTorchOperator(torch.autograd.Function):
     """
     PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
     `FiredrakeTorchOperator` is a wrapper around `torch.autograd.Function` that executes forward and backward

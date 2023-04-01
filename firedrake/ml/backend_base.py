@@ -35,7 +35,7 @@ class AbstractMLBackend(object):
 
 def load_backend(backend_name='pytorch'):
     if backend_name == 'pytorch':
-        from firedrake.ml_coupling.pytorch.backend import PytorchBackend
+        from firedrake.ml.pytorch.backend import PytorchBackend
         return PytorchBackend()
     else:
         raise NotImplementedError("The backend: %s is not supported." % backend_name)

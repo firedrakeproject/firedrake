@@ -4,13 +4,13 @@ from firedrake import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
-pytorch_backend = load_backend("pytorch")
-
-if pytorch_backend:
-    # PyTorch is installed
+try:
+    from firedrake.ml import load_backend, torch_operator
     import torch
     import torch.nn.functional as torch_func
     from torch.nn import Module, Flatten, Linear
+
+    pytorch_backend = load_backend("pytorch")
 
     class EncoderDecoder(Module):
         """Build a simple toy model"""
@@ -36,6 +36,9 @@ if pytorch_backend:
             hidden = self.encode(x)
             # [batch_size, n]
             return self.decode(hidden)
+except ImportError:
+    # PyTorch is not installed
+    pass
 
 
 @pytest.fixture(autouse=True)

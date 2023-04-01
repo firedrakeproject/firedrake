@@ -1,30 +1,20 @@
 from firedrake.function import Function
 from firedrake.vector import Vector
 from firedrake.constant import Constant
-from firedrake.ml_coupling.backend_base import AbstractMLBackend
+from firedrake.ml.backend_base import AbstractMLBackend
+
+import firedrake.utils as utils
 
 
 class PytorchBackend(AbstractMLBackend):
 
-    def __init__(self):
-        try:
-            import torch
-            self._backend = torch
-        except ImportError:
-            self._backend = None
-
-    @property
+    @utils.cached_property
     def backend(self):
-        if self:
-            return self._backend
-        else:
-            raise ImportError("Error when trying to import PyTorch.")
-
-    def __bool__(self):
-        return self._backend is not None
+        import torch
+        return torch
 
     def custom_operator(self, *args, **kwargs):
-        from firedrake.ml_coupling.pytorch.pytorch_custom_operator import FiredrakeTorchOperator
+        from firedrake.ml.pytorch.pytorch_custom_operator import FiredrakeTorchOperator
         return FiredrakeTorchOperator.apply(*args, **kwargs)
 
     def to_ml_backend(self, x, gather=False, batched=True, **kwargs):
