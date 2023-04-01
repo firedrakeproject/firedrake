@@ -1417,13 +1417,8 @@ def build_and_install_slepc():
 
 
 def build_and_install_netgen():
-    run_pip_install(["scikit-build"])
-    log.info("Installing Netgen.")
-    log.info("Depending on your platform, NetGen may take an hour or more to build!")
-    url = "git+https://github.com/firedrakeproject/netgen.git@master"
-    git_clone(url)
-    with directory("netgen"):
-        run_pip_install(["."])
+    log.info("Installing NGSolve/Netgen.")
+    run_pip(["install", "ngsolve", "--pre"])
 
 
 def install_documentation_dependencies():
