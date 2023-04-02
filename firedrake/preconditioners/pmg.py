@@ -554,7 +554,7 @@ def expand_element(ele):
             new_terms = []
             for f in e.elements if isinstance(e, finat.EnrichedElement) else [e]:
                 f_factors = tuple(f.factors) if isinstance(f, finat.TensorProductElement) else (f,)
-                new_terms.extend([t_factors + f_factors for t_factors in terms])
+                new_terms.extend(t_factors + f_factors for t_factors in terms)
             terms = new_terms
         terms = list(map(finat.TensorProductElement, terms))
         return finat.EnrichedElement(terms)

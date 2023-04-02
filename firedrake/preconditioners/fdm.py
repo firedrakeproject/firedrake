@@ -396,11 +396,11 @@ class FDMPC(PCBase):
         if hasattr(self, "submats"):
             objs.extend(self.submats)
         if hasattr(self, "work_mats"):
-            objs.extend(list(self.work_mats.values()))
+            objs.extend(self.work_mats.values())
         if hasattr(self, "ises"):
             objs.extend(self.ises)
         for obj in objs:
-            if hasattr(obj, "destroy"):
+            if isinstance(obj, PETSc.Object):
                 obj.destroy()
 
     @cached_property
@@ -905,7 +905,7 @@ def load_c_code(code, name, **kwargs):
 
     @PETSc.Log.EventDecorator(name)
     def wrapper(*args):
-        return funptr(*list(map(get_pointer, args)))
+        return funptr(*map(get_pointer, args))
     return wrapper
 
 

@@ -226,20 +226,26 @@ def test_ipdg_direct_solver(fs):
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
     ncomp = fs.ufl_element().value_size()
-    u_exact = dot(x, x)
-    if ncomp:
-        u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
+
+    homogenize = gdim > 2
+    if homogenize:
+        rg = RandomGenerator(PCG64(seed=123456789))
+        uh = rg.uniform(fs, -1, 1)
+        u_exact = zero(uh.ufl_shape)
+        u_bc = 0
+    else:
+        uh = Function(fs)
+        u_exact = dot(x, x)
+        if ncomp:
+            u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
+        u_bc = u_exact
 
     degree = fs.ufl_element().degree()
     try:
-        degree, = set(degree)
+        degree = max(degree)
     except TypeError:
         pass
-
     quad_degree = 2*(degree+1)-1
-    uh = Function(fs)
-    u = TrialFunction(fs)
-    v = TestFunction(fs)
 
     # problem coefficients
     A1 = diag(Constant(range(1, gdim+1)))
@@ -247,19 +253,13 @@ def test_ipdg_direct_solver(fs):
     alpha = lambda grad_u: dot(dot(A2, grad_u), A1)
     beta = diag(Constant(range(2, ncomp+2)))
 
-    n = FacetNormal(mesh)
-    f_exact = alpha(grad(u_exact))
-    B = dot(beta, u_exact) - div(f_exact)
-    T = dot(f_exact, n)
-
     extruded = mesh.cell_set._extruded
     subs = (1,)
     if gdim > 1:
         subs += (3,)
     if extruded:
         subs += ("top",)
-
-    bcs = [DirichletBC(fs, u_exact, sub) for sub in subs]
+    bcs = [DirichletBC(fs, u_bc, sub) for sub in subs]
 
     dirichlet_ids = subs
     if "on_boundary" in dirichlet_ids:
@@ -287,24 +287,31 @@ def test_ipdg_direct_solver(fs):
 
     ds_Dir = sum(ds_Dir, ds(tuple()))
     ds_Neu = sum(ds_Neu, ds(tuple()))
+    n = FacetNormal(mesh)
+    h = CellVolume(mesh) / FacetArea(mesh)
     eta = Constant((degree+1)**2)
-    h = CellVolume(mesh)/FacetArea(mesh)
-    penalty = eta/h
+    penalty = eta / h
 
-    outer_jump = lambda w, n: outer(w("+"), n("+")) + outer(w("-"), n("-"))
-    num_flux = lambda w: alpha(avg(penalty/2) * outer_jump(w, n))
-    num_flux_b = lambda w: alpha((penalty/2) * outer(w, n))
+    num_flux = lambda u: avg(penalty) * avg(outer(u, n))
+    num_flux_b = lambda u: (penalty/2) * outer(u, n)
+    alpha_inner = lambda v, u: inner(v, alpha(u))
 
-    a = (inner(v, dot(beta, u)) * dxq
-         + inner(grad(v), alpha(grad(u))) * dxq
-         + inner(outer_jump(v, n), num_flux(u)-avg(alpha(grad(u)))) * dS_int
-         + inner(outer_jump(u, n), num_flux(v)-avg(alpha(grad(v)))) * dS_int
-         + inner(outer(v, n), num_flux_b(u)-alpha(grad(u))) * ds_Dir
-         + inner(outer(u, n), num_flux_b(v)-alpha(grad(v))) * ds_Dir)
+    a_int = lambda v, u: alpha_inner(2 * avg(outer(v, n)), num_flux(u) - avg(grad(u))) * dS_int
+    a_Dir = lambda v, u: alpha_inner(outer(v, n), num_flux_b(u) - grad(u)) * ds_Dir
 
-    L = (inner(v, B)*dxq
-         + inner(v, T)*ds_Neu
-         + inner(outer(u_exact, n), 2*num_flux_b(v)-alpha(grad(v))) * ds_Dir)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
+    a = ((inner(v, dot(beta, u)) + alpha_inner(grad(v), grad(u))) * dxq
+         + a_int(v, u) + a_int(u, v) + a_Dir(v, u) + a_Dir(u, v))
+
+    if homogenize:
+        L = 0
+    else:
+        f_exact = alpha(grad(u_exact))
+        B = dot(beta, u_exact) - div(f_exact)
+        T = dot(f_exact, n)
+        L = (inner(v, B)*dxq + inner(v, T)*ds_Neu
+             + alpha_inner(outer(u_exact, n), 2*num_flux_b(v) - grad(v)) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
@@ -324,4 +331,8 @@ def test_ipdg_direct_solver(fs):
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() == 1
-    assert norm(u_exact-uh, "H1") < 1.0E-8
+    if homogenize:
+        with uh.dat.vec_ro as uvec:
+            assert uvec.norm() < 1E-8
+    else:
+        assert norm(u_exact-uh, "H1") < 1.0E-8
