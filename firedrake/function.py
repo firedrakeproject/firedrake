@@ -303,7 +303,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
