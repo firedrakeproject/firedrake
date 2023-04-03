@@ -1,15 +1,19 @@
-from firedrake import inner, dx, assemble
+from firedrake.assemble import assemble
+from firedrake.function import Function
 from firedrake import solving_utils
 from firedrake import utils
+from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.logging import warning
 import numpy as np
-from firedrake.petsc import PETSc, OptionsManager
-# from firedrake.logging import warning
-# try:
-#     from slepc4py import SLEPc
-# except ImportError:
-#     import sys
-#     warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-#     sys.exit(0)
+try:
+    from slepc4py import SLEPc
+except ImportError:
+    import sys
+    warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
+    sys.exit(0)
+__all__ = ["LinearEigenproblem",
+           "LinearEigensolver"]
+
 
 class LinearEigenproblem:
     def __init__(self, A, M=None, bcs=None):
@@ -19,6 +23,7 @@ class LinearEigenproblem:
         if M:
             self.M = M
         else:
+            from ufl import inner, dx
             self.M = inner(u, v) * dx
         self.OutputSpace = u.function_space()
         self.bcs = bcs
@@ -49,14 +54,15 @@ class LinearEigensolver(OptionsManager):
         param problem: LinearEigenproblem
         param index: int, index of eigenvalue/vector
         '''
-        self.es = SLEPc.EPS().create(comm=problem.dm().comm)
+        self.es = SLEPc.EPS().create(comm=problem.dm.comm)
         self._problem = problem 
         self.n_evals = n_evals
         solver_parameters = flatten_parameters(solver_parameters or {})
-        for k, v in self.DEFAULT_EPS_PARAMETERS:
-            solver_parameters.setdefault(k, v)
+        for key in self.DEFAULT_EPS_PARAMETERS:
+            value = self.DEFAULT_EPS_PARAMETERS[key]
+            solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
-        self.es.set_from_options()
+        self.es.setFromOptions()
 
     def solve(self):
         '''Solves the eigenproblem, returns the number of converged eigenvalues'''
@@ -77,7 +83,7 @@ class LinearEigensolver(OptionsManager):
             vr, vi = self.A_mat.getVecs()
             for i in range(nconv):
                 #self.evals[i] = self.es.getEigenvalue(i)
-                self.evals[i] = self.es.getEigenpair(0, vr, vi)
+                self.evals[i] = self.es.getEigenpair(i, vr, vi)
         return nconv
 
     def eigenvalues(self):
@@ -86,63 +92,19 @@ class LinearEigensolver(OptionsManager):
 
     def eigenfunctions(self, i):
         '''Return the eigenfunctions of the problem'''
-        eigenmodes_real = Function(self._problem.OutputSpace)
+        eigenmodes_real = Function(self._problem.OutputSpace)  # fn of V
         eigenmodes_imag = Function(self._problem.OutputSpace)
-        vr, vi = eigenmodes_real.dat.vec_wo,  eigenmodes_imag.dat.vec_wo
+        #vr, vi = eigenmodes_real.dat.vec_wo,  eigenmodes_imag.dat.vec_wo
+        vr, vi = self.A_mat.getVecs() # PetSc Vectors 
         lam = self.es.getEigenpair(i, vr, vi)
-        print(eigenmodes_real.dat.data_ro[:])
-        return lam, eigenmodes_real, eigenmodes_imag  # Firedrake Vectors
+        eigenmodes_real.vector()[:] = vr
+        eigenmodes_imag.vector()[:] = vi
+        return lam, eigenmodes_real, eigenmodes_imag  
     
-
-    # def errors(self, nconv):
-    #     '''Returns array of errors of each eigenvector'''
-    #     if nconv > 0:
-    #         errors = np.zeros(nconv)
-    #         #vr, vi = self.petsc_A.getVecs()
-    #         for i in range(nconv):
-    #             #k = self.es.getEigenpair(i, vr, vi)
-    #             errors[i] = self.es.computeError(i)
-    #         return errors
-    #     else:
-    #         raise ValueError('nconv must be positive')
-
-
-
-# # change 
-# def helmholtz_test():
-#     mesh = UnitSquareMesh(10, 10)
-#     V = FunctionSpace(mesh, "CG", 1)
-#     u = TrialFunction(V)
-#     v = TestFunction(V)
-#     A = (inner(grad(u), grad(v)) + u*v )* dx
-#     bcs = DirichletBC(V, 0.0, "on_boundary")
-#     Lin_EP = LinearEigenproblem(A, bcs=bcs)
-#     Lin_ES = LinearEigensolver(Lin_EP, index=1)
-#     Lin_ES.set_num_eigenvals(5)
-#     nconv = Lin_ES.solve()
-#     err = Lin_ES.errors(nconv)
-#     print(err)
-
-# def tutorial():
-#     mesh = UnitSquareMesh(10, 10)
-#     Vcg  = FunctionSpace(mesh,'CG',3)
-#     bc = DirichletBC(Vcg, 0.0, "on_boundary")
-#     beta = Constant('1.0')
-#     F    = Constant('1.0')
-#     phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
-#     a =  beta*phi*psi.dx(0)*dx
-#     m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
-#     eigenprob = LinearEigenproblem(a, m) # try with no m
-
-#     eigensolver = LinearEigensolver(eigenprob, 1)
-#     opts_dict = {"eps_gen_non_hermitian": None, 
-#             "st_pc_factor_shift_type": "NONZERO",
-#             "eps_type": "krylovschur",
-#             "eps_largest_imaginary": None,
-#             "eps_tol":1e-10}
-#     eigensolver.set_from_options(opts_dict)
-#     eigensolver.set_num_eigenvals(1)
-#     eigensolver.solve()
-#     evals = eigensolver.eigenvalues()
-#     evecs = eigensolver.eigenfunctions(2)
-#     print(evals)
+    def eigenvectors(self):
+        '''Return the eigenvectors of the problem'''
+        eigenmodes_real = Function(self._problem.OutputSpace)  # fn of V
+        eigenmodes_imag = Function(self._problem.OutputSpace)
+        vr, vi = self.A_mat.getVecs() # PetSc Vectors 
+        #vr, vi = vr.getArray(), vi.getArray()
+        return vr, vi

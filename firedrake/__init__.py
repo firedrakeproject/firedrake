@@ -98,6 +98,7 @@ from firedrake.solving import *
 from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
+from firedrake.eigensolver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
