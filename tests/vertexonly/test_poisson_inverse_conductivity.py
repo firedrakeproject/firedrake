@@ -103,3 +103,32 @@ def test_poisson_inverse_conductivity(num_points):
 
     # Estimate q using Newton-CG which evaluates the hessian action
     minimize(Ĵ, method='Newton-CG', options={'disp': True})
+
+import numpy as np
+from firedrake import *
+
+def poisson_point_eval(points):
+    """Solve Poisson for a random forcing term and evaluate at a 
+    user-specified set of points.
+    
+    Parameters
+    ----------
+    points: numpy.ndarray
+        An array of point coordinates.
+    """
+    m = UnitSquareMesh(20, 20)
+    V = FunctionSpace(m, family='CG', degree=2)
+    v = TestFunction(V)
+    u = Function(V)
+
+    # Random forcing function with values in [1, 2].
+    f = RandomGenerator(PCG64(seed=0)).beta(V, 1.0, 2.0)
+
+    bc = DirichletBC(V, 0, 'on_boundary')
+    F = (inner(grad(u), grad(v)) - f * v) * dx
+    solve(F == 0, u, bc)
+
+    point_cloud = VertexOnlyMesh(m, points)
+    P0DG = FunctionSpace(point_cloud, 'DG', 0)
+    
+    return interpolate(u, P0DG)
