@@ -707,26 +707,29 @@ class SchurComplementBuilder(object):
         indptr, indices, _ = Aii.getValuesCSR()
         degree = numpy.diff(indptr)
 
-        perm = list(numpy.flatnonzero(degree == 1))
-        degree[perm] = 0
+        bperm = numpy.argsort(degree)
+        unique_degree, counts = numpy.unique(degree, return_counts=True)
+        unique_degree = list(unique_degree)
+        try:
+            iend = counts[unique_degree.index(1)]
+        except ValueError:
+            iend = 0
 
-        iend = len(perm)
-        if iend:
-            self.slices[1] = slice(0, iend)
+        perm = list(bperm[:iend])
+        self.slices[1] = slice(0, iend)
+        icur = iend
+        for k in sorted(deg for deg in unique_degree if deg > 1):
+            nrows = counts[unique_degree.index(k)]
+            neigh = numpy.empty((nrows, k), dtype=indices.dtype)
+            for row in range(nrows):
+                i = bperm[icur+row]
+                neigh[row] = indices[slice(*indptr[i:i+2])]
 
-        for k in sorted(numpy.unique(degree)):
-            if k > 1:
-                nblocks = 0
-                for i in numpy.flatnonzero(degree == k):
-                    if degree[i] == k:
-                        block = indices[slice(*indptr[i:i+2])]
-                        degree[block] = 0
-                        perm.extend(block)
-                        nblocks += 1
-
-                istart = iend
-                iend += k * k * nblocks
-                self.slices[k] = slice(istart, iend)
+            icur += nrows
+            istart = iend
+            iend += neigh.size
+            self.slices[k] = slice(istart, iend)
+            perm.extend(dict.fromkeys(neigh.flat))
 
         idofs.setIndices(idofs.getIndices()[perm])
         Aii.destroy()
@@ -777,17 +780,15 @@ class SchurComplementBlockCholesky(SchurComplementBuilder):
         A00, A01, A10, A11 = self.get_blocks(A)
         indptr, indices, R = A00.getValuesCSR()
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.sqrt(R[zlice], out=R[zlice])
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = 2 * (zlice.stop - zlice.start)
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.sqrt(R[zlice], out=R[zlice])
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += 2 * (zlice.stop - zlice.start)
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
-                flops += A.shape[0] * ((k**3)//3 + k**3)
+            A = R[zlice].reshape((-1, k, k))
+            R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
+            flops += A.shape[0] * ((k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
@@ -808,18 +809,16 @@ class SchurComplementBlockQR(SchurComplementBuilder):
         indptr, indices, R = A00.getValuesCSR()
         Q = numpy.ones(R.shape, dtype=R.dtype)
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += zlice.stop - zlice.start
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                q, r = numpy.linalg.qr(A, mode="complete")
-                Q[zlice] = q.reshape((-1,))
-                R[zlice] = numpy.linalg.inv(r).reshape((-1,))
-                flops += A.shape[0] * ((4*k**3)//3 + k**3)
+            A = R[zlice].reshape((-1, k, k))
+            q, r = numpy.linalg.qr(A, mode="complete")
+            Q[zlice] = q.reshape((-1,))
+            R[zlice] = numpy.linalg.inv(r).reshape((-1,))
+            flops += A.shape[0] * ((4*k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, Q)
@@ -843,21 +842,18 @@ class SchurComplementBlockSVD(SchurComplementBuilder):
         V = numpy.ones(U.shape, dtype=U.dtype)
         self.work[0] = A00.getDiagonal(result=self.work[0])
         D = self.work[0]
-        dslice = self.slices.get(1, slice(0, 0))
-        flops = 0
-        for k in sorted(self.slices):
+        dslice = self.slices[1]
+        numpy.sign(D.array_r[dslice], out=U[dslice])
+        flops = dslice.stop - dslice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             bslice = self.slices[k]
-            if k == 1:
-                numpy.sign(D.array_r[bslice], out=U[bslice])
-                flops += bslice.stop - bslice.start
-            else:
-                A = U[bslice].reshape((-1, k, k))
-                u, s, v = numpy.linalg.svd(A, full_matrices=False)
-                dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
-                D.array_w[dslice] = s.reshape((-1,))
-                U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
-                V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
-                flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
+            A = U[bslice].reshape((-1, k, k))
+            u, s, v = numpy.linalg.svd(A, full_matrices=False)
+            dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
+            D.array_w[dslice] = s.reshape((-1,))
+            U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
+            V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
+            flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
 
         PETSc.Log.logFlops(flops)
         D.sqrtabs()
@@ -883,16 +879,14 @@ class SchurComplementBlockInverse(SchurComplementBuilder):
         A00, A01, A10, A11 = self.get_blocks(A)
         indptr, indices, R = A00.getValuesCSR()
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += zlice.stop - zlice.start
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                R[zlice] = numpy.linalg.inv(A).reshape((-1,))
-                flops += A.shape[0] * (k**3)
+            A = R[zlice].reshape((-1, k, k))
+            R[zlice] = numpy.linalg.inv(A).reshape((-1,))
+            flops += A.shape[0] * (k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
