@@ -232,27 +232,24 @@ class FDMPC(PCBase):
         value_size = Vbig.value_size
         if value_size != 1:
             fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
+        self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
         dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
-        self.ises = [PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs)]
-        self.submats = [None for _ in range(6)]
 
         # Dictionary with the parent space and a method to form the Schur complement
         self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
             if Vfacet.finat_element.formdegree == 0 and value_size == 1:
-                default_schur = schur_complement_diagonal
+                sc_builder = SchurComplementDiagonal
             elif pmat_type.endswith("sbaij"):
-                default_schur = schur_complement_block_cholesky
+                sc_builder = SchurComplementBlockCholesky
             else:
-                default_schur = schur_complement_block_qr
-            self.get_static_condensation[Vfacet] = Vbig, partial(condense_element_mat, default_schur,
-                                                                 self.ises[0], self.ises[1], self.submats)
+                sc_builder = SchurComplementBlockQR
+            self.get_static_condensation[Vfacet] = Vbig, sc_builder(idofs, fdofs, PETSc.COMM_SELF).condense
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.ises.append(PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF))
-            self.get_static_condensation[V] = Vbig, partial(condense_element_pattern, self.ises[0], self.ises[2], self.submats)
+            self.get_static_condensation[V] = Vbig, SchurComplementPattern(idofs, dofs, PETSc.COMM_SELF).condense
 
         @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
@@ -387,21 +384,14 @@ class FDMPC(PCBase):
             self.pc.view(viewer)
 
     def destroy(self, pc):
-        objs = []
         if hasattr(self, "A"):
-            objs.append(self.A)
+            self.A.petscmat.destroy()
         if hasattr(self, "pc"):
-            objs.append(self.pc)
-            objs.append(self.pc.getOperators()[-1])
-        if hasattr(self, "submats"):
-            objs.extend(self.submats)
+            self.pc.getOperators()[-1].destroy()
+            self.pc.destroy()
         if hasattr(self, "work_mats"):
-            objs.extend(self.work_mats.values())
-        if hasattr(self, "ises"):
-            objs.extend(self.ises)
-        for obj in objs:
-            if isinstance(obj, PETSc.Object):
-                obj.destroy()
+            for mat in self.work_mats.values():
+                mat.destroy()
 
     @cached_property
     def _element_mass_matrix(self):
@@ -469,7 +459,6 @@ class FDMPC(PCBase):
         try:
             Se = self.work_mats[key]
         except KeyError:
-            sort_interior_dofs(self.ises[0], Ae)
             Se = self.work_mats.setdefault(key, condense_element_mat(Ae))
 
         insert = PETSc.InsertMode.INSERT
@@ -648,7 +637,7 @@ class FDMPC(PCBase):
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-                result = result.createSubMatrix(noperm, self.ises[1])
+                result = result.createSubMatrix(noperm, self.fises)
                 noperm.destroy()
                 return cache.setdefault(key, result)
 
@@ -686,204 +675,232 @@ class FDMPC(PCBase):
             return cache.setdefault(key, result)
 
 
-@PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_diagonal(submats, result=None):
+class SchurComplementBuilder(object):
     """
-    Used in static condensation. Take in blocks A00, A01, A10, A11,
-    return the Schur complement A11 - A10 * inv(A00) * A01.
-
-    Assumes A00 is diagonal.
+    Class to build element Schur complement.
     """
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    A00, A01, A10, A11 = submats[:4]
-    submats[4] = A00.getDiagonal(result=submats[4])
-    submats[4].reciprocal()
-    submats[4].scale(-1)
-    A01.diagonalScale(L=submats[4])
-    result = A10.matMult(A01, result=result)
-    result.axpy(1.0, A11, structure=structure)
-    return result
+
+    def __init__(self, idofs, fdofs, comm):
+        i0 = PETSc.IS().createGeneral(idofs, comm=comm)
+        i1 = PETSc.IS().createGeneral(fdofs, comm=comm)
+        self.ises = (i0, i1)
+        self.isrows = [i0, i0, i1, i1]
+        self.iscols = [i0, i1, i0, i1]
+        self.work = [None for _ in range(2)]
+        self.submats = []
+        self.slices = {}
+
+    def __del__(self):
+        self.ises[0].destroy()
+        self.ises[1].destroy()
+        for mat in self.submats:
+            if isinstance(mat, PETSc.Object):
+                mat.destroy()
+        for obj in self.work:
+            if isinstance(obj, PETSc.Object):
+                obj.destroy()
+
+    def sort_interior_dofs(self, idofs, A):
+        """Permute `idofs` to have A[idofs, idofs] with square blocks of
+           increasing dimension along its diagonal."""
+        Aii = A.createSubMatrix(idofs, idofs)
+        indptr, indices, _ = Aii.getValuesCSR()
+        degree = numpy.diff(indptr)
+
+        perm = list(numpy.flatnonzero(degree == 1))
+        degree[perm] = 0
+
+        iend = len(perm)
+        if iend:
+            self.slices[1] = slice(0, iend)
+
+        for k in sorted(numpy.unique(degree)):
+            if k > 1:
+                nblocks = 0
+                for i in numpy.flatnonzero(degree == k):
+                    if degree[i] == k:
+                        block = indices[slice(*indptr[i:i+2])]
+                        degree[block] = 0
+                        perm.extend(block)
+                        nblocks += 1
+
+                istart = iend
+                iend += k * k * nblocks
+                self.slices[k] = slice(istart, iend)
+
+        idofs.setIndices(idofs.getIndices()[perm])
+        Aii.destroy()
+
+    def get_blocks(self, A):
+        if len(self.submats) == 0:
+            self.sort_interior_dofs(self.ises[0], A)
+        self.submats = A.createSubMatrices(self.isrows, iscols=self.iscols, submats=self.submats or None)
+        return self.submats
+
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, A, result=None):
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_inv(submats, result=None):
-    """
-    Used in static condensation. Take in blocks A00, A01, A10, A11,
-    return A11 - A10 * inv(A00) * A01.
+class SchurComplementDiagonal(SchurComplementBuilder):
 
-    Assumes that interior DOFs have been reordered to make A00
-    block diagonal with blocks of increasing dimension.
-    """
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    A00, A01, A10, A11 = submats[:4]
-    indptr, indices, R = A00.getValuesCSR()
-    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = int(degree[0] == 1)
-    nblocks = counts[0] if istart else 0
-    zlice = slice(0, nblocks)
-    numpy.reciprocal(R[zlice], out=R[zlice])
-    flops = nblocks
-    for k, nblocks in zip(degree[istart:], counts[istart:]):
-        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
-        A = R[zlice].reshape((-1, k, k))
-        R[zlice] = numpy.linalg.inv(A).reshape((-1,))
-        flops += nblocks * (k**3)
-
-    PETSc.Log.logFlops(flops)
-    A00.setValuesCSR(indptr, indices, R)
-    A00.assemble()
-    A00.scale(-1.0)
-    result = A10.matMatMult(A00, A01, result=result)
-    result.axpy(1.0, A11, structure=structure)
-    return result
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A00, A01, A10, A11 = self.get_blocks(A)
+        self.work[0] = A00.getDiagonal(result=self.work[0])
+        self.work[0].reciprocal()
+        self.work[0].scale(-1)
+        A01.diagonalScale(L=self.work[0])
+        result = A10.matMult(A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_cholesky(submats, result=None):
-    """
-    Used in static condensation. Take in blocks A00, A01, A10, A11,
-    return A11 - A10 * inv(A00) * A01.
+class SchurComplementPattern(SchurComplementBuilder):
 
-    Assumes that interior DOFs have been reordered to make A00
-    block diagonal with blocks of increasing dimension.
-    """
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    A00, A01, A10, A11 = submats[:4]
-    indptr, indices, R = A00.getValuesCSR()
-    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = int(degree[0] == 1)
-    nblocks = counts[0] if istart else 0
-    zlice = slice(0, nblocks)
-    numpy.sqrt(R[zlice], out=R[zlice])
-    numpy.reciprocal(R[zlice], out=R[zlice])
-    flops = 2*nblocks
-    for k, nblocks in zip(degree[istart:], counts[istart:]):
-        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
-        A = R[zlice].reshape((-1, k, k))
-        R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
-        flops += nblocks * ((k**3)//3 + k**3)
-
-    PETSc.Log.logFlops(flops)
-    A00.setValuesCSR(indptr, indices, R)
-    A00.assemble()
-    submats[4] = A10.matTransposeMult(A00, result=submats[4])
-    A00.scale(-1.0)
-    result = submats[4].matMatMult(A00, A01, result=result)
-    result.axpy(1.0, A11, structure=structure)
-    return result
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        if result is None:
+            A00, A01, A10, _ = self.get_blocks(A)
+            result = A10.matMatMult(A00, A01, result=result)
+        result.aypx(0.0, A, structure=structure)
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_qr(submats, result=None):
-    """
-    Used in static condensation. Take in blocks A00, A01, A10, A11,
-    return A11 - A10 * inv(A00) * A01.
+class SchurComplementBlockCholesky(SchurComplementBuilder):
 
-    Assumes that interior DOFs have been reordered to make A00
-    block diagonal with blocks of increasing dimension.
-    """
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    A00, A01, A10, A11 = submats[:4]
-    indptr, indices, R = A00.getValuesCSR()
-    Q = numpy.ones(R.shape, dtype=R.dtype)
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A00, A01, A10, A11 = self.get_blocks(A)
+        indptr, indices, R = A00.getValuesCSR()
 
-    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = int(degree[0] == 1)
-    nblocks = counts[0] if istart else 0
-    zlice = slice(0, nblocks)
-    numpy.reciprocal(R[zlice], out=R[zlice])
-    flops = nblocks
-    for k, nblocks in zip(degree[istart:], counts[istart:]):
-        zlice = slice(zlice.stop, zlice.stop + k*nblocks)
-        A = R[zlice].reshape((-1, k, k))
-        q, r = numpy.linalg.qr(A, mode="complete")
-        Q[zlice] = q.reshape((-1,))
-        R[zlice] = numpy.linalg.inv(r).reshape((-1,))
-        flops += nblocks * ((4*k**3)//3 + k**3)
+        flops = 0
+        for k in sorted(self.slices):
+            zlice = self.slices[k]
+            if k == 1:
+                numpy.sqrt(R[zlice], out=R[zlice])
+                numpy.reciprocal(R[zlice], out=R[zlice])
+                flops += 2 * (zlice.stop - zlice.start)
+            else:
+                A = R[zlice].reshape((-1, k, k))
+                R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
+                flops += A.shape[0] * ((k**3)//3 + k**3)
 
-    PETSc.Log.logFlops(flops)
-    A00.setValuesCSR(indptr, indices, Q)
-    A00.assemble()
-    submats[4] = A00.transposeMatMult(A01, result=submats[4])
-    A00.setValuesCSR(indptr, indices, R)
-    A00.assemble()
-    A00.scale(-1.0)
-    result = A10.matMatMult(A00, submats[4], result=result)
-    result.axpy(1.0, A11, structure=structure)
-    return result
+        PETSc.Log.logFlops(flops)
+        A00.setValuesCSR(indptr, indices, R)
+        A00.assemble()
+        self.work[0] = A10.matTransposeMult(A00, result=self.work[0])
+        A00.scale(-1.0)
+        result = self.work[0].matMatMult(A00, A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_svd(submats, result=None):
-    """
-    Used in static condensation. Take in blocks A00, A01, A10, A11,
-    return A11 - A10 * inv(A00) * A01.
+class SchurComplementBlockQR(SchurComplementBuilder):
 
-    Assumes that interior DOFs have been reordered to make A00
-    block diagonal with blocks of increasing dimension.
-    """
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    A00, A01, A10, A11 = submats[:4]
-    indptr, indices, U = A00.getValuesCSR()
-    V = numpy.ones(U.shape, dtype=U.dtype)
-    submats[4] = A00.getDiagonal(result=submats[4])
-    D = submats[4]
+    @PETSc.Log.EventDecorator("FDMGetSchur")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A00, A01, A10, A11 = self.get_blocks(A)
+        indptr, indices, R = A00.getValuesCSR()
+        Q = numpy.ones(R.shape, dtype=R.dtype)
 
-    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = int(degree[0] == 1)
-    nblocks = counts[0] if istart else 0
-    bslice = slice(0, nblocks)
-    dslice = slice(0, nblocks)
-    numpy.sign(D.array_r[dslice], out=U[bslice])
-    flops = nblocks
-    for k, nblocks in zip(degree[istart:], counts[istart:]):
-        bslice = slice(bslice.stop, bslice.stop + k*nblocks)
-        dslice = slice(dslice.stop, dslice.stop + nblocks)
-        A = U[bslice].reshape((-1, k, k))
+        flops = 0
+        for k in sorted(self.slices):
+            zlice = self.slices[k]
+            if k == 1:
+                numpy.reciprocal(R[zlice], out=R[zlice])
+                flops += zlice.stop - zlice.start
+            else:
+                A = R[zlice].reshape((-1, k, k))
+                q, r = numpy.linalg.qr(A, mode="complete")
+                Q[zlice] = q.reshape((-1,))
+                R[zlice] = numpy.linalg.inv(r).reshape((-1,))
+                flops += A.shape[0] * ((4*k**3)//3 + k**3)
 
-        u, s, v = numpy.linalg.svd(A, full_matrices=False)
-        D.array_w[dslice] = s.reshape((-1,))
-        U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
-        V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
-        flops += nblocks * ((4*k**3)//3 + 4*k**3)
-
-    PETSc.Log.logFlops(flops)
-    D.sqrtabs()
-    D.reciprocal()
-    A00.setValuesCSR(indptr, indices, V)
-    A00.assemble()
-    A00.diagonalScale(R=D)
-    submats[5] = A10.matMult(A00, result=submats[5])
-    D.scale(-1.0)
-    A00.setValuesCSR(indptr, indices, U)
-    A00.assemble()
-    A00.diagonalScale(L=D)
-    result = submats[5].matMatMult(A00, A01, result=result)
-    result.axpy(1.0, A11, structure=structure)
-    return result
+        PETSc.Log.logFlops(flops)
+        A00.setValuesCSR(indptr, indices, Q)
+        A00.assemble()
+        self.work[0] = A00.transposeMatMult(A01, result=self.work[0])
+        A00.setValuesCSR(indptr, indices, R)
+        A00.assemble()
+        A00.scale(-1.0)
+        result = A10.matMatMult(A00, self.work[0], result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(get_schur_complement, i0, i1, submats, A, result=None):
-    """Return the Schur complement associated to indices in i1, condensing i0 out"""
-    isrows = [i0, i0, i1, i1]
-    iscols = [i0, i1, i0, i1]
-    submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    return get_schur_complement(submats, result=result)
+class SchurComplementBlockSVD(SchurComplementBuilder):
+
+    @PETSc.Log.EventDecorator("FDMGetSchur")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A00, A01, A10, A11 = self.get_blocks(A)
+        indptr, indices, U = A00.getValuesCSR()
+        V = numpy.ones(U.shape, dtype=U.dtype)
+        self.work[0] = A00.getDiagonal(result=self.work[0])
+        D = self.work[0]
+        dslice = self.slices.get(1, slice(0, 0))
+        flops = 0
+        for k in sorted(self.slices):
+            bslice = self.slices[k]
+            if k == 1:
+                numpy.sign(D.array_r[bslice], out=U[bslice])
+                flops += bslice.stop - bslice.start
+            else:
+                A = U[bslice].reshape((-1, k, k))
+                u, s, v = numpy.linalg.svd(A, full_matrices=False)
+                dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
+                D.array_w[dslice] = s.reshape((-1,))
+                U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
+                V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
+                flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
+
+        PETSc.Log.logFlops(flops)
+        D.sqrtabs()
+        D.reciprocal()
+        A00.setValuesCSR(indptr, indices, V)
+        A00.assemble()
+        A00.diagonalScale(R=D)
+        self.work[1] = A10.matMult(A00, result=self.work[1])
+        D.scale(-1.0)
+        A00.setValuesCSR(indptr, indices, U)
+        A00.assemble()
+        A00.diagonalScale(L=D)
+        result = self.work[1].matMatMult(A00, A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
-@PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_pattern(i0, i1, submats, A, result=None):
-    """Add zeroes on the statically condensed pattern so that you can run ICC(0)"""
-    structure = PETSc.Mat.Structure.SUBSET if result else None
-    isrows = [i0, i0, i1]
-    iscols = [i0, i1, i0]
-    submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
-    A00, A01, A10 = submats[:3]
-    A00.scale(0.0)
-    result = A10.matMatMult(A00, A01, result=result)
-    result.axpy(1.0, A, structure=structure)
-    return result
+class SchurComplementBlockInverse(SchurComplementBuilder):
+
+    @PETSc.Log.EventDecorator("FDMGetSchur")
+    def condense(self, A, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A00, A01, A10, A11 = self.get_blocks(A)
+        indptr, indices, R = A00.getValuesCSR()
+
+        flops = 0
+        for k in sorted(self.slices):
+            zlice = self.slices[k]
+            if k == 1:
+                numpy.reciprocal(R[zlice], out=R[zlice])
+                flops += zlice.stop - zlice.start
+            else:
+                A = R[zlice].reshape((-1, k, k))
+                R[zlice] = numpy.linalg.inv(A).reshape((-1,))
+                flops += A.shape[0] * (k**3)
+
+        PETSc.Log.logFlops(flops)
+        A00.setValuesCSR(indptr, indices, R)
+        A00.assemble()
+        A00.scale(-1.0)
+        result = A10.matMatMult(A00, A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
 @PETSc.Log.EventDecorator("LoadCode")
@@ -976,28 +993,6 @@ def is_restricted(finat_element):
             else:
                 is_interior = False
     return is_interior, is_facet
-
-
-def sort_interior_dofs(idofs, A):
-    """Permute `idofs` to have A[idofs, idofs] with square blocks of
-       increasing dimension along its diagonal."""
-    Aii = A.createSubMatrix(idofs, idofs)
-    indptr, indices, _ = Aii.getValuesCSR()
-    degree = numpy.diff(indptr)
-    perm = []
-    for k in sorted(numpy.unique(degree)):
-        if k == 1:
-            neigh = numpy.flatnonzero(degree == k)
-            degree[neigh] = 0
-            perm.extend(neigh)
-        else:
-            for i in range(len(degree)):
-                if degree[i] == k:
-                    neigh = indices[slice(*indptr[i:i+2])]
-                    degree[neigh] = 0
-                    perm.extend(neigh)
-    idofs.setIndices(idofs.getIndices()[perm])
-    Aii.destroy()
 
 
 def petsc_sparse(A_numpy, rtol=1E-10, comm=None):

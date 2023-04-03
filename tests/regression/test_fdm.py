@@ -294,15 +294,14 @@ def test_ipdg_direct_solver(fs):
 
     num_flux = lambda u: avg(penalty) * avg(outer(u, n))
     num_flux_b = lambda u: (penalty/2) * outer(u, n)
-    alpha_inner = lambda v, u: inner(v, alpha(u))
+    a_int = lambda v, u: inner(2 * avg(outer(v, n)), alpha(num_flux(u) - avg(grad(u))))
+    a_Dir = lambda v, u: inner(outer(v, n), alpha(num_flux_b(u) - grad(u)))
 
-    a_int = lambda v, u: alpha_inner(2 * avg(outer(v, n)), num_flux(u) - avg(grad(u))) * dS_int
-    a_Dir = lambda v, u: alpha_inner(outer(v, n), num_flux_b(u) - grad(u)) * ds_Dir
-
-    u = TrialFunction(fs)
     v = TestFunction(fs)
-    a = ((inner(v, dot(beta, u)) + alpha_inner(grad(v), grad(u))) * dxq
-         + a_int(v, u) + a_int(u, v) + a_Dir(v, u) + a_Dir(u, v))
+    u = TrialFunction(fs)
+    a = ((inner(v, dot(beta, u)) + inner(grad(v), alpha(grad(u)))) * dxq
+         + (a_int(v, u) + a_int(u, v)) * dS_int
+         + (a_Dir(v, u) + a_Dir(u, v)) * ds_Dir)
 
     if homogenize:
         L = 0
@@ -311,7 +310,7 @@ def test_ipdg_direct_solver(fs):
         B = dot(beta, u_exact) - div(f_exact)
         T = dot(f_exact, n)
         L = (inner(v, B)*dxq + inner(v, T)*ds_Neu
-             + alpha_inner(outer(u_exact, n), 2*num_flux_b(v) - grad(v)) * ds_Dir)
+             + inner(outer(u_exact, n), alpha(2*num_flux_b(v) - grad(v))) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters={
