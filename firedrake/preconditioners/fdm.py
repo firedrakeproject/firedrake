@@ -234,22 +234,25 @@ class FDMPC(PCBase):
             fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
         dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
         idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
-        self.ises = tuple(PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs))
-        self.submats = [None for _ in range(7)]
+        self.ises = [PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF) for indices in (idofs, fdofs)]
+        self.submats = [None for _ in range(6)]
 
         # Dictionary with the parent space and a method to form the Schur complement
         self.get_static_condensation = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            diagonal_interior = Vfacet.finat_element.formdegree == 0 and value_size == 1
-            get_schur = schur_complement_diagonal if diagonal_interior else schur_complement_block_qr
-            self.get_static_condensation[Vfacet] = Vbig, lambda A: condense_element_mat(A, self.ises[0], self.ises[1],
-                                                                                        self.submats, get_schur)
-
+            if Vfacet.finat_element.formdegree == 0 and value_size == 1:
+                default_schur = schur_complement_diagonal
+            elif pmat_type.endswith("sbaij"):
+                default_schur = schur_complement_block_cholesky
+            else:
+                default_schur = schur_complement_block_qr
+            self.get_static_condensation[Vfacet] = Vbig, partial(condense_element_mat, default_schur,
+                                                                 self.ises[0], self.ises[1], self.submats)
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            i1 = PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF)
-            self.get_static_condensation[V] = Vbig, lambda Ae: condense_element_pattern(Ae, self.ises[0], i1, self.submats)
+            self.ises.append(PETSc.IS().createGeneral(dofs, comm=PETSc.COMM_SELF))
+            self.get_static_condensation[V] = Vbig, partial(condense_element_pattern, self.ises[0], self.ises[2], self.submats)
 
         @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
@@ -269,7 +272,7 @@ class FDMPC(PCBase):
             self.lgmaps[Vsub] = lgmap
 
             own = Vsub.dof_dset.layout_vec.getLocalSize()
-            bdofs = numpy.nonzero(lgmap.indices[:own] < 0)[0].astype(PETSc.IntType)
+            bdofs = numpy.flatnonzero(lgmap.indices[:own] < 0).astype(PETSc.IntType)
             bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
         self.nel = nel
 
@@ -393,11 +396,11 @@ class FDMPC(PCBase):
         if hasattr(self, "submats"):
             objs.extend(self.submats)
         if hasattr(self, "work_mats"):
-            objs.extend(list(self.work_mats.values()))
+            objs.extend(self.work_mats.values())
         if hasattr(self, "ises"):
             objs.extend(self.ises)
         for obj in objs:
-            if hasattr(obj, "destroy"):
+            if isinstance(obj, PETSc.Object):
                 obj.destroy()
 
     @cached_property
@@ -434,8 +437,11 @@ class FDMPC(PCBase):
             # This MPI rank does not own any elements, nothing to be done
             return
 
+        def get_key(*args):
+            return tuple(map(lambda V: V.ufl_element() if V else None, args))
+
         Vbig = None
-        condense_element_mat = lambda x: x
+        condense_element_mat = lambda Ae, result=None: Ae
         set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
@@ -447,24 +453,31 @@ class FDMPC(PCBase):
             update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
 
         Me = self._element_mass_matrix
-        # interpolation of basis and exterior derivative onto broken spaces
+        # Interpolation of basis and exterior derivative onto broken spaces
         ctensor = self.assemble_reference_tensor(Vbig or Vcol)
         rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
-        # element matrix obtained via Equation (3.9) of Brubeck2022b
+        # Element matrix obtained via Equation (3.9) of Brubeck2022b
         assemble_element_mat = partial(rtensor.matMatMult, Me, ctensor)
+        # Preallocate the element matrix
+        key = get_key(Vbig or Vrow, Vbig or Vcol, None)
         try:
-            Ae = self.work_mats[Vrow, Vcol]
+            Ae = self.work_mats[key]
         except KeyError:
-            Ae = self.work_mats.setdefault((Vrow, Vcol), assemble_element_mat())
+            Ae = self.work_mats.setdefault(key, assemble_element_mat())
+        # Preallocate the element Schur complement
+        key = get_key(Vrow, Vcol, Vbig)
+        try:
+            Se = self.work_mats[key]
+        except KeyError:
+            sort_interior_dofs(self.ises[0], Ae)
+            Se = self.work_mats.setdefault(key, condense_element_mat(Ae))
 
         insert = PETSc.InsertMode.INSERT
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             # Empty kernel for preallocation
-            if Vbig is not None:
-                sort_interior_dofs(self.ises[0], Ae)
-            Se = condense_element_mat(Ae)
             element_kernel = lambda e, result=None: result
-            condense_element_mat = lambda Ae: Se
+            condense_element_mat = lambda Ae, result=None: result
+
         elif Me.getBlockSize() == 1:
             # Kernel with diagonal mass matrix
             diagonal = self._element_mass_diagonal
@@ -492,7 +505,8 @@ class FDMPC(PCBase):
             cindices = get_cindices(e, result=cindices)
             rindices = get_rindices(e, result=rindices)
             Ae = element_kernel(e, result=Ae)
-            update_A(condense_element_mat(Ae), rindices, cindices)
+            Se = condense_element_mat(Ae, result=Se)
+            update_A(Se, rindices, cindices)
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -578,30 +592,25 @@ class FDMPC(PCBase):
         Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
-        # Return coefficients and assembly callables, and cache them class
-        key = (mixed_form.signature(), mesh)
-        cache = self._cache.setdefault("coefficients", {})
-        try:
-            return cache[key]
-        except KeyError:
-            if block_diagonal and V.shape:
-                from firedrake.assemble import assemble
-                M = assemble(mixed_form, mat_type="matfree",
-                             form_compiler_parameters=fcp)
-                coefficients = {}
-                assembly_callables = []
-                for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
-                    sub = M.petscmat.createSubMatrix(iset, iset)
-                    ctx = sub.getPythonContext()
-                    coefficients[name] = ctx._block_diagonal
-                    assembly_callables.append(ctx._assemble_block_diagonal)
-            else:
-                from firedrake.assemble import OneFormAssembler
-                tensor = Function(Z)
-                coefficients = {"beta": tensor.sub(0), "alpha": tensor.sub(1)}
-                assembly_callables = [OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
-                                                       form_compiler_parameters=fcp).assemble]
-            return cache.setdefault(key, (coefficients, assembly_callables))
+        # Return coefficients and assembly callables
+        coefficients = {}
+        assembly_callables = []
+        if block_diagonal and V.shape:
+            from firedrake.assemble import assemble
+            M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
+            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+                sub = M.petscmat.createSubMatrix(iset, iset)
+                ctx = sub.getPythonContext()
+                coefficients[name] = ctx._block_diagonal
+                assembly_callables.append(ctx._assemble_block_diagonal)
+        else:
+            from firedrake.assemble import OneFormAssembler
+            tensor = Function(Z)
+            coefficients["beta"] = tensor.subfunctions[0]
+            coefficients["alpha"] = tensor.subfunctions[1]
+            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
+                                                       form_compiler_parameters=fcp).assemble)
+        return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V, transpose=False):
@@ -651,10 +660,9 @@ class FDMPC(PCBase):
             if is_interior:
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-            comm = PETSc.COMM_SELF
-            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=comm)
-            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=comm)
-            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=comm)
+            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
+            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
+            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
             B_blocks = mass_blocks(tdim, formdegree, A00, A11)
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
             result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
@@ -663,7 +671,7 @@ class FDMPC(PCBase):
             A11.destroy()
 
             if value_size != 1:
-                eye = petsc_sparse(numpy.eye(value_size), comm=comm)
+                eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
                 temp = result
                 result = temp.kron(eye)
                 temp.destroy()
@@ -679,26 +687,26 @@ class FDMPC(PCBase):
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_diagonal(submats):
+def schur_complement_diagonal(submats, result=None):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
     return the Schur complement A11 - A10 * inv(A00) * A01.
 
     Assumes A00 is diagonal.
     """
-    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     A00, A01, A10, A11 = submats[:4]
     submats[4] = A00.getDiagonal(result=submats[4])
     submats[4].reciprocal()
     submats[4].scale(-1)
     A01.diagonalScale(L=submats[4])
-    submats[-1] = A10.matMult(A01, result=submats[-1])
-    submats[-1].axpy(1.0, A11, structure=structure)
-    return submats[-1]
+    result = A10.matMult(A01, result=result)
+    result.axpy(1.0, A11, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_inv(submats):
+def schur_complement_block_inv(submats, result=None):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
     return A11 - A10 * inv(A00) * A01.
@@ -706,17 +714,16 @@ def schur_complement_block_inv(submats):
     Assumes that interior DOFs have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, R = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
-
-    nblocks = numpy.count_nonzero(degree == 1)
+    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
+    istart = degree[0] == 1
+    nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.reciprocal(R[zlice], out=R[zlice])
     flops = nblocks
-    for k in range(2, degree[-1]+1):
-        nblocks = numpy.count_nonzero(degree == k)
+    for k, nblocks in zip(degree[istart:], counts[istart:]):
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         A = R[zlice].reshape((-1, k, k))
         R[zlice] = numpy.linalg.inv(A).reshape((-1,))
@@ -726,13 +733,13 @@ def schur_complement_block_inv(submats):
     A00.setValuesCSR(indptr, indices, R)
     A00.assemble()
     A00.scale(-1.0)
-    submats[-1] = A10.matMatMult(A00, A01, result=submats[-1])
-    submats[-1].axpy(1.0, A11, structure=structure)
-    return submats[-1]
+    result = A10.matMatMult(A00, A01, result=result)
+    result.axpy(1.0, A11, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_cholesky(submats):
+def schur_complement_block_cholesky(submats, result=None):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
     return A11 - A10 * inv(A00) * A01.
@@ -740,18 +747,17 @@ def schur_complement_block_cholesky(submats):
     Assumes that interior DOFs have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, R = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
-
-    nblocks = numpy.count_nonzero(degree == 1)
+    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
+    istart = degree[0] == 1
+    nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.sqrt(R[zlice], out=R[zlice])
     numpy.reciprocal(R[zlice], out=R[zlice])
     flops = 2*nblocks
-    for k in range(2, degree[-1]+1):
-        nblocks = numpy.count_nonzero(degree == k)
+    for k, nblocks in zip(degree[istart:], counts[istart:]):
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         A = R[zlice].reshape((-1, k, k))
         R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
@@ -762,13 +768,13 @@ def schur_complement_block_cholesky(submats):
     A00.assemble()
     submats[4] = A10.matTransposeMult(A00, result=submats[4])
     A00.scale(-1.0)
-    submats[-1] = submats[4].matMatMult(A00, A01, result=submats[-1])
-    submats[-1].axpy(1.0, A11, structure=structure)
-    return submats[-1]
+    result = submats[4].matMatMult(A00, A01, result=result)
+    result.axpy(1.0, A11, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_qr(submats):
+def schur_complement_block_qr(submats, result=None):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
     return A11 - A10 * inv(A00) * A01.
@@ -776,18 +782,18 @@ def schur_complement_block_qr(submats):
     Assumes that interior DOFs have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, R = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
     Q = numpy.ones(R.shape, dtype=R.dtype)
 
-    nblocks = numpy.count_nonzero(degree == 1)
+    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
+    istart = degree[0] == 1
+    nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.reciprocal(R[zlice], out=R[zlice])
     flops = nblocks
-    for k in range(2, degree[-1]+1):
-        nblocks = numpy.count_nonzero(degree == k)
+    for k, nblocks in zip(degree[istart:], counts[istart:]):
         zlice = slice(zlice.stop, zlice.stop + k*nblocks)
         A = R[zlice].reshape((-1, k, k))
         q, r = numpy.linalg.qr(A, mode="complete")
@@ -802,13 +808,13 @@ def schur_complement_block_qr(submats):
     A00.setValuesCSR(indptr, indices, R)
     A00.assemble()
     A00.scale(-1.0)
-    submats[-1] = A10.matMatMult(A00, submats[4], result=submats[-1])
-    submats[-1].axpy(1.0, A11, structure=structure)
-    return submats[-1]
+    result = A10.matMatMult(A00, submats[4], result=result)
+    result.axpy(1.0, A11, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("FDMGetSchur")
-def schur_complement_block_svd(submats):
+def schur_complement_block_svd(submats, result=None):
     """
     Used in static condensation. Take in blocks A00, A01, A10, A11,
     return A11 - A10 * inv(A00) * A01.
@@ -816,22 +822,21 @@ def schur_complement_block_svd(submats):
     Assumes that interior DOFs have been reordered to make A00
     block diagonal with blocks of increasing dimension.
     """
-    structure = PETSc.Mat.Structure.SUBSET if submats[-1] else None
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, U = A00.getValuesCSR()
-    degree = numpy.diff(indptr)
     V = numpy.ones(U.shape, dtype=U.dtype)
     submats[4] = A00.getDiagonal(result=submats[4])
     D = submats[4]
 
-    nblocks = numpy.count_nonzero(degree == 1)
+    degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
+    istart = degree[0] == 1
+    nblocks = counts[0] if istart else 0
     bslice = slice(0, nblocks)
     dslice = slice(0, nblocks)
     numpy.sign(D.array_r[dslice], out=U[bslice])
-
     flops = nblocks
-    for k in range(2, degree[-1]+1):
-        nblocks = numpy.count_nonzero(degree == k)
+    for k, nblocks in zip(degree[istart:], counts[istart:]):
         bslice = slice(bslice.stop, bslice.stop + k*nblocks)
         dslice = slice(dslice.stop, dslice.stop + nblocks)
         A = U[bslice].reshape((-1, k, k))
@@ -853,32 +858,32 @@ def schur_complement_block_svd(submats):
     A00.setValuesCSR(indptr, indices, U)
     A00.assemble()
     A00.diagonalScale(L=D)
-    submats[-1] = submats[5].matMatMult(A00, A01, result=submats[-1])
-    submats[-1].axpy(1.0, A11, structure=structure)
-    return submats[-1]
+    result = submats[5].matMatMult(A00, A01, result=result)
+    result.axpy(1.0, A11, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_mat(A, i0, i1, submats, get_schur_complement):
+def condense_element_mat(get_schur_complement, i0, i1, submats, A, result=None):
     """Return the Schur complement associated to indices in i1, condensing i0 out"""
     isrows = [i0, i0, i1, i1]
     iscols = [i0, i1, i0, i1]
     submats[:4] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:4] if submats[0] else None)
-    return get_schur_complement(submats)
+    return get_schur_complement(submats, result=result)
 
 
 @PETSc.Log.EventDecorator("FDMCondense")
-def condense_element_pattern(A, i0, i1, submats):
+def condense_element_pattern(i0, i1, submats, A, result=None):
     """Add zeroes on the statically condensed pattern so that you can run ICC(0)"""
+    structure = PETSc.Mat.Structure.SUBSET if result else None
     isrows = [i0, i0, i1]
     iscols = [i0, i1, i0]
-    structure = PETSc.Mat.Structure.SUBSET if submats[3] else None
     submats[:3] = A.createSubMatrices(isrows, iscols=iscols, submats=submats[:3] if submats[0] else None)
     A00, A01, A10 = submats[:3]
     A00.scale(0.0)
-    submats[3] = A10.matMatMult(A00, A01, result=submats[3])
-    submats[3].axpy(1.0, A, structure=structure)
-    return submats[3]
+    result = A10.matMatMult(A00, A01, result=result)
+    result.axpy(1.0, A, structure=structure)
+    return result
 
 
 @PETSc.Log.EventDecorator("LoadCode")
@@ -900,7 +905,7 @@ def load_c_code(code, name, **kwargs):
 
     @PETSc.Log.EventDecorator(name)
     def wrapper(*args):
-        return funptr(*list(map(get_pointer, args)))
+        return funptr(*map(get_pointer, args))
     return wrapper
 
 
@@ -978,17 +983,18 @@ def sort_interior_dofs(idofs, A):
        increasing dimension along its diagonal."""
     Aii = A.createSubMatrix(idofs, idofs)
     indptr, indices, _ = Aii.getValuesCSR()
-    n = idofs.getSize()
-    visit = numpy.zeros((n, ), dtype=bool)
+    degree = numpy.diff(indptr)
     perm = []
-    degree = 0
-    while not visit.all():
-        degree += 1
-        for i in range(n):
-            if not visit[i]:
-                neigh = indices[slice(*indptr[i:i+2])]
-                if len(neigh) == degree:
-                    visit[neigh] = True
+    for k in sorted(numpy.unique(degree)):
+        if k == 1:
+            neigh = numpy.flatnonzero(degree == k)
+            degree[neigh] = 0
+            perm.extend(neigh)
+        else:
+            for i in range(len(degree)):
+                if degree[i] == k:
+                    neigh = indices[slice(*indptr[i:i+2])]
+                    degree[neigh] = 0
                     perm.extend(neigh)
     idofs.setIndices(idofs.getIndices()[perm])
     Aii.destroy()
@@ -1127,9 +1133,9 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
         fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
         cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
-        fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-        cises = PETSc.IS().createGeneral(cdofs, comm=PETSc.COMM_SELF)
         temp = Dhat
+        fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
+        cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
         Dhat = temp.createSubMatrix(fises, cises)
         temp.destroy()
         fises.destroy()
@@ -1137,7 +1143,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 
     if Vf.value_size > 1:
         temp = Dhat
-        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType), comm=temp.getComm())
         Dhat = temp.kron(eye)
         temp.destroy()
         eye.destroy()
