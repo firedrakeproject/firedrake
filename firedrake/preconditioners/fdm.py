@@ -669,7 +669,7 @@ class FDMPC(PCBase):
             if is_facet:
                 cache[full_key] = result
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-                result = result.createSubMatrix(noperm, self.ises[1])
+                result = result.createSubMatrix(noperm, self.fises)
                 noperm.destroy()
 
             return cache.setdefault(key, result)
