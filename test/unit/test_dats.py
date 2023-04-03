@@ -216,6 +216,13 @@ class TestDat:
         assert mdat.dat_version == 8
         assert mdat2.dat_version == 5
 
+    def test_accessing_data_with_halos_increments_dat_version(self, d1):
+        assert d1.dat_version == 0
+        d1.data_ro_with_halos
+        assert d1.dat_version == 0
+        d1.data_with_halos
+        assert d1.dat_version == 1
+
 
 if __name__ == '__main__':
     import os

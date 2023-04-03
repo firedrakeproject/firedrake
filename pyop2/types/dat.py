@@ -172,6 +172,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         With this accessor, you get to see up to date halo values, but
         you should not try and modify them, because they will be
         overwritten by the next halo exchange."""
+        self.increment_dat_version()
         self.global_to_local_begin(Access.RW)
         self.global_to_local_end(Access.RW)
         self.halo_valid = False
