@@ -15,7 +15,7 @@ __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
 
-class LinearEigenproblem:
+class LinearEigenproblem():
     def __init__(self, A, M=None, bcs=None):
         self.A = A  # LHS 
         args = A.arguments()
@@ -66,45 +66,26 @@ class LinearEigensolver(OptionsManager):
 
     def solve(self):
         '''Solves the eigenproblem, returns the number of converged eigenvalues'''
-        self.A_mat = assemble(self._problem.A).M.handle
+        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
         self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs).M.handle 
         self.es.setOperators(self.A_mat, self.M_mat)
         self.es.setDimensions(self.n_evals)
         with self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
-        
         if nconv == 0:
-            import sys
-            warning("Did not converge any eigenvalues")
-            sys.exit(0)
-        else:
-            self.evals = np.zeros(nconv, dtype=complex)
-            vr, vi = self.A_mat.getVecs()
-            for i in range(nconv):
-                #self.evals[i] = self.es.getEigenvalue(i)
-                self.evals[i] = self.es.getEigenpair(i, vr, vi)
+            warning("Did not converge any eigenvalues") 
+            raise Exception("Did not converge any eigenvalues")
         return nconv
 
-    def eigenvalues(self):
+    def eigenvalue(self, i): # DO THIS
         '''Return the eigenvalues of the problem'''
-        return self.evals
+        return self.es.getEigenvalue(i)
 
-    def eigenfunctions(self, i):
-        '''Return the eigenfunctions of the problem'''
+    def eigenfunction(self, i):
+        '''Return the ith eigenfunctions of the problem.'''
         eigenmodes_real = Function(self._problem.OutputSpace)  # fn of V
         eigenmodes_imag = Function(self._problem.OutputSpace)
-        #vr, vi = eigenmodes_real.dat.vec_wo,  eigenmodes_imag.dat.vec_wo
-        vr, vi = self.A_mat.getVecs() # PetSc Vectors 
-        lam = self.es.getEigenpair(i, vr, vi)
-        eigenmodes_real.vector()[:] = vr
-        eigenmodes_imag.vector()[:] = vi
-        return lam, eigenmodes_real, eigenmodes_imag  
-    
-    def eigenvectors(self):
-        '''Return the eigenvectors of the problem'''
-        eigenmodes_real = Function(self._problem.OutputSpace)  # fn of V
-        eigenmodes_imag = Function(self._problem.OutputSpace)
-        vr, vi = self.A_mat.getVecs() # PetSc Vectors 
-        #vr, vi = vr.getArray(), vi.getArray()
+        vr, vi = eigenmodes_real.dat.vec_wo, eigenmodes_imag.dat.vec_wo
         return vr, vi
+
