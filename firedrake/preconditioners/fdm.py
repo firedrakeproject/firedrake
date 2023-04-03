@@ -718,7 +718,7 @@ def schur_complement_block_inv(submats, result=None):
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, R = A00.getValuesCSR()
     degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = degree[0] == 1
+    istart = int(degree[0] == 1)
     nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.reciprocal(R[zlice], out=R[zlice])
@@ -751,7 +751,7 @@ def schur_complement_block_cholesky(submats, result=None):
     A00, A01, A10, A11 = submats[:4]
     indptr, indices, R = A00.getValuesCSR()
     degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = degree[0] == 1
+    istart = int(degree[0] == 1)
     nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.sqrt(R[zlice], out=R[zlice])
@@ -788,7 +788,7 @@ def schur_complement_block_qr(submats, result=None):
     Q = numpy.ones(R.shape, dtype=R.dtype)
 
     degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = degree[0] == 1
+    istart = int(degree[0] == 1)
     nblocks = counts[0] if istart else 0
     zlice = slice(0, nblocks)
     numpy.reciprocal(R[zlice], out=R[zlice])
@@ -830,7 +830,7 @@ def schur_complement_block_svd(submats, result=None):
     D = submats[4]
 
     degree, counts = numpy.unique(numpy.diff(indptr), return_counts=True)
-    istart = degree[0] == 1
+    istart = int(degree[0] == 1)
     nblocks = counts[0] if istart else 0
     bslice = slice(0, nblocks)
     dslice = slice(0, nblocks)
