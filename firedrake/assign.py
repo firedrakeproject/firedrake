@@ -128,7 +128,7 @@ class Assigner:
 
     _coefficient_collector = CoefficientCollector()
 
-    def __init__(self, assignee, expression, subset=None, subset_includes_halo=False):
+    def __init__(self, assignee, expression, subset=None):
         if isinstance(expression, Vector):
             expression = expression.function
         expression = as_ufl(expression)
@@ -148,14 +148,9 @@ class Assigner:
             raise ValueError("Subset is not a valid argument for assigning to a mixed "
                              "element including a real element")
 
-        if subset_includes_halo and not subset:
-            raise ValueError(
-                "subset_includes_halo only makes sense if a subset is provided")
-
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
-        self._subset_includes_halo = subset_includes_halo
 
     def __str__(self):
         return f"{self._assignee} {self.symbol} {self._expression}"
