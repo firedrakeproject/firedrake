@@ -6,6 +6,7 @@ import netgen
 import numpy as np
 import gc
 from petsc4py import PETSc
+import pytest
 
 
 printf = lambda msg: PETSc.Sys.Print(msg)
@@ -18,7 +19,7 @@ def poisson(h, degree=2):
         geo = SplineGeometry()
         geo.AddRectangle((0, 0), (np.pi, np.pi), bc="rect")
         ngmesh = geo.GenerateMesh(maxh=h)
-        labels = [i+1 for i,name in enumerate(ngmesh.GetRegionNames(codim=1)) if name=="rect"]
+        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
         labels = None
@@ -54,12 +55,12 @@ def poisson3D(h, degree=2):
     comm = MPI.COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
-        box = OrthoBrick( Pnt(0,0,0), Pnt(np.pi,np.pi,np.pi) )
+        box = OrthoBrick(Pnt(0, 0, 0), Pnt(np.pi, np.pi, np.pi))
         box.bc("bcs")
         geo = CSGeometry()
         geo.Add(box)
         ngmesh = geo.GenerateMesh(maxh=h)
-        labels = [i+1 for i,name in enumerate(ngmesh.GetRegionNames(codim=1)) if name=="bcs"]
+        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "bcs"]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
         labels = None
@@ -108,6 +109,8 @@ def test_firedrake_Poisson3D_netgen():
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
 
+
+@pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
     gc.collect()
     comm = MPI.COMM_WORLD
@@ -191,7 +194,7 @@ def test_firedrake_Adaptivity_netgen():
     [geo.Append(c, bc=bc) for c, bc in curves]
     if comm.Get_rank() == 0:
         ngmsh = geo.GenerateMesh(maxh=0.2)
-        labels = [i+1 for i,name in enumerate(ngmsh.GetRegionNames(codim=1)) if name=="line" or name=="curve"]
+        labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name == "line" or name == "curve"]
     else:
         ngmsh = netgen.libngpy._meshing.Mesh(2)
         labels = None
