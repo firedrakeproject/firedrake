@@ -246,10 +246,10 @@ class FDMPC(PCBase):
                 sc_builder = SchurComplementBlockCholesky
             else:
                 sc_builder = SchurComplementBlockQR
-            self.get_static_condensation[Vfacet] = Vbig, sc_builder(idofs, fdofs, PETSc.COMM_SELF).condense
+            self.get_static_condensation[Vfacet] = Vbig, sc_builder(idofs, fdofs).condense
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.get_static_condensation[V] = Vbig, SchurComplementPattern(idofs, dofs, PETSc.COMM_SELF).condense
+            self.get_static_condensation[V] = Vbig, SchurComplementPattern(idofs, dofs).condense
 
         @PETSc.Log.EventDecorator("FDMGetIndices")
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
@@ -432,15 +432,8 @@ class FDMPC(PCBase):
 
         Vbig = None
         condense_element_mat = lambda Ae, result=None: Ae
-        set_submat = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
-        get_rindices = self.cell_to_global[Vrow]
         if Vrow == Vcol:
-            get_cindices = lambda e, result=None: result
-            update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, rindices, addv)
             Vbig, condense_element_mat = self.get_static_condensation.get(Vrow, (Vbig, condense_element_mat))
-        else:
-            get_cindices = self.cell_to_global[Vcol]
-            update_A = lambda Ae, rindices, cindices: set_submat(A, Ae, rindices, cindices, addv)
 
         Me = self._element_mass_matrix
         # Interpolation of basis and exterior derivative onto broken spaces
@@ -461,6 +454,16 @@ class FDMPC(PCBase):
         except KeyError:
             Se = self.work_mats.setdefault(key, condense_element_mat(Ae))
 
+        get_rindices = self.cell_to_global[Vrow]
+        rindices = numpy.empty(Se.getSize()[:1], dtype=PETSc.IntType)
+        if Vrow == Vcol:
+            get_cindices = lambda e, result=None: result
+            cindices = rindices
+        else:
+            get_cindices = self.cell_to_global[Vcol]
+            cindices = numpy.empty(Se.getSize()[1:], dtype=PETSc.IntType)
+
+        setSubMatCSR = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         insert = PETSc.InsertMode.INSERT
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             # Empty kernel for preallocation
@@ -487,15 +490,13 @@ class FDMPC(PCBase):
                 Me.assemble()
                 return assemble_element_mat(result=result)
 
-        cindices = None
-        rindices = None
         # Core assembly loop
         for e in range(self.nel):
-            cindices = get_cindices(e, result=cindices)
-            rindices = get_rindices(e, result=rindices)
+            get_rindices(e, result=rindices)
+            get_cindices(e, result=cindices)
             Ae = element_kernel(e, result=Ae)
             Se = condense_element_mat(Ae, result=Se)
-            update_A(Se, rindices, cindices)
+            setSubMatCSR(A, Se, rindices, cindices, addv)
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -677,63 +678,71 @@ class FDMPC(PCBase):
 
 class SchurComplementBuilder(object):
     """
-    Class to build element Schur complement.
+    Class to build Schur complement matrices that reuses work matrices and the
+    symbolic factorization of the interior block.
     """
 
-    def __init__(self, idofs, fdofs, comm):
-        i0 = PETSc.IS().createGeneral(idofs, comm=comm)
-        i1 = PETSc.IS().createGeneral(fdofs, comm=comm)
-        self.ises = (i0, i1)
-        self.isrows = [i0, i0, i1, i1]
-        self.iscols = [i0, i1, i0, i1]
-        self.work = [None for _ in range(2)]
-        self.submats = []
+    def __init__(self, idofs, fdofs):
+        self.idofs = idofs
+        self.fdofs = fdofs
         self.slices = {}
+        self.ises = tuple()
+        self.isrows = []
+        self.iscols = []
+        self.submats = []
+        self.work = [None for _ in range(2)]
 
     def __del__(self):
-        self.ises[0].destroy()
-        self.ises[1].destroy()
-        for mat in self.submats:
-            if isinstance(mat, PETSc.Object):
-                mat.destroy()
+        self.reset()
+
+    def reset(self):
+        for obj in self.ises:
+            if isinstance(obj, PETSc.Object):
+                obj.destroy()
+        for obj in self.submats:
+            if isinstance(obj, PETSc.Object):
+                obj.destroy()
         for obj in self.work:
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
+        self.submats = []
+        self.work = [None for _ in range(2)]
 
-    def sort_interior_dofs(self, idofs, A):
-        """Permute `idofs` to have A[idofs, idofs] with square blocks of
-           increasing dimension along its diagonal."""
-        Aii = A.createSubMatrix(idofs, idofs)
-        indptr, indices, _ = Aii.getValuesCSR()
+    def sort_interior_dofs(self, i0, A):
+        """Permute `i0` to have A[i0, i0] with square blocks of
+           increasing dimension along its diagonal. Add slices with the extents
+           of each set of blocks in the CSR representation of A."""
+        A00 = A.createSubMatrix(i0, i0)
+        indptr, indices, _ = A00.getValuesCSR()
         degree = numpy.diff(indptr)
-
-        perm = list(numpy.flatnonzero(degree == 1))
-        degree[perm] = 0
-
-        iend = len(perm)
-        if iend:
-            self.slices[1] = slice(0, iend)
-
-        for k in sorted(numpy.unique(degree)):
+        perm = numpy.argsort(degree)
+        icur = 0
+        istart = 0
+        self.slices[1] = slice(0, 0)
+        unique_degree, counts = numpy.unique(degree, return_counts=True)
+        for k, kdofs in sorted(zip(unique_degree, counts)):
             if k > 1:
-                nblocks = 0
-                for i in numpy.flatnonzero(degree == k):
-                    if degree[i] == k:
-                        block = indices[slice(*indptr[i:i+2])]
-                        degree[block] = 0
-                        perm.extend(block)
-                        nblocks += 1
+                neigh = numpy.empty((kdofs, k), dtype=indices.dtype)
+                for row in range(kdofs):
+                    i = perm[icur+row]
+                    neigh[row] = indices[slice(*indptr[i:i+2])]
+                perm[icur:icur+kdofs] = list(dict.fromkeys(neigh.flat))
 
-                istart = iend
-                iend += k * k * nblocks
-                self.slices[k] = slice(istart, iend)
-
-        idofs.setIndices(idofs.getIndices()[perm])
-        Aii.destroy()
+            self.slices[k] = slice(istart, istart + k * kdofs)
+            istart += k * kdofs
+            icur += kdofs
+        i0.setIndices(i0.getIndices()[perm])
+        A00.destroy()
 
     def get_blocks(self, A):
         if len(self.submats) == 0:
-            self.sort_interior_dofs(self.ises[0], A)
+            comm = A.getComm()
+            i0 = PETSc.IS().createGeneral(self.idofs, comm=comm)
+            i1 = PETSc.IS().createGeneral(self.fdofs, comm=comm)
+            self.sort_interior_dofs(i0, A)
+            self.isrows = [i0, i0, i1, i1]
+            self.iscols = [i0, i1, i0, i1]
+            self.ises = (i0, i1)
         self.submats = A.createSubMatrices(self.isrows, iscols=self.iscols, submats=self.submats or None)
         return self.submats
 
@@ -777,17 +786,15 @@ class SchurComplementBlockCholesky(SchurComplementBuilder):
         A00, A01, A10, A11 = self.get_blocks(A)
         indptr, indices, R = A00.getValuesCSR()
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.sqrt(R[zlice], out=R[zlice])
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = 2 * (zlice.stop - zlice.start)
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.sqrt(R[zlice], out=R[zlice])
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += 2 * (zlice.stop - zlice.start)
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
-                flops += A.shape[0] * ((k**3)//3 + k**3)
+            A = R[zlice].reshape((-1, k, k))
+            R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
+            flops += A.shape[0] * ((k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
@@ -808,18 +815,16 @@ class SchurComplementBlockQR(SchurComplementBuilder):
         indptr, indices, R = A00.getValuesCSR()
         Q = numpy.ones(R.shape, dtype=R.dtype)
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += zlice.stop - zlice.start
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                q, r = numpy.linalg.qr(A, mode="complete")
-                Q[zlice] = q.reshape((-1,))
-                R[zlice] = numpy.linalg.inv(r).reshape((-1,))
-                flops += A.shape[0] * ((4*k**3)//3 + k**3)
+            A = R[zlice].reshape((-1, k, k))
+            q, r = numpy.linalg.qr(A, mode="complete")
+            Q[zlice] = q.reshape((-1,))
+            R[zlice] = numpy.linalg.inv(r).reshape((-1,))
+            flops += A.shape[0] * ((4*k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, Q)
@@ -843,21 +848,18 @@ class SchurComplementBlockSVD(SchurComplementBuilder):
         V = numpy.ones(U.shape, dtype=U.dtype)
         self.work[0] = A00.getDiagonal(result=self.work[0])
         D = self.work[0]
-        dslice = self.slices.get(1, slice(0, 0))
-        flops = 0
-        for k in sorted(self.slices):
+        dslice = self.slices[1]
+        numpy.sign(D.array_r[dslice], out=U[dslice])
+        flops = dslice.stop - dslice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             bslice = self.slices[k]
-            if k == 1:
-                numpy.sign(D.array_r[bslice], out=U[bslice])
-                flops += bslice.stop - bslice.start
-            else:
-                A = U[bslice].reshape((-1, k, k))
-                u, s, v = numpy.linalg.svd(A, full_matrices=False)
-                dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
-                D.array_w[dslice] = s.reshape((-1,))
-                U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
-                V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
-                flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
+            A = U[bslice].reshape((-1, k, k))
+            u, s, v = numpy.linalg.svd(A, full_matrices=False)
+            dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
+            D.array_w[dslice] = s.reshape((-1,))
+            U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
+            V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
+            flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
 
         PETSc.Log.logFlops(flops)
         D.sqrtabs()
@@ -883,16 +885,14 @@ class SchurComplementBlockInverse(SchurComplementBuilder):
         A00, A01, A10, A11 = self.get_blocks(A)
         indptr, indices, R = A00.getValuesCSR()
 
-        flops = 0
-        for k in sorted(self.slices):
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in sorted(degree for degree in self.slices if degree > 1):
             zlice = self.slices[k]
-            if k == 1:
-                numpy.reciprocal(R[zlice], out=R[zlice])
-                flops += zlice.stop - zlice.start
-            else:
-                A = R[zlice].reshape((-1, k, k))
-                R[zlice] = numpy.linalg.inv(A).reshape((-1,))
-                flops += A.shape[0] * (k**3)
+            A = R[zlice].reshape((-1, k, k))
+            R[zlice] = numpy.linalg.inv(A).reshape((-1,))
+            flops += A.shape[0] * (k**3)
 
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
@@ -1001,9 +1001,11 @@ def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
     sparsity = abs(A_numpy) > atol
     nnz = numpy.count_nonzero(sparsity, axis=1).astype(PETSc.IntType)
     A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
-    for row, (Arow, Srow) in enumerate(zip(A_numpy, sparsity)):
-        cols = numpy.argwhere(Srow).astype(PETSc.IntType).flat
-        A.setValues(row, cols, Arow[cols], PETSc.InsertMode.INSERT)
+    rows, cols = numpy.nonzero(sparsity)
+    rows = rows.astype(PETSc.IntType)
+    cols = cols.astype(PETSc.IntType)
+    vals = A_numpy[sparsity]
+    A.setValuesRCV(rows[:, None], cols[:, None], vals[:, None], PETSc.InsertMode.INSERT)
     A.assemble()
     return A
 
