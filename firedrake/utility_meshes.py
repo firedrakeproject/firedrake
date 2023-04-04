@@ -500,6 +500,9 @@ def UnitTriangleMesh(
 ):
     """Generate a mesh of the reference triangle
 
+    :kwarg refinement_level: Number of uniform refinements to perform
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -511,9 +514,7 @@ def UnitTriangleMesh(
     """
     coords = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
     cells = [[0, 1, 2]]
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
-    )
+    plex = mesh.plex_from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -539,6 +540,7 @@ def UnitTriangleMesh(
     for i in range(refinement_level):
         plex = plex.refine()
 
+    plex.setName(mesh._generate_default_mesh_topology_name(name))
     return mesh.Mesh(
         plex,
         reorder=False,
