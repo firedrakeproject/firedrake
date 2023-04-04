@@ -197,7 +197,6 @@ class Assigner:
             self._assign_single_dat(lhs_dat, idxs, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
-        assert all(not dat.halo_valid for dat in self._assignee.dat.split)
         if assign_to_halos:
             self._assignee.dat.halo_valid = True
 
