@@ -478,3 +478,81 @@ def test_augmented_assignment_broadcast():
 
     u -= 2 + a + b
     assert np.allclose(u.dat.data_ro, -16/3)
+
+
+def make_subset(cg1):
+    """Return a subset consisting of one owned and one ghost element.
+
+    This function will only work in parallel.
+
+    """
+    # the second entry in node_set.sizes is the number of owned values, which
+    # is also the index of the first ghost value
+    indices = [0, cg1.node_set.sizes[1]]
+    return op2.Subset(cg1.node_set, indices)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_halo_and_no_subset_sets_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    u.dat.halo_valid = False
+    u.assign(1)
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert u.dat.halo_valid
+    assert np.allclose(u.dat._data, 1)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_valid_halo_and_subset_sets_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    subset = make_subset(cg1)
+    u.assign(1, subset=subset)
+
+    expected = [0] * u.dat.dataset.total_size
+    expected[0] = 1
+    expected[u.dat.dataset.size] = 1
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert u.dat.halo_valid
+    assert np.allclose(u.dat._data, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_halo_and_subset_skips_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    u.dat.halo_valid = False
+    subset = make_subset(cg1)
+    u.assign(1, subset=subset)
+
+    expected = [0] * u.dat.dataset.total_size
+    expected[0] = 1
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert not u.dat.halo_valid
+    assert np.allclose(u.dat._data, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_expression_halo_skips_halo_values(cg1):
+    u = Function(cg1)
+    v = Function(cg1)
+    assert u.dat.halo_valid
+    assert v.dat.halo_valid
+
+    v.assign(1)
+    assert v.dat.halo_valid
+
+    v.dat.halo_valid = False
+    u.assign(v)
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert not u.dat.halo_valid
+    assert np.allclose(u.dat._data[:u.dat.dataset.size], 1)
+    assert np.allclose(u.dat._data[u.dat.dataset.size:], 0)
