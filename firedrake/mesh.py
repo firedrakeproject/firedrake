@@ -29,6 +29,12 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
+try:
+    import netgen
+    from ngsolve import ngs2petsc
+except ImportError:
+    netgen = None
+
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
@@ -261,6 +267,20 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
+
+
+@PETSc.Log.EventDecorator()
+def _from_netgen(ngmesh, comm=None):
+    """
+    Create a DMPlex from an Netgen mesh
+
+    :arg ngmesh: NetGen Mesh
+    TODO: Right now we construct NetGen mesh on a single worker, load it in Firedrake
+    and then distribute. We should find a way of taking adventage of the fact that
+    NetGen can act as a parallel mesher.
+    """
+    meshMap = ngs2petsc.DMPlexMapping(ngmesh)
+    return meshMap.plex
 
 
 @PETSc.Log.EventDecorator()
@@ -2279,7 +2299,7 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: Mesh file name (or DMPlex object) defining
+    :param meshfile: the mesh file name, a DMPlex object or a Netgen mesh object defining
            mesh topology.  See below for details on supported mesh
            formats.
     :param name: optional name of the mesh object.
@@ -2340,8 +2360,8 @@ def Mesh(meshfile, **kwargs):
 
     .. note::
 
-        When the mesh is created directly from a DMPlex object,
-        the ``dim`` parameter is ignored (the DMPlex already
+        When the mesh is created directly from a DMPlex object or a Netgen,
+        mesh object the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
@@ -2383,6 +2403,8 @@ def Mesh(meshfile, **kwargs):
         plex = meshfile
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
+    elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        plex = _from_netgen(meshfile, user_comm)
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -2408,8 +2430,36 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
-                            comm=user_comm, tolerance=tolerance)
-    return make_mesh_from_mesh_topology(topology, name)
+                            comm=user_comm)
+    mesh = make_mesh_from_mesh_topology(topology, name)
+    if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        # Adding NetGen mesh and inverse sfBC as attributes
+        mesh.netgen_mesh = meshfile
+        mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
+        mesh.comm = user_comm
+        # Refine Method
+
+        def refine_marked_elements(self, mark):
+            with mark.dat.vec as marked:
+                marked0 = marked
+                getIdx = self._cell_numbering.getOffset
+                if self.sfBCInv is not None:
+                    getIdx = lambda x: x
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv, self._cell_numbering, marked)
+                if self.comm.Get_rank() == 0:
+                    mark = marked0.getArray()
+                    for i, el in enumerate(self.netgen_mesh.Elements2D()):
+                        if mark[getIdx(i)]:
+                            el.refine = True
+                        else:
+                            el.refine = False
+                    self.netgen_mesh.Refine(adaptive=True)
+                    return Mesh(self.netgen_mesh)
+                else:
+                    return Mesh(netgen.libngpy._meshing.Mesh(2))
+
+        setattr(MeshGeometry, "refine_marked_elements", refine_marked_elements)
+    return mesh
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")

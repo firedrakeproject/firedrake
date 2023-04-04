@@ -69,7 +69,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
 def deep_update(this, that):
@@ -323,6 +323,8 @@ honoured.""",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true",
+                        help="Install NetGen as well.")
 
     args = parser.parse_args()
 
@@ -427,6 +429,8 @@ else:
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"]["netgen"],
+                        help="Install NetGen as well.")
 
     args = parser.parse_args()
 
@@ -1412,6 +1416,11 @@ def build_and_install_slepc():
             git_clone(url)
 
 
+def build_and_install_netgen():
+    log.info("Installing NGSolve/Netgen.")
+    run_pip(["install", "ngsolve", "--pre"])
+
+
 def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
@@ -1587,6 +1596,8 @@ if mode == "install" or not args.update_script:
                              "python3-tk",
                              "python3-venv",
                              "zlib1g-dev",
+                             "tk-dev",   # for NetGen
+                             "tcl-dev",  # for NetGen
                              "libboost-dev"]  # For ROL in pyadjoint
         if args.opencascade:
             required_packages.append("liboce-ocaf-dev")
@@ -1799,7 +1810,7 @@ if mode == "install":
         # When building Firedrake in CI, don't clone Firedrake again.
         check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
-        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git@uzerbinati/netgen-integration")
 
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
@@ -2055,6 +2066,8 @@ with environment(**compiler_env):
 
     if options["tinyasm"]:
         build_and_install_tinyasm()
+    if options["netgen"]:
+        build_and_install_netgen()
 
 with pipargs("--no-deps"):
     if options["opencascade"]:
