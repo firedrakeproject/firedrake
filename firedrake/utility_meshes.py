@@ -491,8 +491,9 @@ def OneElementThickMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitTriangleMesh(
-    comm=COMM_WORLD,
     refinement_level=0,
+    distribution_parameters=None,
+    comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
@@ -519,10 +520,20 @@ def UnitTriangleMesh(
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
-    labels = [1,2,0] # Faces are y=0, x+y=0, x=0.
     boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-    for face, label in zip(boundary_faces, labels):
-        plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, label)
+
+    tol = 1e-2 # 0.5 would suffice
+    for face in boundary_faces:
+        face_coords = plex.vecGetClosure(coord_sec, coords, face)
+        # |x+y-1| < eps
+        if abs(face_coords[0] + face_coords[1] - 1) < tol and abs(face_coords[2] + face_coords[3] - 1) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+        # |x| < eps
+        if abs(face_coords[0]) < tol and abs(face_coords[2]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+        # |y| < eps
+        if abs(face_coords[1]) < tol and abs(face_coords[3]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
     plex.removeLabel("boundary_faces")
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
@@ -531,6 +542,7 @@ def UnitTriangleMesh(
     return mesh.Mesh(
         plex,
         reorder=False,
+        distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
