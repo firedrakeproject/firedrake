@@ -541,12 +541,12 @@ def RectangleMesh(
 ):
     """Generate a rectangular mesh
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg Lx: The extent in the x direction from the origin
-    :arg Ly: The extent in the y direction from the origin
-    :arg originX: The X coordinates of the origin, default 0.
-    :arg originY: The Y coordinates of the origin, default 0.
+    :arg nx: The number of cells in the x direction.
+    :arg ny: The number of cells in the y direction.
+    :arg Lx: The X coordinates of the lower right corners of the rectangle.
+    :arg Ly: The Y coordinates of the upper left corners of the rectangle.
+    :arg originX: The X coordinates of the origin.
+    :arg originY: The Y coordinates of the origin.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
