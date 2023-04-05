@@ -1,5 +1,4 @@
 from firedrake import *
-from mpi4py import MPI
 from netgen.geom2d import SplineGeometry
 from netgen.csg import CSGeometry, OrthoBrick, Pnt, Sphere
 from netgen.meshing import MeshingParameters
@@ -15,7 +14,7 @@ printf = lambda msg: PETSc.Sys.Print(msg)
 
 
 def poisson(h, degree=2):
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
         geo = SplineGeometry()
@@ -54,7 +53,7 @@ def poisson(h, degree=2):
 
 
 def poisson3D(h, degree=2):
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
         box = OrthoBrick(Pnt(0, 0, 0), Pnt(np.pi, np.pi, np.pi))
@@ -113,7 +112,7 @@ def test_firedrake_Poisson3D_netgen():
 
 
 def test_firedrake_integral_2D_netgen():
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = SplineGeometry()
         geo.AddRectangle((0, 0), (1, 1), bc="rect")
@@ -132,7 +131,7 @@ def test_firedrake_integral_2D_netgen():
 
 def test_firedrake_integral_3D_netgen():
     # Setting up Netgen geometry and mes
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     if comm.Get_rank() == 0:
         box = OrthoBrick(Pnt(0, 0, 0), Pnt(1, 1, 1))
         box.bc("bcs")
@@ -154,7 +153,7 @@ def test_firedrake_integral_3D_netgen():
 
 def test_firedrake_integral_sphere_netgen():
     # Setting up Netgen geometry and mes
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
@@ -173,7 +172,7 @@ def test_firedrake_integral_sphere_netgen():
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
     gc.collect()
-    comm = MPI.COMM_WORLD
+    comm = COMM_WORLD
     from petsc4py import PETSc
     from slepc4py import SLEPc
 
