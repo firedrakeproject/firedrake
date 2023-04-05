@@ -523,7 +523,7 @@ def UnitTriangleMesh(
     coord_sec = plex.getCoordinateSection()
     boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
 
-    tol = 1e-2 # 0.5 would suffice
+    tol = 1e-2  # 0.5 would suffice
     for face in boundary_faces:
         face_coords = plex.vecGetClosure(coord_sec, coords, face)
         # |x+y-1| < eps
