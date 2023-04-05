@@ -1,7 +1,9 @@
 from firedrake import *
 from mpi4py import MPI
 from netgen.geom2d import SplineGeometry
-from netgen.csg import *
+from netgen.csg import CSGeometry, OrthoBrick, Pnt, Sphere
+from netgen.meshing import MeshingParameters
+from netgen.meshing import MeshingStep
 import netgen
 import numpy as np
 import gc
@@ -108,6 +110,64 @@ def test_firedrake_Poisson3D_netgen():
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
+
+
+def test_firedrake_integral_2D_netgen():
+    comm = MPI.COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = SplineGeometry()
+        geo.AddRectangle((0, 0), (1, 1), bc="rect")
+        ngmesh = geo.GenerateMesh(maxh=0.1)
+        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(2)
+        labels = None
+    labels = comm.bcast(labels, root=0)
+    msh = Mesh(ngmesh)
+    V = FunctionSpace(msh, "CG", 3)
+    x, y = SpatialCoordinate(msh)
+    f = Function(V).interpolate(x*x+y*y*y+x*y)
+    assert abs(assemble(f * dx) - (5/6)) < 1.e-10
+
+
+def test_firedrake_integral_3D_netgen():
+    # Setting up Netgen geometry and mes
+    comm = MPI.COMM_WORLD
+    if comm.Get_rank() == 0:
+        box = OrthoBrick(Pnt(0, 0, 0), Pnt(1, 1, 1))
+        box.bc("bcs")
+        geo = CSGeometry()
+        geo.Add(box)
+        ngmesh = geo.GenerateMesh(maxh=0.25)
+        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "bcs"]
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+        labels = None
+
+    labels = comm.bcast(labels, root=0)
+    msh = Mesh(ngmesh)
+    V = FunctionSpace(msh, "CG", 3)
+    x, y, z = SpatialCoordinate(msh)
+    f = Function(V).interpolate(2 * x + 3 * y * y + 4 * z * z * z)
+    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
+
+
+def test_firedrake_integral_sphere_netgen():
+    # Setting up Netgen geometry and mes
+    comm = MPI.COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
+        ngmesh = geo.GenerateMesh(mp=mp)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+
+    msh = Mesh(ngmesh)
+    V = FunctionSpace(msh, "CG", 3)
+    x, y, z = SpatialCoordinate(msh)
+    f = Function(V).interpolate(1+0*x)
+    assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
 @pytest.mark.skipcomplex
