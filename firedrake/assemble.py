@@ -70,7 +70,7 @@ def assemble(expr, *args, **kwargs):
         output tensor to zero rather than to the values prescribed by the
         boundary condition. Default is ``False``.
     :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
-        identity matrix corresponding to the boundary nodes, 1.0 by default.
+        identity matrix corresponding to the boundary nodes.
         To discretise eigenvalue problems set the weight equal to 0.0.
 
     :returns: See below.
