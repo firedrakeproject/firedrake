@@ -1,16 +1,16 @@
 from functools import partial, lru_cache
 from itertools import chain
-from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
-from firedrake.solving_utils import _SNESContext
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
+from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
-from tsfc import compile_expression_dual_evaluation
 from tsfc.finatinterface import create_element
+from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 
 import firedrake
@@ -36,7 +36,8 @@ class PMGBase(PCSNESBase):
 
     Other PETSc options inspected by this class are:
     - 'pmg_mg_coarse_degree': polynomial degree of the coarse level
-    - 'pmg_mg_coarse_mat_type': can be either 'aij' or 'matfree'
+    - 'pmg_mg_coarse_mat_type': can be either a `PETSc.Mat.Type`, or 'matfree'
+    - 'pmg_mg_coarse_pmat_type': can be either a `PETSc.Mat.Type`, or 'matfree'
     - 'pmg_mg_coarse_form_compiler_mode': can be 'spectral' (default), 'vanilla', 'coffee', or 'tensor'
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
@@ -90,6 +91,8 @@ class PMGBase(PCSNESBase):
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r" % ctx)
+        fcp = ctx._problem.form_compiler_parameters
+        mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
 
         test, trial = ctx.J.arguments()
         if test.function_space() != trial.function_space():
@@ -103,11 +106,8 @@ class PMGBase(PCSNESBase):
         ppc = self.configure_pmg(obj, pdm)
         self.is_snes = isinstance(obj, PETSc.SNES)
 
-        copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
-
         # Get the coarse degree from PETSc options
-        fcp = ctx._problem.form_compiler_parameters
-        mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
+        copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
         self.coarse_mat_type = copts.getString("mat_type", default=ctx.mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
@@ -234,11 +234,7 @@ class PMGBase(PCSNESBase):
         except ValueError:
             mat_type = self.coarse_mat_type
             pmat_type = self.coarse_pmat_type
-            if fcp is None:
-                fcp = dict()
-            elif fcp is fproblem.form_compiler_parameters:
-                fcp = dict(fcp)
-            fcp["mode"] = self.coarse_form_compiler_mode
+            fcp = dict(fcp or {}, mode=self.coarse_form_compiler_mode)
 
         # Coarsen the problem and the _SNESContext
         cproblem = firedrake.NonlinearVariationalProblem(cF, cu, bcs=cbcs, J=cJ, Jp=cJp,
@@ -276,62 +272,16 @@ class PMGBase(PCSNESBase):
 
             add_hook(parent, setup=inject_state, call_setup=True)
 
-        # Coarsen the nullspace basis
-        def coarsen_nullspace(coarse_V, interpolate, fine_nullspace):
-            if isinstance(fine_nullspace, MixedVectorSpaceBasis):
-                if interpolate.getType() == "python":
-                    interpolate = interpolate.getPythonContext()
-                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
-                coarse_bases = []
-                for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
-                    if isinstance(basis, VectorSpaceBasis):
-                        coarse_bases.append(coarsen_nullspace(fs, submat, basis))
-                    else:
-                        coarse_bases.append(coarse_V.sub(basis.index))
-                return MixedVectorSpaceBasis(coarse_V, coarse_bases)
-            elif isinstance(fine_nullspace, VectorSpaceBasis):
-                coarse_vecs = []
-                for xf in fine_nullspace._petsc_vecs:
-                    wc = firedrake.Function(coarse_V)
-                    with wc.dat.vec_wo as xc:
-                        interpolate.multTranspose(xf, xc)
-                    coarse_vecs.append(wc)
-                vsb = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
-                vsb.orthonormalize()
-                return vsb
-            else:
-                return fine_nullspace
-
         interpolate = None
         if fctx._nullspace or fctx._nullspace_T or fctx._near_nullspace:
             interpolate, _ = cdm.createInterpolation(fdm)
-        cctx._nullspace = coarsen_nullspace(cV, interpolate, fctx._nullspace)
-        if fctx._nullspace_T is fctx._nullspace:
-            cctx._nullspace_T = cctx._nullspace
-        else:
-            cctx._nullspace_T = coarsen_nullspace(cV, interpolate, fctx._nullspace_T)
-        if fctx._near_nullspace is fctx._nullspace:
-            cctx._near_nullspace = cctx._nullspace
-        elif fctx._near_nullspace is fctx._nullspace_T:
-            cctx._near_nullspace = cctx._nullspace_T
-        else:
-            cctx._near_nullspace = coarsen_nullspace(cV, interpolate, fctx._near_nullspace)
-
+        cctx._nullspace = self.coarsen_nullspace(cV, interpolate, fctx._nullspace)
+        cctx._nullspace_T = self.coarsen_nullspace(cV, interpolate, fctx._nullspace_T)
+        cctx._near_nullspace = self.coarsen_nullspace(cV, interpolate, fctx._near_nullspace)
         cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
         cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
         cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
         return cdm
-
-    def coarsen_quadrature(self, metadata, fdeg, cdeg):
-        if isinstance(metadata, dict):
-            # Coarsen the quadrature degree in a dictionary
-            # preserving the ratio of quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1)
-            qdeg = metadata.get("quadrature_degree", None)
-            if qdeg is not None:
-                cmd = dict(metadata)
-                cmd["quadrature_degree"] = max(2*cdeg+1, ((qdeg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
-                return cmd
-        return metadata
 
     def coarsen_bcs(self, fbcs, cV):
         cbcs = []
@@ -346,13 +296,55 @@ class PMGBase(PCSNESBase):
                 raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
         return cbcs
 
+    def coarsen_quadrature(self, metadata, fdeg, cdeg):
+        """Coarsen the quadrature degree in a dictionary preserving the ratio of
+           quadrature nodes to interpolation nodes (qdeg+1)//(fdeg+1)."""
+        try:
+            qdeg = metadata["quadrature_degree"]
+            coarse_qdeg = max(2*cdeg+1, ((qdeg+1)*(cdeg+1)+fdeg)//(fdeg+1)-1)
+            return dict(metadata, quadrature_degree=coarse_qdeg)
+        except (KeyError, TypeError):
+            return metadata
+
+    def coarsen_nullspace(self, coarse_V, interpolate, fine_nullspace):
+        """Coarsen a nullspace or retrieve it from class cache"""
+        cache = self._cache.setdefault("nullspace", {})
+        key = (coarse_V.ufl_element(), fine_nullspace)
+        try:
+            return cache[key]
+        except KeyError:
+            if isinstance(fine_nullspace, MixedVectorSpaceBasis):
+                if interpolate.getType() == "python":
+                    interpolate = interpolate.getPythonContext()
+                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
+                coarse_bases = []
+                for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
+                    if isinstance(basis, VectorSpaceBasis):
+                        coarse_bases.append(self.coarsen_nullspace(fs, submat, basis))
+                    else:
+                        coarse_bases.append(coarse_V.sub(basis.index))
+                coarse_nullspace = MixedVectorSpaceBasis(coarse_V, coarse_bases)
+            elif isinstance(fine_nullspace, VectorSpaceBasis):
+                coarse_vecs = []
+                for xf in fine_nullspace._petsc_vecs:
+                    wc = firedrake.Function(coarse_V)
+                    with wc.dat.vec_wo as xc:
+                        # the nullspace basis is in the dual of V
+                        interpolate.multTranspose(xf, xc)
+                    coarse_vecs.append(wc)
+                coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
+                coarse_nullspace.orthonormalize()
+            else:
+                return fine_nullspace
+            return cache.setdefault(key, coarse_nullspace)
+
     def create_transfer(self, mat_type, cctx, fctx, cbcs, fbcs):
-        # Create a transfer or retrieve it from the class cache
+        """Create a transfer or retrieve it from class cache"""
         cV = cctx.J.arguments()[0].function_space()
         fV = fctx.J.arguments()[0].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
         fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-        key = (mat_type, cV, fV, cbcs, fbcs)
+        key = (mat_type, fV.mesh(), cV.ufl_element(), fV.ufl_element(), cbcs, fbcs)
         cache = self._cache.setdefault("transfer", {})
         try:
             return cache[key]
@@ -379,9 +371,7 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
-        """
-        Return the maximum degree of a :class:`ufl.FiniteElement`
-        """
+        """Return the maximum degree of a :class:`ufl.FiniteElement`"""
         if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
         elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
@@ -537,7 +527,8 @@ def prolongation_transfer_kernel_action(Vf, expr):
 
 
 def expand_element(ele):
-    # Expand a FiniteElement as an EnrichedElement of TensorProductElements, discarding modifiers.
+    """Expand a FiniteElement as an EnrichedElement of TensorProductElements,
+       discarding modifiers."""
     if isinstance(ele, finat.FlattenedDimensions):
         return expand_element(ele.product)
     elif isinstance(ele, (finat.HDivElement, finat.HCurlElement)):
@@ -579,6 +570,8 @@ def evaluate_dual(source, target, alpha=None):
 
 
 def compare_element(e1, e2):
+    """Numerically compare two :class:`FIAT.elements`.
+       Equality is satisfied if e2.dual_basis(e1.primal_basis) == identity."""
     if e1 is e2:
         return True
     if e1.space_dimension() != e2.space_dimension():
@@ -588,37 +581,10 @@ def compare_element(e1, e2):
     return numpy.allclose(B, 0.0, rtol=1E-14, atol=1E-14)
 
 
-def compare_dual(b1, b2):
-    p1 = b1.get_point_dict()
-    p2 = b2.get_point_dict()
-    if len(p1) != len(p2):
-        return False
-
-    k1 = numpy.array(list(p1.keys()))
-    k2 = numpy.array(list(p2.keys()))
-    if not numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16):
-        return False
-
-    k1 = numpy.array([p1[k][0][0] for k in p1])
-    k2 = numpy.array([p2[k][0][0] for k in p2])
-    return numpy.allclose(k1, k2, rtol=1E-16, atol=1E-16)
-
-
-def compare_dual_basis(l1, l2):
-    if len(l1) != len(l2):
-        return False
-    return all(compare_dual(b1, b2) for b1, b2 in zip(l1, l2))
-
-
 @lru_cache(maxsize=10)
 def fiat_reference_prolongator(celem, felem, derivative=False):
-    ckey = (felem.formdegree,) if derivative else None
-    fkey = (celem.formdegree,) if derivative else None
-    fdual = felem.dual_basis()
-    cdual = celem.dual_basis()
-    if fkey == ckey and (celem is felem or compare_dual_basis(cdual, fdual)):
-        return numpy.array([])
-    return evaluate_dual(celem, felem, alpha=ckey)
+    alpha = (1,) if derivative else None
+    return evaluate_dual(celem, felem, alpha=alpha)
 
 
 @lru_cache(maxsize=10)
@@ -702,6 +668,17 @@ def get_permutation_to_line_elements(finat_element):
 
     dof_perm = numpy.concatenate(dof_perm)
     return dof_perm, unique_line_elements, shifts
+
+
+def get_permuted_map(V):
+    """
+    Return a PermutedMap with the same tensor product shape for
+    every component of H(div) or H(curl) tensor product elements
+    """
+    indices, _, _ = get_permutation_to_line_elements(V.finat_element)
+    if numpy.all(indices[:-1] < indices[1:]):
+        return V.cell_node_map()
+    return op2.PermutedMap(V.cell_node_map(), indices)
 
 
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
@@ -929,6 +906,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     fshapes = []
     cshapes = []
     has_code = False
+    identity_filter = lambda A: numpy.array([]) if A.shape[0] == A.shape[1] and numpy.allclose(A, numpy.eye(A.shape[0])) else A
     for celem, felem, shift in zip(celems, felems, shifts):
         if len(felem) != len(celem):
             raise ValueError("Fine and coarse elements do not have the same number of factors")
@@ -942,7 +920,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [fiat_reference_prolongator(ce, fe).T for ce, fe in zip(celem, felem)]
+        J = [identity_filter(fiat_reference_prolongator(ce, fe)).T for ce, fe in zip(celem, felem)]
         if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;
@@ -1139,17 +1117,6 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     return decl, prolong, restrict
 
 
-def get_permuted_map(V):
-    """
-    Return a PermutedMap with the same tensor product shape for
-    every component of H(div) or H(curl) tensor product elements
-    """
-    indices, _, _ = get_permutation_to_line_elements(V.finat_element)
-    if numpy.all(indices[:-1] < indices[1:]):
-        return V.cell_node_map()
-    return op2.PermutedMap(V.cell_node_map(), indices)
-
-
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
@@ -1168,11 +1135,11 @@ class StandaloneInterpolationMatrix(object):
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
             return V
-        else:
-            try:
-                return self._cache_work[V]
-            except KeyError:
-                return self._cache_work.setdefault(V, firedrake.Function(V))
+        key = (V.ufl_element(), V.mesh())
+        try:
+            return self._cache_work[key]
+        except KeyError:
+            return self._cache_work.setdefault(key, firedrake.Function(V))
 
     @cached_property
     def _weight(self):

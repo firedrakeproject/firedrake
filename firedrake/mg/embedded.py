@@ -147,7 +147,7 @@ class TransferManager(object):
         element = ufl.TensorElement(vector_element.sub_elements()[0], shape=Fc.ufl_shape)
 
         cache = self.cache(element)
-        key = (Vc.ufl_domain(), Vf.ufl_domain())
+        key = (Vc.mesh(), Vf.mesh())
         try:
             return cache._V_coarse_jacobian[key]
         except KeyError:
@@ -226,7 +226,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from Vf -> DG.
         """
         cache = self.cache(Vf.ufl_element())
-        key = (Vf.dim(), Vc.dim)
+        key = (Vf.dim(), Vc.dim())
         try:
             return cache._V_DG_mass_piola[key]
         except KeyError:
