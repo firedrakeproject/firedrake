@@ -475,7 +475,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg name: name of the mesh
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Defaults to 1.0. Note that
+            still be considered to be in the cell. Note that
             this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
@@ -864,7 +864,7 @@ class MeshTopology(AbstractMeshTopology):
         :kwarg comm: MPI communicator
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Default is 1.0. Note that
+            still be considered to be in the cell. Note that
             this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
@@ -1293,7 +1293,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :kwarg tolerance:    The relative tolerance (i.e. as defined on the
                              reference cell) for the distance a point can be
                              from a cell and still be considered to be in the
-                             cell. Default is 1.0. Note that this tolerance
+                             cell. Note that this tolerance
                              uses an L1 distance (aka 'manhatten', 'taxicab' or
                              rectilinear distance) so will scale with the
                              dimension of the mesh.
@@ -1516,7 +1516,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         :arg reorder: whether to reorder the mesh (bool)
         :tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Defaults to 1.0.
+            still be considered to be in the cell.
         """
 
         super().__init__(name, tolerance=tolerance)
@@ -1702,6 +1702,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     def mark_entities(self, tf, label_name, label_value):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def cell_global_index(self):
+        """Return a list of unique cell IDs in vertex only mesh cell order."""
+        cell_global_index = np.copy(self.topology_dm.getField("globalindex"))
+        self.topology_dm.restoreField("globalindex")
+        return cell_global_index
 
 
 class MeshGeometryCargo:
@@ -2050,11 +2057,38 @@ values from f.)"""
 
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
-            Default is this mesh's :attr:` property. Changing
+            Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
-        :returns: tuple either (cell number, reference coordinates)
-            (int, numpy array), or (None, None) (point is not in the domain)
+        :returns: tuple either
+            (cell number, reference coordinates) of type (int, numpy array),
+            or, when point is not in the domain, (None, None).
+        """
+        x = np.asarray(x)
+        if x.size != self.geometric_dimension():
+            raise ValueError("Point must have the same geometric dimension as the mesh")
+        x = x.reshape((1, self.geometric_dimension()))
+        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance)
+        if cells[0] == -1:
+            return None, None
+        return cells[0], ref_coords[0]
+
+    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None):
+        """Locate cell containing a given point and the reference
+        coordinates of the point within the cell.
+
+        :arg xs: 1 or more point coordinates of shape (npoints, gdim)
+        :kwarg tolerance: Tolerance for checking if a point is in a cell.
+            Default is this mesh's :attr:`tolerance` property. Changing
+            this from default will cause the spatial index to be rebuilt which
+            can take some time.
+        :returns: tuple either
+            (cell numbers array, reference coordinates array, ref_cell_dists_l1 array)
+            of type
+            (array of ints, array of floats of size (npoints, gdim), array of floats).
+            The cell numbers array contains -1 for points not in the domain:
+            the reference coordinates and distances are meaningless for these
+            points.
         """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
@@ -2062,18 +2096,22 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        x = np.asarray(x, dtype=utils.ScalarType)
-        x = x.real.copy()
-        if x.size != self.geometric_dimension():
+        xs = np.asarray(xs, dtype=utils.ScalarType)
+        xs = xs.real.copy()
+        if xs.shape[1] != self.geometric_dimension():
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
-        X = np.empty_like(x)
-        cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                                    X.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
-        if cell == -1:
-            return (None, None)
-        else:
-            return cell, X
+        Xs = np.empty_like(xs)
+        npoints = len(xs)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
+        cells = np.empty(npoints, dtype=IntType)
+        assert xs.size == npoints * self.geometric_dimension()
+        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                             xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                                             npoints)
+        return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
@@ -2087,16 +2125,24 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x, double *X)
+    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
     {
-        /* The type definitions and arguments used here are defined as
-           statics in pointquery_utils.py */
-        struct ReferenceCoords temp_reference_coords, found_reference_coords;
-        int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords);
-        for(int i=0; i<%(geometric_dimension)d; i++) {
-            X[i] = found_reference_coords.X[i];
+        size_t j = 0;  /* index into x and X */
+        for(size_t i=0; i<npoints; i++) {
+            /* i is the index into cells and ref_cell_dists_l1 */
+
+            /* The type definitions and arguments used here are defined as
+            statics in pointquery_utils.py */
+            struct ReferenceCoords temp_reference_coords, found_reference_coords;
+
+            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+
+            for (int k = 0; k < %(geometric_dimension)d; k++) {
+                X[j] = found_reference_coords.X[k];
+                j++;
+            }
         }
-        return cell;
+        return 0;
     }
     """ % dict(geometric_dimension=self.geometric_dimension())
 
@@ -2109,6 +2155,7 @@ values from f.)"""
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double)]
             locator.restype = ctypes.c_int
@@ -2399,7 +2446,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :kwarg tolerance:    The relative tolerance (i.e. as defined on the
                          reference cell) for the distance a point can be from a
                          cell and still be considered to be in the cell.
-                         Default is 1.0. Note that this tolerance uses an L1
+                         Note that this tolerance uses an L1
                          distance (aka 'manhatten', 'taxicab' or rectilinear
                          distance) so will scale with the dimension of the
                          mesh.
@@ -2519,7 +2566,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
+def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                    tolerance=None, redundant=True):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
@@ -2530,10 +2577,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
-        ValueError. Note that setting this will cause all MPI ranks to check
-        that they have the same list of vertices (else the test is not
-        possible): this operation scales with number of vertices and number of
-        ranks.
+        ValueError.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
@@ -2559,21 +2603,15 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
 
     .. note::
         When running in parallel with ``redundant = False``, ``vertexcoords``
-        are strictly confined to the local ``mesh`` cells of that rank. This
+        will redistribute to the mesh partition where they are located. This
         means that if rank A has ``vertexcoords`` {X} that are not found in the
-        mesh cells  owned by rank A but are found in the mesh cells owned by
-        ank B, **and rank B has not been supplied with those**
-        ``vertexcoords``, then the ``vertexcoords`` {X} will be lost.
+        mesh cells owned by rank A but are found in the mesh cells owned by
+        rank B, **and rank B has not been supplied with those**, then they will
+        be moved to rank B.
 
-        This can be avoided by either
-
-        #. making sure that rank 0 has all vertex coordinates and setting
-           ``redundant = True`` or by
-        #. ensuring that ``vertexcoords`` are already found in cells owned by
-           the ``mesh`` partition of the given rank.
-
-        For more see `this github issue
-        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
+    .. note::
+        If the same coordinates are supplied more than once, they are always
+        assumed to be a new vertex.
 
     """
 
@@ -2617,36 +2655,13 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour=None,
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
-    swarm = _pic_swarm_in_mesh(mesh, vertexcoords, tolerance=tolerance, redundant=redundant)
+    swarm, n_missing_points = _pic_swarm_in_mesh(
+        mesh, vertexcoords, tolerance=tolerance, redundant=redundant
+    )
 
     if missing_points_behaviour:
-
-        def compare_arrays(x, y, datatype):
-            x, eqx = x
-            y, eqy = y
-            if not (eqx and eqy):
-                return (None, False)
-            elif x.shape != y.shape:
-                return (None, False)
-            else:
-                return (x, np.allclose(x, y))
-
-        op = MPI.Op.Create(compare_arrays, commute=True)
-
-        # check all ranks have the same vertexcoords so that check is valid
-        # NOTE this operation scales with number of vertices and ranks
-        _, allequal = mesh._comm.allreduce((vertexcoords, True), op=op)
-        op.Free()
-        if not allequal:
-            raise ValueError("Cannot check for missing points if different vertices on each MPI rank!")
-
-        # Check for missing points
-        nlocal = len(swarm.getField("parentcellnum"))
-        swarm.restoreField("parentcellnum")
-        nglobal = mesh._comm.allreduce(nlocal, op=MPI.SUM)
-        ninput = len(vertexcoords)
-        if nglobal < ninput:
-            msg = f"{ninput - nglobal} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
+        if n_missing_points:
+            msg = f"{n_missing_points} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
             if missing_points_behaviour == 'error':
                 raise ValueError(msg)
             elif missing_points_behaviour == 'warn':
@@ -2722,7 +2737,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         cause the parent mesh's spatial index to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
-        points specified on MPI rank 0. The default is True.
+        points specified on MPI rank 0.
     :return: the immersed DMSwarm
 
     .. note::
@@ -2736,22 +2751,39 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         usually with zeroed imaginary parts).
 
     .. note::
-        When running in parallel, ``coords`` are strictly confined to
-        the local DMPlex cells of that rank. This means that if rank A
-        has ``coords`` {X} that are not found in the DMPlex cells of rank
-        A but are found in the DMPlex cells of rank B, **and rank B has
-        not been supplied with those** ``coords`` then the ``coords`` {X}
-        will be lost.
+        When running in parallel with ``redundant = False``, ``coords``
+        will redistribute to the mesh partition where they are located. This
+        means that if rank A has ``coords`` {X} that are not found in the
+        mesh cells owned by rank A but are found in the mesh cells owned by
+        rank B, **and rank B has not been supplied with those**, then they will
+        be moved to rank B.
 
-        This can be avoided by either
+    .. note::
+        If the same coordinates are supplied more than once, they are always
+        assumed to be a new vertex.
 
-        #. making sure that all ranks are supplied with the same list of
-          ``coords`` or by
-        #. ensuring that ``coords`` are already localised for to the DMPlex
-           cells of the given rank.
+    .. note::
+        Three DMSwarm fields are created automatically here:
 
-        For more see `this github issue
-        <https://github.com/firedrakeproject/firedrake/issues/2178>`_.
+        #. ``parentcellnum`` which contains the firedrake cell number of the
+           immersed vertex and
+        #. ``refcoord`` which contains the reference coordinate of the immersed
+           vertex in the parent mesh cell.
+        #. ``globalindex`` which contains a unique ID for each DMSwarm point -
+           here this is the index into the ``coords`` array if ``redundant`` is
+           ``True``, otherwise it's an index in rank order, so if rank 0 has 10
+           points, rank 1 has 20 points, and rank 3 has 5 points, then rank 0's
+           points will be numbered 0-9, rank 1's points will be numbered 10-29,
+           and rank 3's points will be numbered 30-34. Note that this ought to
+           be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
+           cannot be set.
+
+        Another three are required for proper functioning of the DMSwarm:
+
+        #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
+        #. ``DMSwarm_cellid`` the DMPlex cell within which the DMSwarm point is
+           located.
+        #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
     """
 
     if tolerance is None:
@@ -2762,25 +2794,24 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     # Check coords
     coords = np.asarray(coords, dtype=RealType)
 
-    if redundant:
-        coords = parent_mesh._comm.bcast(coords, root=0)
-
     plex = parent_mesh.topology.topology_dm
     tdim = parent_mesh.topological_dimension()
     gdim = parent_mesh.geometric_dimension()
 
-    # Need to save the coords dat version here because _parent_mesh_embedding
-    # will change it. This is due to a bug somewhere in the kernel generation
-    # of MeshGeometry.locate_cell_and_reference_coordinate - accessing the
-    # coordinates ought to be a read only operation but, for some reason,
-    # increments the dat version.
-    coords_dat_version = parent_mesh.coordinates.dat.dat_version
-
     if fields is None:
         fields = []
-    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType)]
-    coords, reference_coords, parent_cell_nums = \
-        _parent_mesh_embedding(coords, parent_mesh, tolerance)
+    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType), ("globalindex", 1, IntType)]
+
+    (
+        coords,
+        coords_idxs,
+        reference_coords,
+        parent_cell_nums,
+        ranks,
+        missing_coords_idxs,
+    ) = _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos=True)
+
+    n_missing_points = len(missing_coords_idxs)
 
     if parent_mesh.extruded:
         # need to store the base parent cell number and the height to be able
@@ -2809,7 +2840,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
         # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
         plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
-    elif coords_dat_version > 0:
+    elif parent_mesh.coordinates.dat.dat_version > 0:
         # The parent mesh coordinates have been modified. The DMSwarm parent
         # mesh plex numbering is now not guaranteed to match up with DMPlex
         # numbering so are set to -1. DMSwarm functions which rely on the
@@ -2872,12 +2903,19 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
     field_parent_cell_nums = swarm.getField("parentcellnum")
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+    field_global_index = swarm.getField("globalindex")
+    field_rank = swarm.getField("DMSwarm_rank")
+
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
     field_reference_coords[...] = reference_coords
+    field_global_index[...] = coords_idxs
+    field_rank[...] = ranks
 
     # have to restore fields once accessed to allow access again
+    swarm.restoreField("DMSwarm_rank")
+    swarm.restoreField("globalindex")
     swarm.restoreField("refcoord")
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
@@ -2898,76 +2936,205 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     sf.setGraph(nroots, None, [])
     swarm.setPointSF(sf)
 
-    return swarm
+    return swarm, n_missing_points
 
 
-def _parent_mesh_embedding(vertex_coords, parent_mesh, tolerance):
-    """Find the parent cells and local coords for vertices on this rank.
+def _mpi_array_lexicographic_min(x, y, datatype):
+    """MPI operator for lexicographic minimum of arrays.
 
-    Vertices not located in cells owned by this rank are discarded.
+    This compares two arrays of shape (N, 2) lexicographically, i.e. first
+    comparing the two arrays by their first column, returning the element-wise
+    minimum, with ties broken by comparing the second column element wise.
+
+    Parameters
+    ----------
+    x : ``np.ndarray``
+        The first array to compare of shape (N, 2).
+    y : ``np.ndarray``
+        The second array to compare of shape (N, 2).
+    datatype : ``MPI.Datatype``
+        The datatype of the arrays.
+
+    Returns
+    -------
+    ``np.ndarray``
+        The lexicographically lowest array of shape (N, 2).
+
     """
-    vertex_coords = _on_rank_vertices(vertex_coords, parent_mesh, tolerance)
+    # Check the first column
+    min_idxs = np.where(x[:, 0] < y[:, 0])[0]
+    result = np.copy(y)
+    result[min_idxs, :] = x[min_idxs, :]
 
-    num_vertices = len(vertex_coords)
-    max_num_vertices = parent_mesh._comm.allreduce(num_vertices, op=MPI.MAX)
+    # if necessary, check the second column
+    eq_idxs = np.where(x[:, 0] == y[:, 0])[0]
+    if len(eq_idxs):
+        # We only check where we have equal values to avoid unnecessary work
+        min_idxs = np.where(x[eq_idxs, 1] < y[eq_idxs, 1])[0]
+        result[eq_idxs[min_idxs], :] = x[eq_idxs[min_idxs], :]
+    return result
 
-    gdim = parent_mesh.geometric_dimension()
-    tdim = parent_mesh.topological_dimension()
 
-    parent_cell_nums = np.empty(num_vertices, dtype=IntType)
-    reference_coords = np.empty((num_vertices, tdim), dtype=RealType)
-    valid = np.full(num_vertices, False)
+array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
 
-    if parent_mesh.extruded:
-        if parent_mesh.variable_layers:
-            # The below could work as a hack but for now raise notimplementederror
-            # import firedrake.functionspace as functionspace
-            # import firedrake.function as function
-            # pm_local_size_wo_halos = len(function.Function(functionspace.FunctionSpace(parent_mesh, "DG", 0)).dat.data_ro)
-            raise NotImplementedError("Not implemented for ExtrudedMesh with variable layers.")
-        pm_local_size_wo_halos = parent_mesh.cell_set.size * (parent_mesh.layers - 1)
+
+def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos):
+    """Find the parent mesh cells containing the given coordinates.
+
+    Parameters
+    ----------
+    parent_mesh : ``Mesh``
+        The parent mesh to embed in.
+    coords : ``np.ndarray``
+        The coordinates to embed of (npoints, coordsdim) shape.
+    tolerance : ``float``
+        The relative tolerance (i.e. as defined on the reference cell) for the
+        distance a point can be from a cell and still be considered to be in
+        the cell. Note that this tolerance uses an L1
+        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's ``tolerance`` property. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
+    redundant : ``bool``
+        If True, the embedding will be done using only the points specified on
+        MPI rank 0.
+    exclude_halos : ``bool``
+        If True, the embedding will be done using only the points specified on
+        the locally owned mesh partition.
+
+    Returns
+    -------
+    coords : ``np.ndarray``
+        The coordinates of the points that were embedded.
+    coords_idxs : ``np.ndarray``
+        The indices of the points that were embedded.
+    reference_coords : ``np.ndarray``
+        The reference coordinates of the points that were embedded.
+    parent_cell_nums : ``np.ndarray``
+        The parent cell indices (as given by ``locate_cell``) of the points
+        that were embedded.
+    ranks : ``np.ndarray``
+        The MPI rank of the process that owns the parent cell of the points.
+    missing_coords_idxs : ``np.ndarray``
+        The indices of the points in the input coords array that were not
+        embedded. See note below.
+
+    Notes
+    -----
+    When redundant is False, it is assumed that all points given are unique.
+    If, however, any detected points are not identified as being in the locally
+    owned mesh partition (i.e. not in the halo) then an error is raised. This
+    is because we do not have point redistribution implemented yet.
+    """
+
+    import firedrake.functionspace as functionspace
+    import firedrake.constant as constant
+    import firedrake.interpolation as interpolation
+
+    # In parallel, we need to make sure we know which point is which and save
+    # it.
+    if redundant:
+        # rank 0 broadcasts coords to all ranks
+        coords_local = parent_mesh._comm.bcast(coords, root=0)
+        ncoords_local = coords_local.shape[0]
+        coords_global = coords_local
+        ncoords_global = coords_global.shape[0]
+        coords_idxs = np.arange(coords_global.shape[0])
     else:
-        pm_local_size_wo_halos = parent_mesh.cell_set.size
+        # Here, we have to assume that all points we can see are unique.
+        # We therefore gather all points on all ranks in rank order: if rank 0
+        # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
+        # rank 0's points have global numbering 0-9, rank 1's points have
+        # global numbering 10-29, and rank 3's points have global numbering
+        # 30-34.
+        coords_local = coords
+        ncoords_local = coords.shape[0]
+        ncoords_local_allranks = parent_mesh._comm.allgather(ncoords_local)
+        ncoords_global = sum(ncoords_local_allranks)
+        # The below code looks complicated but it's just an allgather of the
+        # (variable length) coords_local array such that they are concatenated.
+        coords_local_size = np.array(coords_local.size)
+        coords_local_sizes = np.empty(parent_mesh._comm.size, dtype=int)
+        parent_mesh._comm.Allgatherv(coords_local_size, coords_local_sizes)
+        coords_global = np.empty(
+            (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
+        )
+        parent_mesh._comm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+        # # ncoords_local_allranks is in rank order so we can just sum up the
+        # # previous ranks to get the starting index for the global numbering.
+        # # For rank 0 we make use of the fact that sum([]) = 0.
+        # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
+        # endidx = startidx + ncoords_local
+        # coords_idxs = np.arange(startidx, endidx)
+        coords_idxs = np.arange(coords_global.shape[0])
 
-    # Create an out of mesh point to use in locate_cell when needed
-    out_of_mesh_point = np.full((1, gdim), np.inf)
+    # Get parent mesh rank ownership information:
+    # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
+    # a Function whose dat contains rank ownership information in an ordering
+    # that is accessible using Firedrake's cell numbering. This is because, on
+    # each rank, parent_mesh.comm.rank creates a Constant with the local rank
+    # number, and halo exchange ensures that this information is visible, as
+    # nessesary, to other processes.
+    P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
+    visible_ranks = interpolation.interpolate(
+        constant.Constant(parent_mesh.comm.rank), P0DG
+    ).dat.data_ro_with_halos.real
 
-    for i in range(max_num_vertices):
-        if i < num_vertices:
-            parent_cell_num, reference_coord = \
-                parent_mesh.locate_cell_and_reference_coordinate(vertex_coords[i], tolerance)
-            # At the moment we discard vertices in parent mesh halos
-            if parent_cell_num is not None and parent_cell_num < pm_local_size_wo_halos:
-                valid[i] = True
-                parent_cell_nums[i] = parent_cell_num
-                reference_coords[i] = reference_coord
-        else:
-            parent_mesh.locate_cell(out_of_mesh_point, tolerance)  # should return None
+    locally_visible = np.full(ncoords_global, False)
+    # See below for why np.inf is used here.
+    ranks = np.full(ncoords_global, np.inf)
 
-    vertex_coords = np.compress(valid, vertex_coords, axis=0)
-    reference_coords = np.compress(valid, reference_coords, axis=0)
-    parent_cell_nums = np.compress(valid, parent_cell_nums, axis=0)
+    (
+        parent_cell_nums,
+        reference_coords,
+        ref_cell_dists_l1,
+    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    assert len(parent_cell_nums) == ncoords_global
+    assert len(reference_coords) == ncoords_global
+    assert len(ref_cell_dists_l1) == ncoords_global
 
-    return vertex_coords, reference_coords, parent_cell_nums
+    locally_visible[:] = parent_cell_nums != -1
+    ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
+    # see below for why np.inf is used here.
+    ref_cell_dists_l1[~locally_visible] = np.inf
+    ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
 
+    # In parallel there will regularly be disagreements about which cell owns a
+    # point when those points are close to mesh partition boundaries.
+    # We now have the reference cell l1 distance and ranks being np.inf for any
+    # point which is not locally visible. By collectively taking the minimum
+    # of the reference cell l1 distance, which is tied to the rank via
+    # ref_cell_dists_l1_and_ranks, we both check which cell the coordinate is
+    # closest to and find out which rank owns that cell.
+    # In cases where the reference cell l1 distance is the same for a
+    # particular coordinate, we break the tie by choosing the lowest rank.
+    # This turns out to be a lexicographic row-wise minimum of the
+    # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
+    # break ties by minimising the distance.
+    ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
+        ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
+    )
 
-def _on_rank_vertices(vertex_coords, parent_mesh, tolerance):
-    """Discard those vertices that are definitely not on this MPI rank."""
-    bounding_box_min = parent_mesh.coordinates.dat.data_ro_with_halos.min(axis=0, initial=np.inf) - tolerance
-    bounding_box_max = parent_mesh.coordinates.dat.data_ro_with_halos.max(axis=0, initial=-np.inf) + tolerance
-    if len(vertex_coords) == 0:
-        # Can skip the rest of the work if there are no vertices, but have to
-        # make sure we ask for the bounding box minima and maxima on all ranks.
-        return vertex_coords
-    length_scale = (bounding_box_max - bounding_box_min).max()
-    # This is basically to avoid roundoff, so 1% is very conservative.
-    bounding_box_min -= 0.01 * length_scale
-    bounding_box_max += 0.01 * length_scale
+    ranks = ref_cell_dists_l1_and_ranks[:, 1]
 
-    on_rank = (vertex_coords < bounding_box_max).all(axis=1) \
-        | (vertex_coords > bounding_box_min).all(axis=1)
+    # Any ranks which are still np.inf are not in the mesh
+    missing_coords_idxs = np.where(ranks == np.inf)[0]
 
-    return np.compress(on_rank, vertex_coords, axis=0)
+    off_rank_coords_idxs = np.where(ranks != parent_mesh.comm.rank)[0]
+    if exclude_halos:
+        locally_visible[off_rank_coords_idxs] = False
+
+    # Drop points which are not locally visible but leave the missing coords
+    # indices intact for inspection (so that we can tell how many are lost)
+    return (
+        np.compress(locally_visible, coords_global, axis=0),
+        np.compress(locally_visible, coords_idxs, axis=0),
+        np.compress(locally_visible, reference_coords, axis=0),
+        np.compress(locally_visible, parent_cell_nums, axis=0),
+        np.compress(locally_visible, ranks, axis=0),
+        missing_coords_idxs,
+    )
 
 
 def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
