@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Iterable
 import firedrake
+from firedrake.cython.dmcommon import to_petsc_local_numbering
 import firedrake.function as ffunc
 import firedrake.functionspace as ffs
 import firedrake.mesh as fmesh
@@ -451,9 +452,13 @@ class MetricBasedAdaptor(AdaptorBase):
         :return: a new :class:`~firedrake.mesh.MeshGeometry`.
         """
         self.metric.enforce_spd(restrict_sizes=True, restrict_anisotropy=True)
-        v = self.metric._create_from_array(self.metric.dat.data_with_halos)
-        newplex = self.metric._plex.adaptMetric(v, "Face Sets", "Cell Sets")
+        size = self.metric.dat.dataset.layout_vec.getSizes()
+        data = self.metric.dat._data[:size[0]]
+        v = PETSc.Vec().createWithArray(data, size=size, bsize=self.metric.dat.cdim, comm=self.mesh.comm)
+        reordered = to_petsc_local_numbering(v, self.metric.function_space())
         v.destroy()
+        newplex = self.metric._plex.adaptMetric(reordered, "Face Sets", "Cell Sets")
+        reordered.destroy()
         return fmesh.Mesh(newplex, distribution_parameters={"partition": False})
 
     @PETSc.Log.EventDecorator()
