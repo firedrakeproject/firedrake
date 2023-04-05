@@ -83,7 +83,7 @@ class DumbCheckpoint(object):
 
     .. warning::
 
-       DumbCheckpoint class will be deprecated after 01/01/2023.
+       DumbCheckpoint class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -92,7 +92,7 @@ class DumbCheckpoint(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
@@ -362,7 +362,7 @@ class HDF5File(object):
 
     .. warning::
 
-       HDF5File class will be deprecated after 01/01/2023.
+       HDF5File class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -370,7 +370,7 @@ class HDF5File(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("HDF5File class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
