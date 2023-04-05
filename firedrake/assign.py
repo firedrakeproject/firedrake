@@ -187,19 +187,16 @@ class Assigner:
         if assign_to_halos:
             subset_indices = self._subset.indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro_with_halos")
-            data_wo = operator.attrgetter("data_wo_with_halos")
         else:
             subset_indices = self._subset.owned_indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro")
-            data_wo = operator.attrgetter("data_wo")
 
         # If mixed, loop over individual components
         for lhs_dat, *func_dats in zip(self._assignee.dat.split,
                                        *(f.dat.split for f in self._functions)):
             func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
             rvalue = self._compute_rvalue(func_data)
-            lhs_data = data_wo(lhs_dat)
-            self._assign_single_dat(lhs_data, subset_indices, rvalue)
+            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:
@@ -225,8 +222,11 @@ class Assigner:
         return tuple(w for (c, w) in self._weighted_coefficients
                      if isinstance(c, Function))
 
-    def _assign_single_dat(self, lhs_data, indices, rvalue):
-        lhs_data[indices] = rvalue
+    def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs_dat.data_wo_with_halos[indices] = rvalue
+        else:
+            lhs_dat.data_wo[indices] = rvalue
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
@@ -248,33 +248,47 @@ class IAddAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__iadd__``."""
     symbol = "+="
 
-    def _assign_single_dat(self, lhs, indices, rvalue):
-        lhs[indices] += rvalue
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs.data_with_halos[indices] += rvalue
+        else:
+            lhs.data[indices] += rvalue
 
 
 class ISubAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__isub__``."""
     symbol = "-="
 
-    def _assign_single_dat(self, lhs, indices, rvalue):
-        lhs[indices] -= rvalue
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs.data_with_halos[indices] -= rvalue
+        else:
+            lhs.data[indices] -= rvalue
 
 
 class IMulAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__imul__``."""
     symbol = "*="
 
-    def _assign_single_dat(self, lhs, indices, rvalue):
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
-        lhs[indices] *= rvalue
+
+        if assign_to_halos:
+            lhs.data_with_halos[indices] *= rvalue
+        else:
+            lhs.data[indices] *= rvalue
 
 
 class IDivAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__itruediv__``."""
     symbol = "/="
 
-    def _assign_single_dat(self, lhs, indices, rvalue):
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
-        lhs[indices] /= rvalue
+
+        if assign_to_halos:
+            lhs.data_with_halos[indices] /= rvalue
+        else:
+            lhs.data[indices] /= rvalue
