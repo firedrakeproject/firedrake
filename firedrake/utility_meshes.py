@@ -545,8 +545,8 @@ def RectangleMesh(
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction from the origin
     :arg Ly: The extent in the y direction from the origin
-    :arg originX: The X coordintes of the origin, deafult 0.
-    :arg originY: The Y coordintes of the origin, deafult 0.
+    :arg originX: The X coordinates of the origin, default 0.
+    :arg originY: The Y coordinates of the origin, default 0.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
