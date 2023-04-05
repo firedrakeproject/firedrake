@@ -173,7 +173,7 @@ class FDMPC(PCBase):
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Assemble the FDM preconditioner with sparse local matrices
-        Pmat, self._assemble_P = self.allocate_matrix(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type, use_static_condensation)
+        Pmat, self.assembly_callables = self.allocate_matrix(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type, use_static_condensation)
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
@@ -211,7 +211,7 @@ class FDMPC(PCBase):
         :arg pmat_type: the preconditioner `PETSc.Mat.Type`
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
 
-        :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and its assembly callable
+        :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and a list of assembly callables
         """
         ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
         if len(ifacet) == 0:
@@ -258,8 +258,6 @@ class FDMPC(PCBase):
             return lgmap.apply(result, result=result)
 
         # Create data structures needed for assembly
-        bc_rows = {}
-        bc_vals = {}
         self.cell_to_global = {}
         self.lgmaps = {}
         for Vsub in V:
@@ -268,11 +266,6 @@ class FDMPC(PCBase):
             cell_to_local, nel = extrude_node_map(Vsub.cell_node_map(), bsize=bsize)
             self.cell_to_global[Vsub] = partial(cell_to_global, lgmap, cell_to_local)
             self.lgmaps[Vsub] = lgmap
-
-            own = Vsub.dof_dset.layout_vec.getLocalSize()
-            bdofs = numpy.flatnonzero(lgmap.indices[:own] < 0).astype(PETSc.IntType)[:, None]
-            bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
-            bc_vals[Vsub] = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
         self.nel = nel
 
         coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
@@ -329,6 +322,16 @@ class FDMPC(PCBase):
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
+                # append callables to zero entries, insert element matrices, and apply BCs
+                assembly_callables.append(P.zeroEntries)
+                assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv))
+                if on_diag:
+                    own = Vrow.dof_dset.layout_vec.getLocalSize()
+                    bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
+                    Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
+                    if len(bdofs) > 0:
+                        vals = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
+                        assembly_callables.append(partial(P.setValuesRCV, bdofs, bdofs, vals, addv))
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -336,22 +339,13 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
 
-        @PETSc.Log.EventDecorator("FDMAssemble")
-        def assemble_P():
-            for _assemble in assembly_callables:
-                _assemble()
-            for Vrow, Vcol in product(Vsort, Vsort):
-                P = Pmats[Vrow, Vcol]
-                if P.getType().endswith("aij"):
-                    P.zeroEntries()
-                    self.set_values(P, Vrow, Vcol, addv)
-            for Vrow in Vsort:
-                rows = bc_rows[Vrow]
-                if len(rows) > 0:
-                    Pmats[Vrow, Vrow].setValuesRCV(rows, rows, bc_vals[Vrow], addv)
-            Pmat.assemble()
+        assembly_callables.append(Pmat.assemble)
+        return Pmat, assembly_callables
 
-        return Pmat, assemble_P
+    @PETSc.Log.EventDecorator("FDMAssemble")
+    def _assemble_P(self):
+        for _assemble in self.assembly_callables:
+            _assemble()
 
     @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
@@ -551,12 +545,11 @@ class FDMPC(PCBase):
 
         # Construct Z = broken(V^k) * broken(V^{k+1})
         V = args_J[0].function_space()
-        formdegree = V.finat_element.formdegree
-        degree = e.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        fe = V.finat_element
+        formdegree = fe.formdegree
+        degree = fe.degree
+        if type(degree) != int:
+            degree, = set(degree)
         qdeg = degree
         if formdegree == tdim:
             qfam = "DG" if tdim == 1 else "DQ"
@@ -615,18 +608,17 @@ class FDMPC(PCBase):
         :returns: a :class:`PETSc.Mat` interpolating V^k * d(V^k) onto
                   broken(V^k) * broken(V^{k+1}) on the reference element.
         """
-        tdim = V.mesh().topological_dimension()
         value_size = V.value_size
-        formdegree = V.finat_element.formdegree
-        degree = V.finat_element.degree
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        fe = V.finat_element
+        tdim = fe.cell.get_spatial_dimension()
+        formdegree = fe.formdegree
+        degree = fe.degree
+        if type(degree) != int:
+            degree, = set(degree)
         if formdegree == tdim:
             degree = degree + 1
-        is_interior, is_facet = is_restricted(V.finat_element)
-        key = (degree, tdim, formdegree, value_size, is_interior, is_facet, transpose)
+        is_interior, is_facet = is_restricted(fe)
+        key = (value_size, tdim, degree, formdegree, is_interior, is_facet, transpose)
         cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
@@ -636,7 +628,7 @@ class FDMPC(PCBase):
                 result = PETSc.Mat().createTranspose(result).convert(result.getType())
                 return cache.setdefault(key, result)
 
-            full_key = (degree, tdim, formdegree, value_size, False, False, False)
+            full_key = key[:-3] + (False,) * 3
             if is_facet and full_key in cache:
                 result = cache[full_key]
                 noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
@@ -644,7 +636,7 @@ class FDMPC(PCBase):
                 noperm.destroy()
                 return cache.setdefault(key, result)
 
-            elements = sorted(get_base_elements(V.finat_element), key=lambda e: e.formdegree)
+            elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
             ref_el = elements[0].get_reference_element()
             eq = FIAT.FDMQuadrature(ref_el, degree)
             e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
@@ -1217,7 +1209,7 @@ def get_base_elements(e):
         return sum(list(map(get_base_elements, e.elements)), [])
     elif isinstance(e, finat.TensorProductElement):
         return sum(list(map(get_base_elements, e.factors)), [])
-    elif isinstance(e, finat.cube.FlattenedDimensions):
+    elif isinstance(e, finat.FlattenedDimensions):
         return get_base_elements(e.product)
     elif isinstance(e, (finat.HCurlElement, finat.HDivElement)):
         return get_base_elements(e.wrappee)
