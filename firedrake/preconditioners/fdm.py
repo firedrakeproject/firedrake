@@ -258,9 +258,10 @@ class FDMPC(PCBase):
             return lgmap.apply(result, result=result)
 
         # Create data structures needed for assembly
+        bc_rows = {}
+        bc_vals = {}
         self.cell_to_global = {}
         self.lgmaps = {}
-        bc_rows = {}
         for Vsub in V:
             lgmap = Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub])
             bsize = Vsub.dof_dset.layout_vec.getBlockSize()
@@ -269,8 +270,9 @@ class FDMPC(PCBase):
             self.lgmaps[Vsub] = lgmap
 
             own = Vsub.dof_dset.layout_vec.getLocalSize()
-            bdofs = numpy.flatnonzero(lgmap.indices[:own] < 0).astype(PETSc.IntType)
+            bdofs = numpy.flatnonzero(lgmap.indices[:own] < 0).astype(PETSc.IntType)[:, None]
             bc_rows[Vsub] = Vsub.dof_dset.lgmap.apply(bdofs, result=bdofs)
+            bc_vals[Vsub] = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
         self.nel = nel
 
         coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
@@ -342,11 +344,11 @@ class FDMPC(PCBase):
                 P = Pmats[Vrow, Vcol]
                 if P.getType().endswith("aij"):
                     P.zeroEntries()
-                    if Vrow == Vcol and len(bc_rows[Vrow]) > 0:
-                        rows = bc_rows[Vrow][:, None]
-                        vals = numpy.ones(rows.shape, dtype=PETSc.RealType)
-                        P.setValuesRCV(rows, rows, vals, addv)
                     self.set_values(P, Vrow, Vcol, addv)
+            for Vrow in Vsort:
+                rows = bc_rows[Vrow]
+                if len(rows) > 0:
+                    Pmats[Vrow, Vrow].setValuesRCV(rows, rows, bc_vals[Vrow], addv)
             Pmat.assemble()
 
         return Pmat, assemble_P
@@ -1328,8 +1330,8 @@ class PoissonFDMPC(FDMPC):
         # assemble zero-th order term separately, including off-diagonals (mixed components)
         # I cannot do this for hdiv elements as off-diagonals are not sparse, this is because
         # the FDM eigenbases for CG(k) and CG(k-1) are not orthogonal to each other
-        rindices = None
         use_diag_Bq = Bq is None or len(Bq.ufl_shape) != 2 or static_condensation
+        rindices = None
         if not use_diag_Bq:
             bshape = Bq.ufl_shape
             # Be = Bhat kron ... kron Bhat
@@ -1351,60 +1353,57 @@ class PoissonFDMPC(FDMPC):
             Bq = None
 
         # assemble the second order term and the zero-th order term if any,
-        # discarding mixed derivatives and mixed componentsget_weak_bc_flags(J)
-        mue = numpy.zeros((ncomp, tdim), dtype=PETSc.RealType)
-        bqe = numpy.zeros((ncomp,), dtype=PETSc.RealType)
-
+        # discarding mixed derivatives and mixed components
+        ae = numpy.zeros((ncomp, tdim), dtype=PETSc.RealType)
+        be = numpy.zeros((ncomp,), dtype=PETSc.RealType)
+        je = None
         for e in range(self.nel):
-            je = index_coef(e)
+            je = index_coef(e, result=je)
             bce = bcflags.dat.data_ro_with_halos[index_bc(e)] > 1E-8
+            # get coefficients on this cell
+            if Gq is not None:
+                numpy.sum(Gq.dat.data_ro[je], axis=0, out=ae)
+            if Bq is not None:
+                numpy.sum(Bq.dat.data_ro[je], axis=0, out=be)
 
             rindices = get_rindices(e, result=rindices)
             rows = numpy.reshape(rindices, (-1, bsize))
             rows = numpy.transpose(rows)
             rows = numpy.reshape(rows, (ncomp, -1))
-
-            # get second order coefficient on this cell
-            if Gq is not None:
-                numpy.sum(Gq.dat.data_ro[je], axis=0, out=mue)
-            # get zero-th order coefficient on this cell
-            if Bq is not None:
-                numpy.sum(Bq.dat.data_ro[je], axis=0, out=bqe)
-
+            # for each component: compute the stiffness matrix Ae
             for k in range(ncomp):
                 # permutation of axes with respect to the first vector component
                 axes = numpy.roll(numpy.arange(tdim), -shift[k])
-                # for each component: compute the stiffness matrix Ae
                 bck = bce[:, k] if len(bce.shape) == 2 else bce
                 fbc = numpy.dot(bck, flag2id)
 
                 if Gq is not None:
-                    # Ae = mue[k][0] Ahat + bqe[k] Bhat
+                    # Ae = ae[k][0] Ahat + be[k] Bhat
                     Be = Afdm[axes[0]][0].copy()
                     Ae = Afdm[axes[0]][1+fbc[0]].copy()
-                    Ae.scale(mue[k][0])
+                    Ae.scale(ae[k][0])
                     if Bq is not None:
-                        Ae.axpy(bqe[k], Be)
+                        Ae.axpy(be[k], Be)
 
                     if tdim > 1:
-                        # Ae = Ae kron Bhat + mue[k][1] Bhat kron Ahat
+                        # Ae = Ae kron Bhat + ae[k][1] Bhat kron Ahat
                         Ae = Ae.kron(Afdm[axes[1]][0])
                         if Gq is not None:
-                            Ae.axpy(mue[k][1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
+                            Ae.axpy(ae[k][1], Be.kron(Afdm[axes[1]][1+fbc[1]]))
 
                         if tdim > 2:
-                            # Ae = Ae kron Bhat + mue[k][2] Bhat kron Bhat kron Ahat
+                            # Ae = Ae kron Bhat + ae[k][2] Bhat kron Bhat kron Ahat
                             Be = Be.kron(Afdm[axes[1]][0])
                             Ae = Ae.kron(Afdm[axes[2]][0])
                             if Gq is not None:
-                                Ae.axpy(mue[k][2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
+                                Ae.axpy(ae[k][2], Be.kron(Afdm[axes[2]][1+fbc[2]]))
                     Be.destroy()
 
                 elif Bq is not None:
                     Ae = Afdm[axes[0]][0]
                     for m in range(1, tdim):
                         Ae = Ae.kron(Afdm[axes[m]][0])
-                    Ae.scale(bqe[k])
+                    Ae.scale(be[k])
 
                 Ae = condense_element_mat(Ae)
                 update_A(A, Ae, rows[k].astype(PETSc.IntType))
