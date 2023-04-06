@@ -240,12 +240,7 @@ class FDMPC(PCBase):
             self.parent_space[V] = V
 
         # Create data structures needed for assembly
-        self.cell_to_global = {}
-        self.lgmaps = {}
-        for Vsub in V:
-            lgmap = Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub])
-            self.lgmaps[Vsub] = lgmap
-
+        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
 
@@ -478,51 +473,52 @@ class FDMPC(PCBase):
         try:
             return cache[key]
         except KeyError:
-            if transpose:
-                result = self.assemble_reference_tensor(V, transpose=False)
-                result = PETSc.Mat().createTranspose(result).convert(result.getType())
-                return cache.setdefault(key, result)
-
-            full_key = key[:-3] + (False,) * 3
-            if is_facet and full_key in cache:
-                result = cache[full_key]
-                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-                result = result.createSubMatrix(noperm, self.fises)
-                noperm.destroy()
-                return cache.setdefault(key, result)
-
-            elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
-            ref_el = elements[0].get_reference_element()
-            eq = FIAT.FDMQuadrature(ref_el, degree)
-            e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
-            e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
-            if is_interior:
-                e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
-
-            A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
-            A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-            A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
-            B_blocks = mass_blocks(tdim, formdegree, A00, A11)
-            A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
-            result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
-            A00.destroy()
-            A10.destroy()
-            A11.destroy()
-
-            if value_size != 1:
-                eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
-                temp = result
-                result = temp.kron(eye)
-                temp.destroy()
-                eye.destroy()
-
-            if is_facet:
-                cache[full_key] = result
-                noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-                result = result.createSubMatrix(noperm, self.fises)
-                noperm.destroy()
-
+            pass
+        if transpose:
+            result = self.assemble_reference_tensor(V, transpose=False)
+            result = PETSc.Mat().createTranspose(result).convert(result.getType())
             return cache.setdefault(key, result)
+
+        full_key = key[:-3] + (False,) * 3
+        if is_facet and full_key in cache:
+            result = cache[full_key]
+            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
+            result = result.createSubMatrix(noperm, self.fises)
+            noperm.destroy()
+            return cache.setdefault(key, result)
+
+        elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
+        ref_el = elements[0].get_reference_element()
+        eq = FIAT.FDMQuadrature(ref_el, degree)
+        e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
+        e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
+        if is_interior:
+            e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
+
+        A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
+        A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
+        A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+        B_blocks = mass_blocks(tdim, formdegree, A00, A11)
+        A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
+        result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
+        A00.destroy()
+        A10.destroy()
+        A11.destroy()
+
+        if value_size != 1:
+            eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
+            temp = result
+            result = temp.kron(eye)
+            temp.destroy()
+            eye.destroy()
+
+        if is_facet:
+            cache[full_key] = result
+            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
+            result = result.createSubMatrix(noperm, self.fises)
+            noperm.destroy()
+
+        return cache.setdefault(key, result)
 
     @cached_property
     def _element_mass_matrix(self):
@@ -556,7 +552,7 @@ class FDMPC(PCBase):
         except KeyError:
             Vbig = None
             if Vrow == Vcol:
-                Vbig = self.parent_space.get(Vrow, Vbig)
+                Vbig = self.parent_space.get(Vrow)
 
             coefficients = (self.coefficients["beta"], self.coefficients["alpha"])
             # Interpolation of basis and exterior derivative onto broken spaces
@@ -697,13 +693,14 @@ class FDMElementKernel(ElementKernel):
     """
     An element kernel to compute a triple matrix product A * B * C
     Where A and C are constant matrices and
-    B is a block diagonal matrix given on each element by coefficients
+    B is a block diagonal matrix with entries given by coefficients
     see Equation (3.9) of Brubeck2022b
     """
     def __init__(self, coefficients, A, B, C):
         self.coefficients = coefficients
         self.fun = partial(A.matMatMult, B, C)
         self.result = self.fun()
+        self.work = None
 
         V = coefficients[0].function_space()
         if B.getBlockSize() == 1:
