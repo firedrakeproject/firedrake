@@ -236,7 +236,7 @@ class FDMPC(PCBase):
 
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.schur_kernel[V] = partial(SchurComplementPattern, idofs, dofs)
+            self.schur_kernel[V] = partial(SchurComplementKernel, idofs, dofs)
             self.parent_space[V] = V
 
         # Create data structures needed for assembly
@@ -266,6 +266,7 @@ class FDMPC(PCBase):
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
                 preallocator.setUp()
                 self.set_values(preallocator, Vrow, Vcol, addv, triu=triu)
+
                 preallocator.assemble()
                 d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
                 preallocator.destroy()
@@ -589,28 +590,36 @@ class SparseAssembler(object):
 
     def __init__(self, kernel, Vrow, Vcol, rmap, cmap):
         self.kernel = kernel
-        self.on_diag = Vrow == Vcol
-        self.row_shape = tuple() if Vrow.value_size == 1 else (Vrow.value_size,)
-        self.col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
-        self.map_rows = partial(self.map_block_indices, rmap) if self.row_shape else rmap.apply
-        self.map_cols = partial(self.map_block_indices, cmap) if self.col_shape else cmap.apply
+        m, n = kernel.result.getSize()
+
+        spaces = [Vrow]
+        row_shape = tuple() if Vrow.value_size == 1 else (Vrow.value_size,)
+        map_rows = (self.map_block_indices, rmap) if row_shape else (rmap.apply,)
+        rows = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + row_shape)
+
         self.bc_nodes = None
-        if self.on_diag:
-            self.map_cols = lambda *x, result=None: result
+        if Vcol == Vrow:
+            cols = rows
+            map_cols = (lambda *x, result=None: result, )
         #     own = Vrow.dof_dset.layout_vec.getLocalSize()
         #     bc_nodes = numpy.flatnonzero(rmap.indices[:own] < 0).astype(PETSc.IntType)
         #     if len(bc_nodes) > 0:
         #         bc_nodes = Vrow.dof_dset.lgmap.apply(bc_nodes, result=bc_nodes)
         #         self.bc_nodes = bc_nodes[:, None]
-
-        spaces = [Vrow]
-        if not self.on_diag:
+        else:
             spaces.append(Vcol)
-        spaces.extend(c.function_space() for c in kernel.coefficients)
-        self.node_maps = [V.cell_node_map() for V in spaces]
-        self.indices = [numpy.empty((V.finat_element.space_dimension(),),
-                                    dtype=PETSc.IntType) for V in spaces]
+            col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
+            map_cols = (self.map_block_indices, cmap) if col_shape else (cmap.apply, )
+            cols = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + col_shape)
 
+        start = len(spaces)
+        spaces.extend(c.function_space() for c in kernel.coefficients)
+        self.indices = tuple(numpy.empty((V.finat_element.space_dimension(),), dtype=PETSc.IntType) for V in spaces)
+        self.map_rows = partial(*map_rows, self.indices[0], result=rows)
+        self.map_cols = partial(*map_cols, self.indices[1], result=cols)
+        self.kernel_args = self.indices[start:]
+
+        self.node_maps = tuple(V.cell_node_map() for V in spaces)
         node_map = self.node_maps[0]
         self.nel = node_map.values.shape[0]
         if node_map.offset is None:
@@ -626,8 +635,7 @@ class SparseAssembler(object):
         bsize = result.size[1]
         numpy.copyto(result[:, 0], indices)
         result[:, 0] *= bsize
-        tmp = numpy.arange(1, bsize, dtype=result.dtype)
-        numpy.outer.sum(result[:, 0], tmp.reshape((-1, bsize-1)), out=result[:, 1:])
+        numpy.add.outer(result[:, 0], numpy.arange(1, bsize, dtype=indices.dtype), out=result[:, 1:])
         return lgmap.apply(result, result=result)
 
     def set_indices(self, e):
@@ -639,41 +647,29 @@ class SparseAssembler(object):
             index += node_map.offset
 
     def assemble(self, A, addv=None, triu=False):
+        result = self.kernel.result
+        insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             kernel = lambda *args, result=None: result
         else:
             kernel = self.kernel.run
             triu = False
-            # A.zeroEntries()
             if self.bc_nodes is not None:
                 vals = numpy.ones(self.bc_nodes.shape, dtype=PETSc.RealType)
                 A.setValuesRCV(self.bc_nodes, self.bc_nodes, vals, addv)
 
-        insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
-        result = self.kernel.result
-        m, n = result.getSize()
-        rindices = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + self.row_shape)
-        cindices = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + self.col_shape)
-        if self.on_diag:
-            cindices = rindices
-
         # Core assembly loop
-        kargs = self.indices[2-int(self.on_diag):]
         if self.layers is None:
             for e in range(self.nel):
                 self.set_indices(e)
-                insert(A, kernel(*kargs, result=result),
-                       self.map_rows(self.indices[0], result=rindices),
-                       self.map_cols(self.indices[1], result=cindices),
-                       addv)
+                insert(A, kernel(*self.kernel_args, result=result),
+                       self.map_rows(), self.map_cols(), addv)
         else:
             for e in range(self.nel):
                 self.set_indices(e)
                 for _ in range(self.layers[e]):
-                    insert(A, kernel(*kargs, result=result),
-                           self.map_rows(self.indices[0], result=rindices),
-                           self.map_cols(self.indices[1], result=cindices),
-                           addv)
+                    insert(A, kernel(*self.kernel_args, result=result),
+                           self.map_rows(), self.map_cols(), addv)
                     self.add_offsets()
 
 
@@ -799,7 +795,14 @@ class SchurComplementKernel(FDMElementKernel):
 
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
-        return result or self.A
+        """By default pad with zeros the statically condensed pattern"""
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        if result is None:
+            A00, A01, A10, _ = self.get_blocks()
+            result = A10.matMatMult(A00, A01, result=result)
+        result.aypx(0.0, self.A, structure=structure)
+        return result
+
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
@@ -814,18 +817,6 @@ class SchurComplementDiagonal(SchurComplementKernel):
         A01.diagonalScale(L=self.work[0])
         result = A10.matMult(A01, result=result)
         result.axpy(1.0, A11, structure=structure)
-        return result
-
-
-class SchurComplementPattern(SchurComplementKernel):
-
-    @PETSc.Log.EventDecorator("FDMCondense")
-    def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
-        if result is None:
-            A00, A01, A10, _ = self.get_blocks()
-            result = A10.matMatMult(A00, A01, result=result)
-        result.aypx(0.0, self.A, structure=structure)
         return result
 
 
@@ -859,7 +850,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
 
 class SchurComplementBlockQR(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMGetSchur")
+    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A00, A01, A10, A11 = self.get_blocks()
@@ -891,7 +882,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
 
 class SchurComplementBlockSVD(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMGetSchur")
+    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A00, A01, A10, A11 = self.get_blocks()
@@ -930,7 +921,7 @@ class SchurComplementBlockSVD(SchurComplementKernel):
 
 class SchurComplementBlockInverse(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMGetSchur")
+    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A00, A01, A10, A11 = self.get_blocks()
