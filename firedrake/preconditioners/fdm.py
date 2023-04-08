@@ -534,7 +534,7 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        return PETSc.Mat().createAIJ((nrows, nrows), bsize=shape[2], csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
@@ -640,7 +640,7 @@ class SparseAssembler(object):
         self.layers = layers
 
     def map_block_indices(self, lgmap, indices, result=None):
-        bsize = result.size[1]
+        bsize = result.shape[1]
         numpy.copyto(result[:, 0], indices)
         result[:, 0] *= bsize
         numpy.add.outer(result[:, 0], numpy.arange(1, bsize, dtype=indices.dtype), out=result[:, 1:])
@@ -710,13 +710,14 @@ class TripleProductKernel(ElementKernel):
     def __init__(self, A, B, C, *coefficients):
         self.work = None
         V = coefficients[0].function_space()
-        if B.getBlockSize() == 1:
+        dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
+        if V.value_size == 1:
             self.work = B.getDiagonal()
-            self.data = self.work.array_w.reshape((-1,) + V.shape)
             self.update = partial(B.setDiagonal, self.work)
+            self.data = self.work.array_w.reshape(dshape)
         else:
             indptr, indices, data = B.getValuesCSR()
-            self.data = data.reshape((-1,) + V.shape * 2)
+            self.data = data.reshape(dshape)
             self.update = lambda *args: (B.setValuesCSR(indptr, indices, self.data), B.assemble())
 
         stops = numpy.cumsum([0] + [c.function_space().finat_element.space_dimension() for c in coefficients])
