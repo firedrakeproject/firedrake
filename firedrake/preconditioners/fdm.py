@@ -21,11 +21,12 @@ from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir
 
 import firedrake.dmhooks as dmhooks
-import ctypes
-import numpy
 import ufl
 import FIAT
 import finat
+import numpy
+import ctypes
+import operator
 
 Citations().add("Brubeck2022a", """
 @article{Brubeck2022a,
@@ -555,11 +556,12 @@ class FDMPC(PCBase):
             if Vrow == Vcol:
                 Vbig = self.parent_space.get(Vrow)
 
-            coefficients = (self.coefficients["beta"], self.coefficients["alpha"])
+            beta = self.coefficients["beta"]
+            alpha = self.coefficients["alpha"]
             # Interpolation of basis and exterior derivative onto broken spaces
             ctensor = self.assemble_reference_tensor(Vbig or Vcol)
             rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
-            element_kernel = FDMElementKernel(coefficients, rtensor, self._element_mass_matrix, ctensor)
+            element_kernel = TripleProductKernel(rtensor, self._element_mass_matrix, ctensor, beta, alpha)
             if Vbig is not None:
                 element_kernel = self.schur_kernel[Vrow](element_kernel)
 
@@ -612,14 +614,20 @@ class SparseAssembler(object):
             map_cols = (self.map_block_indices, cmap) if col_shape else (cmap.apply, )
             cols = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + col_shape)
 
-        start = len(spaces)
         spaces.extend(c.function_space() for c in kernel.coefficients)
         self.indices = tuple(numpy.empty((V.finat_element.space_dimension(),), dtype=PETSc.IntType) for V in spaces)
-        self.map_rows = partial(*map_rows, self.indices[0], result=rows)
-        self.map_cols = partial(*map_cols, self.indices[1], result=cols)
-        self.kernel_args = self.indices[start:]
+        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
+        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
+        self.kernel_args = self.indices[1+spaces.index(Vcol):]
 
-        self.node_maps = tuple(V.cell_node_map() for V in spaces)
+        integral_type = kernel.integral_type
+        if integral_type == "cell":
+            get_map = operator.methodcaller("cell_node_map")
+        elif integral_type == "interior_facet":
+            get_map = operator.methodcaller("interior_facet_node_map")
+        else:
+            raise NotImplementedError("Only for cell or interior facet integrals")
+        self.node_maps = tuple(map(get_map, spaces))
         node_map = self.node_maps[0]
         self.nel = node_map.values.shape[0]
         if node_map.offset is None:
@@ -647,16 +655,16 @@ class SparseAssembler(object):
             index += node_map.offset
 
     def assemble(self, A, addv=None, triu=False):
-        result = self.kernel.result
-        insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             kernel = lambda *args, result=None: result
         else:
-            kernel = self.kernel.run
+            kernel = self.kernel
             triu = False
             if self.bc_nodes is not None:
                 vals = numpy.ones(self.bc_nodes.shape, dtype=PETSc.RealType)
                 A.setValuesRCV(self.bc_nodes, self.bc_nodes, vals, addv)
+        result = self.kernel.result
+        insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
 
         # Core assembly loop
         if self.layers is None:
@@ -677,27 +685,30 @@ class ElementKernel(object):
     """
     A constant element kernel
     """
-    def __init__(self, A):
+    def __init__(self, A, *coefficients):
         self.result = A
-        self.coefficients = []
+        self.coefficients = coefficients
+        self.integral_type = "cell"
 
-    def run(self, *args, result=None):
+    def __call__(self, *args, result=None):
         return result or self.result
 
+    def __del__(self):
+        self.destroy()
 
-class FDMElementKernel(ElementKernel):
+    def destroy(self):
+        pass
+
+
+class TripleProductKernel(ElementKernel):
     """
-    An element kernel to compute a triple matrix product A * B * C
-    Where A and C are constant matrices and
-    B is a block diagonal matrix with entries given by coefficients
-    see Equation (3.9) of Brubeck2022b
+    An element kernel to compute a triple matrix product A * B * C Where A and
+    C are constant matrices and B is a block diagonal matrix with entries given
+    by coefficients.
+    See Equation (3.9) of Brubeck2022b.
     """
-    def __init__(self, coefficients, A, B, C):
-        self.coefficients = coefficients
-        self.fun = partial(A.matMatMult, B, C)
-        self.result = self.fun()
+    def __init__(self, A, B, C, *coefficients):
         self.work = None
-
         V = coefficients[0].function_space()
         if B.getBlockSize() == 1:
             self.work = B.getDiagonal()
@@ -710,30 +721,28 @@ class FDMElementKernel(ElementKernel):
 
         stops = numpy.cumsum([0] + [c.function_space().finat_element.space_dimension() for c in coefficients])
         self.slices = [slice(*stops[k:k+2]) for k in range(len(stops)-1)]
+        self.product = partial(A.matMatMult, B, C)
+        super().__init__(self.product(), *coefficients)
 
-    def run(self, *indices, result=None):
+    def __call__(self, *indices, result=None):
         for c, i, z in zip(self.coefficients, indices, self.slices):
             numpy.take(c.dat.data_ro, i, axis=0, out=self.data[z])
         self.update()
-        return self.fun(result=result)
+        return self.product(result=result)
 
     def destroy(self):
         self.result.destroy()
         if isinstance(self.work, PETSc.Object):
             self.work.destroy()
 
-    def __del__(self):
-        self.destroy()
 
-
-class SchurComplementKernel(FDMElementKernel):
+class SchurComplementKernel(ElementKernel):
     """
-    Class to build Schur complement matrices that reuses work matrices and the
+    An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
     def __init__(self, idofs, fdofs, kernel):
         self.kernel = kernel
-        self.coefficients = kernel.coefficients
         self.A = kernel.result
         comm = self.A.getComm()
         i0, i1 = tuple(PETSc.IS().createGeneral(i, comm=comm) for i in (idofs, fdofs))
@@ -743,10 +752,10 @@ class SchurComplementKernel(FDMElementKernel):
         self.ises = (i0, i1)
         self.work = [None for _ in range(2)]
         self.submats = []
-        self.result = self.condense()
+        super().__init__(self.condense(), *kernel.coefficients)
 
-    def run(self, *args, result=None):
-        self.kernel.run(*args, result=self.A)
+    def __call__(self, *args, result=None):
+        self.kernel(*args, result=self.A)
         return self.condense(result=result)
 
     def destroy(self):
@@ -804,7 +813,6 @@ class SchurComplementKernel(FDMElementKernel):
         return result
 
 
-
 class SchurComplementDiagonal(SchurComplementKernel):
 
     @PETSc.Log.EventDecorator("FDMCondense")
@@ -833,9 +841,10 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = 2 * (zlice.stop - zlice.start)
         for k in sorted(degree for degree in self.slices if degree > 1):
-            zlice = self.slices[k]
-            A = R[zlice].reshape((-1, k, k))
-            R[zlice] = numpy.linalg.inv(numpy.linalg.cholesky(A)).reshape((-1))
+            Rk = R[self.slices[k]]
+            A = Rk.reshape((-1, k, k))
+            rinv = numpy.linalg.inv(numpy.linalg.cholesky(A))
+            numpy.copyto(Rk, rinv.flat)
             flops += A.shape[0] * ((k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
@@ -864,8 +873,9 @@ class SchurComplementBlockQR(SchurComplementKernel):
             zlice = self.slices[k]
             A = R[zlice].reshape((-1, k, k))
             q, r = numpy.linalg.qr(A, mode="complete")
-            Q[zlice] = q.reshape((-1,))
-            R[zlice] = numpy.linalg.inv(r).reshape((-1,))
+            numpy.copyto(Q[zlice], q.flat)
+            rinv = numpy.linalg.inv(r)
+            numpy.copyto(R[zlice], rinv.flat)
             flops += A.shape[0] * ((4*k**3)//3 + k**3)
 
         PETSc.Log.logFlops(flops)
@@ -898,9 +908,9 @@ class SchurComplementBlockSVD(SchurComplementKernel):
             A = U[bslice].reshape((-1, k, k))
             u, s, v = numpy.linalg.svd(A, full_matrices=False)
             dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
-            D.array_w[dslice] = s.reshape((-1,))
-            U[bslice] = numpy.transpose(u, axes=(0, 2, 1)).reshape((-1,))
-            V[bslice] = numpy.transpose(v, axes=(0, 2, 1)).reshape((-1,))
+            numpy.copyto(D.array_w[dslice], s.flat)
+            numpy.copyto(U[bslice], numpy.transpose(u, axes=(0, 2, 1)).flat)
+            numpy.copyto(V[bslice], numpy.transpose(v, axes=(0, 2, 1)).flat)
             flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
 
         PETSc.Log.logFlops(flops)
@@ -931,9 +941,10 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = zlice.stop - zlice.start
         for k in sorted(degree for degree in self.slices if degree > 1):
-            zlice = self.slices[k]
-            A = R[zlice].reshape((-1, k, k))
-            R[zlice] = numpy.linalg.inv(A).reshape((-1,))
+            Rk = R[self.slices[k]]
+            A = Rk.reshape((-1, k, k))
+            rinv = numpy.linalg.inv(A)
+            numpy.copyto(Rk, rinv.flat)
             flops += A.shape[0] * (k**3)
 
         PETSc.Log.logFlops(flops)
@@ -947,25 +958,12 @@ class SchurComplementBlockInverse(SchurComplementKernel):
 
 @PETSc.Log.EventDecorator("LoadCode")
 def load_c_code(code, name, **kwargs):
-    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
-    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
-              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
+    petsc_dir = get_petsc_dir()
+    cppargs = ["-I%s/include" % d for d in petsc_dir]
+    ldargs = (["-L%s/lib" % d for d in petsc_dir]
+              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
               + ["-lpetsc", "-lm"])
-    funptr = load(code, "c", name,
-                  cppargs=cppargs, ldargs=ldargs,
-                  **kwargs)
-
-    def get_pointer(obj):
-        if isinstance(obj, PETSc.Object):
-            return obj.handle
-        elif isinstance(obj, numpy.ndarray):
-            return obj.ctypes.data
-        return obj
-
-    @PETSc.Log.EventDecorator(name)
-    def wrapper(*args):
-        return funptr(*map(get_pointer, args))
-    return wrapper
+    return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
 
 
 def load_setSubMatCSR(comm, triu=False):
@@ -973,10 +971,10 @@ def load_setSubMatCSR(comm, triu=False):
        Done in C for efficiency, since it loops over rows."""
     if triu:
         name = "setSubMatCSR_SBAIJ"
-        select_cols = "icol < irow ? -1: icol"
+        select_cols = "icol -= (icol < irow) * (1 + icol);"
     else:
         name = "setSubMatCSR_AIJ"
-        select_cols = "icol"
+        select_cols = ""
     code = f"""
 #include <petsc.h>
 
@@ -1007,7 +1005,8 @@ PetscErrorCode {name}(Mat A,
         irow = rindices[i];
         for (PetscInt j = 0; j < ncols; j++) {{
             icol = cindices[cols[j]];
-            indices[j] = {select_cols};
+            {select_cols}
+            indices[j] = icol;
         }}
         ierr = MatSetValues(A, 1, &irow, ncols, indices, vals, addv);CHKERRQ(ierr);
         ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
@@ -1018,8 +1017,14 @@ PetscErrorCode {name}(Mat A,
 """
     argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                 ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-    return load_c_code(code, name, comm=comm, argtypes=argtypes,
-                       restype=ctypes.c_int)
+    funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
+                         restype=ctypes.c_int)
+
+    @PETSc.Log.EventDecorator(name)
+    def wrapper(A, B, rows, cols, addv):
+        return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
+
+    return wrapper
 
 
 def is_restricted(finat_element):
