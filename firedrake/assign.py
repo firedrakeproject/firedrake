@@ -166,12 +166,41 @@ class Assigner:
                 "Use Function.assign instead."
             )
 
+        # To minimize communication during assignment we perform a number of tricks:
+        # * If we are not assigning to a subset then we can always write to the
+        #   halo. The validity of the original assignee dat halo does not matter
+        #   since we are overwriting it entirely.
+        # * We can also write to the halo if we are assigning to a subset provided
+        #   that the assignee halo is not dirty to start with.
+        # * If we are assigning to a subset where the assignee dat has a dirty halo,
+        #   then we must only write to the owned values (marking the halo as dirty).
+        # * If any of the functions in the expression do not have valid halos then
+        #   we only write to the owned values in the assignee. Otherwise we might
+        #   end up doing a lot of halo exchanges for the expression just to avoid
+        #   a single halo exchange for the assignee.
+        # * If we do write to the halo then the resulting halo will never be dirty.
+
+        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
+        assign_to_halos = (
+            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
+
+        if assign_to_halos:
+            subset_indices = self._subset.indices if self._subset else ...
+            data_ro = operator.attrgetter("data_ro_with_halos")
+        else:
+            subset_indices = self._subset.owned_indices if self._subset else ...
+            data_ro = operator.attrgetter("data_ro")
+
         # If mixed, loop over individual components
-        for assignee_dat, *func_dats in zip(self._assignee.dat.split,
-                                            *(f.dat.split for f in self._functions)):
-            self._assign_single_dat(assignee_dat, func_dats)
-            # Halo values are also updated
-            assignee_dat.halo_valid = True
+        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
+                                       *(f.dat.split for f in self._functions)):
+            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
+            rvalue = self._compute_rvalue(func_data)
+            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
+
+        # if we have bothered writing to halo it naturally must not be dirty
+        if assign_to_halos:
+            self._assignee.dat.halo_valid = True
 
     @cached_property
     def _constants(self):
@@ -193,18 +222,15 @@ class Assigner:
         return tuple(w for (c, w) in self._weighted_coefficients
                      if isinstance(c, Function))
 
-    @property
-    def _indices(self):
-        return self._subset.indices if self._subset else ...
+    def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs_dat.data_wo_with_halos[indices] = rvalue
+        else:
+            lhs_dat.data_wo[indices] = rvalue
 
-    # TODO: It would be more efficient in permissible cases to use VecMAXPY instead of numpy operations.
-    def _assign_single_dat(self, assignee_dat, function_dats):
-        assignee_dat.data_with_halos[self._indices] = self._compute_rvalue(function_dats)
-
-    def _compute_rvalue(self, function_dats=()):
+    def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
         # and constants (e.g. u.assign(2*v + 3)).
-        func_data = np.array([f.data_ro_with_halos[self._indices] for f in function_dats])
         func_rvalue = (func_data.T @ self._function_weights).T
         const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
         const_rvalue = const_data.T @ self._constant_weights
@@ -222,33 +248,47 @@ class IAddAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__iadd__``."""
     symbol = "+="
 
-    def _assign_single_dat(self, assignee_dat, function_dats):
-        assignee_dat.data_with_halos[self._indices] += self._compute_rvalue(function_dats)
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs.data_with_halos[indices] += rvalue
+        else:
+            lhs.data[indices] += rvalue
 
 
 class ISubAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__isub__``."""
     symbol = "-="
 
-    def _assign_single_dat(self, assignee_dat, function_dats):
-        assignee_dat.data_with_halos[self._indices] -= self._compute_rvalue(function_dats)
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if assign_to_halos:
+            lhs.data_with_halos[indices] -= rvalue
+        else:
+            lhs.data[indices] -= rvalue
 
 
 class IMulAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__imul__``."""
     symbol = "*="
 
-    def _assign_single_dat(self, assignee_dat, function_dats):
-        if function_dats:
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
-        assignee_dat.data_with_halos[self._indices] *= self._compute_rvalue()
+
+        if assign_to_halos:
+            lhs.data_with_halos[indices] *= rvalue
+        else:
+            lhs.data[indices] *= rvalue
 
 
 class IDivAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__itruediv__``."""
     symbol = "/="
 
-    def _assign_single_dat(self, assignee_dat, function_dats):
-        if function_dats:
+    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+        if self._functions:
             raise ValueError("Only division by scalars is supported")
-        assignee_dat.data_with_halos[self._indices] /= self._compute_rvalue()
+
+        if assign_to_halos:
+            lhs.data_with_halos[indices] /= rvalue
+        else:
+            lhs.data[indices] /= rvalue
