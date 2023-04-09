@@ -556,12 +556,11 @@ class FDMPC(PCBase):
             if Vrow == Vcol:
                 Vbig = self.parent_space.get(Vrow)
 
-            beta = self.coefficients["beta"]
-            alpha = self.coefficients["alpha"]
             # Interpolation of basis and exterior derivative onto broken spaces
             ctensor = self.assemble_reference_tensor(Vbig or Vcol)
             rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
-            element_kernel = TripleProductKernel(rtensor, self._element_mass_matrix, ctensor, beta, alpha)
+            element_kernel = TripleProductKernel(rtensor, self._element_mass_matrix, ctensor,
+                                                 self.coefficients["beta"], self.coefficients["alpha"])
             if Vbig is not None:
                 element_kernel = self.schur_kernel[Vrow](element_kernel)
 
@@ -618,7 +617,7 @@ class SparseAssembler(object):
         self.indices = tuple(numpy.empty((V.finat_element.space_dimension(),), dtype=PETSc.IntType) for V in spaces)
         self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
         self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
-        self.kernel_args = self.indices[1+spaces.index(Vcol):]
+        self.kernel_args = self.indices[-len(kernel.coefficients):]
 
         integral_type = kernel.integral_type
         if integral_type == "cell":
@@ -702,7 +701,7 @@ class ElementKernel(object):
 
 class TripleProductKernel(ElementKernel):
     """
-    An element kernel to compute a triple matrix product A * B * C Where A and
+    An element kernel to compute a triple matrix product A * B * C, where A and
     C are constant matrices and B is a block diagonal matrix with entries given
     by coefficients.
     See Equation (3.9) of Brubeck2022b.
