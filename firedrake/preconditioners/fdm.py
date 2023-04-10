@@ -708,20 +708,25 @@ class TripleProductKernel(ElementKernel):
     """
     def __init__(self, A, B, C, *coefficients):
         self.work = None
-        V = coefficients[0].function_space()
-        dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
-        if V.value_size == 1:
-            self.work = B.getDiagonal()
-            self.update = partial(B.setDiagonal, self.work)
-            self.data = self.work.array_w.reshape(dshape)
+        if len(coefficients) == 0:
+            self.data = numpy.array([])
+            self.update = lambda *args: args
         else:
-            indptr, indices, data = B.getValuesCSR()
-            self.data = data.reshape(dshape)
-            self.update = lambda *args: (B.setValuesCSR(indptr, indices, self.data), B.assemble())
+            V = coefficients[0].function_space()
+            dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
+            if V.value_size == 1:
+                self.work = B.getDiagonal()
+                self.data = self.work.array_w.reshape(dshape)
+                self.update = partial(B.setDiagonal, self.work)
+            else:
+                indptr, indices, data = B.getValuesCSR()
+                self.data = data.reshape(dshape)
+                self.update = lambda *args: (B.setValuesCSR(indptr, indices, self.data), B.assemble())
 
         stops = numpy.zeros((len(coefficients) + 1,), dtype=PETSc.IntType)
         numpy.cumsum([c.function_space().finat_element.space_dimension() for c in coefficients], out=stops[1:])
         self.slices = [slice(*stops[k:k+2]) for k in range(len(coefficients))]
+
         self.product = partial(A.matMatMult, B, C)
         super().__init__(self.product(), *coefficients)
 
@@ -742,30 +747,40 @@ class SchurComplementKernel(ElementKernel):
     An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
-    def __init__(self, idofs, fdofs, kernel):
-        self.kernel = kernel
-        self.A = kernel.result
-        comm = self.A.getComm()
-        i0, i1 = tuple(PETSc.IS().createGeneral(i, comm=comm) for i in (idofs, fdofs))
-        self.slices = self.sort_interior_dofs(i0, self.A)
-        self.isrows = [i0, i0, i1, i1]
-        self.iscols = [i0, i1, i0, i1]
-        self.ises = (i0, i1)
+    def __init__(self, idofs, fdofs, *kernels):
+        self.children = kernels
+        if len(self.children) == 1:
+            self.A = self.children[0].result
+            comm = self.A.getComm()
+            i0, i1 = tuple(PETSc.IS().createGeneral(i, comm=comm) for i in (idofs, fdofs))
+            self.slices = self.sort_interior_dofs(i0, self.A)
+            self.isrows = [i0, i0, i1, i1]
+            self.iscols = [i0, i1, i0, i1]
+            self.ises = (i0, i1)
+            self.submats = []
+        else:
+            self.submats = [k.result for k in self.children]
+
         self.work = [None for _ in range(2)]
-        self.submats = []
-        super().__init__(self.condense(), *kernel.coefficients)
+        coefficients = []
+        for k in self.children:
+            coefficients.extend(k.coefficients)
+        coefficients = list(dict.fromkeys(coefficients))
+        super().__init__(self.condense(), *coefficients)
 
     def __call__(self, *args, result=None):
-        self.kernel(*args, result=self.A)
+        for k in self.children:
+            k(*args, result=k.result)
         return self.condense(result=result)
 
     def destroy(self):
-        self.kernel.destroy()
-        self.result.destroy()
-        objs = []
-        objs.extend(self.ises)
+        for k in self.children:
+            k.destroy()
+        objs = [self.result]
         objs.extend(self.work)
-        objs.extend(self.submats)
+        if hasattr(self, "ises"):
+            objs.extend(self.ises)
+            objs.extend(self.submats)
         for obj in objs:
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
@@ -779,28 +794,22 @@ class SchurComplementKernel(ElementKernel):
         A00 = A.createSubMatrix(i0, i0)
         indptr, indices, _ = A00.getValuesCSR()
         degree = numpy.diff(indptr)
-        perm = numpy.argsort(degree)
-        icur = 0
+        perm = numpy.array(dict.fromkeys(indices))
+        perm = perm[numpy.argsort(degree[perm], kind='stable')]
+        i0.setIndices(i0.getIndices()[perm])
+        A00.destroy()
+
         istart = 0
         slices = {1: slice(0, 0)}
         unique_degree, counts = numpy.unique(degree, return_counts=True)
         for k, kdofs in sorted(zip(unique_degree, counts)):
-            if k > 1:
-                neigh = numpy.empty((kdofs, k), dtype=indices.dtype)
-                for row in range(kdofs):
-                    i = perm[icur+row]
-                    neigh[row] = indices[slice(*indptr[i:i+2])]
-                perm[icur:icur+kdofs] = list(dict.fromkeys(neigh.flat))
-
             slices[k] = slice(istart, istart + k * kdofs)
             istart += k * kdofs
-            icur += kdofs
-        i0.setIndices(i0.getIndices()[perm])
-        A00.destroy()
         return slices
 
     def get_blocks(self):
-        self.submats = self.A.createSubMatrices(self.isrows, self.iscols, submats=self.submats or None)
+        if hasattr(self, "A"):
+            self.submats = self.A.createSubMatrices(self.isrows, self.iscols, submats=self.submats or None)
         return self.submats
 
     @PETSc.Log.EventDecorator("FDMCondense")
