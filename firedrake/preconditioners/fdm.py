@@ -218,27 +218,24 @@ class FDMPC(PCBase):
         if value_size != 1:
             fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
         self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
-        dofs = numpy.arange(value_size * Vbig.finat_element.space_dimension(), dtype=fdofs.dtype)
-        idofs = numpy.setdiff1d(dofs, fdofs, assume_unique=True)
 
         # Dictionaries with the parent space and kernel to compute the Schur complement
         self.parent_space = {}
         self.schur_kernel = {}
         if Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
+            self.parent_space[Vfacet] = FunctionSpace(V.mesh(), restrict_element(ebig, "interior"))
             if Vfacet.finat_element.formdegree == 0 and value_size == 1:
-                sc_builder = SchurComplementDiagonal
+                self.schur_kernel[Vfacet] = SchurComplementDiagonal
             elif pmat_type.endswith("sbaij"):
-                sc_builder = SchurComplementBlockCholesky
+                self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
-                sc_builder = SchurComplementBlockQR
-            self.schur_kernel[Vfacet] = partial(sc_builder, idofs, fdofs)
-            self.parent_space[Vfacet] = Vbig
+                self.schur_kernel[Vfacet] = SchurComplementBlockQR
 
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.schur_kernel[V] = partial(SchurComplementKernel, idofs, dofs)
-            self.parent_space[V] = V
+            self.parent_space[V] = FunctionSpace(V.mesh(), restrict_element(V.ufl_element(), "interior"))
+            self.schur_kernel[V] = SchurComplementKernel
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -450,7 +447,7 @@ class FDMPC(PCBase):
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
-    def assemble_reference_tensor(self, V, transpose=False):
+    def assemble_reference_tensor(self, V, transpose=False, sort_interior=False):
         """
         Return the reference tensor used in the diagonal factorisation of the
         sparse cell matrices.  See Section 3.2 of Brubeck2022b.
@@ -470,18 +467,32 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(fe)
-        key = (value_size, tdim, degree, formdegree, is_interior, is_facet, transpose)
+        key = (value_size, tdim, degree, formdegree, is_interior, is_facet, transpose, sort_interior)
         cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
         except KeyError:
             pass
+
         if transpose:
-            result = self.assemble_reference_tensor(V, transpose=False)
+            result = self.assemble_reference_tensor(V, transpose=False, sort_interior=sort_interior)
             result = PETSc.Mat().createTranspose(result).convert(result.getType())
             return cache.setdefault(key, result)
 
-        full_key = key[:-3] + (False,) * 3
+        if sort_interior:
+            assert is_interior and not is_facet and not transpose
+            result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
+            A00 = self._element_mass_matrix.PtAP(result)
+            perm = permute_interior_dofs(A00)
+            A00.destroy()
+            perm = PETSc.IS().createGeneral(perm, comm=result.getComm())
+            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
+            result = result.createSubMatrix(noperm, perm)
+            noperm.destroy()
+            perm.destroy()
+            return cache.setdefault(key, result)
+
+        full_key = key[:-4] + (False,) * 4
         if is_facet and full_key in cache:
             result = cache[full_key]
             noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
@@ -552,17 +563,25 @@ class FDMPC(PCBase):
         try:
             assembler = self.assemblers[key]
         except KeyError:
-            Vbig = None
-            if Vrow == Vcol:
-                Vbig = self.parent_space.get(Vrow)
-
+            M = self._element_mass_matrix
+            coefficients = (self.coefficients["beta"], self.coefficients["alpha"])
             # Interpolation of basis and exterior derivative onto broken spaces
-            ctensor = self.assemble_reference_tensor(Vbig or Vcol)
-            rtensor = self.assemble_reference_tensor(Vbig or Vrow, transpose=True)
-            element_kernel = TripleProductKernel(rtensor, self._element_mass_matrix, ctensor,
-                                                 self.coefficients["beta"], self.coefficients["alpha"])
-            if Vbig is not None:
-                element_kernel = self.schur_kernel[Vrow](element_kernel)
+            C1 = self.assemble_reference_tensor(Vcol)
+            R1 = self.assemble_reference_tensor(Vrow, transpose=True)
+
+            build_schur = None
+            if Vrow == Vcol:
+                build_schur = self.schur_kernel.get(Vrow)
+            if build_schur is None:
+                element_kernel = TripleProductKernel(R1, M, C1, *coefficients)
+            else:
+                V0 = self.parent_space.get(Vrow)
+                C0 = self.assemble_reference_tensor(V0, sort_interior=True)
+                R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
+                element_kernel = build_schur(TripleProductKernel(R0, M, C0, *coefficients),
+                                             TripleProductKernel(R0, M, C1),
+                                             TripleProductKernel(R1, M, C0),
+                                             TripleProductKernel(R1, M, C1))
 
             assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
             self.assemblers.setdefault(key, assembler)
@@ -747,19 +766,18 @@ class SchurComplementKernel(ElementKernel):
     An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
-    def __init__(self, idofs, fdofs, *kernels):
+    def __init__(self, *kernels):
         self.children = kernels
-        if len(self.children) == 1:
-            self.A = self.children[0].result
-            comm = self.A.getComm()
-            i0, i1 = tuple(PETSc.IS().createGeneral(i, comm=comm) for i in (idofs, fdofs))
-            self.slices = self.sort_interior_dofs(i0, self.A)
-            self.isrows = [i0, i0, i1, i1]
-            self.iscols = [i0, i1, i0, i1]
-            self.ises = (i0, i1)
-            self.submats = []
-        else:
-            self.submats = [k.result for k in self.children]
+        self.submats = [k.result for k in self.children]
+
+        A00 = self.submats[0]
+        degree = numpy.diff(A00.getValuesCSR()[0])
+        istart = 0
+        self.slices = {1: slice(0, 0)}
+        unique_degree, counts = numpy.unique(degree, return_counts=True)
+        for k, kdofs in sorted(zip(unique_degree, counts)):
+            self.slices[k] = slice(istart, istart + k * kdofs)
+            istart += k * kdofs
 
         self.work = [None for _ in range(2)]
         coefficients = []
@@ -785,41 +803,14 @@ class SchurComplementKernel(ElementKernel):
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
 
-    def sort_interior_dofs(self, i0, A):
-        """Permute `i0` to have A[i0, i0] with square blocks of
-           increasing dimension along its diagonal.
-
-           Return a dict of slices with the extents
-           of each set of blocks in the CSR representation of A."""
-        A00 = A.createSubMatrix(i0, i0)
-        indptr, indices, _ = A00.getValuesCSR()
-        degree = numpy.diff(indptr)
-        perm = numpy.array(dict.fromkeys(indices))
-        perm = perm[numpy.argsort(degree[perm], kind='stable')]
-        i0.setIndices(i0.getIndices()[perm])
-        A00.destroy()
-
-        istart = 0
-        slices = {1: slice(0, 0)}
-        unique_degree, counts = numpy.unique(degree, return_counts=True)
-        for k, kdofs in sorted(zip(unique_degree, counts)):
-            slices[k] = slice(istart, istart + k * kdofs)
-            istart += k * kdofs
-        return slices
-
-    def get_blocks(self):
-        if hasattr(self, "A"):
-            self.submats = self.A.createSubMatrices(self.isrows, self.iscols, submats=self.submats or None)
-        return self.submats
-
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         """By default pad with zeros the statically condensed pattern"""
         structure = PETSc.Mat.Structure.SUBSET if result else None
         if result is None:
-            A00, A01, A10, _ = self.get_blocks()
+            A00, A01, A10, _ = self.submats
             result = A10.matMatMult(A00, A01, result=result)
-        result.aypx(0.0, self.A, structure=structure)
+        result.aypx(0.0, self.submats[-1], structure=structure)
         return result
 
 
@@ -828,7 +819,7 @@ class SchurComplementDiagonal(SchurComplementKernel):
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A00, A01, A10, A11 = self.get_blocks()
+        A00, A01, A10, A11 = self.submats
         self.work[0] = A00.getDiagonal(result=self.work[0])
         self.work[0].reciprocal()
         self.work[0].scale(-1)
@@ -843,7 +834,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A00, A01, A10, A11 = self.get_blocks()
+        A00, A01, A10, A11 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
@@ -872,7 +863,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A00, A01, A10, A11 = self.get_blocks()
+        A00, A01, A10, A11 = self.submats
         indptr, indices, R = A00.getValuesCSR()
         Q = numpy.ones(R.shape, dtype=R.dtype)
 
@@ -905,7 +896,7 @@ class SchurComplementBlockSVD(SchurComplementKernel):
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A00, A01, A10, A11 = self.get_blocks()
+        A00, A01, A10, A11 = self.submats
         indptr, indices, U = A00.getValuesCSR()
         V = numpy.ones(U.shape, dtype=U.dtype)
         self.work[0] = A00.getDiagonal(result=self.work[0])
@@ -944,7 +935,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A00, A01, A10, A11 = self.get_blocks()
+        A00, A01, A10, A11 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
@@ -1035,6 +1026,15 @@ PetscErrorCode {name}(Mat A,
         return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
 
     return wrapper
+
+
+def permute_interior_dofs(A00):
+    """Return permutation of DOFs to make A00 block diagonal with blocks of increasing dimension."""
+    indptr, indices, _ = A00.getValuesCSR()
+    degree = numpy.diff(indptr)
+    perm = numpy.array(list(dict.fromkeys(indices)), dtype=indices.dtype)
+    perm = perm[numpy.argsort(degree[perm], kind='stable')]
+    return perm
 
 
 def is_restricted(finat_element):
@@ -1225,6 +1225,18 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     Dmat.assemble()
     Dhat.destroy()
     return Dmat
+
+
+def restrict_element(ele, restriction_domain):
+    """Get an element that is not restricted and return the restricted element."""
+    if isinstance(ele, ufl.VectorElement):
+        return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements())
+    elif isinstance(ele, ufl.TensorElement):
+        return type(ele)(restrict_element(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele.symmetry())
+    elif isinstance(ele, ufl.MixedElement):
+        return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements()))
+    else:
+        return ele[restriction_domain]
 
 
 def unrestrict_element(ele):
