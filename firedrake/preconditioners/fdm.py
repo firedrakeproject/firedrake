@@ -1239,18 +1239,10 @@ def unrestrict_element(ele):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
     elif isinstance(ele, ufl.TensorElement):
         return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.EnrichedElement):
-        return type(ele)(*list(dict.fromkeys(unrestrict_element(e) for e in ele._elements)))
-    elif isinstance(ele, ufl.TensorProductElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()), cell=ele.cell())
     elif isinstance(ele, ufl.MixedElement):
         return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.WithMapping):
-        return type(ele)(unrestrict_element(ele.wrapee), ele.mapping())
     elif isinstance(ele, ufl.RestrictedElement):
         return unrestrict_element(ele._element)
-    elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
-        return type(ele)(unrestrict_element(ele._element))
     else:
         return ele
 
