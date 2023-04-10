@@ -719,8 +719,9 @@ class TripleProductKernel(ElementKernel):
             self.data = data.reshape(dshape)
             self.update = lambda *args: (B.setValuesCSR(indptr, indices, self.data), B.assemble())
 
-        stops = numpy.cumsum([0] + [c.function_space().finat_element.space_dimension() for c in coefficients])
-        self.slices = [slice(*stops[k:k+2]) for k in range(len(stops)-1)]
+        stops = numpy.zeros((len(coefficients) + 1,), dtype=PETSc.IntType)
+        numpy.cumsum([c.function_space().finat_element.space_dimension() for c in coefficients], out=stops[1:])
+        self.slices = [slice(*stops[k:k+2]) for k in range(len(coefficients))]
         self.product = partial(A.matMatMult, B, C)
         super().__init__(self.product(), *coefficients)
 
