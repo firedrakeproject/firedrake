@@ -235,7 +235,7 @@ class FDMPC(PCBase):
         elif len(fdofs) and V.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             self.complement_space[V] = FunctionSpace(V.mesh(), restrict_element(V.ufl_element(), "interior"))
-            self.schur_kernel[V] = SchurComplementKernel
+            self.schur_kernel[V] = SchurComplementPattern
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -622,36 +622,32 @@ class SparseAssembler(object):
         row_shape = tuple() if Vrow.value_size == 1 else (Vrow.value_size,)
         map_rows = (self.map_block_indices, rmap) if row_shape else (rmap.apply,)
         rows = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + row_shape)
-
-        self.bc_nodes = None
         if Vcol == Vrow:
             cols = rows
             map_cols = (lambda *x, result=None: result, )
-        #     own = Vrow.dof_dset.layout_vec.getLocalSize()
-        #     bc_nodes = numpy.flatnonzero(rmap.indices[:own] < 0).astype(PETSc.IntType)
-        #     if len(bc_nodes) > 0:
-        #         bc_nodes = Vrow.dof_dset.lgmap.apply(bc_nodes, result=bc_nodes)
-        #         self.bc_nodes = bc_nodes[:, None]
         else:
             spaces.append(Vcol)
             col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
             map_cols = (self.map_block_indices, cmap) if col_shape else (cmap.apply, )
             cols = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + col_shape)
-
         spaces.extend(c.function_space() for c in kernel.coefficients)
-        self.indices = tuple(numpy.empty((V.finat_element.space_dimension(),), dtype=PETSc.IntType) for V in spaces)
-        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
-        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
-        self.kernel_args = self.indices[-len(kernel.coefficients):]
 
         integral_type = kernel.integral_type
-        if integral_type == "cell":
+        if integral_type in ["cell", "interior_facet_horiz"]:
             get_map = operator.methodcaller("cell_node_map")
-        elif integral_type == "interior_facet":
+        elif integral_type in ["interior_facet", "interior_facet_vert"]:
             get_map = operator.methodcaller("interior_facet_node_map")
         else:
             raise NotImplementedError("Only for cell or interior facet integrals")
         self.node_maps = tuple(map(get_map, spaces))
+
+        ncell = 2 if integral_type.startswith("interior_facet") else 1
+        self.indices = tuple(numpy.empty((V.finat_element.space_dimension() * ncell,), dtype=PETSc.IntType) for V in spaces)
+        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
+        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
+        self.kernel_args = self.indices[-len(kernel.coefficients):]
+        self.set_indices = self.copy_indices
+
         node_map = self.node_maps[0]
         self.nel = node_map.values.shape[0]
         if node_map.offset is None:
@@ -659,18 +655,27 @@ class SparseAssembler(object):
         else:
             layers = node_map.iterset.layers_array
             layers = layers[:, 1]-layers[:, 0]-1
+            if integral_type.endswith("horiz"):
+                self.set_indices = self.copy_indices_horiz
+                layers -= 1
             if layers.shape[0] != self.nel:
                 layers = numpy.repeat(layers, self.nel)
         self.layers = layers
 
     def map_block_indices(self, lgmap, indices, result=None):
-        bsize = result.shape[1]
+        bsize = result.shape[-1]
         numpy.copyto(result[:, 0], indices)
         result[:, 0] *= bsize
         numpy.add.outer(result[:, 0], numpy.arange(1, bsize, dtype=indices.dtype), out=result[:, 1:])
         return lgmap.apply(result, result=result)
 
-    def set_indices(self, e):
+    def copy_indices_horiz(self, e):
+        for index, node_map in zip(self.indices, self.node_maps):
+            index = index.reshape((2, -1))
+            numpy.copyto(index, node_map.values_with_halo[e])
+            index[1] += node_map.offset
+
+    def copy_indices(self, e):
         for index, node_map in zip(self.indices, self.node_maps):
             numpy.copyto(index, node_map.values_with_halo[e])
 
@@ -683,10 +688,6 @@ class SparseAssembler(object):
             kernel = lambda *args, result=None: result
         else:
             kernel = self.kernel
-            triu = False
-            if self.bc_nodes is not None:
-                vals = numpy.ones(self.bc_nodes.shape, dtype=PETSc.RealType)
-                A.setValuesRCV(self.bc_nodes, self.bc_nodes, vals, addv)
         result = self.kernel.result
         insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
 
@@ -804,6 +805,17 @@ class SchurComplementKernel(ElementKernel):
         for obj in self.work:
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
+
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, result=None):
+        return result
+
+
+class SchurComplementPattern(SchurComplementKernel):
+
+    def __call__(self, *args, result=None):
+        self.children[0](*args, result=self.submats[0])
+        return self.condense(result=result)
 
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
