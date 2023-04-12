@@ -4,7 +4,7 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
-                                           fiat_reference_prolongator,
+                                           evaluate_dual,
                                            get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
@@ -217,10 +217,10 @@ class FDMPC(PCBase):
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
 
-        value_size = Vbig.value_size
-        if value_size != 1:
-            fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
-        self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        if Vbig.value_size == 1:
+            self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        else:
+            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
@@ -229,7 +229,7 @@ class FDMPC(PCBase):
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            if Vfacet.finat_element.formdegree == 0 and value_size == 1:
+            if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
             elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
@@ -273,6 +273,8 @@ class FDMPC(PCBase):
                 P.setSizes(sizes)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+                if on_diag:
+                    P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, True)
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
@@ -354,6 +356,8 @@ class FDMPC(PCBase):
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
                   and a list of assembly callables.
         """
+        coefficients = {}
+        assembly_callables = []
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
         # Then, replace the original arguments with arguments in broken(V^k).
@@ -423,8 +427,6 @@ class FDMPC(PCBase):
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
         # Return coefficients and assembly callables
-        coefficients = {}
-        assembly_callables = []
         if block_diagonal and V.shape:
             from firedrake.assemble import assemble
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
@@ -477,42 +479,54 @@ class FDMPC(PCBase):
 
         if sort_interior:
             assert is_interior and not is_facet and not transpose
-            result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
-            # Compute the stiffness matrix on the interior of a cell
-            A00 = self._element_mass_matrix.PtAP(result)
-            indptr, indices, _ = A00.getValuesCSR()
-            degree = numpy.diff(indptr)
             # Sort DOFs to make A00 block diagonal with blocks of increasing dimension along the diagonal
-            perm = numpy.array(list(dict.fromkeys(indices)), dtype=indices.dtype)
-            perm = perm[numpy.argsort(degree[perm], kind='stable')]
-            A00.destroy()
+            result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
+            if formdegree != 0:
+                # Compute the stiffness matrix on the interior of a cell
+                A00 = self._element_mass_matrix.PtAP(result)
+                indptr, indices, _ = A00.getValuesCSR()
+                degree = numpy.diff(indptr)
+                # Sort by blocks
+                uniq, u_index = numpy.unique(indices, return_index=True)
+                perm = uniq[u_index.argsort(kind='stable')]
+                # Sort by degree
+                degree = degree[perm]
+                perm = perm[degree.argsort(kind='stable')]
+                A00.destroy()
 
-            perm = PETSc.IS().createGeneral(perm, comm=result.getComm())
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, perm)
-            noperm.destroy()
-            perm.destroy()
+                iscol = PETSc.IS().createGeneral(perm, comm=result.getComm())
+                result = get_submat(result, iscol=iscol)
+                iscol.destroy()
             return cache.setdefault(key, result)
 
         full_key = key[:-4] + (False,) * 4
         if is_facet and full_key in cache:
-            result = cache[full_key]
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, self.fises)
-            noperm.destroy()
+            result = get_submat(cache[full_key], iscol=self.fises)
             return cache.setdefault(key, result)
 
+        # Get CG(k) and DG(k-1) 1D elements from V
         elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
-        ref_el = elements[0].get_reference_element()
-        eq = FIAT.FDMQuadrature(ref_el, degree)
-        e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
-        e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
-        if is_interior:
+        e0, e1 = elements[::len(elements)-1]
+        e0 = elements[0] if elements[0].formdegree == 0 else None
+        e1 = elements[-1] if elements[-1].formdegree == 1 else None
+        if e0 and is_interior:
             e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-        A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
-        A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-        A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+        # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
+        Q0 = self.coefficients["beta"].function_space().finat_element.element
+        elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
+        q0 = elements[0] if elements[0].formdegree == 0 else None
+        q1 = elements[-1]
+        if q1.formdegree != 1:
+            Q1 = self.coefficients["alpha"].function_space().finat_element.element
+            q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
+
+        # Interpolate V * d(V) -> space(beta) * space(alpha)
+        comm = PETSc.COMM_SELF
+        zero = PETSc.Mat()
+        A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
+        A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
+        A10 = petsc_sparse(evaluate_dual(e0, q1, alpha=(1,)), comm=comm) if e0 else zero
         B_blocks = mass_blocks(tdim, formdegree, A00, A11)
         A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
         result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
@@ -529,9 +543,7 @@ class FDMPC(PCBase):
 
         if is_facet:
             cache[full_key] = result
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, self.fises)
-            noperm.destroy()
+            result = get_submat(cache[full_key], iscol=self.fises)
 
         return cache.setdefault(key, result)
 
@@ -733,9 +745,8 @@ class TripleProductKernel(ElementKernel):
             self.data = numpy.array([])
             self.update = lambda *args: args
         else:
-            V = coefficients[0].function_space()
             dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
-            if V.value_size == 1:
+            if numpy.prod(dshape[1:]) == 1:
                 self.work = B.getDiagonal()
                 self.data = self.work.array_w.reshape(dshape)
                 self.update = partial(B.setDiagonal, self.work)
@@ -1079,6 +1090,25 @@ def kron3(A, B, C, scale=None):
     return result
 
 
+def get_submat(A, isrow=None, iscol=None):
+    """Return the sub matrix A[isrow, iscol]"""
+    needs_rows = isrow is None
+    needs_cols = iscol is None
+    if needs_rows and needs_cols:
+        return A
+    size = A.getSize()
+    if needs_rows:
+        isrow = PETSc.IS().createStride(size[0], step=1, comm=A.getComm())
+    if needs_cols:
+        iscol = PETSc.IS().createStride(size[1], step=1, comm=A.getComm())
+    submat = A.createSubMatrix(isrow, iscol)
+    if needs_rows:
+        isrow.destroy()
+    if needs_cols:
+        iscol.destroy()
+    return submat
+
+
 def block_mat(A_blocks, destroy_blocks=False):
     """Return a concrete Mat corresponding to a block matrix given as a list of lists.
        Optionally, destroys the input Mats if a new Mat is created."""
@@ -1122,8 +1152,7 @@ def mass_blocks(tdim, formdegree, B00, B11):
     if n == 1:
         return [B_diag]
     else:
-        zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=B_diag[0].getComm())
-        zero.assemble()
+        zero = PETSc.Mat()
         return [[B_diag[i] if i == j else zero for j in range(n)] for i in range(n)]
 
 
@@ -1148,9 +1177,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
-            size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
-            zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
-            zero.assemble()
+            zero = PETSc.Mat()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), zero],
                         [kron3(A10, A00, A11, scale=-1), zero, kron3(A11, A00, A10)],
                         [zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
@@ -1171,15 +1198,20 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    elements = list(set(get_base_elements(ec) + get_base_elements(ef)))
-    elements = sorted(elements, key=lambda e: e.formdegree)
-    e0, e1 = elements[::len(elements)-1]
+    elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
+    c0, c1 = elements[::len(elements)-1]
+    elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
+    f0, f1 = elements[::len(elements)-1]
+    if f0.formdegree != 0:
+        f0 = None
+    if c1.formdegree != 1:
+        c1 = None
 
-    degree = e0.degree()
     tdim = Vc.mesh().topological_dimension()
-    A00 = petsc_sparse(numpy.eye(degree+1, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
-    A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-    A11 = petsc_sparse(numpy.eye(degree, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+    zero = PETSc.Mat()
+    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
+    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
+    A10 = petsc_sparse(evaluate_dual(c0, f1, alpha=(1,)), comm=PETSc.COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A10.destroy()
