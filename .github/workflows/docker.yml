@@ -1,0 +1,55 @@
+name: Build and push Docker images
+
+on:
+  # Push to master or PR
+  push:
+    branches:
+      - master
+      - JDBetteridge/rejig_actions
+  schedule:
+    - cron: '0 0 * * 0'
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Firedrake environment container
+  docker_env:
+    # needs: build
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test # firedrake-env
+      dockerfile: docker/Dockerfile.env
+    secrets: inherit
+  # Firedrake container (just Firedrake)
+  docker_vanilla:
+    needs: docker_env
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test # firedrake-vanilla
+      dockerfile: docker/Dockerfile.vanilla
+    secrets: inherit
+  # Firedrake container (just Firedrake)
+  docker_firedrake:
+    needs: docker_vanilla
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test # firedrake
+      dockerfile: docker/Dockerfile.firedrake
+    secrets: inherit
+  # docker_complex:
+  #   needs: docker_env
+  #   uses: ./.github/workflows/docker_reuse.yml
+  #   with:
+  #     target: firedrake-test # firedrake-complex
+  #     dockerfile: docker/Dockerfile.complex
+  #   secrets: inherit
+  docker_jupyter:
+    needs: docker_firedrake
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test # firedrake-jupyter
+      dockerfile: docker/Dockerfile.jupyter
+    secrets: inherit
