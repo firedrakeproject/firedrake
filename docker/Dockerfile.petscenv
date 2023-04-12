@@ -1,0 +1,92 @@
+# DockerFile for an environment into which firedrake can be installed.
+
+FROM firedrakeproject/firedrake-env:latest
+
+# This DockerFile is looked after by
+MAINTAINER David Ham <david.ham@imperial.ac.uk>
+
+# Update and install required packages for Firedrake
+USER firedrake
+WORKDIR /home/firedrake
+
+# Fetch PETSc and eigen
+RUN git clone https://github.com/firedrakeproject/petsc.git
+RUN curl -OL https://github.com/eigenteam/eigen-git-mirror/archive/3.3.3.tar.gz
+RUN mkdir -p /home/firedrake/petsc/externalpackages
+RUN mv 3.3.3.tar.gz /home/firedrake/petsc/externalpackages/eigen-3.3.3.tgz
+
+# Build default Firedrake PETSc caching external packages in
+# /home/firedrake/petsc/external_packages
+RUN bash -c 'cd petsc; \
+    ./configure \
+        --COPTFLAGS=-O3 -march=native -mtune=native \
+        --CXXOPTFLAGS=-O3 -march=native -mtune=native \
+        --FOPTFLAGS=-O3 -march=native -mtune=native \
+        --with-c2html=0 \
+        --with-debugging=0 \
+        --with-fortran-bindings=0 \
+        --with-make-np=12 \
+        --with-packages-build-dir=/home/firedrake/petsc/externalpackages \
+        --with-shared-libraries=1 \
+        --with-zlib \
+        --download-bison \
+        --download-chaco \
+        --download-eigen=/home/firedrake/petsc/externalpackages/eigen-3.3.3.tgz \
+        --download-fftw \
+        --download-hdf5 \
+        --download-hwloc \
+        --download-hypre \
+        --download-metis \
+        --download-ml \
+        --download-mpich \
+        --download-mpich-device=ch3:sock \
+        --download-mumps \
+        --download-netcdf \
+        --download-pastix \
+        --download-pnetcdf \
+        --download-ptscotch \
+        --download-scalapack \
+        --download-suitesparse \
+        --download-superlu_dist \
+        PETSC_ARCH=default; \
+    make PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=default all;'
+
+# Additionally build complex PETSc for Firedrake
+RUN bash -c 'cd petsc; \
+    ./configure \
+        --COPTFLAGS=-O3 -march=native -mtune=native \
+        --CXXOPTFLAGS=-O3 -march=native -mtune=native \
+        --FOPTFLAGS=-O3 -march=native -mtune=native \
+        --with-c2html=0 \
+        --with-debugging=0 \
+        --with-fortran-bindings=0 \
+        --with-make-np=12 \
+        --with-mpi-dir=/home/firedrake/petsc/default/ \
+        --with-packages-build-dir=/home/firedrake/petsc/externalpackages \
+        --with-scalar-type=complex \
+        --with-shared-libraries=1 \
+        --with-zlib \
+        --download-bison \
+        --download-chaco \
+        --download-eigen=/home/firedrake/petsc/externalpackages/eigen-3.3.3.tgz \
+        --download-fftw \
+        --download-hdf5 \
+        --download-hwloc \
+        --download-metis \
+        --download-mumps \
+        --download-netcdf \
+        --download-pastix \
+        --download-pnetcdf \
+        --download-ptscotch \
+        --download-scalapack \
+        --download-suitesparse \
+        --download-superlu_dist \
+        PETSC_ARCH=complex; \
+    make PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=complex all;'
+
+# Clean up unnecessary files
+RUN rm -rf /home/firedrake/petsc/externalpackages \
+    && rm -rf /home/firedrake/petsc/src/docs \
+    && rm -f /home/firedrake/petsc/src/**/tutorials/output/* \
+    && rm -f /home/firedrake/petsc/src/**/tests/output/*
+

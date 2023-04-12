@@ -38,7 +38,5 @@ jobs:
         with:
           push: true
           no-cache: true
-          build-args: |
-            PETSC_CONFIGURE_OPTIONS="--with-make-np=12 --download-mpich-device=ch3:sock"
           file: ${{ inputs.dockerfile }}
           tags: firedrakeproject/${{ inputs.target }}:latest

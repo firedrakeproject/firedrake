@@ -23,9 +23,17 @@ jobs:
       target: firedrake-test # firedrake-env
       dockerfile: docker/Dockerfile.env
     secrets: inherit
+  # Firedrake environment container with PETSc
+  docker_petscenv:
+    needs: docker_env
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test # firedrake-petscenv
+      dockerfile: docker/Dockerfile.petscenv
+    secrets: inherit
   # Firedrake container (just Firedrake)
   docker_vanilla:
-    needs: docker_env
+    needs: docker_petscenv
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake-vanilla
@@ -40,7 +48,7 @@ jobs:
       dockerfile: docker/Dockerfile.firedrake
     secrets: inherit
   # docker_complex:
-  #   needs: docker_env
+  #   needs: docker_petscenv
   #   uses: ./.github/workflows/docker_reuse.yml
   #   with:
   #     target: firedrake-test # firedrake-complex
