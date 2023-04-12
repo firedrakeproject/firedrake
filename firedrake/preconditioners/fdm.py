@@ -193,15 +193,17 @@ class FDMPC(PCBase):
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg fcp: form compiler parameters to assemble coefficients
-        :arg pmat_type: the preconditioner `PETSc.Mat.Type`
+        :arg pmat_type: the `PETSc.Mat.Type` for the blocks in the diagonal
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and a list of assembly callables
         """
+        symmetric = pmat_type.endswith("sbaij")
         ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
         if len(ifacet) == 0:
             Vfacet = None
             Vbig = V
+            ebig = V.ufl_element()
             _, fdofs = split_dofs(V.finat_element)
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
@@ -213,29 +215,26 @@ class FDMPC(PCBase):
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
         else:
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
+        self.embedding_element = ebig
 
         value_size = Vbig.value_size
         if value_size != 1:
             fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
         self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
 
-        # Dictionaries with the complement space and kernel to compute the Schur complement
-        self.complement_space = {}
+        # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
-        if Vfacet and use_static_condensation:
+        if V == Vbig and Vbig.finat_element.formdegree == 0:
+            # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
+            self.schur_kernel[V] = SchurComplementPattern
+        elif Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            self.complement_space[Vfacet] = FunctionSpace(V.mesh(), restrict_element(ebig, "interior"))
             if Vfacet.finat_element.formdegree == 0 and value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
-            elif pmat_type.endswith("sbaij"):
+            elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockQR
-
-        elif len(fdofs) and V.finat_element.formdegree == 0:
-            # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.complement_space[V] = FunctionSpace(V.mesh(), restrict_element(V.ufl_element(), "interior"))
-            self.schur_kernel[V] = SchurComplementPattern
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -244,8 +243,6 @@ class FDMPC(PCBase):
 
         Pmats = {}
         addv = PETSc.InsertMode.ADD_VALUES
-        symmetric = pmat_type.endswith("sbaij")
-
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
         # Loop over all pairs of subspaces
@@ -295,7 +292,6 @@ class FDMPC(PCBase):
             Pmat = Pmats[V, V]
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
-
         assembly_callables.append(Pmat.assemble)
         return Pmat, assembly_callables
 
@@ -580,7 +576,7 @@ class FDMPC(PCBase):
             if Vrow == Vcol:
                 schur_kernel = self.schur_kernel.get(Vrow)
             if schur_kernel is not None:
-                V0 = self.complement_space[Vrow]
+                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 # Only the facet block updates the coefficients in M
@@ -624,7 +620,7 @@ class SparseAssembler(object):
         rows = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + row_shape)
         if Vcol == Vrow:
             cols = rows
-            map_cols = (lambda *x, result=None: result, )
+            map_cols = (lambda *args, result=None: result, )
         else:
             spaces.append(Vcol)
             col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
@@ -656,8 +652,8 @@ class SparseAssembler(object):
             layers = node_map.iterset.layers_array
             layers = layers[:, 1]-layers[:, 0]-1
             if integral_type.endswith("horiz"):
-                self.set_indices = self.copy_indices_horiz
                 layers -= 1
+                self.set_indices = self.copy_indices_horiz
             if layers.shape[0] != self.nel:
                 layers = numpy.repeat(layers, self.nel)
         self.layers = layers
@@ -774,7 +770,7 @@ class SchurComplementKernel(ElementKernel):
     """
     def __init__(self, *kernels):
         self.children = kernels
-        self.submats = [k.result for k in self.children]
+        self.submats = [k.result for k in kernels]
 
         # Create dict of slices with the extents of the diagonal blocks
         A00 = self.submats[-1]
@@ -814,7 +810,8 @@ class SchurComplementKernel(ElementKernel):
 class SchurComplementPattern(SchurComplementKernel):
 
     def __call__(self, *args, result=None):
-        self.children[0](*args, result=self.submats[0])
+        k = self.children[0]
+        k(*args, result=k.result)
         return self.condense(result=result)
 
     @PETSc.Log.EventDecorator("FDMCondense")
