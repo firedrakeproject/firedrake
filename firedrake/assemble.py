@@ -17,6 +17,7 @@ from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.functionspaceimpl import WithGeometry, FunctionSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
@@ -1102,7 +1103,7 @@ class ParloopBuilder:
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, ufl.FunctionSpace)
+        assert isinstance(V, (WithGeometry, FunctionSpace))
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
