@@ -28,7 +28,7 @@ jobs:
     needs: docker_env
     uses: ./.github/workflows/docker_reuse.yml
     with:
-      target: firedrake-test # firedrake-petscenv
+      target: firedrake-petscenv
       dockerfile: docker/Dockerfile.petscenv
     secrets: inherit
   # Firedrake container (just Firedrake)

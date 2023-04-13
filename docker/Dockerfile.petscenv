@@ -85,7 +85,7 @@ RUN bash -c 'cd petsc; \
     make PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=complex all;'
 
 # Clean up unnecessary files
-RUN rm -rf /home/firedrake/eigen-3.3.3.tgz \
+RUN rm -f /home/firedrake/eigen-3.3.3.tgz \
 	&& rm -rf /home/firedrake/petscpackagehashdir \
     && rm -rf /home/firedrake/petsc/src/docs \
     && rm -f /home/firedrake/petsc/src/**/tutorials/output/* \

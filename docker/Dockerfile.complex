@@ -10,7 +10,7 @@ WORKDIR /home/firedrake
 
 ENV PETSC_DIR /home/firedrake/petsc
 ENV PETSC_ARCH complex
-ENV MPICH_DIR /home/firedrake/petsc/default/mpich/bin
+ENV MPICH_DIR /home/firedrake/petsc/complex/mpich/bin
 
 # Now install Firedrake.
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
@@ -25,4 +25,4 @@ RUN bash -c "python3 firedrake-install \
 	--mpiexec=$MPICH_DIR/mpiexec \
     --tinyasm \
     --slepc \
-    --documentation-dependencies
+    --documentation-dependencies"
