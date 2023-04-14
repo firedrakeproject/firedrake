@@ -793,6 +793,8 @@ class SchurComplementKernel(ElementKernel):
             self.slices[k] = slice(istart, istart + k * kdofs)
             istart += k * kdofs
 
+        self.blocks = sorted(degree for degree in self.slices if degree > 1)
+
         self.work = [None for _ in range(2)]
         coefficients = []
         for k in self.children:
@@ -853,17 +855,21 @@ class SchurComplementDiagonal(SchurComplementKernel):
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
+    def __init__(self, K11, K10, K01, K00):
+        # asssume that K10 = K01^T
+        super().__init__(K11, K01, K00)
+
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
+        A11, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
         numpy.sqrt(R[zlice], out=R[zlice])
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = 2 * (zlice.stop - zlice.start)
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             Rk = R[self.slices[k]]
             A = Rk.reshape((-1, k, k))
             rinv = numpy.linalg.inv(numpy.linalg.cholesky(A))
@@ -873,10 +879,9 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
         A00.assemble()
-        self.work[0] = A10.matTransposeMult(A00, result=self.work[0])
-        A00.scale(-1.0)
-        result = self.work[0].matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
+        self.work[0] = A00.matMult(A01, result=self.work[0])
+        result = self.work[0].transposeMatMult(self.work[0], result=result)
+        result.aypx(-1.0, A11, structure=structure)
         return result
 
 
@@ -892,7 +897,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
         zlice = self.slices[1]
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = zlice.stop - zlice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             zlice = self.slices[k]
             A = R[zlice].reshape((-1, k, k))
             q, r = numpy.linalg.qr(A, mode="complete")
@@ -926,7 +931,7 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         dslice = self.slices[1]
         numpy.sign(D.array_r[dslice], out=U[dslice])
         flops = dslice.stop - dslice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             bslice = self.slices[k]
             A = U[bslice].reshape((-1, k, k))
             u, s, v = numpy.linalg.svd(A, full_matrices=False)
@@ -963,7 +968,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         zlice = self.slices[1]
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = zlice.stop - zlice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             Rk = R[self.slices[k]]
             A = Rk.reshape((-1, k, k))
             rinv = numpy.linalg.inv(A)
