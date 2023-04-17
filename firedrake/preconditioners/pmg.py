@@ -553,7 +553,8 @@ def expand_element(ele):
         return ele
 
 
-def evaluate_dual(source, target, alpha=None):
+@lru_cache(maxsize=10)
+def evaluate_dual(source, target, alpha=tuple()):
     """Evaluate the action of a set of dual functionals of the target element
        on the (derivative of order alpha of the) basis functions of the source
        element."""
@@ -561,7 +562,7 @@ def evaluate_dual(source, target, alpha=None):
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
     B = numpy.transpose(primal.get_coeffs())
-    if alpha is not None:
+    if sum(alpha):
         dmats = primal.get_dmats()
         for i in range(len(alpha)):
             for j in range(alpha[i]):
@@ -577,14 +578,7 @@ def compare_element(e1, e2):
     if e1.space_dimension() != e2.space_dimension():
         return False
     B = evaluate_dual(e1, e2)
-    numpy.fill_diagonal(B, numpy.diagonal(B)-1.0)
-    return numpy.allclose(B, 0.0, rtol=1E-14, atol=1E-14)
-
-
-@lru_cache(maxsize=10)
-def fiat_reference_prolongator(celem, felem, derivative=False):
-    alpha = (1,) if derivative else None
-    return evaluate_dual(celem, felem, alpha=alpha)
+    return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
 
 
 @lru_cache(maxsize=10)
@@ -920,7 +914,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
         fshapes.append((nscal,) + tuple(fshape))
         cshapes.append((nscal,) + tuple(cshape))
 
-        J = [identity_filter(fiat_reference_prolongator(ce, fe)).T for ce, fe in zip(celem, felem)]
+        J = [identity_filter(evaluate_dual(ce, fe)).T for ce, fe in zip(celem, felem)]
         if any(Jk.size and numpy.isclose(Jk, 0.0E0).all() for Jk in J):
             prolong_code.append(f"""
             for({IntType_c} i=0; i<{nscal*numpy.prod(fshape)}; i++) {t_out}[i+{fskip}] = 0.0E0;

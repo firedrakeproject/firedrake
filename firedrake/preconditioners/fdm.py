@@ -4,7 +4,7 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
-                                           fiat_reference_prolongator,
+                                           evaluate_dual,
                                            get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
@@ -193,15 +193,17 @@ class FDMPC(PCBase):
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
         :arg fcp: form compiler parameters to assemble coefficients
-        :arg pmat_type: the preconditioner `PETSc.Mat.Type`
+        :arg pmat_type: the `PETSc.Mat.Type` for the blocks in the diagonal
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
 
         :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and a list of assembly callables
         """
+        symmetric = pmat_type.endswith("sbaij")
         ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
         if len(ifacet) == 0:
             Vfacet = None
             Vbig = V
+            ebig = V.ufl_element()
             _, fdofs = split_dofs(V.finat_element)
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
@@ -213,29 +215,26 @@ class FDMPC(PCBase):
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
         else:
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
+        self.embedding_element = ebig
 
-        value_size = Vbig.value_size
-        if value_size != 1:
-            fdofs = numpy.add.outer(value_size * fdofs, numpy.arange(value_size, dtype=fdofs.dtype))
-        self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        if Vbig.value_size == 1:
+            self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        else:
+            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
-        # Dictionaries with the complement space and kernel to compute the Schur complement
-        self.complement_space = {}
+        # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
-        if Vfacet and use_static_condensation:
+        if V == Vbig and Vbig.finat_element.formdegree == 0:
+            # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
+            self.schur_kernel[V] = SchurComplementPattern
+        elif Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            self.complement_space[Vfacet] = FunctionSpace(V.mesh(), restrict_element(ebig, "interior"))
-            if Vfacet.finat_element.formdegree == 0 and value_size == 1:
+            if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
-            elif pmat_type.endswith("sbaij"):
+            elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockQR
-
-        elif len(fdofs) and V.finat_element.formdegree == 0:
-            # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
-            self.complement_space[V] = FunctionSpace(V.mesh(), restrict_element(V.ufl_element(), "interior"))
-            self.schur_kernel[V] = SchurComplementKernel
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -244,8 +243,6 @@ class FDMPC(PCBase):
 
         Pmats = {}
         addv = PETSc.InsertMode.ADD_VALUES
-        symmetric = pmat_type.endswith("sbaij")
-
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
         # Loop over all pairs of subspaces
@@ -276,6 +273,8 @@ class FDMPC(PCBase):
                 P.setSizes(sizes)
                 P.setPreallocationNNZ((d_nnz, o_nnz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+                if on_diag:
+                    P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, True)
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
@@ -295,7 +294,6 @@ class FDMPC(PCBase):
             Pmat = Pmats[V, V]
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
-
         assembly_callables.append(Pmat.assemble)
         return Pmat, assembly_callables
 
@@ -358,6 +356,8 @@ class FDMPC(PCBase):
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
                   and a list of assembly callables.
         """
+        coefficients = {}
+        assembly_callables = []
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
         # Then, replace the original arguments with arguments in broken(V^k).
@@ -427,8 +427,6 @@ class FDMPC(PCBase):
         mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
 
         # Return coefficients and assembly callables
-        coefficients = {}
-        assembly_callables = []
         if block_diagonal and V.shape:
             from firedrake.assemble import assemble
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
@@ -481,42 +479,54 @@ class FDMPC(PCBase):
 
         if sort_interior:
             assert is_interior and not is_facet and not transpose
-            result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
-            # Compute the stiffness matrix on the interior of a cell
-            A00 = self._element_mass_matrix.PtAP(result)
-            indptr, indices, _ = A00.getValuesCSR()
-            degree = numpy.diff(indptr)
             # Sort DOFs to make A00 block diagonal with blocks of increasing dimension along the diagonal
-            perm = numpy.array(list(dict.fromkeys(indices)), dtype=indices.dtype)
-            perm = perm[numpy.argsort(degree[perm], kind='stable')]
-            A00.destroy()
+            result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
+            if formdegree != 0:
+                # Compute the stiffness matrix on the interior of a cell
+                A00 = self._element_mass_matrix.PtAP(result)
+                indptr, indices, _ = A00.getValuesCSR()
+                degree = numpy.diff(indptr)
+                # Sort by blocks
+                uniq, u_index = numpy.unique(indices, return_index=True)
+                perm = uniq[u_index.argsort(kind='stable')]
+                # Sort by degree
+                degree = degree[perm]
+                perm = perm[degree.argsort(kind='stable')]
+                A00.destroy()
 
-            perm = PETSc.IS().createGeneral(perm, comm=result.getComm())
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, perm)
-            noperm.destroy()
-            perm.destroy()
+                iscol = PETSc.IS().createGeneral(perm, comm=result.getComm())
+                result = get_submat(result, iscol=iscol)
+                iscol.destroy()
             return cache.setdefault(key, result)
 
         full_key = key[:-4] + (False,) * 4
         if is_facet and full_key in cache:
-            result = cache[full_key]
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, self.fises)
-            noperm.destroy()
+            result = get_submat(cache[full_key], iscol=self.fises)
             return cache.setdefault(key, result)
 
+        # Get CG(k) and DG(k-1) 1D elements from V
         elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
-        ref_el = elements[0].get_reference_element()
-        eq = FIAT.FDMQuadrature(ref_el, degree)
-        e0 = elements[0] if elements[0].formdegree == 0 else FIAT.FDMLagrange(ref_el, degree)
-        e1 = elements[-1] if elements[-1].formdegree == 1 else FIAT.FDMDiscontinuousLagrange(ref_el, degree-1)
-        if is_interior:
+        e0, e1 = elements[::len(elements)-1]
+        e0 = elements[0] if elements[0].formdegree == 0 else None
+        e1 = elements[-1] if elements[-1].formdegree == 1 else None
+        if e0 and is_interior:
             e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-        A00 = petsc_sparse(fiat_reference_prolongator(e0, eq), comm=PETSc.COMM_SELF)
-        A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-        A11 = petsc_sparse(numpy.eye(e1.space_dimension(), dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+        # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
+        Q0 = self.coefficients["beta"].function_space().finat_element.element
+        elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
+        q0 = elements[0] if elements[0].formdegree == 0 else None
+        q1 = elements[-1]
+        if q1.formdegree != 1:
+            Q1 = self.coefficients["alpha"].function_space().finat_element.element
+            q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
+
+        # Interpolate V * d(V) -> space(beta) * space(alpha)
+        comm = PETSc.COMM_SELF
+        zero = PETSc.Mat()
+        A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
+        A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
+        A10 = petsc_sparse(evaluate_dual(e0, q1, alpha=(1,)), comm=comm) if e0 else zero
         B_blocks = mass_blocks(tdim, formdegree, A00, A11)
         A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
         result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
@@ -533,9 +543,7 @@ class FDMPC(PCBase):
 
         if is_facet:
             cache[full_key] = result
-            noperm = PETSc.IS().createGeneral(numpy.arange(result.getSize()[0], dtype=PETSc.IntType), comm=result.getComm())
-            result = result.createSubMatrix(noperm, self.fises)
-            noperm.destroy()
+            result = get_submat(cache[full_key], iscol=self.fises)
 
         return cache.setdefault(key, result)
 
@@ -580,7 +588,7 @@ class FDMPC(PCBase):
             if Vrow == Vcol:
                 schur_kernel = self.schur_kernel.get(Vrow)
             if schur_kernel is not None:
-                V0 = self.complement_space[Vrow]
+                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 # Only the facet block updates the coefficients in M
@@ -622,36 +630,32 @@ class SparseAssembler(object):
         row_shape = tuple() if Vrow.value_size == 1 else (Vrow.value_size,)
         map_rows = (self.map_block_indices, rmap) if row_shape else (rmap.apply,)
         rows = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + row_shape)
-
-        self.bc_nodes = None
         if Vcol == Vrow:
             cols = rows
-            map_cols = (lambda *x, result=None: result, )
-        #     own = Vrow.dof_dset.layout_vec.getLocalSize()
-        #     bc_nodes = numpy.flatnonzero(rmap.indices[:own] < 0).astype(PETSc.IntType)
-        #     if len(bc_nodes) > 0:
-        #         bc_nodes = Vrow.dof_dset.lgmap.apply(bc_nodes, result=bc_nodes)
-        #         self.bc_nodes = bc_nodes[:, None]
+            map_cols = (lambda *args, result=None: result, )
         else:
             spaces.append(Vcol)
             col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
             map_cols = (self.map_block_indices, cmap) if col_shape else (cmap.apply, )
             cols = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + col_shape)
-
         spaces.extend(c.function_space() for c in kernel.coefficients)
-        self.indices = tuple(numpy.empty((V.finat_element.space_dimension(),), dtype=PETSc.IntType) for V in spaces)
-        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
-        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
-        self.kernel_args = self.indices[-len(kernel.coefficients):]
 
         integral_type = kernel.integral_type
-        if integral_type == "cell":
+        if integral_type in ["cell", "interior_facet_horiz"]:
             get_map = operator.methodcaller("cell_node_map")
-        elif integral_type == "interior_facet":
+        elif integral_type in ["interior_facet", "interior_facet_vert"]:
             get_map = operator.methodcaller("interior_facet_node_map")
         else:
             raise NotImplementedError("Only for cell or interior facet integrals")
         self.node_maps = tuple(map(get_map, spaces))
+
+        ncell = 2 if integral_type.startswith("interior_facet") else 1
+        self.indices = tuple(numpy.empty((V.finat_element.space_dimension() * ncell,), dtype=PETSc.IntType) for V in spaces)
+        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
+        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
+        self.kernel_args = self.indices[-len(kernel.coefficients):]
+        self.set_indices = self.copy_indices
+
         node_map = self.node_maps[0]
         self.nel = node_map.values.shape[0]
         if node_map.offset is None:
@@ -659,18 +663,27 @@ class SparseAssembler(object):
         else:
             layers = node_map.iterset.layers_array
             layers = layers[:, 1]-layers[:, 0]-1
+            if integral_type.endswith("horiz"):
+                layers -= 1
+                self.set_indices = self.copy_indices_horiz
             if layers.shape[0] != self.nel:
                 layers = numpy.repeat(layers, self.nel)
         self.layers = layers
 
     def map_block_indices(self, lgmap, indices, result=None):
-        bsize = result.shape[1]
+        bsize = result.shape[-1]
         numpy.copyto(result[:, 0], indices)
         result[:, 0] *= bsize
         numpy.add.outer(result[:, 0], numpy.arange(1, bsize, dtype=indices.dtype), out=result[:, 1:])
         return lgmap.apply(result, result=result)
 
-    def set_indices(self, e):
+    def copy_indices_horiz(self, e):
+        for index, node_map in zip(self.indices, self.node_maps):
+            index = index.reshape((2, -1))
+            numpy.copyto(index, node_map.values_with_halo[e])
+            index[1] += node_map.offset
+
+    def copy_indices(self, e):
         for index, node_map in zip(self.indices, self.node_maps):
             numpy.copyto(index, node_map.values_with_halo[e])
 
@@ -683,10 +696,6 @@ class SparseAssembler(object):
             kernel = lambda *args, result=None: result
         else:
             kernel = self.kernel
-            triu = False
-            if self.bc_nodes is not None:
-                vals = numpy.ones(self.bc_nodes.shape, dtype=PETSc.RealType)
-                A.setValuesRCV(self.bc_nodes, self.bc_nodes, vals, addv)
         result = self.kernel.result
         insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
 
@@ -736,9 +745,8 @@ class TripleProductKernel(ElementKernel):
             self.data = numpy.array([])
             self.update = lambda *args: args
         else:
-            V = coefficients[0].function_space()
             dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
-            if V.value_size == 1:
+            if numpy.prod(dshape[1:]) == 1:
                 self.work = B.getDiagonal()
                 self.data = self.work.array_w.reshape(dshape)
                 self.update = partial(B.setDiagonal, self.work)
@@ -773,7 +781,7 @@ class SchurComplementKernel(ElementKernel):
     """
     def __init__(self, *kernels):
         self.children = kernels
-        self.submats = [k.result for k in self.children]
+        self.submats = [k.result for k in kernels]
 
         # Create dict of slices with the extents of the diagonal blocks
         A00 = self.submats[-1]
@@ -784,6 +792,8 @@ class SchurComplementKernel(ElementKernel):
         for k, kdofs in sorted(zip(unique_degree, counts)):
             self.slices[k] = slice(istart, istart + k * kdofs)
             istart += k * kdofs
+
+        self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
         self.work = [None for _ in range(2)]
         coefficients = []
@@ -804,6 +814,18 @@ class SchurComplementKernel(ElementKernel):
         for obj in self.work:
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
+
+    @PETSc.Log.EventDecorator("FDMCondense")
+    def condense(self, result=None):
+        return result
+
+
+class SchurComplementPattern(SchurComplementKernel):
+
+    def __call__(self, *args, result=None):
+        k = self.children[0]
+        k(*args, result=k.result)
+        return self.condense(result=result)
 
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
@@ -833,17 +855,21 @@ class SchurComplementDiagonal(SchurComplementKernel):
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
+    def __init__(self, K11, K10, K01, K00):
+        # asssume that K10 = K01^T
+        super().__init__(K11, K01, K00)
+
     @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
+        A11, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
         numpy.sqrt(R[zlice], out=R[zlice])
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = 2 * (zlice.stop - zlice.start)
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             Rk = R[self.slices[k]]
             A = Rk.reshape((-1, k, k))
             rinv = numpy.linalg.inv(numpy.linalg.cholesky(A))
@@ -853,10 +879,9 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, R)
         A00.assemble()
-        self.work[0] = A10.matTransposeMult(A00, result=self.work[0])
-        A00.scale(-1.0)
-        result = self.work[0].matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
+        self.work[0] = A00.matMult(A01, result=self.work[0])
+        result = self.work[0].transposeMatMult(self.work[0], result=result)
+        result.aypx(-1.0, A11, structure=structure)
         return result
 
 
@@ -872,7 +897,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
         zlice = self.slices[1]
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = zlice.stop - zlice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             zlice = self.slices[k]
             A = R[zlice].reshape((-1, k, k))
             q, r = numpy.linalg.qr(A, mode="complete")
@@ -906,7 +931,7 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         dslice = self.slices[1]
         numpy.sign(D.array_r[dslice], out=U[dslice])
         flops = dslice.stop - dslice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             bslice = self.slices[k]
             A = U[bslice].reshape((-1, k, k))
             u, s, v = numpy.linalg.svd(A, full_matrices=False)
@@ -943,7 +968,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         zlice = self.slices[1]
         numpy.reciprocal(R[zlice], out=R[zlice])
         flops = zlice.stop - zlice.start
-        for k in sorted(degree for degree in self.slices if degree > 1):
+        for k in self.blocks:
             Rk = R[self.slices[k]]
             A = Rk.reshape((-1, k, k))
             rinv = numpy.linalg.inv(A)
@@ -1070,6 +1095,25 @@ def kron3(A, B, C, scale=None):
     return result
 
 
+def get_submat(A, isrow=None, iscol=None):
+    """Return the sub matrix A[isrow, iscol]"""
+    needs_rows = isrow is None
+    needs_cols = iscol is None
+    if needs_rows and needs_cols:
+        return A
+    size = A.getSize()
+    if needs_rows:
+        isrow = PETSc.IS().createStride(size[0], step=1, comm=A.getComm())
+    if needs_cols:
+        iscol = PETSc.IS().createStride(size[1], step=1, comm=A.getComm())
+    submat = A.createSubMatrix(isrow, iscol)
+    if needs_rows:
+        isrow.destroy()
+    if needs_cols:
+        iscol.destroy()
+    return submat
+
+
 def block_mat(A_blocks, destroy_blocks=False):
     """Return a concrete Mat corresponding to a block matrix given as a list of lists.
        Optionally, destroys the input Mats if a new Mat is created."""
@@ -1113,8 +1157,7 @@ def mass_blocks(tdim, formdegree, B00, B11):
     if n == 1:
         return [B_diag]
     else:
-        zero = PETSc.Mat().createAIJ(B_diag[0].getSize(), nnz=(0, 0), comm=B_diag[0].getComm())
-        zero.assemble()
+        zero = PETSc.Mat()
         return [[B_diag[i] if i == j else zero for j in range(n)] for i in range(n)]
 
 
@@ -1139,9 +1182,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
         elif formdegree == 1:
-            size = tuple(A11.getSize()[k] * A10.getSize()[k] * A00.getSize()[k] for k in range(2))
-            zero = PETSc.Mat().createAIJ(size, nnz=(0, 0), comm=A10.getComm())
-            zero.assemble()
+            zero = PETSc.Mat()
             A_blocks = [[kron3(A00, A10, A11, scale=-1), kron3(A00, A11, A10), zero],
                         [kron3(A10, A00, A11, scale=-1), zero, kron3(A11, A00, A10)],
                         [zero, kron3(A10, A11, A00), kron3(A11, A10, A00, scale=-1)]]
@@ -1162,15 +1203,20 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    elements = list(set(get_base_elements(ec) + get_base_elements(ef)))
-    elements = sorted(elements, key=lambda e: e.formdegree)
-    e0, e1 = elements[::len(elements)-1]
+    elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
+    c0, c1 = elements[::len(elements)-1]
+    elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
+    f0, f1 = elements[::len(elements)-1]
+    if f0.formdegree != 0:
+        f0 = None
+    if c1.formdegree != 1:
+        c1 = None
 
-    degree = e0.degree()
     tdim = Vc.mesh().topological_dimension()
-    A00 = petsc_sparse(numpy.eye(degree+1, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
-    A10 = petsc_sparse(fiat_reference_prolongator(e0, e1, derivative=True), comm=PETSc.COMM_SELF)
-    A11 = petsc_sparse(numpy.eye(degree, dtype=PETSc.RealType), comm=PETSc.COMM_SELF)
+    zero = PETSc.Mat()
+    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
+    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
+    A10 = petsc_sparse(evaluate_dual(c0, f1, alpha=(1,)), comm=PETSc.COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A10.destroy()
@@ -1404,9 +1450,9 @@ class PoissonFDMPC(FDMPC):
             bce = bcflags.dat.data_ro_with_halos[index_bc(e)] > 1E-8
             # get coefficients on this cell
             if Gq is not None:
-                numpy.sum(Gq.dat.data_ro[je], axis=0, out=ae)
+                ae[:] = numpy.sum(Gq.dat.data_ro[je], axis=0)
             if Bq is not None:
-                numpy.sum(Bq.dat.data_ro[je], axis=0, out=be)
+                be[:] = numpy.sum(Bq.dat.data_ro[je], axis=0)
 
             rindices = get_rindices(e, result=rindices)
             rows = numpy.reshape(rindices, (-1, bsize))
@@ -1662,10 +1708,10 @@ class PoissonFDMPC(FDMPC):
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
                 forms.append(ufl.inner(test, beta)*ds_ext)
 
+        tensor = coefficients.setdefault("bcflags", Function(Q))
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                tensor = coefficients.setdefault("bcflags", Function(Q))
                 assembly_callables.append(OneFormAssembler(form, tensor=tensor,
                                                            form_compiler_parameters=fcp).assemble)
         # set arbitrary non-zero coefficients for preallocation
