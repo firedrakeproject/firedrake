@@ -1450,9 +1450,9 @@ class PoissonFDMPC(FDMPC):
             bce = bcflags.dat.data_ro_with_halos[index_bc(e)] > 1E-8
             # get coefficients on this cell
             if Gq is not None:
-                numpy.sum(Gq.dat.data_ro[je], axis=0, out=ae)
+                ae[:] = numpy.sum(Gq.dat.data_ro[je], axis=0)
             if Bq is not None:
-                numpy.sum(Bq.dat.data_ro[je], axis=0, out=be)
+                be[:] = numpy.sum(Bq.dat.data_ro[je], axis=0)
 
             rindices = get_rindices(e, result=rindices)
             rows = numpy.reshape(rindices, (-1, bsize))
@@ -1708,10 +1708,10 @@ class PoissonFDMPC(FDMPC):
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
                 forms.append(ufl.inner(test, beta)*ds_ext)
 
+        tensor = coefficients.setdefault("bcflags", Function(Q))
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                tensor = coefficients.setdefault("bcflags", Function(Q))
                 assembly_callables.append(OneFormAssembler(form, tensor=tensor,
                                                            form_compiler_parameters=fcp).assemble)
         # set arbitrary non-zero coefficients for preallocation
