@@ -274,10 +274,10 @@ def _from_netgen(ngmesh, comm=None):
     """
     Create a DMPlex from an Netgen mesh
 
-    :arg ngmesh: NetGen Mesh
-    TODO: Right now we construct NetGen mesh on a single worker, load it in Firedrake
+    :arg ngmesh: Netgen Mesh
+    TODO: Right now we construct Netgen mesh on a single worker, load it in Firedrake
     and then distribute. We should find a way of taking adventage of the fact that
-    NetGen can act as a parallel mesher.
+    Netgen can act as a parallel mesher.
     """
     meshMap = ngs2petsc.DMPlexMapping(ngmesh)
     return meshMap.plex
@@ -2433,7 +2433,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm, tolerance=tolerance)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        # Adding NetGen mesh and inverse sfBC as attributes
+        # Adding Netgen mesh and inverse sfBC as attributes
         mesh.netgen_mesh = meshfile
         mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
         mesh.comm = user_comm
