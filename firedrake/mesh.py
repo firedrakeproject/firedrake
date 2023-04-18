@@ -2040,9 +2040,10 @@ values from f.)"""
         # tolerance. Note that if tolerance is too small it might not actually
         # change the value!
         if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_diff = coords_max - coords_min
-            coords_min -= self.tolerance*coords_diff
-            coords_max += self.tolerance*coords_diff
+            coords_mid = (coords_max + coords_min)/2
+            d = np.max(coords_max - coords_min, axis=1)[:, None]
+            coords_min = coords_mid - (self.tolerance + 0.5)*d
+            coords_max = coords_mid + (self.tolerance + 0.5)*d
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)

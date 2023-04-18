@@ -556,8 +556,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Immersed not supported
         tdim = mesh.ufl_cell().topological_dimension()
         gdim = mesh.ufl_cell().geometric_dimension()
-        if tdim < gdim:
-            raise NotImplementedError("Point is almost certainly not on the manifold.")
+        # if tdim < gdim:
+        #    raise NotImplementedError("Point is almost certainly not on the manifold.")
 
         # Validate geometric dimension
         if arg.shape[-1] == gdim:
