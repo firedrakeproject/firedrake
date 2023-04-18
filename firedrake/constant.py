@@ -82,11 +82,14 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin):
             return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None):
+    def __init__(self, value, domain=None, name=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
         self.dat, rank, self._ufl_shape = _create_dat(op2.Literal, value, None)
+
+        self.uid = utils._new_uid()
+        self.name = name or 'constant_%d' % self.uid
 
         super().__init__()
         counted_init(self, None, self.__class__)
