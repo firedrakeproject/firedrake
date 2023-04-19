@@ -649,9 +649,9 @@ def test_supermesh_project_hessian(vector):
 def test_init_constant():
     from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(1, 1)
-    c1 = Constant(1.0, domain=mesh)
-    c2 = Constant(c1, domain=mesh)
-    J = assemble(c2*dx)
+    c1 = Constant(1.0)
+    c2 = Constant(c1)
+    J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
     assert np.isclose(rf(-1.0), -1.0)
 
@@ -674,7 +674,7 @@ def test_consecutive_nonlinear_solves():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    uic = Constant(2.0, domain=mesh)
+    uic = Constant(2.0)
     u1 = Function(V).assign(uic)
     u0 = Function(u1)
     v = TestFunction(V)
