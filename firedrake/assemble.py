@@ -988,7 +988,8 @@ def _as_global_kernel_arg_coefficient(_, self):
 @_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
 def _as_global_kernel_arg_constant(_, self):
     const = next(self._constants)
-    return op2.GlobalKernelArg(const.ufl_shape)
+    value_size = numpy.prod(const.ufl_shape, dtype=int)
+    return op2.GlobalKernelArg((value_size,))
 
 
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
