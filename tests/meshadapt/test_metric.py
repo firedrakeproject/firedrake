@@ -94,13 +94,13 @@ def test_copy(dim):
     }
     metric = uniform_metric(mesh, a=100.0, metric_parameters=mp)
     assert np.isclose(metric._plex.metricGetMaximumMagnitude(), hmax)
-    assert np.isclose(metric.target_complexity, target)
-    assert np.isclose(metric.normalisation_order, p)
+    assert np.isclose(metric._plex.metricGetTargetComplexity(), target)
+    assert np.isclose(metric._plex.metricGetNormalizationOrder(), p)
     newmetric = metric.copy(deepcopy=True)
     assert np.isclose(errornorm(metric, newmetric), 0.0)
     assert np.isclose(newmetric._plex.metricGetMaximumMagnitude(), hmax)
-    assert np.isclose(newmetric.target_complexity, target)
-    assert np.isclose(newmetric.normalisation_order, p)
+    assert np.isclose(newmetric._plex.metricGetTargetComplexity(), target)
+    assert np.isclose(newmetric._plex.metricGetNormalizationOrder(), p)
 
 
 @pytest.mark.skipcomplex
