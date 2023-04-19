@@ -276,7 +276,7 @@ def _from_netgen(ngmesh, comm=None):
 
     :arg ngmesh: Netgen Mesh
     TODO: Right now we construct Netgen mesh on a single worker, load it in Firedrake
-    and then distribute. We should find a way of taking adventage of the fact that
+    and then distribute. We should find a way to take advantage of the fact that
     Netgen can act as a parallel mesher.
     """
     meshMap = ngs2petsc.DMPlexMapping(ngmesh)
@@ -2360,8 +2360,8 @@ def Mesh(meshfile, **kwargs):
 
     .. note::
 
-        When the mesh is created directly from a DMPlex object or a Netgen,
-        mesh object the ``dim`` parameter is ignored (the DMPlex already
+        When the mesh is created directly from a DMPlex object or a Netgen
+        mesh object, the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
@@ -2445,7 +2445,9 @@ def Mesh(meshfile, **kwargs):
                 getIdx = self._cell_numbering.getOffset
                 if self.sfBCInv is not None:
                     getIdx = lambda x: x
-                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv, self._cell_numbering, marked)
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,
+                                                                  self._cell_numbering,
+                                                                  marked)
                 if self.comm.Get_rank() == 0:
                     mark = marked0.getArray()
                     for i, el in enumerate(self.netgen_mesh.Elements2D()):
