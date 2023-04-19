@@ -47,8 +47,6 @@ class RiemannianMetric(ffunc.Function):
             function_space = ffs.TensorFunctionSpace(function_space, "CG", 1)
         super().__init__(function_space, *args, **kwargs)
         self.metric_parameters = {}
-        self.normalisation_order = 1.0
-        self.target_complexity = None
 
         # Check that we have an appropriate tensor P1 function
         fs = self.function_space()
@@ -106,22 +104,6 @@ class RiemannianMetric(ffunc.Function):
             `dm_plex_metric_`.
         """
         mp = self._process_parameters(metric_parameters)
-        if "dm_plex_metric_p" in mp:
-            p = mp.pop("dm_plex_metric_p")
-            self.normalisation_order = p
-            if not np.isinf(p) and p < 1.0:
-                raise ValueError(
-                    "Metric normalisation order must be at least 1,"
-                    f" not {p}"
-                )
-        if "dm_plex_metric_target_complexity" in mp:
-            target = mp.pop("dm_plex_metric_target_complexity")
-            self.target_complexity = target
-            if target is not None and target <= 0.0:
-                raise ValueError(
-                    "Target metric complexity must be positive,"
-                    f" not {target}"
-                )
         self.metric_parameters.update(mp)
         opts = OptionsManager(self.metric_parameters, "")
         with opts.inserted_options():
@@ -172,10 +154,7 @@ class RiemannianMetric(ffunc.Function):
         :return: a copy of the metric with the same parameters set
         """
         metric = RiemannianMetric(super().copy(deepcopy=deepcopy))
-        metric_parameters = self.metric_parameters.copy()
-        metric_parameters["dm_plex_metric_p"] = self.normalisation_order
-        metric_parameters["dm_plex_metric_target_complexity"] = self.target_complexity
-        metric.set_parameters(metric_parameters)
+        metric.set_parameters(self.metric_parameters.copy())
         return metric
 
     @PETSc.Log.EventDecorator()
@@ -282,8 +261,12 @@ class RiemannianMetric(ffunc.Function):
         d = self._tdim
         if kwargs.get("boundary", False):
             d -= 1
-        p = self.normalisation_order
-        target = self.target_complexity
+        p = self.metric_parameters.get("dm_plex_metric_p", 1.0)
+        if not np.isinf(p) and p < 1.0:
+            raise ValueError(
+                f"Metric normalisation order must be at least 1, not {p}."
+            )
+        target = self.metric_parameters.get("dm_plex_metric_target_complexity")
         if target is None:
             raise ValueError("dm_plex_metric_target_complexity must be set.")
 
