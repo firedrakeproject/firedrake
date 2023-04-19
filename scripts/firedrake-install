@@ -430,7 +430,7 @@ else:
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"]["netgen"],
-                        help="Install Netgen as well.")
+                        help="Install Netgen.")
 
     args = parser.parse_args()
 
