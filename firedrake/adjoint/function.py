@@ -348,6 +348,9 @@ class FunctionMixin(FloatingType):
         else:
             vec += ovec
 
+    def _ad_function_space(self, mesh):
+        return self.ufl_function_space()
+
     def _reduce(self, r, r0):
         vec = self.vector().get_local()
         for i in range(len(vec)):

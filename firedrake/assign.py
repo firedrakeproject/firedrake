@@ -138,7 +138,7 @@ class Assigner:
         expression = as_ufl(expression)
 
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function):
+            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
