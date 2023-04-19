@@ -1,3 +1,4 @@
+import collections
 import numpy as np
 import sys
 import ufl
@@ -9,6 +10,7 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
+from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -413,6 +415,14 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
+        # 
+        elif (isinstance(expr, collections.abc.Container)
+              and self.ufl_element().family() == "Real"):
+            try:
+                self.dat.data = expr
+                return self
+            except (DataTypeError, DataValueError) as e:
+                raise ValueError(e)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
