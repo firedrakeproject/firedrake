@@ -650,7 +650,8 @@ def test_init_constant():
     from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(1, 1)
     c1 = Constant(1.0, domain=mesh)
-    c2 = Constant(c1, domain=mesh)
+    c2 = Constant(0.0, domain=mesh)
+    c2.assign(c1)
     J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
     import pdb; pdb.set_trace()
