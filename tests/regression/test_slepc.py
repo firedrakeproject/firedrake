@@ -29,10 +29,12 @@ def test_laplace_physical_ev(parallel=False):
     A = topetsc(assemble(a, bcs=[bc], weight=1.))
     M = topetsc(assemble(m, bcs=[bc], weight=0.))
 
-    # An otherway to shifts the "1.0" Eigenvalues out of the
-    # spectrum of interest (which is around 0.0 in this case):
+    # Another way to shift the eigenvalues of value 1.0 out of
+    # the spectrum of interest:
     # vals = np.repeat(1E8, len(bc.nodes))
-    # A.setValuesLocalRCV(bc.nodes.reshape(-1, 1),bc.nodes.reshape(-1, 1),vals.reshape(-1, 1))
+    # A.setValuesLocalRCV(bc.nodes.reshape(-1, 1),
+    #                     bc.nodes.reshape(-1, 1),
+    #                     vals.reshape(-1, 1))
 
     E = SLEPc.EPS()
     E.create(comm=mesh.comm)
