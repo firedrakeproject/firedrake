@@ -654,7 +654,6 @@ def test_init_constant():
     c2.assign(c1)
     J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
-    import pdb; pdb.set_trace()
     assert np.isclose(rf(-1.0), -1.0)
 
 
