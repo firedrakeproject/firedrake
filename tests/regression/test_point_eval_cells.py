@@ -94,17 +94,3 @@ def test_3d(func3d):
     assert np.allclose(expr(0.10, 0.20, 0.00), func3d([0.10, 0.20, 0.00]))
     assert np.allclose(expr(0.96, 0.02, 0.51), func3d([0.96, 0.02, 0.51]))
     assert np.allclose(expr(0.39, 0.57, 0.49), func3d([0.39, 0.57, 0.49]))
-
-
-def test_circle(circle_mesh):
-    f = circle_mesh.coordinates
-    with pytest.raises(NotImplementedError):
-        # Manifold point location not implemented
-        f([0.70710678118, +0.70710678118])
-
-
-def test_sphere(sphere_mesh):
-    f = sphere_mesh.coordinates
-    with pytest.raises(NotImplementedError):
-        # Manifold point location not implemented
-        f([+0.57735026919, 0.57735026919, +0.57735026919])
