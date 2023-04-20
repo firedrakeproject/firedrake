@@ -246,7 +246,6 @@ def prolong_kernel(expression):
 
         eval_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
-        # import pdb; pdb.set_trace()
         # args = eval_args[-1].gencode(not_scope=True)
         args = "double *f"
         # R, coarse = (a.sym.symbol for a in eval_args)
@@ -341,7 +340,6 @@ def restrict_kernel(Vf, Vc):
 
         evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
-        # import pdb; pdb.set_trace()
         # always has 3 arguments: R, b and X
         # eval_args = evaluate_kernel.args[:-1]
         # eval_args = evaluate_kernel.callables_table["pyop2_kernel_evaluate"].subkernel.args[:-1]
@@ -692,7 +690,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
         kernel_name="pyop2_kernel_evaluate", index_names=index_names, stop_early=True)
 
     # unbelievably, this is a hack
-    # import pdb; pdb.set_trace()
     new_instructions = []
     counter = 0
     for insn in instructions:
@@ -733,7 +730,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
     expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
-    Ainv, = compile_expression(expr, coffee=False)
+    Ainv, = compile_expression(expr)
     Ainv = Ainv.kinfo.kernel
 
     # A = ast.Symbol(local_tensor.sym.symbol)
@@ -769,7 +766,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         # tuple(map(pym.var, ["R", coarse_coordinates_arg.name, local_tensor.name])),
     )
     callinsn = lp.CallInstruction(
-        assignees, expression, depends_on=frozenset({insn.id for insn in instructions if insn.id is not None}))
+        assignees, expression, depends_on=frozenset({insn.id for insn in instructions if insn.id is not None}), within_inames_is_final=True)
 
     instructions.append(callinsn)
 
