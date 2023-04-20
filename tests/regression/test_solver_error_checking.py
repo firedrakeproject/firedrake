@@ -24,7 +24,7 @@ def L(V, f):
 
 @pytest.fixture
 def c(V):
-    return Constant(1, domain=V.mesh())
+    return Constant(1)
 
 
 def test_too_few_arguments(a, L):
@@ -35,6 +35,9 @@ def test_too_few_arguments(a, L):
 def test_invalid_solution_type(a, L, c):
     with pytest.raises(TypeError):
         solve(a == L, c)
+
+
+# TODO: Check with a Constant with a domain (ie: add check for vector lengths)
 
 
 def test_invalid_lhs_type(L, f):
