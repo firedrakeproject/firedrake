@@ -2036,9 +2036,9 @@ values from f.)"""
         coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
-        # Push max and min out so we can find points on the boundary within
-        # tolerance. Note that if tolerance is too small it might not actually
-        # change the value!
+        # Push max and min out to a hypercube centered at its average so we can
+        # find points on the mesh within tolerance. Note that if tolerance
+        # is not set it will not change the bounding box.
         if hasattr(self, "tolerance") and self.tolerance is not None:
             coords_mid = (coords_max + coords_min)/2
             d = np.max(coords_max - coords_min, axis=1)[:, None]
