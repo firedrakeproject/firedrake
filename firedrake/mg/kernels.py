@@ -541,7 +541,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         size = numpy.prod(shape, dtype=int)
         # funarg = ast.Decl(ScalarType_c, ast.Symbol(name), pointers=[("restrict", )],
         #                   qualifiers=["const"])
-        funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=())
+        funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=None)
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
         self.coefficient_map[coefficient] = expression
@@ -684,9 +684,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # data is just the temporary things, no kernel args yet registered.
     domains, instructions, data, kernel_name, target, preamble= generate_loopy(
         impero_c, [], ScalarType,
-        kernel_name="pyop2_kernel_evaluate_inner", index_names=index_names, stop_early=True)
+        kernel_name="pyop2_kernel_evaluate", index_names=index_names, stop_early=True)
 
-    import pdb; pdb.set_trace()
 
     # retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     retarg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(Vce.space_dimension(),))
@@ -695,8 +694,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # body.children.insert(0, local_tensor)
     import pymbolic as pym
     iname = "myiname"
-    domains.add(f"{{ [{iname}] 0 <= {iname} < {Vce.space_dimension()} }}")
-    init_insn = lp.Assignment(pym.subscript(pym.var(local_tensor.name), [iname]), 0, within_inames=frozenset({iname}), id="myid")
+    domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
+    init_insn = lp.Assignment(pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0, within_inames=frozenset({iname}), id="myid")
     data.insert(0, lp.GlobalArg(local_tensor.name, shape=Vce.space_dimension(), dtype=ScalarType))
 
     new_insns = []
@@ -708,8 +707,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     macro_coordinates_arg = macro_builder.generate_arg_from_expression(macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
     coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
-    args = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
-                                                   coarse_coordinates_arg]
+    data = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
+                                                   coarse_coordinates_arg] + data
 
     # Now we have the kernel that computes <f, phi_c>dx_c
     # So now we need to hit it with the inverse mass matrix on dx_c
@@ -720,16 +719,35 @@ def dg_injection_kernel(Vf, Vc, ncell):
     Ainv, = compile_expression(expr, coffee=False)
     Ainv = Ainv.kinfo.kernel
 
-    import pdb; pdb.set_trace()
     # A = ast.Symbol(local_tensor.sym.symbol)
     # R = ast.Symbol("R")
     # body.children.append(ast.FunCall(Ainv.name, R, coarse_coordinates_arg.sym, A))
-    callinsn = lp.CInstruction(f"{Ainv.name}")
-    instructions.append(lp.FunctionCall(Ainv.name))
+    # callinsn = lp.CInstruction(frozenset(), f"{Ainv.name}(R, {coarse_coordinates_arg.name}, A);")
 
-    return op2.Kernel(ast.Node([Ainv.code,
-                                ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
-                                            pred=["static", "inline"])]),
+    # FIXME
+    # loopy.CallInstruction(assignees, expression, id=None, depends_on=None, depends_on_is_final=None, groups=None, conflicts_with_groups=None, no_sync_with=None, within_inames_is_final=None, within_inames=None, tags=None, temp_var_types=None, priority=0, predicates=frozenset({}))
+    assignees = (
+        lp.symbolic.SubArrayRef((), pym.subscript(pym.var(coarse_coordinates_arg.name), ())),
+    )
+    expression = pym.primitives.Call(
+        pym.var(Ainv.name),
+        tuple(map(pym.var, ["R", coarse_coordinates_arg.name, "A"])),
+    )
+    callinsn = \
+        lp.CallInstruction(assignees, expression)
+
+    instructions.append(callinsn)
+
+    import pdb; pdb.set_trace()
+    knl1 = lp.make_kernel(domains, instructions, data, name=kernel_name, target=target,preambles=preamble)
+    fullkernel = lp.merge([Ainv.code, knl1])
+
+    import pdb; pdb.set_trace()
+
+    # return op2.Kernel(ast.Node([Ainv.code,
+    #                             ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
+    #                                         pred=["static", "inline"])]),
+    return op2.Kernel(fullkernel,
                       name="pyop2_kernel_injection_dg",
                       cpp=True,
                       include_dirs=Ainv.include_dirs,
