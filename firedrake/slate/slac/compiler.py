@@ -1,18 +1,11 @@
 """This is Slate's Linear Algebra Compiler. This module is
-responsible for generating C++ kernel functions representing
+responsible for generating C kernel functions representing
 symbolic linear algebra expressions written in Slate.
 
 This linear algebra compiler uses both Firedrake's form compiler,
-the Two-Stage Form Compiler (TSFC) and COFFEE's kernel abstract
-syntax tree (AST) optimizer. TSFC provides this compiler with
-appropriate kernel functions (in C) for evaluating integral
+the Two-Stage Form Compiler (TSFC) and loopy. TSFC provides this
+compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
-COFFEE's AST base helps with the construction of code blocks
-throughout the kernel returned by: `compile_expression`.
-
-The Eigen C++ library (https://eigen.tuxfamily.org/) is required, as
-all low-level numerical linear algebra operations are performed using
-this templated function library.
 """
 import time
 from hashlib import md5
@@ -20,8 +13,8 @@ from hashlib import md5
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
-from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder, LocalKernelBuilder
-from firedrake.slate.slac.utils import topological_sort, slate_to_gem, merge_loopy
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+from firedrake.slate.slac.utils import slate_to_gem, merge_loopy
 from firedrake.slate.slac.optimise import optimise
 
 from firedrake import op2, tsfc_interface

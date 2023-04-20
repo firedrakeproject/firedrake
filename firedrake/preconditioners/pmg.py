@@ -32,7 +32,7 @@ class PMGBase(PCSNESBase):
     Other PETSc options inspected by this class are:
     - 'pmg_coarse_degree': polynomial degree of the coarse level
     - 'pmg_coarse_mat_type': can be either 'aij' or 'matfree'
-    - 'pmg_coarse_form_compiler_mode': can be 'spectral' (default), 'vanilla', 'coffee', or 'tensor'
+    - 'pmg_coarse_form_compiler_mode': can be 'spectral' (default), 'vanilla', or 'tensor'
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.

@@ -11,6 +11,7 @@ def test_hyperelastic_convergence():
     # internal body forces (the block is massive) and an external
     # free-slip compression from above.
 
+    # FIXME coffee comment
     # This test does not check for the correctness of the
     # solution, but rather that different COFFEE optimisation
     # levels do not materially affect the convergence behaviour.

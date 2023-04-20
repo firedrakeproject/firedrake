@@ -1,7 +1,10 @@
 from os import path
 import numpy
+import numbers
 import sympy
 from sympy.printing.c import ccode
+import loopy as lp
+from cmath import isnan
 
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
@@ -16,10 +19,9 @@ import gem
 import gem.impero_utils as impero_utils
 
 import tsfc
-import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.coffee
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
-
-from coffee.base import ArrayInit
 
 
 def make_args(function):
@@ -122,8 +124,30 @@ def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
 
-    formatter = ArrayInit(X, precision=numpy.finfo(parameters["scalar_type"]).resolution)._formatter
-    return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
+    precision = numpy.finfo(parameters["scalar_type"]).resolution
+    return "\n".join("%s = %s;" % ("X[%d]" % i, format_num(v, precision)) for i, v in enumerate(X))
+
+
+def format_num(v, precision):
+    """Format a real or complex value into a string, showing up to
+    ``precision`` decimal digits.  This function is partly
+    extracted from the open_source "FFC: the FEniCS Form
+    Compiler", freely accessible at
+    https://bitbucket.org/fenics-project/ffc.
+    """
+    f = "%%.%dg" % precision
+    f_int = "%%.%df" % 1
+    eps = 10.0**(-precision)
+    if not isinstance(v, numbers.Number):
+        return v.gencode(not_scope=True)
+    elif isnan(v):
+        return "NAN"
+    elif abs(v.real - round(v.real, 1)) < eps and abs(v.imag - round(v.imag, 1)) < eps:
+        formatter = f_int
+    else:
+        formatter = f
+    re, im, zero = map(lambda arg: formatter % arg, (v.real, v.imag, 0))
+    return re if im == zero else re + ' + ' + im + ' * I'
 
 
 @PETSc.Log.EventDecorator()
@@ -144,11 +168,24 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
+
     builder._coefficient(C, "C")
     builder._coefficient(x0, "x0")
 
+    Celement = tsfc.finatinterface.create_element(C.ufl_element())
+    Cshape = (numpy.prod(Celement.index_shape, dtype=int),)
+
+    x0element = tsfc.finatinterface.create_element(x0.ufl_element())
+    x0shape = (numpy.prod(x0element.index_shape, dtype=int),)
+
+    loopy_args = [
+        lp.GlobalArg("C", dtype=ScalarType_c, shape=Cshape),
+        lp.GlobalArg("x0", dtype=ScalarType_c, shape=x0shape),
+    ]
+
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
+    loopy_args.append(lp.GlobalArg("X", dtype=ScalarType_c, shape=(dim,)))
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
@@ -169,16 +206,22 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
             return index.extent <= max_extent
         ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
 
-    # Translate to COFFEE
+    # Translate to loopy
     ir = impero_utils.preprocess_gem(ir)
     return_variable = gem.Variable('dX', (dim,))
+    loopy_args.append(lp.GlobalArg("dX", dtype=ScalarType_c, shape=(dim,)))
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, ScalarType)
-    body.open_scope = False
 
-    return body
+    # double  t0  = ((1) + (((-1) * (X[0]))));
+    # double  t1  = ((((-1) * (C[0]))) + (C[1]));
+    # dX[0] += (((1) / (((((t0) * (t1))) + (((X[0]) * (t1))))))) * (((((((t0) * (((C[0]) + (((0) * (C[1]))))))) + (((X[0]) * (((((0) * (C[0]))) + (C[1]))))))) + (((-1) * (x0[0])))));
+
+    # body = tsfc.coffee.generate(impero_c, {}, ScalarType)
+    # import pdb; pdb.set_trace()
+    kernel, _ = tsfc.loopy.generate(impero_c, loopy_args, ScalarType_c, kernel_name="to_reference_coords_newton_step")
+    return lp.generate_code_v2(kernel).device_code()
 
 
 @PETSc.Log.EventDecorator()
@@ -226,6 +269,8 @@ struct ReferenceCoords {
 
 static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
+%(to_reference_coords_newton_step)s
+
 static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
@@ -240,7 +285,7 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords_newton_step)s
+        to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;

@@ -104,6 +104,7 @@ def test_ip_viscosity(space):
 
 
 def test_indexed_interior_facet_gradients():
+    # FIXME: What do we do about this test/comment?
     """This is a regression test against a bug in coffee in combination with
     non-affine support, where it would evaluate some of the interior facet
     integrals from the IP scheme incorrectly. This seemed to only occur in
@@ -134,6 +135,7 @@ def test_indexed_interior_facet_gradients():
 @pytest.mark.parametrize(('space'),
                          [("RT", 1), ("RT", 2), ("DG", 1), ("BDM", 1), ("BDM", 2)])
 def test_stress_form_ip_penalty_term(space):
+    # FIXME What should be done about this test/comment?
     """This is a regression test for a coffee issue with the alpha penalty in
     the IP viscosity term when using the full div(nu*sym(grad(u))) form of
     viscosity.  This term occurs in the mms test above as well, but the

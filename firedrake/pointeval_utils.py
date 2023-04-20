@@ -1,7 +1,5 @@
-
+import loopy as lp
 from firedrake.utils import IntType, as_cstr
-
-from coffee import base as ast
 
 from ufl import MixedElement, TensorProductCell
 from ufl.corealg.map_dag import map_expr_dags
@@ -11,8 +9,8 @@ from ufl.domain import extract_unique_domain
 import gem
 
 import tsfc
-import tsfc.kernel_interface.firedrake as firedrake_interface
-from tsfc.coffee import generate as generate_coffee
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
+from tsfc.loopy import generate as generate_loopy
 from tsfc.parameters import default_parameters
 
 from firedrake import utils
@@ -68,7 +66,8 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
+    # point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
+    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType_c, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -90,11 +89,13 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
+        # result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=expression.ufl_shape)
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
+        # result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=(1,))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -106,10 +107,12 @@ def compile_element(expression, coordinates, parameters=None):
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, utils.ScalarType)
+    loopy_args = [result_arg, point_arg, x_arg, f_arg]
+    # body = generate_loopy(impero_c, {}, utils.ScalarType)
+    loopy_kernel, _ = generate_loopy(
+        impero_c, loopy_args, utils.ScalarType, kernel_name="evaluate_kernel", index_names={})
 
-    # Build kernel tuple
-    kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
+    kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
     extruded = isinstance(cell, TensorProductCell)
@@ -160,4 +163,4 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 }
 """
 
-    return (evaluate_template_c % code) + kernel_code.gencode()
+    return (evaluate_template_c % code) + kernel_code
