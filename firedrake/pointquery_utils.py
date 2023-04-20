@@ -1,5 +1,6 @@
 from os import path
 import numpy
+import numbers
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp
@@ -149,6 +150,17 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
             "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
         lp.GlobalArg(
             "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
+
+    Celement = tsfc.finatinterface.create_element(C.ufl_element())
+    Cshape = (numpy.prod(Celement.index_shape, dtype=int),)
+
+    x0element = tsfc.finatinterface.create_element(x0.ufl_element())
+    x0shape = (numpy.prod(x0element.index_shape, dtype=int),)
+
+    loopy_args = [
+        lp.GlobalArg("C", dtype=ScalarType_c, shape=Cshape),
+        lp.GlobalArg("x0", dtype=ScalarType_c, shape=x0shape),
+    ]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
