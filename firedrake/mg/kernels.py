@@ -33,6 +33,11 @@ from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 
 
+# debugging
+from petsc4py import PETSc
+PETSc.Sys.popErrorHandler()
+
+
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     if parameters is None:
         parameters = tsfc.default_parameters()
@@ -541,7 +546,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         size = numpy.prod(shape, dtype=int)
         # funarg = ast.Decl(ScalarType_c, ast.Symbol(name), pointers=[("restrict", )],
         #                   qualifiers=["const"])
-        funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=None)
+        funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=(size,))
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
         self.coefficient_map[coefficient] = expression
@@ -686,6 +691,15 @@ def dg_injection_kernel(Vf, Vc, ncell):
         impero_c, [], ScalarType,
         kernel_name="pyop2_kernel_evaluate", index_names=index_names, stop_early=True)
 
+    # unbelievably, this is a hack
+    # import pdb; pdb.set_trace()
+    new_instructions = []
+    counter = 0
+    for insn in instructions:
+        new_id = f"mg_insn_{counter}"
+        new_instructions.append(insn.copy(id=new_id))
+        counter += 1
+    instructions = new_instructions
 
     # retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     retarg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(Vce.space_dimension(),))
@@ -696,11 +710,14 @@ def dg_injection_kernel(Vf, Vc, ncell):
     iname = "myiname"
     domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
     init_insn = lp.Assignment(pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0, within_inames=frozenset({iname}), id="myid")
-    data.insert(0, lp.GlobalArg(local_tensor.name, shape=Vce.space_dimension(), dtype=ScalarType))
+
+    data.insert(0, lp.TemporaryVariable(local_tensor.name, shape=(Vce.space_dimension(),), dtype=ScalarType))
 
     new_insns = []
+    alldeps = {"myid"}
     for insn in instructions:
-        new_insns.append(insn.copy(depends_on=insn.depends_on|{"myid"}))
+        new_insns.append(insn.copy(depends_on=insn.depends_on|alldeps))
+        alldeps.add(insn.id)
     instructions = new_insns
 
     instructions.insert(0, init_insn)
@@ -726,29 +743,47 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     # FIXME
     # loopy.CallInstruction(assignees, expression, id=None, depends_on=None, depends_on_is_final=None, groups=None, conflicts_with_groups=None, no_sync_with=None, within_inames_is_final=None, within_inames=None, tags=None, temp_var_types=None, priority=0, predicates=frozenset({}))
+
+    swept_iname = "myswept0"
+    domains.append(f"{{ [{swept_iname}]: 0 <= {swept_iname} < {Vce.space_dimension()} }}")
+    swept_index = (pym.var(swept_iname),)
+
+    assert len(coarse_coordinates_arg.shape) == 1
+    swept_iname1 = "myswept1"
+    domains.append(f"{{ [{swept_iname1}]: 0 <= {swept_iname1} < {coarse_coordinates_arg.shape[0]} }}")
+    swept_index1 = (pym.var(swept_iname1),)
+    ccref = lp.symbolic.SubArrayRef(swept_index1, pym.subscript(pym.var(coarse_coordinates_arg.name), swept_index1))
+
+    assert len(local_tensor.shape) == 1
+    swept_iname2 = "myswept2"
+    domains.append(f"{{ [{swept_iname2}]: 0 <= {swept_iname2} < {local_tensor.shape[0]} }}")
+    swept_index2 = (pym.var(swept_iname2),)
+    ltref = lp.symbolic.SubArrayRef(swept_index2, pym.subscript(pym.var(local_tensor.name), swept_index2))
+
     assignees = (
-        lp.symbolic.SubArrayRef((), pym.subscript(pym.var(coarse_coordinates_arg.name), ())),
+        lp.symbolic.SubArrayRef(swept_index, pym.subscript(pym.var(retarg.name), swept_index)),
     )
     expression = pym.primitives.Call(
         pym.var(Ainv.name),
-        tuple(map(pym.var, ["R", coarse_coordinates_arg.name, "A"])),
+        (*assignees, ccref, ltref),
+        # tuple(map(pym.var, ["R", coarse_coordinates_arg.name, local_tensor.name])),
     )
-    callinsn = \
-        lp.CallInstruction(assignees, expression)
+    callinsn = lp.CallInstruction(
+        assignees, expression, depends_on=frozenset({insn.id for insn in instructions if insn.id is not None}))
 
     instructions.append(callinsn)
 
-    import pdb; pdb.set_trace()
-    knl1 = lp.make_kernel(domains, instructions, data, name=kernel_name, target=target,preambles=preamble)
+    knl1 = lp.make_kernel(domains, instructions, data, name="pyop2_kernel_injection_dg", target=target,preambles=preamble)
     fullkernel = lp.merge([Ainv.code, knl1])
 
-    import pdb; pdb.set_trace()
+    mytestcode = lp.generate_code_v2(fullkernel).device_code()
+
 
     # return op2.Kernel(ast.Node([Ainv.code,
     #                             ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
     #                                         pred=["static", "inline"])]),
     return op2.Kernel(fullkernel,
                       name="pyop2_kernel_injection_dg",
-                      cpp=True,
+                      cpp=False,
                       include_dirs=Ainv.include_dirs,
                       headers=Ainv.headers)
