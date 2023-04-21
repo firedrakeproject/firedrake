@@ -41,6 +41,12 @@ _cells = {
 }
 
 
+_supported_embedded_cell_types = [ufl.Cell('interval', 2),
+                                  ufl.Cell('triangle', 3),
+                                  ufl.Cell("quadrilateral", 3),
+                                  ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), geometric_dimension=3)]
+
+
 unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
@@ -675,14 +681,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
-
-    def cell_orientations(self):
-        """Return the orientation of each cell in the mesh.
-
-        Use :meth:`.init_cell_orientations` on the mesh *geometry* to initialise."""
-        if not hasattr(self, '_cell_orientations'):
-            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
-        return self._cell_orientations
 
     @abc.abstractmethod
     def num_cells(self):
@@ -2161,6 +2159,28 @@ values from f.)"""
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :meth:`.init_cell_orientations` to initialise."""
+        # View `_cell_orientations` (`CoordinatelessFunction`) as a property of
+        # `MeshGeometry` as opposed to one of `MeshTopology`, and treat it just like
+        # `_coordinates` (`CoordinatelessFunction`) so that we have:
+        # -- Regular MeshGeometry  = MeshTopology + `_coordinates`,
+        # -- Immersed MeshGeometry = MeshTopology + `_coordinates` + `_cell_orientations`.
+        # Here, `_coordinates` and `_cell_orientations` both represent some geometric
+        # properties (i.e., "coordinates" and "cell normals").
+        #
+        # Two `MeshGeometry`s can share the same `MeshTopology` and `_coordinates` while
+        # having distinct definition of "cell normals"; they are then simply regarded as two
+        # distinct meshes as `dot(expr, cell_normal) * dx` in general gives different results.
+        #
+        # Storing `_cell_orientations` in `MeshTopology` would make the `MeshTopology`
+        # object only useful for specific definition of "cell normals".
+        if not hasattr(self, '_cell_orientations'):
+            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+        return self._cell_orientations
+
     @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
@@ -2172,14 +2192,10 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in (ufl.Cell('interval', 2),
-                                   ufl.Cell('triangle', 3),
-                                   ufl.Cell("quadrilateral", 3),
-                                   ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
-                                                         geometric_dimension=3)):
+        if self.ufl_cell() not in _supported_embedded_cell_types:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
-        if hasattr(self.topology, '_cell_orientations'):
+        if hasattr(self, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         if not isinstance(expr, ufl.classes.Expr):
@@ -2201,7 +2217,7 @@ values from f.)"""
 
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
-        self.topology._cell_orientations = cell_orientations
+        self._cell_orientations = cell_orientations.topological
 
     def __getattr__(self, name):
         val = getattr(self._topology, name)
