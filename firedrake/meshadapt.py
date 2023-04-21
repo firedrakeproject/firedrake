@@ -329,8 +329,7 @@ class RiemannianMetric(ffunc.Function):
             v1.destroy()
             vout.destroy()
         else:
-            self.intersect(metrics[0])
-            self.intersect(metrics[1:])
+            self.intersect(*metrics[1:])
         return self
 
     @PETSc.Log.EventDecorator()
