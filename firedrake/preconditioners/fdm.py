@@ -1,5 +1,5 @@
 from functools import partial
-from itertools import product
+from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
@@ -126,7 +126,7 @@ class FDMPC(PCBase):
         else:
             # Reconstruct Jacobian and bcs with variant element
             V_fdm = FunctionSpace(V.mesh(), e_fdm)
-            J_fdm = J(*[t.reconstruct(function_space=V_fdm) for t in J.arguments()], coefficients={})
+            J_fdm = J(*(t.reconstruct(function_space=V_fdm) for t in J.arguments()), coefficients={})
             bcs_fdm = []
             for bc in bcs:
                 W = V_fdm
@@ -1053,16 +1053,10 @@ PetscErrorCode {name}(Mat A,
 
 def is_restricted(finat_element):
     """Determine if an element is a restriction onto interior or facets"""
-    is_interior = True
-    is_facet = True
-    cell_dim = finat_element.cell.get_dimension()
-    entity_dofs = finat_element.entity_dofs()
-    for dim in sorted(entity_dofs):
-        if any(len(entity_dofs[dim][entity]) > 0 for entity in entity_dofs[dim]):
-            if dim == cell_dim:
-                is_facet = False
-            else:
-                is_interior = False
+    tdim = finat_element.cell.get_dimension()
+    idofs = len(finat_element.entity_dofs()[tdim][0])
+    is_interior = idofs == finat_element.space_dimension()
+    is_facet = idofs == 0
     return is_interior, is_facet
 
 
@@ -1294,9 +1288,9 @@ def unrestrict_element(ele):
 
 def get_base_elements(e):
     if isinstance(e, finat.EnrichedElement):
-        return sum(list(map(get_base_elements, e.elements)), [])
+        return list(chain.from_iterable(map(get_base_elements, e.elements)))
     elif isinstance(e, finat.TensorProductElement):
-        return sum(list(map(get_base_elements, e.factors)), [])
+        return list(chain.from_iterable(map(get_base_elements, e.factors)))
     elif isinstance(e, finat.FlattenedDimensions):
         return get_base_elements(e.product)
     elif isinstance(e, (finat.HCurlElement, finat.HDivElement)):
@@ -1645,8 +1639,8 @@ class PoissonFDMPC(FDMPC):
             replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
         else:
             replace_val = {t: s for t, s in zip(args_J, ref_val)}
-        beta = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
-                                                ref_val[0]), ref_val[1]) for i in integrals_J]))
+        beta = expand_derivatives(sum(ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
+                                               ref_val[0]), ref_val[1]) for i in integrals_J))
         if Piola:
             beta = ufl.replace(beta, {dummy_Piola: Piola})
         # assemble zero-th order coefficient
@@ -1671,8 +1665,8 @@ class PoissonFDMPC(FDMPC):
             ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
-            alpha = expand_derivatives(sum([ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
-                                                     ref_grad[0]), ref_grad[1]) for i in integrals_J]))
+            alpha = expand_derivatives(sum(ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
+                                                    ref_grad[0]), ref_grad[1]) for i in integrals_J))
             G = alpha
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
             G = G * abs(ufl.JacobianDeterminant(mesh))

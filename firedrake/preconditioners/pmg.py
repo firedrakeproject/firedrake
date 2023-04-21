@@ -945,7 +945,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
             for({IntType_c} i=0; i<{nscal*numpy.prod(cshape)}; i++) {t_in}[i+{cskip}] = 0.0E0;
             """)
         else:
-            Jsize = numpy.cumsum([Jlen]+[Jk.size for Jk in J])
+            Jsize = numpy.cumsum([Jlen] + [Jk.size for Jk in J])
             Jptrs = ["%s+%d" % (mat_name, Jsize[k]) if J[k].size else "NULL" for k in range(len(J))]
             Jmats.extend(J)
             Jlen = Jsize[-1]
@@ -987,7 +987,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
         cskip += nscal*numpy.prod(cshape)
 
     # Pass the 1D interpolators as a hexadecimal string
-    Jdata = ", ".join(map(float.hex, chain(*[Jk.flat for Jk in Jmats])))
+    Jdata = ", ".join(map(float.hex, chain.from_iterable(Jk.flat for Jk in Jmats)))
     operator_decl.append(f"""
             PetscScalar {mat_name}[{Jlen}] = {{ {Jdata} }};
     """)
