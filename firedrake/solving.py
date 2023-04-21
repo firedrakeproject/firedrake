@@ -94,7 +94,7 @@ def solve(*args, **kwargs):
 
     The nonlinear solver uses a PETSc SNES object under the hood. To
     pass options to it, use the same options names as you would for
-    pure PETSc code.  See :class:`NonlinearVariationalSolver` for more
+    pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
     details.
 
     .. code-block:: python3
@@ -124,7 +124,6 @@ def solve(*args, **kwargs):
     """
 
     assert len(args) > 0
-
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
         _solve_varproblem(*args, **kwargs)

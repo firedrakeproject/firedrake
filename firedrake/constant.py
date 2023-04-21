@@ -1,7 +1,7 @@
 import numpy as np
 import ufl
 
-from pyop2 import op2
+from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
@@ -14,14 +14,14 @@ from firedrake.adjoint.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _globalify(value):
+def _globalify(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data)
+        dat = op2.Global(1, data, comm=comm)
     else:
-        dat = op2.Global(shape, data)
+        dat = op2.Global(shape, data, comm=comm)
     return dat, rank, shape
 
 
@@ -53,14 +53,20 @@ class Constant(ufl.Coefficient, ConstantMixin):
     def __new__(cls, *args, **kwargs):
         # Hack to avoid hitting `ufl.Coefficient.__new__` which may perform operations
         # meant for coefficients and not constants (e.g. check if the function space is dual or not)
-        # This is a consequence of firedrake.Constant inheriting from ufl.Constant instead of ufl.Coefficient.
+        # This is a consequence of firedrake.Constant inheriting from ufl.Coefficient instead of ufl.Constant.
         return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
-        self.dat, rank, shape = _globalify(value)
+
+        if domain:
+            self.comm = domain.comm
+        else:
+            self.comm = mpi.COMM_WORLD
+        self._comm = mpi.internal_comm(self.comm)
+        self.dat, rank, shape = _globalify(value, self._comm)
 
         cell = None
         if domain is not None:
@@ -76,6 +82,10 @@ class Constant(ufl.Coefficient, ConstantMixin):
         fs = ufl.FunctionSpace(domain, e)
         super(Constant, self).__init__(fs)
         self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @PETSc.Log.EventDecorator()
     def evaluate(self, x, mapping, component, index_values):
@@ -101,8 +111,14 @@ class Constant(ufl.Coefficient, ConstantMixin):
         """Return a null function space."""
         return None
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         return (self,)
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""

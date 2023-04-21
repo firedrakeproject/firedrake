@@ -5,7 +5,6 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import tsfc.logging             # noqa: F401
 import pyop2.logger             # noqa: F401
 import coffee.logger            # noqa: F401
-from ufl.log import ufl_logger
 
 from pyop2.mpi import COMM_WORLD
 
@@ -72,10 +71,9 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
         handlers = {}
 
     for package in packages:
-        if package != "UFL":
-            logger = logging.getLogger(package)
-            for handler in logger.handlers:
-                logger.removeHandler(handler)
+        logger = logging.getLogger(package)
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
 
         handler = handlers.get(package, None)
         if handler is None:
@@ -85,10 +83,7 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
         if comm is not None and comm.rank != 0:
             handler = logging.NullHandler()
 
-        if package == "UFL":
-            ufl_logger.set_handler(handler)
-        else:
-            logger.addHandler(handler)
+        logger.addHandler(handler)
 
 
 def set_log_level(level):
@@ -101,11 +96,7 @@ def set_log_level(level):
 
     """
     for package in packages:
-        if package == "UFL":
-            from ufl.log import ufl_logger as logger
-            logger = logger.get_logger()
-        else:
-            logger = logging.getLogger(package)
+        logger = logging.getLogger(package)
         logger.setLevel(level)
 
 

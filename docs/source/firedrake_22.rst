@@ -28,23 +28,22 @@ Key Dates
 * 02/12/2022 Registration
 * 4-6/1/2023 Workshop
 
+The workshop will run from 1400 on 4 January to 1400 on 6 January (after lunch
+on Wednesday until after lunch on Friday). This will hopefully allow most UK
+participants to travel to and from the event on those days.
 
-Abstract submission
--------------------
+Programme
+---------
 
-Abstracts should be submitted `via EasyChair
-<https://easychair.org/conferences/?conf=firedrake22>`__ by Friday 18 November
-2022. We expect to be able to accommodate a talk by any participant who wishes
-to present their work.
+Click here for `the programme
+<https://easychair.org/smart-program/Firedrake'22/>`__
 
-Registration
-------------
+Travel
+------
 
-`Click here to register! <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake/firedrake-workshop-2022>`__
-The registration deadline is 2 December 2022.
-
-Registration will include meals and accommodation and early registration rates
-will be £150 for students and £250 for others.
+UK rail strikes have been announced for 3, 4, 6, and 7 January. We are in the
+process of organising a coach from London via Reading, Swindon (for Oxford) and
+Exeter. More details will appear soon.
 
 Organising committee
 --------------------

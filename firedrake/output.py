@@ -4,7 +4,7 @@ import numpy
 import os
 import ufl
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, dup_comm
+from pyop2.mpi import COMM_WORLD, internal_comm, decref
 from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
@@ -53,6 +53,8 @@ cells = {
     (ufl_wedge, True): VTK_LAGRANGE_WEDGE,
     (ufl_hex, False): VTK_HEXAHEDRON,
     (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), False): VTK_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), True): VTK_LAGRANGE_HEXAHEDRON,
 }
 
 
@@ -370,7 +372,7 @@ class File(object):
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
         :kwarg target_degree: override the degree of the output space.
         :kwarg target_continuity: override the continuity of the output space;
-            A UFL :class:`~.SobolevSpace` object: `H1` for a
+            A UFL :class:`ufl.sobolevspace.SobolevSpace` object: `H1` for a
             continuous output and `L2` for a discontinuous output.
         :kwarg adaptive: allow different meshes at different exports if `True`.
 
@@ -391,18 +393,18 @@ class File(object):
         if mode == "a" and not os.path.isfile(filename):
             mode = "w"
 
-        comm = dup_comm(comm or COMM_WORLD)
+        self.comm = comm or COMM_WORLD
+        self._comm = internal_comm(self.comm)
 
-        if comm.rank == 0 and mode == "w":
+        if self._comm.rank == 0 and mode == "w":
             outdir = os.path.dirname(os.path.abspath(filename))
             if not os.path.exists(outdir):
                 os.makedirs(outdir)
-        elif comm.rank == 0 and mode == "a":
+        elif self._comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
-        comm.barrier()
+        self._comm.barrier()
 
-        self.comm = comm
         self.filename = filename
         self.basename = basename
         self.project = project_output
@@ -414,11 +416,11 @@ class File(object):
             raise ValueError("target_continuity must be either 'H1' or 'L2'.")
         countstart = 0
 
-        if self.comm.rank == 0 and mode == "w":
+        if self._comm.rank == 0 and mode == "w":
             with open(self.filename, "wb") as f:
                 f.write(self._header)
                 f.write(self._footer)
-        elif self.comm.rank == 0 and mode == "a":
+        elif self._comm.rank == 0 and mode == "a":
             import xml.etree.ElementTree as ElTree
             tree = ElTree.parse(os.path.abspath(filename))
             # Count how many the file already has
@@ -430,7 +432,7 @@ class File(object):
 
         if mode == "a":
             # Need to communicate the count across all cores involved; default op is SUM
-            countstart = self.comm.allreduce(countstart)
+            countstart = self._comm.allreduce(countstart)
 
         self.counter = itertools.count(countstart)
         self.timestep = itertools.count(countstart)
@@ -438,6 +440,10 @@ class File(object):
         self._fnames = None
         self._topology = None
         self._adaptive = adaptive
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @no_annotations
     def _prepare_output(self, function, max_elem):

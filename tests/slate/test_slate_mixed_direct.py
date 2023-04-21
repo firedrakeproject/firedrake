@@ -60,7 +60,7 @@ def test_slate_mixed_vector(Wd):
 
     expect = assemble(action(a, f))
 
-    for c, e in zip(C.split(), expect.split()):
+    for c, e in zip(C.subfunctions, expect.subfunctions):
         assert numpy.allclose(c.dat.data_ro, e.dat.data_ro)
 
 

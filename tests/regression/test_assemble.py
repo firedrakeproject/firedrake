@@ -41,7 +41,7 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -61,7 +61,7 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    ones = one.split()
+    ones = one.subfunctions
 
     # NOTE: interpolation of UFL expressions into mixed
     # function spaces is not yet implemented
@@ -87,7 +87,7 @@ def M(fs):
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
-    for f in one_form.split():
+    for f in one_form.subfunctions:
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:

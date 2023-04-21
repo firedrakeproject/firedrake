@@ -37,7 +37,7 @@ Context information for creating coefficient temporaries.
                      the vector temporary for assignment.
 :param shape: A singleton with an integer describing the shape of
               the coefficient temporary.
-:param vector: The :class:`slate.AssembledVector` containing the
+:param vector: The :class:`~.slate.AssembledVector` containing the
                relevant data to be placed into the temporary.
 :param local_temp: The local temporary for the coefficient vector.
 """
@@ -97,7 +97,7 @@ class LocalKernelBuilder(object):
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalKernelBuilder class.
 
-        :arg expression: a :class:`TensorBase` object.
+        :arg expression: a :class:`~.firedrake.slate.TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
             TSFC when constructing subkernels associated with the expression.
         """
@@ -334,7 +334,7 @@ class LocalKernelBuilder(object):
         for i, coefficient in enumerate(self.expression.coefficients()):
             if type(coefficient.ufl_element()) == MixedElement:
                 csym_info = []
-                for j, _ in enumerate(coefficient.split()):
+                for j, _ in enumerate(coefficient.subfunctions):
                     csym_info.append(ast.Symbol("w_%d_%d" % (i, j)))
             else:
                 csym_info = (ast.Symbol("w_%d" % i),)
@@ -429,7 +429,7 @@ class LocalLoopyKernelBuilder(object):
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the LocalGEMKernelBuilder class.
 
-        :arg expression: a :class:`TensorBase` object.
+        :arg expression: a :class:`~.firedrake.slate.TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to
             TSFC when constructing subkernels associated with the expression.
         """
@@ -589,7 +589,7 @@ class LocalLoopyKernelBuilder(object):
         for i, (c, split_map) in enumerate(self.expression.coeff_map):
             coeff = coeffs[c]
             if type(coeff.ufl_element()) == MixedElement:
-                splits = coeff.split()
+                splits = coeff.subfunctions
                 coeff_dict[coeff] = OrderedDict({splits[j]: (f"w_{i}_{j}", self.extent(splits[j])) for j in split_map})
             else:
                 coeff_dict[coeff] = (f"w_{i}", self.extent(coeff))
