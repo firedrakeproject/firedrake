@@ -1640,7 +1640,7 @@ class PoissonFDMPC(FDMPC):
         else:
             replace_val = {t: s for t, s in zip(args_J, ref_val)}
         beta = expand_derivatives(sum(ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_val),
-                                                ref_val[0]), ref_val[1]) for i in integrals_J))
+                                               ref_val[0]), ref_val[1]) for i in integrals_J))
         if Piola:
             beta = ufl.replace(beta, {dummy_Piola: Piola})
         # assemble zero-th order coefficient
@@ -1666,7 +1666,7 @@ class PoissonFDMPC(FDMPC):
 
             replace_grad = {ufl.grad(t): ufl.dot(dt, Finv) for t, dt in zip(args_J, ref_grad)}
             alpha = expand_derivatives(sum(ufl.diff(ufl.diff(ufl.replace(i.integrand(), replace_grad),
-                                                     ref_grad[0]), ref_grad[1]) for i in integrals_J))
+                                                    ref_grad[0]), ref_grad[1]) for i in integrals_J))
             G = alpha
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
             G = G * abs(ufl.JacobianDeterminant(mesh))
