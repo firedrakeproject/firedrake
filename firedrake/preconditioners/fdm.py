@@ -494,57 +494,53 @@ class FDMPC(PCBase):
                 perm = perm[degree.argsort(kind='stable')]
                 A00.destroy()
 
-                iscol = PETSc.IS().createGeneral(perm, comm=result.getComm())
-                result = get_submat(result, iscol=iscol)
-                iscol.destroy()
+                isperm = PETSc.IS().createGeneral(perm, comm=result.getComm())
+                result = get_submat(result, iscol=isperm)
+                isperm.destroy()
             return cache.setdefault(key, result)
 
-        full_key = key[:-4] + (False,) * 4
-        if is_facet and full_key in cache:
-            result = get_submat(cache[full_key], iscol=self.fises)
-            return cache.setdefault(key, result)
+        short_key = key[:-3] + (False,) * 3
+        try:
+            result = cache[short_key]
+        except KeyError:
+            # Get CG(k) and DG(k-1) 1D elements from V
+            elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
+            e0 = elements[0] if elements[0].formdegree == 0 else None
+            e1 = elements[-1] if elements[-1].formdegree == 1 else None
+            if e0 and is_interior:
+                e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
-        # Get CG(k) and DG(k-1) 1D elements from V
-        elements = sorted(get_base_elements(fe), key=lambda e: e.formdegree)
-        e0, e1 = elements[::len(elements)-1]
-        e0 = elements[0] if elements[0].formdegree == 0 else None
-        e1 = elements[-1] if elements[-1].formdegree == 1 else None
-        if e0 and is_interior:
-            e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
+            # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
+            Q0 = self.coefficients["beta"].function_space().finat_element.element
+            elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
+            q0 = elements[0] if elements[0].formdegree == 0 else None
+            q1 = elements[-1]
+            if q1.formdegree != 1:
+                Q1 = self.coefficients["alpha"].function_space().finat_element.element
+                q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
 
-        # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
-        Q0 = self.coefficients["beta"].function_space().finat_element.element
-        elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
-        q0 = elements[0] if elements[0].formdegree == 0 else None
-        q1 = elements[-1]
-        if q1.formdegree != 1:
-            Q1 = self.coefficients["alpha"].function_space().finat_element.element
-            q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
-
-        # Interpolate V * d(V) -> space(beta) * space(alpha)
-        comm = PETSc.COMM_SELF
-        zero = PETSc.Mat()
-        A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
-        A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
-        A10 = petsc_sparse(evaluate_dual(e0, q1, alpha=(1,)), comm=comm) if e0 else zero
-        B_blocks = mass_blocks(tdim, formdegree, A00, A11)
-        A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
-        result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
-        A00.destroy()
-        A10.destroy()
-        A11.destroy()
-
-        if value_size != 1:
-            eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
-            temp = result
-            result = temp.kron(eye)
-            temp.destroy()
-            eye.destroy()
+            # Interpolate V * d(V) -> space(beta) * space(alpha)
+            comm = PETSc.COMM_SELF
+            zero = PETSc.Mat()
+            A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
+            A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
+            A10 = petsc_sparse(evaluate_dual(e0, q1, alpha=(1,)), comm=comm) if e0 else zero
+            B_blocks = mass_blocks(tdim, formdegree, A00, A11)
+            A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
+            result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
+            A00.destroy()
+            A10.destroy()
+            A11.destroy()
+            if value_size != 1:
+                eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
+                temp = result
+                result = temp.kron(eye)
+                temp.destroy()
+                eye.destroy()
 
         if is_facet:
-            cache[full_key] = result
-            result = get_submat(cache[full_key], iscol=self.fises)
-
+            cache[short_key] = result
+            result = get_submat(result, iscol=self.fises)
         return cache.setdefault(key, result)
 
     @cached_property
@@ -1335,7 +1331,7 @@ class PoissonFDMPC(FDMPC):
 
     def assemble_reference_tensor(self, V):
         try:
-            _, line_elements, shifts = get_permutation_to_line_elements(V.finat_element)
+            _, line_elements, shifts = get_permutation_to_line_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
