@@ -1,4 +1,4 @@
-from functools import partial, lru_cache
+from functools import partial
 from itertools import chain
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
@@ -12,9 +12,11 @@ from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
+from pyop2.caching import cached
 
 import firedrake
 import finat
+import FIAT
 import ufl
 import loopy
 import numpy
@@ -553,7 +555,35 @@ def expand_element(ele):
         return ele
 
 
-@lru_cache(maxsize=10)
+def hash_fiat_element(element):
+    """FIAT elements are not hashable,
+       this is not the best way to create a hash"""
+    restriction = None
+    e = element
+    if isinstance(e, FIAT.DiscontinuousElement):
+        # this hash does not care about inter-element continuity
+        e = e._element
+    if isinstance(e, FIAT.RestrictedElement):
+        restriction = tuple(e._indices)
+        e = e._element
+        if len(restriction) == e.space_dimension():
+            restriction = None
+    family = e.__class__.__name__
+    degree = e.order
+    return (family, element.ref_el, degree, restriction)
+
+
+def generate_key_evaluate_dual(source, target, alpha=tuple()):
+    return hash_fiat_element(source) + hash_fiat_element(target) + (alpha,)
+
+
+def get_readonly_view(arr):
+    result = arr.view()
+    result.flags.writeable = False
+    return result
+
+
+@cached({}, key=generate_key_evaluate_dual)
 def evaluate_dual(source, target, alpha=tuple()):
     """Evaluate the action of a set of dual functionals of the target element
        on the (derivative of order alpha of the) basis functions of the source
@@ -562,14 +592,15 @@ def evaluate_dual(source, target, alpha=tuple()):
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
     B = numpy.transpose(primal.get_coeffs())
-    if sum(alpha):
+    if sum(alpha) != 0:
         dmats = primal.get_dmats()
         for i in range(len(alpha)):
             for j in range(alpha[i]):
                 B = numpy.dot(dmats[i], B)
-    return numpy.dot(A, B)
+    return get_readonly_view(numpy.dot(A, B))
 
 
+@cached({}, key=generate_key_evaluate_dual)
 def compare_element(e1, e2):
     """Numerically compare two :class:`FIAT.elements`.
        Equality is satisfied if e2.dual_basis(e1.primal_basis) == identity."""
@@ -581,9 +612,9 @@ def compare_element(e1, e2):
     return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
 
 
-@lru_cache(maxsize=10)
+@cached({}, key=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
-def get_permutation_to_line_elements(finat_element):
+def get_permutation_to_line_elements(V):
     """
     Find DOF permutation to factor out the EnrichedElement expansion into common
     TensorProductElements. This routine exposes structure to e.g vectorize
@@ -592,35 +623,26 @@ def get_permutation_to_line_elements(finat_element):
 
     This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
 
+    :arg V: a :class:`.FunctionSpace`
+
     :returns: a 3-tuple of the DOF permutation, the unique terms in expansion as
               a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
               permutations of the axes to form the element given by their shifts
               in list of `int` tuples
     """
+    finat_element = V.finat_element
     expansion = expand_element(finat_element)
     if expansion.space_dimension() != finat_element.space_dimension():
-        raise ValueError("Failed to decompose %s into tensor products" % finat_element)
+        raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
 
-    unique_factors = set()
     line_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
-        fiat_factors = [e.fiat_equivalent for e in reversed(factors)]
+        fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
         if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
-            raise ValueError("Failed to decompose %s into line elements" % fiat_factors)
-
-        # use the same FIAT element if it appears multiple times in the expansion
-        for i in range(len(fiat_factors)):
-            n = fiat_factors[i]
-            for f in unique_factors:
-                if compare_element(n, f):
-                    n = f
-                    break
-            if n is fiat_factors[i]:
-                unique_factors.add(n)
-            fiat_factors[i] = n
-        line_elements.append(tuple(fiat_factors))
+            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
+        line_elements.append(fiat_factors)
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
     sizes = list(map(numpy.prod, shapes))
@@ -660,7 +682,7 @@ def get_permutation_to_line_elements(finat_element):
 
         shifts.append(axes_shifts)
 
-    dof_perm = numpy.concatenate(dof_perm)
+    dof_perm = get_readonly_view(numpy.concatenate(dof_perm))
     return dof_perm, unique_line_elements, shifts
 
 
@@ -669,7 +691,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    indices, _, _ = get_permutation_to_line_elements(V.finat_element)
+    indices, _, _ = get_permutation_to_line_elements(V)
     if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
     return op2.PermutedMap(V.cell_node_map(), indices)
@@ -832,8 +854,8 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, celems, cshifts = get_permutation_to_line_elements(Vc.finat_element)
-    _, felems, fshifts = get_permutation_to_line_elements(Vf.finat_element)
+    _, celems, cshifts = get_permutation_to_line_elements(Vc)
+    _, felems, fshifts = get_permutation_to_line_elements(Vf)
 
     shifts = fshifts
     in_place = False
@@ -1065,7 +1087,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    _, _, shifts = get_permutation_to_line_elements(V.finat_element)
+    _, _, shifts = get_permutation_to_line_elements(V)
     shift = shifts[0]
     if shift != (0,):
         ndof = numpy.prod(vshape)
