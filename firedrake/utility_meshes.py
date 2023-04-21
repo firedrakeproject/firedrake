@@ -491,6 +491,8 @@ def OneElementThickMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitTriangleMesh(
+    refinement_level=0,
+    distribution_parameters=None,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -498,6 +500,9 @@ def UnitTriangleMesh(
 ):
     """Generate a mesh of the reference triangle
 
+    :kwarg refinement_level: Number of uniform refinements to perform
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -509,12 +514,37 @@ def UnitTriangleMesh(
     """
     coords = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
     cells = [[0, 1, 2]]
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
-    )
+    plex = mesh.plex_from_cell_list(2, cells, coords, comm)
+
+    # mark boundary facets
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+
+    tol = 1e-2  # 0.5 would suffice
+    for face in boundary_faces:
+        face_coords = plex.vecGetClosure(coord_sec, coords, face)
+        # |x+y-1| < eps
+        if abs(face_coords[0] + face_coords[1] - 1) < tol and abs(face_coords[2] + face_coords[3] - 1) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+        # |x| < eps
+        if abs(face_coords[0]) < tol and abs(face_coords[2]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+        # |y| < eps
+        if abs(face_coords[1]) < tol and abs(face_coords[3]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
+    plex.removeLabel("boundary_faces")
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    plex.setName(mesh._generate_default_mesh_topology_name(name))
     return mesh.Mesh(
         plex,
         reorder=False,
+        distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
