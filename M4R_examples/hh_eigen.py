@@ -1,12 +1,12 @@
 from firedrake import *
 
-# number of elements in each direction
+# Number of elements in each direction
 n = 5
-
-# create mesh
+ 
+# Create mesh
 mesh = UnitSquareMesh(n, n, quadrilateral=False)
 
-# create function space
+# Create function space
 V = FunctionSpace(mesh, "CG", 1)
 
 # Define the trial and test functions
@@ -20,7 +20,7 @@ a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
 bc = DirichletBC(V, 0.0, "on_boundary")
 
 # Create eigenproblem
-eigenprob = LinearEigenproblem(a)
+eigenprob = LinearEigenproblem(a, bcs=bc)
 
 # Create corresponding eigensolver, looking for 1 eigenvalue
 eigensolver = LinearEigensolver(eigenprob, 1)
