@@ -495,7 +495,7 @@ class FDMPC(PCBase):
                 A00.destroy()
 
                 isperm = PETSc.IS().createGeneral(perm, comm=result.getComm())
-                result = get_submat(result, iscol=isperm)
+                result = get_submat(result, iscol=isperm, permute=True)
                 isperm.destroy()
             return cache.setdefault(key, result)
 
@@ -1053,16 +1053,10 @@ PetscErrorCode {name}(Mat A,
 
 def is_restricted(finat_element):
     """Determine if an element is a restriction onto interior or facets"""
-    is_interior = True
-    is_facet = True
-    cell_dim = finat_element.cell.get_dimension()
-    entity_dofs = finat_element.entity_dofs()
-    for dim in sorted(entity_dofs):
-        if any(len(entity_dofs[dim][entity]) > 0 for entity in entity_dofs[dim]):
-            if dim == cell_dim:
-                is_facet = False
-            else:
-                is_interior = False
+    idofs = finat_element.entity_dofs()[finat_element.cell.get_dimension()]
+    n = sum(len(idofs[entity]) for entity in idofs)
+    is_interior = n == finat_element.space_dimension()
+    is_facet = n == 0
     return is_interior, is_facet
 
 
@@ -1091,7 +1085,7 @@ def kron3(A, B, C, scale=None):
     return result
 
 
-def get_submat(A, isrow=None, iscol=None):
+def get_submat(A, isrow=None, iscol=None, permute=False):
     """Return the sub matrix A[isrow, iscol]"""
     needs_rows = isrow is None
     needs_cols = iscol is None
@@ -1102,7 +1096,10 @@ def get_submat(A, isrow=None, iscol=None):
         isrow = PETSc.IS().createStride(size[0], step=1, comm=A.getComm())
     if needs_cols:
         iscol = PETSc.IS().createStride(size[1], step=1, comm=A.getComm())
-    submat = A.createSubMatrix(isrow, iscol)
+    if permute:
+        submat = A.permute(isrow, iscol)
+    else:
+        submat = A.createSubMatrix(isrow, iscol)
     if needs_rows:
         isrow.destroy()
     if needs_cols:
