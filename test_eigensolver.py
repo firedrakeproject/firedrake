@@ -31,7 +31,7 @@ def tutorial():
     phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
     a =  beta*phi*psi.dx(0)*dx
     m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
-    eigenprob = LinearEigenproblem(a, m) # try with no m
+    eigenprob = LinearEigenproblem(a, m, bcs=bc) # try with no m
     eigensolver = LinearEigensolver(eigenprob, 1)
     eigensolver.solve()
     evals = eigensolver.eigenvalues()
@@ -40,4 +40,5 @@ def tutorial():
         print(evec_r[:])
     with eigenmodes_imag.vector().dat.vec as evec_i:  # Firedrake vector
         print(evec_i[:])
-tutorial()
+
+

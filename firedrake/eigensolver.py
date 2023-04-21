@@ -4,7 +4,6 @@ from firedrake import solving_utils
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.logging import warning
-import numpy as np
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -74,11 +73,10 @@ class LinearEigensolver(OptionsManager):
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
-            warning("Did not converge any eigenvalues") 
-            raise Exception("Did not converge any eigenvalues")
+            print("Did not converge any eigenvalues")  # or value error?
         return nconv
 
-    def eigenvalue(self, i): # DO THIS
+    def eigenvalue(self, i): 
         '''Return the eigenvalues of the problem'''
         return self.es.getEigenvalue(i)
 
@@ -86,6 +84,9 @@ class LinearEigensolver(OptionsManager):
         '''Return the ith eigenfunctions of the problem.'''
         eigenmodes_real = Function(self._problem.OutputSpace)  # fn of V
         eigenmodes_imag = Function(self._problem.OutputSpace)
-        vr, vi = eigenmodes_real.dat.vec_wo, eigenmodes_imag.dat.vec_wo
-        return vr, vi
+        with eigenmodes_real.dat.vec_wo as vr:
+            with eigenmodes_imag.dat.vec_wo as vi:
+                self.es.getEigenvector(i, vr, vi)  # gets the eigenvector
+        
+        return eigenmodes_real, eigenmodes_imag  # firedrake fns
 
