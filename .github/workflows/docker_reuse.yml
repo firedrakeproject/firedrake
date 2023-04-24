@@ -3,12 +3,17 @@ name: Reusable Docker workflow
 on:
   workflow_call:
     inputs:
-      # Target docker image name to upload to
       target:
+        description: 'Target docker image name to upload to'
         required: true
         type: string
-      # Path to the dockerfile required to build image
+      tag:
+        description: 'Optional tag (defaults to `latest`)'
+        required: false
+        default: 'latest'
+        type: string
       dockerfile:
+        description: 'Path to the dockerfile required to build image'
         required: true
         type: string
     secrets:
@@ -39,4 +44,4 @@ jobs:
           push: true
           no-cache: true
           file: ${{ inputs.dockerfile }}
-          tags: firedrakeproject/${{ inputs.target }}:latest
+          tags: firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}

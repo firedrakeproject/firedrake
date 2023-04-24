@@ -8,56 +8,82 @@ on:
       - JDBetteridge/rejig_actions
   schedule:
     - cron: '0 0 * * 0'
+    - cron: '0 0 1 * *' # Release
 
 concurrency:
   # Cancels jobs running if new commits are pushed
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  RELEASE_TAG: latest
+
 jobs:
+  # Setup
+  setup:
+    # needs: build
+    name: "Setup"
+    runs-on: self-hosted
+    steps:
+      - name: Set release tag
+        if: github.event.schedule == '0 0 1 * *' # Set a release tag if monthly CRON job
+        run: |
+          DATE_TAG=`date +%Y-%m`
+          echo "RELEASE_TAG=$DATE_TAG" >> "$GITHUB_ENV"
+      - name: Print release tag being used
+        run: |
+          echo The release tag is $RELEASE_TAG
+    outputs:
+      tag: ${{ env.RELEASE_TAG }}
   # Firedrake environment container
   docker_env:
-    # needs: build
+    needs: setup
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake-env
+      tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.env
     secrets: inherit
   # Firedrake environment container with PETSc
   docker_petscenv:
-    needs: docker_env
+    needs: [docker_env, setup]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-petscenv
+      tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.petscenv
     secrets: inherit
   # Firedrake container (just Firedrake)
   docker_vanilla:
-    needs: docker_petscenv
+    needs: [docker_petscenv, setup]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake-vanilla
+      tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
   # Firedrake container (just Firedrake)
   docker_firedrake:
-    needs: docker_vanilla
+    needs: [docker_vanilla, setup]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake
+      tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
     secrets: inherit
   # docker_complex:
-  #   needs: docker_petscenv
+  #   needs: [docker_petscenv, setup]
   #   uses: ./.github/workflows/docker_reuse.yml
   #   with:
   #     target: firedrake-test # firedrake-complex
+  #     tag: ${{ needs.setup.outputs.tag }}
   #     dockerfile: docker/Dockerfile.complex
   #   secrets: inherit
   docker_jupyter:
-    needs: docker_firedrake
+    needs: [docker_firedrake, setup]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake-jupyter
+      tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.jupyter
     secrets: inherit
