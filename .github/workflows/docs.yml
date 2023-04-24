@@ -10,14 +10,16 @@ on:
 
 
 jobs:
-  build:
-    name: "Run doc build"
+  build_docs:
+    name: Run doc build
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-vanilla:latest
       options: --user root
+      volumes:
+        - ${{ github.workspace }}:/home/firedrake/output
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
@@ -44,6 +46,12 @@ jobs:
           firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
           firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
           firedrake-preprocess-bibtex --validate source/_static/references.bib
+      - name: Check documentation links
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          . /home/firedrake/firedrake/bin/activate
+          cd docs
+          make linkcheck
       - name: Build docs
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -51,9 +59,37 @@ jobs:
           make html
           make latex
           make latexpdf
-      - name: Check documentation links
-        if: ${{ github.ref == 'refs/heads/master' }}
+      - name: Tarball
         run: |
-          . /home/firedrake/firedrake/bin/activate
           cd docs
-          make linkcheck
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+          echo Hello World! > index.html
+        # tar -czvf github-pages.tgz *
+        # echo WORKING DIRECTORY:
+        # pwd
+        # echo CONTENTS:
+        # ls
+        # echo TARBALL:
+        # tar -tvf github-pages.tgz
+      - name: Upload artifact
+        # if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
+        uses: actions/upload-pages-artifact@v1
+        with:
+          name: github-pages
+          path: /__w/firedrake/firedrake/docs/build/html
+          retention-days: 1
+  deploy:
+    name: Deploy Github pages
+    needs: build_docs
+    # if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: http://firedrakeproject.github.io/firedrake
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
