@@ -18,7 +18,9 @@ def run_CG_problem(r, degree, quads=False):
     """
 
     # Set up problem domain
-    mesh = UnitSquareMesh(2**r, 2**r, quadrilateral=quads)
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quads)
+    mh = MeshHierarchy(mesh, r-1)
+    mesh = mh[-1]
     x = SpatialCoordinate(mesh)
     u_exact = sin(x[0]*pi)*sin(x[1]*pi)
     f = -div(grad(u_exact))
@@ -33,22 +35,34 @@ def run_CG_problem(r, degree, quads=False):
     U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
     F = derivative(U, z, TestFunction(Z))
 
-    params = {'snes_type': 'ksponly',
-              'mat_type': 'matfree',
-              'pmat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': '0',
-              'condensed_field': {'ksp_type': 'preonly',
-                                  'pc_type': 'redundant',
-                                  "redundant_pc_type": "lu",
-                                  "redundant_pc_factor_mat_solver_type": "mumps"}}
+    params = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "mat_type": "matfree",
+        "pc_python_type": "firedrake.SCPC",
+        "pc_sc_eliminate_fields": "0",
+        "condensed_field": {
+            "mat_type": "aij",
+            "ksp_monitor": None,
+            "ksp_type": "cg",
+            "pc_type": "mg",
+            "mg_levels": {
+                "ksp_type": "chebyshev",
+                "pc_type": "jacobi"},
+            "mg_coarse": {
+                "ksp_type": "preonly",
+                "pc_type": "redundant",
+                "redundant_pc_type": "lu",
+                "redundant_pc_factor_mat_solver_type": "mumps"},
+        },
+    }
 
-    bcs = DirichletBC(Z.sub(1), zero(), "on_boundary")
+    bcs = DirichletBC(Z.sub(1), 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, z, bcs=bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
+    # assert solver.snes.ksp.getIterationNumber() < 10
     return norm(u_exact-u, norm_type="L2")
 
 
