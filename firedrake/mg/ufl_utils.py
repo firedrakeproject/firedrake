@@ -299,6 +299,43 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     return coarse
 
 
+@coarsen.register(firedrake.slate.AssembledVector)
+def coarsen_slate_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping)
+    return type(tensor)(form)
+
+
+@coarsen.register(firedrake.slate.BlockAssembledVector)
+def coarsen_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping)
+    block = self(tensor.block, self, coefficient_mapping)
+    return type(tensor)(form, *block.children, block.indices)
+
+
+@coarsen.register(firedrake.slate.Tensor)
+def coarsen_slate_tensor(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping)
+    return type(tensor)(form, diagonal=tensor.diagonal)
+
+
+@coarsen.register(firedrake.slate.TensorOp)
+def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children)
+
+
+@coarsen.register(firedrake.slate.Factorization)
+def coarsen_slate_factorization(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, decomposition=tensor.decomposition)
+
+
+@coarsen.register(firedrake.slate.Block)
+def coarsen_slate_block(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, indices=tensor._indices)
+
+
 class Interpolation(object):
     def __init__(self, cfn, ffn, manager, cbcs=None, fbcs=None):
         self.cfn = cfn
