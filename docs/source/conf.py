@@ -146,6 +146,7 @@ linkcheck_ignore = [
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
     r'https://asmedigitalcollection\.asme\.org/',
+    r'https://ieeexplore\.ieee\.org/document/1634311/',
 ]
 linkcheck_timeout = 10
 
