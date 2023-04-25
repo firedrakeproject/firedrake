@@ -21,7 +21,7 @@ jobs:
     runs-on: self-hosted
     # The docker container to use.
     container:
-      image: firedrakeproject/firedrake-env:latest
+      image: firedrakeproject/firedrake-petscenv:latest
     strategy:
       # Don't immediately kill real if complex fails and vice versa.
       fail-fast: false
