@@ -37,6 +37,7 @@ jobs:
       FIREDRAKE_CI_TESTS: 1
       PETSC_DIR: /home/firedrake/petsc
       PETSC_ARCH: ${{ matrix.petsc_arch }}
+      MPICH_DIR: /home/firedrake/petsc/mpich/bin
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
@@ -54,12 +55,16 @@ jobs:
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
             --honour-petsc-dir \
+            --mpicc=$MPICH_DIR/mpicc \
+            --mpicxx=$MPICH_DIR/mpicxx \
+            --mpif90=$MPICH_DIR/mpif90 \
+            --mpiexec=$MPICH_DIR/mpiexec \
             --venv-name firedrake_venv \
             --no-package-manager \
             --disable-ssh \
             --documentation-dependencies \
-            --tinyasm \
             --torch \
+            --tinyasm \
             --netgen \
             --slepc \
             --install thetis \
