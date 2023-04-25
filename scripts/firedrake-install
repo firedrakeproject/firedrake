@@ -69,7 +69,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm", "torch",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
 def deep_update(this, that):
