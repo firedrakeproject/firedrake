@@ -21,7 +21,6 @@ env:
 jobs:
   # Setup
   setup:
-    # needs: build
     name: "Setup"
     runs-on: self-hosted
     steps:
@@ -44,25 +43,16 @@ jobs:
       tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.env
     secrets: inherit
-  # Firedrake environment container with PETSc
-  docker_petscenv:
-    needs: [docker_env, setup]
-    uses: ./.github/workflows/docker_reuse.yml
-    with:
-      target: firedrake-petscenv
-      tag: ${{ needs.setup.outputs.tag }}
-      dockerfile: docker/Dockerfile.petscenv
-    secrets: inherit
   # Firedrake container (just Firedrake)
   docker_vanilla:
-    needs: [docker_petscenv, setup]
+    needs: [docker_env, setup] # add needs: build
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test # firedrake-vanilla
       tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
-  # Firedrake container (just Firedrake)
+  # Firedrake container (Firedrake and friends)
   docker_firedrake:
     needs: [docker_vanilla, setup]
     uses: ./.github/workflows/docker_reuse.yml
@@ -71,6 +61,7 @@ jobs:
       tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
     secrets: inherit
+    # Firedrake complex container
   # docker_complex:
   #   needs: [docker_petscenv, setup]
   #   uses: ./.github/workflows/docker_reuse.yml
