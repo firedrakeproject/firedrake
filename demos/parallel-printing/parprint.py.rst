@@ -16,7 +16,7 @@ Run this example in parallel using :math:`P` processes by doing
 We start with the usual import but we also import `petsc4py <https://bitbucket.org/petsc/petsc4py/>`_
 so that classes ``PETSc.X`` are available.  Here ``X`` is one of the
 `PETSc object types <https://www.mcs.anl.gov/petsc/documentation/index.html>`_,
-including types like `Vec <http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Vec/index.html>`_::
+including types like `Vec <http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Vec/index.html>`_::
 
     from firedrake import *
     from firedrake.petsc import PETSc
