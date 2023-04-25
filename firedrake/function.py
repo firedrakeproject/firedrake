@@ -220,11 +220,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     .. math::
 
-            f = \\sum_i f_i \phi_i(x)
+      f = \sum_i f_i \phi_i(x)
 
     The :class:`Function` class provides storage for the coefficients
     :math:`f_i` and associates them with a :class:`.FunctionSpace` object
-    which provides the basis functions :math:`\\phi_i(x)`.
+    which provides the basis functions :math:`\phi_i(x)`.
 
     Note that the coefficients are always scalars: if the
     :class:`Function` is vector-valued then this is specified in
