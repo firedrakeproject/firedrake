@@ -59,20 +59,11 @@ jobs:
           make html
           make latex
           make latexpdf
-      - name: Tarball
+      - name:  Copy manual to HTML tree
         run: |
           cd docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
-          echo Hello World! > index.html
-        # tar -czvf github-pages.tgz *
-        # echo WORKING DIRECTORY:
-        # pwd
-        # echo CONTENTS:
-        # ls
-        # echo TARBALL:
-        # tar -tvf github-pages.tgz
       - name: Upload artifact
-        # if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
         uses: actions/upload-pages-artifact@v1
         with:
           name: github-pages
@@ -81,7 +72,7 @@ jobs:
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    # if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
+    if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
     permissions:
       pages: write
       id-token: write
