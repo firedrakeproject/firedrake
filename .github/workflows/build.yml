@@ -34,10 +34,9 @@ jobs:
            complex: --complex
            petsc_arch: complex
     env:
+      # PETSC_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
-      PETSC_DIR: /home/firedrake/petsc
       PETSC_ARCH: ${{ matrix.petsc_arch }}
-      MPICH_DIR: /home/firedrake/petsc/mpich/bin
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
@@ -64,7 +63,6 @@ jobs:
             --disable-ssh \
             --documentation-dependencies \
             --torch \
-            --tinyasm \
             --netgen \
             --slepc \
             --install thetis \
@@ -72,6 +70,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium || (cat firedrake-install.log && /bin/false)
+        # --tinyasm  \
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
