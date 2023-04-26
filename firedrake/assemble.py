@@ -70,6 +70,9 @@ def assemble(expr, *args, **kwargs):
     :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
         boundary condition. Default is ``False``.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
 
     :returns: See below.
 
@@ -232,7 +235,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                    appctx=None,
                    options_prefix=None,
                    form_compiler_parameters=None,
-                   zero_bc_nodes=False):
+                   zero_bc_nodes=False,
+                   weight=1.0):
     """Assemble a form.
 
     See :func:`assemble` for a description of the arguments to this function.
@@ -280,7 +284,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
         assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
-                                     needs_zeroing=False)
+                                     needs_zeroing=False, weight=weight)
     else:
         raise AssertionError
 
@@ -390,7 +394,7 @@ class FormAssembler(abc.ABC):
     :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
     """
 
-    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True, weight=1.0):
         assert tensor is not None
 
         bcs = solving._extract_bcs(bcs)
@@ -400,6 +404,7 @@ class FormAssembler(abc.ABC):
         self._bcs = bcs
         self._form_compiler_params = form_compiler_parameters or {}
         self._needs_zeroing = needs_zeroing
+        self.weight = weight
 
     @property
     @abc.abstractmethod
@@ -676,7 +681,7 @@ class ExplicitMatrixAssembler(FormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
-            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component)
+            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
