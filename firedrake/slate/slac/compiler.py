@@ -31,7 +31,6 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode, ScalarType_c, as_cstr
-from ufl.log import GREEN
 from gem.utils import groupby
 from gem import impero_utils
 from itertools import chain
