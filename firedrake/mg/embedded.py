@@ -9,7 +9,7 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
+native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "Crouzeix-Raviart"])
 
 
 class Op(IntEnum):
