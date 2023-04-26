@@ -20,7 +20,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          ReferenceCellEdgeVectors,
                          ReferenceFacetVolume, ReferenceNormal,
                          SpatialCoordinate)
-
+from ufl.domain import extract_unique_domain
 
 from FIAT.reference_element import make_affine_mapping
 from FIAT.reference_element import UFCSimplex
@@ -153,7 +153,7 @@ class CoordinateMapping(PhysicalGeometry):
     def jacobian_at(self, point):
         ps = PointSingleton(point)
         expr = Jacobian(self.mt.terminal.ufl_domain())
-        assert ps.expression.shape == (expr.ufl_domain().topological_dimension(), )
+        assert ps.expression.shape == (extract_unique_domain(expr).topological_dimension(), )
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -485,7 +485,7 @@ def translate_facet_coordinate(terminal, mt, ctx):
 @translate.register(SpatialCoordinate)
 def translate_spatialcoordinate(terminal, mt, ctx):
     # Replace terminal with a Coefficient
-    terminal = ctx.coordinate(terminal.ufl_domain())
+    terminal = ctx.coordinate(extract_unique_domain(terminal))
     # Get back to reference space
     terminal = preprocess_expression(terminal, complex_mode=ctx.complex_mode)
     # Rebuild modified terminal
@@ -551,7 +551,7 @@ def translate_cellorigin(terminal, mt, ctx):
 
 @translate.register(CellVertices)
 def translate_cell_vertices(terminal, mt, ctx):
-    coords = SpatialCoordinate(terminal.ufl_domain())
+    coords = SpatialCoordinate(extract_unique_domain(terminal))
     ufl_expr = construct_modified_terminal(mt, coords)
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
 
@@ -569,7 +569,7 @@ def translate_cell_vertices(terminal, mt, ctx):
 @translate.register(CellEdgeVectors)
 def translate_cell_edge_vectors(terminal, mt, ctx):
     # WARNING: Assumes straight edges!
-    coords = CellVertices(terminal.ufl_domain())
+    coords = CellVertices(extract_unique_domain(terminal))
     ufl_expr = construct_modified_terminal(mt, coords)
     cell_vertices = ctx.translator(ufl_expr)
 

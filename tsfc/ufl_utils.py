@@ -24,6 +24,7 @@ from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
+from ufl.domain import extract_unique_domain
 
 from gem.node import MemoizerArg
 
@@ -397,7 +398,7 @@ def apply_mapping(expression, element, domain):
     variants) are applied to a matrix-valued function, the appropriate
     mappings are applied row-by-row.
     """
-    mesh = expression.ufl_domain()
+    mesh = extract_unique_domain(expression)
     if mesh is None:
         mesh = domain
     if domain is not None and mesh != domain:

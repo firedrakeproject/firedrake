@@ -25,6 +25,7 @@ from ufl.classes import (ReferenceValue, ReferenceGrad,
                          Restricted, ConstantValue,
                          Jacobian, SpatialCoordinate, Zero)
 from ufl.checks import is_cellwise_constant
+from ufl.domain import extract_unique_domain
 
 
 class ModifiedTerminal(object):
@@ -157,7 +158,7 @@ def construct_modified_terminal(mt, terminal):
     if mt.reference_value:
         expr = ReferenceValue(expr)
 
-    dim = expr.ufl_domain().topological_dimension()
+    dim = extract_unique_domain(expr).topological_dimension()
     for n in range(mt.local_derivatives):
         # Return zero if expression is trivially constant. This has to
         # happen here because ReferenceGrad has no access to the
