@@ -57,9 +57,9 @@ __all__ = ("FDMPC", "PoissonFDMPC")
 class FDMPC(PCBase):
     """
     A preconditioner for tensor-product elements that changes the shape
-    functions so that the H(d) Riesz map is sparse on Cartesian cells,
-    and assembles a global sparse matrix on which other preconditioners,
-    such as `ASMStarPC`, can be applied.
+    functions so that the H(d) (d in {grad, curl, div}) Riesz map is sparse on
+    Cartesian cells, and assembles a global sparse matrix on which other
+    preconditioners, such as `ASMStarPC`, can be applied.
 
     Here we assume that the volume integrals in the Jacobian can be expressed as:
 
