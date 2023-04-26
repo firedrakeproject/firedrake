@@ -68,8 +68,8 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "tinyasm",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
+                           "opencascade", "tinyasm", "torch",
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
 def deep_update(this, that):
@@ -259,6 +259,8 @@ honoured.""",
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--tinyasm", action="store_true",
                         help="Install TinyASM as backend for ASMPatchPC.")
+    parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
+                        help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -323,6 +325,8 @@ honoured.""",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true",
+                        help="Install Netgen.")
 
     args = parser.parse_args()
 
@@ -393,6 +397,8 @@ else:
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
                         help="Install TinyASM as backend for ASMPatchPC.")
+    parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
+                        help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -427,6 +433,8 @@ else:
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"]["netgen"],
+                        help="Install Netgen.")
 
     args = parser.parse_args()
 
@@ -1333,6 +1341,15 @@ def build_and_install_pythonocc():
         log.info("No need to rebuild pythonocc-core")
 
 
+def build_and_install_torch():
+    """Install PyTorch for a CPU or CUDA backend."""
+    log.info("Installing PyTorch (backend: %s)" % args.torch)
+    if osname == "Darwin" and args.torch == "cuda":
+        raise InstallError("CUDA installation is not available on MacOS.")
+    extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/cpu"] if args.torch == "cpu" else []
+    run_pip_install(["torch"] + extra_index_url)
+
+
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -1410,6 +1427,11 @@ def build_and_install_slepc():
         else:
             log.info("Cloning slepc4py from %s" % url)
             git_clone(url)
+
+
+def build_and_install_netgen():
+    log.info("Installing NGSolve/Netgen.")
+    run_pip(["install", "ngsolve", "--pre"])
 
 
 def install_documentation_dependencies():
@@ -2055,10 +2077,16 @@ with environment(**compiler_env):
 
     if options["tinyasm"]:
         build_and_install_tinyasm()
+    if options["netgen"]:
+        build_and_install_netgen()
 
 with pipargs("--no-deps"):
     if options["opencascade"]:
         build_and_install_pythonocc()
+
+with pipargs("--no-deps"):
+    if options["torch"]:
+        build_and_install_torch()
 
 if args.documentation_dependencies:
     install_documentation_dependencies()
