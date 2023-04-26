@@ -28,14 +28,13 @@ def run_CG_problem(r, degree, quads=False):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    cell = mesh.ufl_cell()
-    e = FiniteElement("Lagrange", cell=cell, degree=degree)
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
     V = FunctionSpace(mesh, MixedElement(RestrictedElement(e, "interior"), RestrictedElement(e, "facet")))
     uh = Function(V)
-    u = sum(TrialFunctions(V))
-    v = sum(TestFunctions(V))
 
     # Formulate the CG method in UFL
+    u = sum(TrialFunctions(V))
+    v = sum(TestFunctions(V))
     a = inner(grad(v), grad(u)) * dx
     L = inner(v, f) * dx
 
@@ -59,12 +58,12 @@ def run_CG_problem(r, degree, quads=False):
                 "pc_type": "python",
                 "pc_python_type": "firedrake.ASMStarPC",
                 "pc_star_construct_dim": 0,
-                "pc_star_sub_sub_pc_type": "lu",
+                "pc_star_sub_sub_pc_type": "cholesky",
                 "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc"},
             "mg_coarse": {
                 "ksp_type": "preonly",
                 "pc_type": "redundant",
-                "redundant_pc_type": "lu",
+                "redundant_pc_type": "cholesky",
                 "redundant_pc_factor_mat_solver_type": "mumps"}}}
 
     bcs = DirichletBC(V.sub(1), 0, "on_boundary")
@@ -81,24 +80,7 @@ def run_CG_problem(r, degree, quads=False):
                          [(3, False, 3.75),
                           (5, True, 5.75)])
 def test_cg_convergence(degree, quads, rate):
-    import numpy as npnv
-    errors = []
-    for r in range(2, 5):
-        error, its = run_CG_problem(r, degree, quads)
-        errors.append(error)
-        assert its <= 20
-
-    diff = np.array(errors)
-    conv = np.log2(diff[:-1] / diff[1:])
-    assert (np.array(conv) > rate).all()
-
-
-if __name__ == "__main__":
     import numpy as np
-    quads = True
-    degree = 5 if quads else 3
-    rate = degree + 0.75
-
     errors = []
     for r in range(2, 5):
         error, its = run_CG_problem(r, degree, quads)
