@@ -15,6 +15,8 @@ def run_CG_problem(r, degree, quads=False):
 
     This test uses a CG discretization splitting interior and facet DOFs
     and Slate to perform the static condensation and local recovery.
+    This solver uses multigrid on a mesh hierarchy to test coarsening of
+    Slate objects.
     """
 
     # Set up problem domain
@@ -27,46 +29,50 @@ def run_CG_problem(r, degree, quads=False):
 
     # Set up function spaces
     e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
-    V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
+    V = FunctionSpace(mesh, MixedElement(RestrictedElement(e, "interior"), RestrictedElement(e, "facet")))
     uh = Function(V)
-    u = sum(TrialFunctions(V))
-    v = sum(TestFunctions(V))
 
     # Formulate the CG method in UFL
+    u = sum(TrialFunctions(V))
+    v = sum(TestFunctions(V))
     a = inner(grad(v), grad(u)) * dx
-    F = inner(v, f) * dx
+    L = inner(v, f) * dx
 
     params = {
-        "mat_type": "matfree",
         "ksp_type": "preonly",
         "pc_type": "python",
+        "mat_type": "matfree",
         "pc_python_type": "firedrake.SCPC",
         "pc_sc_eliminate_fields": "0",
         "condensed_field": {
             "mat_type": "aij",
             "ksp_monitor": None,
             "ksp_type": "cg",
+            "ksp_rtol": 1E-14,
+            "ksp_atol": 0E-14,
+            "ksp_norm_type": "natural",
             "pc_type": "mg",
             "mg_levels": {
                 "ksp_type": "chebyshev",
-                "pc_type": "jacobi"},
+                "ksp_chebyshev_kind": "fourth",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.ASMStarPC",
+                "pc_star_construct_dim": 0,
+                "pc_star_sub_sub_pc_type": "cholesky",
+                "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc"},
             "mg_coarse": {
                 "ksp_type": "preonly",
                 "pc_type": "redundant",
-                "redundant_pc_type": "lu",
-                "redundant_pc_factor_mat_solver_type": "mumps"},
-        },
-    }
+                "redundant_pc_type": "cholesky",
+                "redundant_pc_factor_mat_solver_type": "mumps"}}}
 
     bcs = DirichletBC(V.sub(1), 0, "on_boundary")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
-
-    its = solver.snes.ksp.getIterationNumber()
-    print("iterations", its, flush=True)
-    # assert its < 10
-    return norm(u_exact-u, norm_type="L2")
+    its = solver.snes.ksp.pc.getPythonContext().condensed_ksp.getIterationNumber()
+    error = norm(u_exact-sum(uh), norm_type="L2")
+    return error, its
 
 
 @pytest.mark.parallel
@@ -75,6 +81,12 @@ def run_CG_problem(r, degree, quads=False):
                           (5, True, 5.75)])
 def test_cg_convergence(degree, quads, rate):
     import numpy as np
-    diff = np.array([run_CG_problem(r, degree, quads) for r in range(2, 5)])
+    errors = []
+    for r in range(2, 5):
+        error, its = run_CG_problem(r, degree, quads)
+        errors.append(error)
+        assert its <= 21
+
+    diff = np.array(errors)
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > rate).all()
