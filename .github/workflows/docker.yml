@@ -39,7 +39,7 @@ jobs:
     needs: setup
     uses: ./.github/workflows/docker_reuse.yml
     with:
-      target: firedrake-test # firedrake-env
+      target: firedrake-petscenv # firedrake-env
       tag: ${{ needs.setup.outputs.tag }}
       dockerfile: docker/Dockerfile.env
     secrets: inherit
