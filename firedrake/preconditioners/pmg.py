@@ -362,9 +362,7 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        interpolate = self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False)
-        rscale = interpolate.createVecRight()  # only used as a workaround in the creation of coarse vecs
-        return interpolate, rscale
+        return self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False), None
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
