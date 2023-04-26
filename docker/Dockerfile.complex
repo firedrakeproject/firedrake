@@ -8,9 +8,7 @@ MAINTAINER David Ham <david.ham@imperial.ac.uk>
 USER firedrake
 WORKDIR /home/firedrake
 
-ENV PETSC_DIR /home/firedrake/petsc
 ENV PETSC_ARCH complex
-ENV MPICH_DIR /home/firedrake/petsc/complex/mpich/bin
 
 # Now install Firedrake.
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
