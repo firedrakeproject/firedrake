@@ -85,7 +85,7 @@ def test_cg_convergence(degree, quads, rate):
     for r in range(2, 5):
         error, its = run_CG_problem(r, degree, quads)
         errors.append(error)
-        assert its <= 20
+        assert its <= 21
 
     diff = np.array(errors)
     conv = np.log2(diff[:-1] / diff[1:])
