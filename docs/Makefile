@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish serve scp
+publish publishpdf serve scp
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -44,6 +44,9 @@ help:
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
 GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
+
+publishpdf:
+	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
 publish: html
 # The raw IP address is used to circumvent some dns fiddling which

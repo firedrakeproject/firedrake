@@ -234,6 +234,9 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # -- Options for LaTeX output --------------------------------------------
 
+import os
+watermark = os.environ.get('FIREDRAKE_MANUAL_RELEASE')
+
 latex_additional_files = [
     '_static/sphinxpoptitle.sty'
 ]
@@ -275,6 +278,28 @@ latex_elements = {
 \usepackage{sphinxpoptitle}
 \subtitle{}
 \edition{2023}
+'''
+f'''
+% Mark non-release versions with draft
+\\usepackage{{draftwatermark}}
+\DraftwatermarkOptions{{
+stamp={str(not bool(watermark)).lower()},
+angle=90,
+scale=0.5,
+fontsize=0.1\paperwidth,
+text={{DRAFT {release}}},
+hpos=0.05\paperwidth
+}}
+
+% Hacky way to add all metadata, neither tool sets all fields
+\hypersetup{{pdfinfo={{
+Title={{Firedrake User Manual}},
+Subject={{Mathematics}},
+}}}}
+\pdfinfo{{
+/Author ({author})
+/Keywords (Firedrake, Partial Differential Equations, PDEs, Finite Element, FEM, Code Generation)
+}}
 ''',
 
     'extrapackages': r'''\usepackage{mathtools}''',
