@@ -33,7 +33,7 @@ extensions = [
     'sphinxcontrib.youtube',
     'sphinxcontrib.bibtex',
     'sphinxcontrib.inkscapeconverter',
-    'numpydoc'
+    'sphinx.ext.napoleon',
 ]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
@@ -138,6 +138,8 @@ nitpick_ignore_regex = [
     # Slate Binary- and Unary- OPs
     ('py:class', r'(firedrake\.)*(slate\.)+(.*Op)'),
     ('py:class', 'firedrake.solving_utils._SNESContext'),
+    # Pyadjoint BlockVariable is not properly referenced in pyadjoint
+    ('py:class', 'BlockVariable'),
 ]
 
 # Dodgy links
@@ -353,6 +355,8 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
+    'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
@@ -363,8 +367,6 @@ intersphinx_mapping = {
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
-
-numpydoc_show_class_members = False
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
 extlinks = {

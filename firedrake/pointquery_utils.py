@@ -66,7 +66,7 @@ def inside_check(fiat_cell, eps, X="X"):
 
     Parameters
     ----------
-    fiat_cell : FIAT Cell
+    fiat_cell : FIAT.finite_element.FiniteElement
         The FIAT cell with same geometric dimension as the coordinate X.
 
     eps : float
@@ -99,7 +99,7 @@ def celldist_l1_c_expr(fiat_cell, X="X"):
 
     Parameters
     ----------
-    fiat_cell : FIAT cell
+    fiat_cell : FIAT.finite_element.FiniteElement
         The FIAT cell with same geometric dimension as the coordinate X.
 
     X : str

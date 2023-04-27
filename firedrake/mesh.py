@@ -1892,7 +1892,7 @@ values from f.)"""
 
     @utils.cached_property
     def cell_sizes(self):
-        """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
