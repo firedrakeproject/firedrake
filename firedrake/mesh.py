@@ -29,6 +29,12 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
+try:
+    import netgen
+    from ngsolve import ngs2petsc
+except ImportError:
+    netgen = None
+
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
            'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
@@ -39,6 +45,12 @@ _cells = {
     2: {3: "triangle", 4: "quadrilateral"},
     3: {4: "tetrahedron", 6: "hexahedron"}
 }
+
+
+_supported_embedded_cell_types = [ufl.Cell('interval', 2),
+                                  ufl.Cell('triangle', 3),
+                                  ufl.Cell("quadrilateral", 3),
+                                  ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), geometric_dimension=3)]
 
 
 unmarked = -1
@@ -261,6 +273,20 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
+
+
+@PETSc.Log.EventDecorator()
+def _from_netgen(ngmesh, comm=None):
+    """
+    Create a DMPlex from an Netgen mesh
+
+    :arg ngmesh: Netgen Mesh
+    TODO: Right now we construct Netgen mesh on a single worker, load it in Firedrake
+    and then distribute. We should find a way to take advantage of the fact that
+    Netgen can act as a parallel mesher.
+    """
+    meshMap = ngs2petsc.DMPlexMapping(ngmesh)
+    return meshMap.plex
 
 
 @PETSc.Log.EventDecorator()
@@ -675,14 +701,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
-
-    def cell_orientations(self):
-        """Return the orientation of each cell in the mesh.
-
-        Use :meth:`.init_cell_orientations` on the mesh *geometry* to initialise."""
-        if not hasattr(self, '_cell_orientations'):
-            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
-        return self._cell_orientations
 
     @abc.abstractmethod
     def num_cells(self):
@@ -2161,6 +2179,28 @@ values from f.)"""
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :meth:`.init_cell_orientations` to initialise."""
+        # View `_cell_orientations` (`CoordinatelessFunction`) as a property of
+        # `MeshGeometry` as opposed to one of `MeshTopology`, and treat it just like
+        # `_coordinates` (`CoordinatelessFunction`) so that we have:
+        # -- Regular MeshGeometry  = MeshTopology + `_coordinates`,
+        # -- Immersed MeshGeometry = MeshTopology + `_coordinates` + `_cell_orientations`.
+        # Here, `_coordinates` and `_cell_orientations` both represent some geometric
+        # properties (i.e., "coordinates" and "cell normals").
+        #
+        # Two `MeshGeometry`s can share the same `MeshTopology` and `_coordinates` while
+        # having distinct definition of "cell normals"; they are then simply regarded as two
+        # distinct meshes as `dot(expr, cell_normal) * dx` in general gives different results.
+        #
+        # Storing `_cell_orientations` in `MeshTopology` would make the `MeshTopology`
+        # object only useful for specific definition of "cell normals".
+        if not hasattr(self, '_cell_orientations'):
+            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+        return self._cell_orientations
+
     @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
@@ -2172,14 +2212,10 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in (ufl.Cell('interval', 2),
-                                   ufl.Cell('triangle', 3),
-                                   ufl.Cell("quadrilateral", 3),
-                                   ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
-                                                         geometric_dimension=3)):
+        if self.ufl_cell() not in _supported_embedded_cell_types:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
-        if hasattr(self.topology, '_cell_orientations'):
+        if hasattr(self, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         if not isinstance(expr, ufl.classes.Expr):
@@ -2201,7 +2237,7 @@ values from f.)"""
 
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
-        self.topology._cell_orientations = cell_orientations
+        self._cell_orientations = cell_orientations.topological
 
     def __getattr__(self, name):
         val = getattr(self._topology, name)
@@ -2279,7 +2315,7 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: Mesh file name (or DMPlex object) defining
+    :param meshfile: the mesh file name, a DMPlex object or a Netgen mesh object defining
            mesh topology.  See below for details on supported mesh
            formats.
     :param name: optional name of the mesh object.
@@ -2340,8 +2376,8 @@ def Mesh(meshfile, **kwargs):
 
     .. note::
 
-        When the mesh is created directly from a DMPlex object,
-        the ``dim`` parameter is ignored (the DMPlex already
+        When the mesh is created directly from a DMPlex object or a Netgen
+        mesh object, the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
@@ -2383,6 +2419,8 @@ def Mesh(meshfile, **kwargs):
         plex = meshfile
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
+    elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        plex = _from_netgen(meshfile, user_comm)
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -2409,7 +2447,37 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm, tolerance=tolerance)
-    return make_mesh_from_mesh_topology(topology, name)
+    mesh = make_mesh_from_mesh_topology(topology, name)
+    if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        # Adding Netgen mesh and inverse sfBC as attributes
+        mesh.netgen_mesh = meshfile
+        mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
+        mesh.comm = user_comm
+        # Refine Method
+
+        def refine_marked_elements(self, mark):
+            with mark.dat.vec as marked:
+                marked0 = marked
+                getIdx = self._cell_numbering.getOffset
+                if self.sfBCInv is not None:
+                    getIdx = lambda x: x
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,
+                                                                  self._cell_numbering,
+                                                                  marked)
+                if self.comm.Get_rank() == 0:
+                    mark = marked0.getArray()
+                    for i, el in enumerate(self.netgen_mesh.Elements2D()):
+                        if mark[getIdx(i)]:
+                            el.refine = True
+                        else:
+                            el.refine = False
+                    self.netgen_mesh.Refine(adaptive=True)
+                    return Mesh(self.netgen_mesh)
+                else:
+                    return Mesh(netgen.libngpy._meshing.Mesh(2))
+
+        setattr(MeshGeometry, "refine_marked_elements", refine_marked_elements)
+    return mesh
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")

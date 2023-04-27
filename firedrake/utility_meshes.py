@@ -558,6 +558,8 @@ def RectangleMesh(
     ny,
     Lx,
     Ly,
+    originX=0.,
+    originY=0.,
     quadrilateral=False,
     reorder=None,
     diagonal="left",
@@ -569,11 +571,13 @@ def RectangleMesh(
 ):
     """Generate a rectangular mesh
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg Lx: The extent in the x direction
-    :arg Ly: The extent in the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
+    :arg nx: The number of cells in the x direction.
+    :arg ny: The number of cells in the y direction.
+    :arg Lx: The X coordinates of the upper right corner of the rectangle.
+    :arg Ly: The Y coordinates of the upper right corner of the rectangle.
+    :arg originX: The X coordinates of the lower left corner of the rectangle.
+    :arg originY: The Y coordinates of the lower left corner of the rectangle.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
@@ -591,9 +595,9 @@ def RectangleMesh(
 
     The boundary edges in this mesh are numbered as follows:
 
-    * 1: plane x == 0
+    * 1: plane x == originX
     * 2: plane x == Lx
-    * 3: plane y == 0
+    * 3: plane y == originY
     * 4: plane y == Ly
     """
 
@@ -601,8 +605,8 @@ def RectangleMesh(
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
-    ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    xcoords = np.linspace(originX, Lx, nx + 1, dtype=np.double)
+    ycoords = np.linspace(originY, Ly, ny + 1, dtype=np.double)
     return TensorRectangleMesh(
         xcoords,
         ycoords,
