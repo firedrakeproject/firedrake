@@ -69,7 +69,7 @@ class FiredrakeConfiguration(dict):
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "tinyasm", "torch",
-                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas"]
+                           "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
 def deep_update(this, that):
@@ -325,6 +325,8 @@ honoured.""",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true",
+                        help="Install Netgen.")
 
     args = parser.parse_args()
 
@@ -431,6 +433,8 @@ else:
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
+    parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"]["netgen"],
+                        help="Install Netgen.")
 
     args = parser.parse_args()
 
@@ -1425,6 +1429,11 @@ def build_and_install_slepc():
             git_clone(url)
 
 
+def build_and_install_netgen():
+    log.info("Installing NGSolve/Netgen.")
+    run_pip(["install", "ngsolve", "--pre"])
+
+
 def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
@@ -2068,6 +2077,8 @@ with environment(**compiler_env):
 
     if options["tinyasm"]:
         build_and_install_tinyasm()
+    if options["netgen"]:
+        build_and_install_netgen()
 
 with pipargs("--no-deps"):
     if options["opencascade"]:

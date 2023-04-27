@@ -7,6 +7,8 @@ from pyadjoint.reduced_functional_numpy import gather
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
 
+from ufl.domain import extract_unique_domain
+
 import numpy
 
 
@@ -150,4 +152,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.values() if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape), domain=self.ufl_domain())
+        return type(self)(numpy.reshape(values, self.ufl_shape), domain=extract_unique_domain(self))
