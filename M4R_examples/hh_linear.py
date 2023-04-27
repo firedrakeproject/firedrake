@@ -10,7 +10,7 @@ mesh = UnitSquareMesh(n, n, quadrilateral=False)
 V = FunctionSpace(mesh, "CG", 1)
 
 # Define the trial and test functions
-u = TrialFunction(V)
+u = TrialFuncton(V)
 v = TestFunction(V)
 
 # Define the right-hand side

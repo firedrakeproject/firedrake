@@ -17,10 +17,10 @@ v = TestFunction(V)
 a = (inner(grad(u), grad(v))) * dx
 
 # Apply the homogeneous Dirichlet boundary conditions
-bc = DirichletBC(V, 0.0, "on_boundary")
+bc = None#DirichletBC(V, 0.0, "on_boundary")
 
 # Create eigenproblem
-eigenprob = LinearEigenproblem(a, bcs=bc)
+eigenprob = LinearVariationalProblem(a, bcs=bc)
 
 # Create corresponding eigensolver, looking for 2 eigenvalues
 eigensolver = LinearEigensolver(eigenprob, 2)
