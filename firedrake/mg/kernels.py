@@ -33,11 +33,6 @@ from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 
 
-# debugging
-from petsc4py import PETSc
-PETSc.Sys.popErrorHandler()
-
-
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     if parameters is None:
         parameters = tsfc.default_parameters()
