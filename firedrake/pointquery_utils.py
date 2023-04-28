@@ -151,11 +151,8 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
         lp.GlobalArg(
             "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
 
-    Celement = tsfc.finatinterface.create_element(C.ufl_element())
-    Cshape = (numpy.prod(Celement.index_shape, dtype=int),)
-
-    x0element = tsfc.finatinterface.create_element(x0.ufl_element())
-    x0shape = (numpy.prod(x0element.index_shape, dtype=int),)
+    Cshape = (numpy.prod(Cexpr.shape, dtype=int),)
+    x0shape = (numpy.prod(x0_expr.shape, dtype=int),)
 
     loopy_args = [
         lp.GlobalArg("C", dtype=ScalarType_c, shape=Cshape),
