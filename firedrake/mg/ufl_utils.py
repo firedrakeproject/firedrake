@@ -163,6 +163,8 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
+    if hasattr(expr, "_coarse"):
+        return coefficient_mapping.setdefault(expr, expr._coarse)
     new = coefficient_mapping.get(expr)
     if new is None:
         V = expr.function_space()

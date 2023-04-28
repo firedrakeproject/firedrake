@@ -29,7 +29,7 @@ def run_CG_problem(r, degree, quads=False):
 
     # Set up function spaces
     e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
-    V = FunctionSpace(mesh, MixedElement(RestrictedElement(e, "interior"), RestrictedElement(e, "facet")))
+    V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
     uh = Function(V)
 
     # Formulate the CG method in UFL
@@ -55,6 +55,7 @@ def run_CG_problem(r, degree, quads=False):
             "mg_levels": {
                 "ksp_type": "chebyshev",
                 "ksp_chebyshev_kind": "fourth",
+                "ksp_chebyshev_esteig": "0,0.99,0,1.01",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.ASMStarPC",
                 "pc_star_construct_dim": 0,
@@ -70,7 +71,9 @@ def run_CG_problem(r, degree, quads=False):
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
-    its = solver.snes.ksp.pc.getPythonContext().condensed_ksp.getIterationNumber()
+    ksp = solver.snes.ksp
+    ksp = ksp.pc.getPythonContext().condensed_ksp
+    its = ksp.getIterationNumber()
     error = norm(u_exact-sum(uh), norm_type="L2")
     return error, its
 
