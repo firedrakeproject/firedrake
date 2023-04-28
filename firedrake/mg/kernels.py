@@ -229,14 +229,11 @@ def prolong_kernel(expression):
         evaluate_kernel = compile_element(expression)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
-        # eval_args = evaluate_kernel.args[:-1]
         coords_element = create_element(coordinates.ufl_element())
 
         eval_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
-        # args = eval_args[-1].gencode(not_scope=True)
         args = "double *f"
-        # R, coarse = (a.sym.symbol for a in eval_args)
         R, coarse = "R", "f"
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -328,13 +325,6 @@ def restrict_kernel(Vf, Vc):
 
         evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
-        # always has 3 arguments: R, b and X
-        # eval_args = evaluate_kernel.args[:-1]
-        # eval_args = evaluate_kernel.callables_table["pyop2_kernel_evaluate"].subkernel.args[:-1]
-
-        # I think that this is only length 1 so the plural is misleading
-        # args = eval_args[-1].gencode(not_scope=True)
-        # args = "double b[1]"
         args = "double *b"
         R, fine = "R", "b"
         my_kernel = """#include <petsc.h>
