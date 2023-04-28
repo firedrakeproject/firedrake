@@ -74,7 +74,9 @@ jobs:
             --install gusto \
             --install icepack \
             --install irksome \
-            --install femlium || (cat firedrake-install.log && /bin/false)
+            --install femlium \
+            --package-branch tsfc no-coffee \
+            --package-branch pyop2 no-coffee || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
