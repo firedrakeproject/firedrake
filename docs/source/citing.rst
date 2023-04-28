@@ -7,15 +7,15 @@
 ==================
 
 If you publish results using Firedrake, we would be grateful if you
-would cite the Firedrake user manual.
+would cite the Firedrake user manual::
 
   @manual{FiredrakeUserManual,
-    title		     = {Firedrake User Manual},
-    author		   = {David Ham and Paul Kelly and Lawrence Mitchell and Colin Cotter and Rob Kirby and Koki Sagiyama and Nacime Bouziani and Sophia Vorderwuelbecke and Tom Gregory and Jack Betteridge and Daniel Shapero and Reuben W. Nixon-Hill and Connor Ward and Patrick E. Farrell and Pablo Brubeck and India Marsden and Thomas Gibson and Miklós Homolya and Tianjiao (TJ) Sun and Andrew McRae and Fabio Luporini and Alastair Gregory and Michael Lange and Simon Funke and Florian Rathgeber and Doru Bercea and Graham Markall},
+    title        = {Firedrake User Manual},
+    author       = {David Ham and Paul Kelly and Lawrence Mitchell and Colin Cotter and Rob Kirby and Koki Sagiyama and Nacime Bouziani and Sophia Vorderwuelbecke and Tom Gregory and Jack Betteridge and Daniel Shapero and Reuben W. Nixon-Hill and Connor Ward and Patrick E. Farrell and Pablo Brubeck and India Marsden and Thomas Gibson and Miklós Homolya and Tianjiao (TJ) Sun and Andrew McRae and Fabio Luporini and Alastair Gregory and Michael Lange and Simon Funke and Florian Rathgeber and Doru Bercea and Graham Markall},
     organization = {Imperial College London and University of Oxford and Baylor University and University of Washington},
-    edition	     = {First edition},
-    year		     = {2023},
-    month		     = {5},
+    edition      = {First edition},
+    year         = {2023},
+    month        = {5},
     doi          = {pending},
   }
 
