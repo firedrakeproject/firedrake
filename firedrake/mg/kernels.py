@@ -63,6 +63,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 #include <stdio.h>
 #include <petsc.h>
 
+%(to_reference_coords_newton_step)s
+
 static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
@@ -77,7 +79,7 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         double dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords_newton_step)s
+        to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;
@@ -489,7 +491,6 @@ def inject_kernel(Vf, Vc):
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
-        import pdb; pdb.set_trace()
         return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
 
 
@@ -757,9 +758,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     #     import pdb; pdb.set_trace()
     #     pass
     #
-    mytest = lp.generate_code_v2(fullkernel).device_code()
-    import pdb; pdb.set_trace()
-    pass
+    # mytest = lp.generate_code_v2(fullkernel).device_code()
+    # import pdb; pdb.set_trace()
+    # pass
 
     return op2.Kernel(fullkernel,
                       name="pyop2_kernel_injection_dg",

@@ -137,9 +137,7 @@ def format_num(v, precision):
     f = "%%.%dg" % precision
     f_int = "%%.%df" % 1
     eps = 10.0**(-precision)
-    if not isinstance(v, numbers.Number):
-        return v.gencode(not_scope=True)
-    elif isnan(v):
+    if isnan(v):
         return "NAN"
     elif abs(v.real - round(v.real, 1)) < eps and abs(v.imag - round(v.imag, 1)) < eps:
         formatter = f_int
@@ -168,14 +166,11 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
     builder.domain_coordinate[domain] = C
 
-    builder._coefficient(C, "C")
-    builder._coefficient(x0, "x0")
+    Cexpr = builder._coefficient(C, "C")
+    x0_expr = builder._coefficient(x0, "x0")
 
-    Celement = tsfc.finatinterface.create_element(C.ufl_element())
-    Cshape = (numpy.prod(Celement.index_shape, dtype=int),)
-
-    x0element = tsfc.finatinterface.create_element(x0.ufl_element())
-    x0shape = (numpy.prod(x0element.index_shape, dtype=int),)
+    Cshape = (numpy.prod(Cexpr.shape, dtype=int),)
+    x0shape = (numpy.prod(x0_expr.shape, dtype=int),)
 
     loopy_args = [
         lp.GlobalArg("C", dtype=ScalarType_c, shape=Cshape),
