@@ -464,6 +464,7 @@ def inject_kernel(Vf, Vc):
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
+        import pdb; pdb.set_trace()
         return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
 
 
