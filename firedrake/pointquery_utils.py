@@ -1,6 +1,5 @@
 from os import path
 import numpy
-import numbers
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp

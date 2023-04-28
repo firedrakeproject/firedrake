@@ -698,11 +698,15 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # 3. Now we have the kernel that computes <f, phi_c>dx_c.
     # So now we need to hit it with the inverse mass matrix on dx_c
 
+    # TODO clean this section up
     retarg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(Vce.space_dimension(),))
 
-    kernel_data = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
-                                                   coarse_coordinates_arg] + kernel_data
-
+    kernel_data = (
+        [retarg]
+        + macro_builder.kernel_args
+        + [macro_coordinates_arg, coarse_coordinates_arg]
+        + kernel_data
+    )
 
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
