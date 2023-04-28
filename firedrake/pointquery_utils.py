@@ -19,7 +19,6 @@ import gem
 import gem.impero_utils as impero_utils
 
 import tsfc
-import tsfc.coffee
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
@@ -213,14 +212,9 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-
-    # double  t0  = ((1) + (((-1) * (X[0]))));
-    # double  t1  = ((((-1) * (C[0]))) + (C[1]));
-    # dX[0] += (((1) / (((((t0) * (t1))) + (((X[0]) * (t1))))))) * (((((((t0) * (((C[0]) + (((0) * (C[1]))))))) + (((X[0]) * (((((0) * (C[0]))) + (C[1]))))))) + (((-1) * (x0[0])))));
-
-    # body = tsfc.coffee.generate(impero_c, {}, ScalarType)
-    # import pdb; pdb.set_trace()
-    kernel, _ = tsfc.loopy.generate(impero_c, loopy_args, ScalarType_c, kernel_name="to_reference_coords_newton_step")
+    kernel, _ = tsfc.loopy.generate(
+        impero_c, loopy_args, ScalarType_c,
+        kernel_name="to_reference_coords_newton_step")
     return lp.generate_code_v2(kernel).device_code()
 
 

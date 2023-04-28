@@ -104,14 +104,13 @@ def compile_element(expression, coordinates, parameters=None):
             return index.extent <= max_extent
         result, = gem.optimise.unroll_indexsum([result], predicate=predicate)
 
-    # Translate GEM -> COFFEE
+    # Translate GEM -> loopy
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
     loopy_args = [result_arg, point_arg, x_arg, f_arg]
-    # body = generate_loopy(impero_c, {}, utils.ScalarType)
     loopy_kernel, _ = generate_loopy(
-        impero_c, loopy_args, utils.ScalarType, kernel_name="evaluate_kernel", index_names={})
-
+        impero_c, loopy_args, utils.ScalarType,
+        kernel_name="evaluate_kernel", index_names={})
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template

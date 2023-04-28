@@ -9,7 +9,6 @@ from ufl.domain import join_domains, extract_domains
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-import coffee.base as ast
 from firedrake.parameters import target
 
 from firedrake.logging import warning
@@ -138,6 +137,10 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
 
 def _form_string_kernel(body, measure, args, **kwargs):
+    # FIXME
+    raise NotImplementedError("This function is currently untested, see #2898")
+
+    import coffee.base as ast
     kargs = []
     if body.find("][") >= 0:
         warning("""Your kernel body contains a double indirection.\n"""
