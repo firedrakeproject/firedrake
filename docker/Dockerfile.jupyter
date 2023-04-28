@@ -28,8 +28,7 @@ RUN bash -c "rm thetis/*.py"
 RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in thetis/*.ipynb; do jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; done'
 
 # Environment required for Azure deployments.
-ENV OMPI_MCA_btl=tcp,self
-ENV PATH=/home/firedrake/firedrake/bin:$PATH
-ENV OMP_NUM_THREADS=1
+ENV OMPI_MCA_btl tcp,self
+ENV PATH /home/firedrake/firedrake/bin:$PATH
 
 CMD /home/firedrake/firedrake/bin/jupyter notebook --ip 0.0.0.0 --no-browser --allow-root
