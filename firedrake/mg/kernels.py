@@ -13,6 +13,7 @@ from ufl.corealg.map_dag import map_expr_dags
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
+import pymbolic as pym
 
 import gem
 import gem.impero_utils as impero_utils
@@ -95,7 +96,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
     :arg dual_space: if the expression has an argument, should we also distribute residual data?
-    :returns: Some coffee AST
+    :returns: The generated code (:class:`loopy.TranslationUnit`)
     """
     if parameters is None:
         parameters = default_parameters()
@@ -135,7 +136,6 @@ def compile_element(expression, dual_space=None, parameters=None,
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    # point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
     point_arg = lp.GlobalArg("X", dtype=ScalarType_c, shape=(dim,))
 
     config = dict(interface=builder,
@@ -163,12 +163,10 @@ def compile_element(expression, dual_space=None, parameters=None,
     if coefficient:
         if expression.ufl_shape:
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            # result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
             result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=expression.ufl_shape)
             result = gem.Indexed(result, tensor_indices)
         else:
             return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-            # result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=(1,)))
             result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(1,))
 
     else:
@@ -179,15 +177,12 @@ def compile_element(expression, dual_space=None, parameters=None,
             if elem.value_shape:
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
-                # b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=elem.value_shape))]
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType_c, shape=elem.value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
-                # b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=(1, )))]
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType_c, shape=(1,))]
             result = gem.Product(result, var)
 
-        # result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
         result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=finat_elem.index_shape)
 
     # Unroll
@@ -197,18 +192,14 @@ def compile_element(expression, dual_space=None, parameters=None,
             return index.extent <= max_extent
         result, = gem.optimise.unroll_indexsum([result], predicate=predicate)
 
-    # Translate GEM -> COFFEE
+    # Translate GEM -> loopy
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
 
     loopy_args = [result_arg] + b_arg + f_arg + [point_arg]
-    # body = generate_coffee(impero_c, {}, ScalarType)
     kernel_code, _ = generate_loopy(
         impero_c, loopy_args, ScalarType,
         kernel_name="pyop2_kernel_"+name, index_names={})
-
-    # Build kernel tuple
-    # kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
 
     return kernel_code
 
@@ -537,8 +528,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
-        # funarg = ast.Decl(ScalarType_c, ast.Symbol(name), pointers=[("restrict", )],
-        #                   qualifiers=["const"])
         funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=(size,))
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
@@ -672,15 +661,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
 
-    # so here we are generating a partial kernel and then inserting
-    # additional bits afterwards. This is problematic for loopy since we
-    # expect to form a full kernel
-
-    # maybe inspect the impero_c? and insert things then
-
-    # body = generate_coffee(impero_c, index_names, ScalarType)
     # data is just the temporary things, no kernel args yet registered.
-    domains, instructions, data, kernel_name, target, preamble= generate_loopy(
+    # FIXME this is a nasty hack, refactor generate_loopy
+    domains, instructions, data, kernel_name, target, preamble = generate_loopy(
         impero_c, [], ScalarType,
         kernel_name="pyop2_kernel_evaluate", index_names=index_names, stop_early=True)
 
@@ -693,12 +676,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
         counter += 1
     instructions = new_instructions
 
-    # retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
     retarg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(Vce.space_dimension(),))
     local_tensor = coarse_builder.generate_arg_from_expression(coarse_builder.return_variables)
-    # local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
-    # body.children.insert(0, local_tensor)
-    import pymbolic as pym
     iname = "myiname"
     domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
     init_insn = lp.Assignment(pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0, within_inames=frozenset({iname}), id="myid")
@@ -708,7 +687,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     new_insns = []
     alldeps = {"myid"}
     for insn in instructions:
-        new_insns.append(insn.copy(depends_on=insn.depends_on|alldeps))
+        new_insns.append(insn.copy(depends_on=insn.depends_on | alldeps))
         alldeps.add(insn.id)
     instructions = new_insns
 
@@ -727,14 +706,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
     expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
     Ainv, = compile_expression(expr)
     Ainv = Ainv.kinfo.kernel
-
-    # A = ast.Symbol(local_tensor.sym.symbol)
-    # R = ast.Symbol("R")
-    # body.children.append(ast.FunCall(Ainv.name, R, coarse_coordinates_arg.sym, A))
-    # callinsn = lp.CInstruction(frozenset(), f"{Ainv.name}(R, {coarse_coordinates_arg.name}, A);")
-
-    # FIXME
-    # loopy.CallInstruction(assignees, expression, id=None, depends_on=None, depends_on_is_final=None, groups=None, conflicts_with_groups=None, no_sync_with=None, within_inames_is_final=None, within_inames=None, tags=None, temp_var_types=None, priority=0, predicates=frozenset({}))
 
     swept_iname = "myswept0"
     domains.append(f"{{ [{swept_iname}]: 0 <= {swept_iname} < {Vce.space_dimension()} }}")
@@ -758,22 +729,17 @@ def dg_injection_kernel(Vf, Vc, ncell):
     expression = pym.primitives.Call(
         pym.var(Ainv.name),
         (*assignees, ccref, ltref),
-        # tuple(map(pym.var, ["R", coarse_coordinates_arg.name, local_tensor.name])),
     )
     callinsn = lp.CallInstruction(
         assignees, expression, depends_on=frozenset({insn.id for insn in instructions if insn.id is not None}), within_inames_is_final=True)
 
     instructions.append(callinsn)
 
-    knl1 = lp.make_kernel(domains, instructions, data, name="pyop2_kernel_injection_dg", target=target,preambles=preamble)
+    knl1 = lp.make_kernel(
+        domains, instructions, data, name="pyop2_kernel_injection_dg",
+        target=target, preambles=preamble)
     fullkernel = lp.merge([Ainv.code, knl1])
 
-    mytestcode = lp.generate_code_v2(fullkernel).device_code()
-
-
-    # return op2.Kernel(ast.Node([Ainv.code,
-    #                             ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
-    #                                         pred=["static", "inline"])]),
     return op2.Kernel(fullkernel,
                       name="pyop2_kernel_injection_dg",
                       cpp=False,

@@ -17,16 +17,15 @@ from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
 from firedrake.slate.slac.utils import slate_to_gem, merge_loopy
 from firedrake.slate.slac.optimise import optimise
 
-from firedrake import op2, tsfc_interface
+from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import get_petsc_variables
-from firedrake.utils import complex_mode, ScalarType_c, as_cstr
-from gem.utils import groupby
+from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir, as_tuple
+from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 

@@ -1,10 +1,7 @@
 import numpy as np
 from itertools import count
 
-from collections import OrderedDict, Counter, namedtuple
-
-from firedrake.slate.slac.utils import traverse_dags
-from firedrake.utils import cached_property
+from collections import OrderedDict, namedtuple
 
 from ufl import MixedElement
 import loopy
