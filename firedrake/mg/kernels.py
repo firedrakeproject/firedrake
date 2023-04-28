@@ -489,6 +489,7 @@ def inject_kernel(Vf, Vc):
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
+        import pdb; pdb.set_trace()
         return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
 
 
@@ -661,45 +662,56 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
 
-    # data is just the temporary things, no kernel args yet registered.
-    # FIXME this is a nasty hack, refactor generate_loopy
-    domains, instructions, data, kernel_name, target, preamble = generate_loopy(
-        impero_c, [], ScalarType,
-        kernel_name="pyop2_kernel_evaluate", index_names=index_names, stop_early=True)
+    # now construct the outermost kernel
+    domains = []
+    instructions = []
+    kernel_data = []
+    depends_on = frozenset()
+    local_tensor = coarse_builder.generate_arg_from_expression(coarse_builder.return_variables)
 
-    # unbelievably, this is a hack
-    new_instructions = []
-    counter = 0
-    for insn in instructions:
-        new_id = f"mg_insn_{counter}"
-        new_instructions.append(insn.copy(id=new_id))
-        counter += 1
-    instructions = new_instructions
+    # 1. Zero the local tensor
+    iname = "i0"
+    domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
+    instructions.append(
+        lp.Assignment(
+            pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0,
+            within_inames=frozenset({iname}), id="zero", depends_on=depends_on))
+    kernel_data.append(
+        lp.TemporaryVariable(local_tensor.name, shape=(Vce.space_dimension(),), dtype=ScalarType))
+    depends_on |= {"zero"}
+
+    # 2. Fill the local tensor
+    macro_coordinates_arg = macro_builder.generate_arg_from_expression(
+        macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
+    coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(
+        coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
+    eval_args = [
+        lp.GlobalArg(
+            local_tensor.name, dtype=ScalarType, shape=(Vce.space_dimension(),),
+            is_input=True, is_output=True),
+        *macro_builder.kernel_args,
+        macro_coordinates_arg,
+        coarse_coordinates_arg,
+    ]
+    eval_kernel, _ = generate_loopy(
+        impero_c, eval_args,
+        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+
+    fill_insn, extra_domains = _generate_call_insn(
+        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        depends_on=depends_on, within_inames_is_final=True)
+    instructions.append(fill_insn)
+    domains.extend(extra_domains)
+    depends_on |= {fill_insn.id}
+
+    # 3. Now we have the kernel that computes <f, phi_c>dx_c.
+    # So now we need to hit it with the inverse mass matrix on dx_c
 
     retarg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(Vce.space_dimension(),))
-    local_tensor = coarse_builder.generate_arg_from_expression(coarse_builder.return_variables)
-    iname = "myiname"
-    domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
-    init_insn = lp.Assignment(pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0, within_inames=frozenset({iname}), id="myid")
 
-    data.insert(0, lp.TemporaryVariable(local_tensor.name, shape=(Vce.space_dimension(),), dtype=ScalarType))
+    kernel_data = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
+                                                   coarse_coordinates_arg] + kernel_data
 
-    new_insns = []
-    alldeps = {"myid"}
-    for insn in instructions:
-        new_insns.append(insn.copy(depends_on=insn.depends_on | alldeps))
-        alldeps.add(insn.id)
-    instructions = new_insns
-
-    instructions.insert(0, init_insn)
-
-    macro_coordinates_arg = macro_builder.generate_arg_from_expression(macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
-    coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
-    data = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
-                                                   coarse_coordinates_arg] + data
-
-    # Now we have the kernel that computes <f, phi_c>dx_c
-    # So now we need to hit it with the inverse mass matrix on dx_c
 
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
@@ -736,12 +748,50 @@ def dg_injection_kernel(Vf, Vc, ncell):
     instructions.append(callinsn)
 
     knl1 = lp.make_kernel(
-        domains, instructions, data, name="pyop2_kernel_injection_dg",
-        target=target, preambles=preamble)
-    fullkernel = lp.merge([Ainv.code, knl1])
+        domains, instructions, kernel_data, name="pyop2_kernel_injection_dg",
+        target=tsfc.parameters.target)
+    fullkernel = lp.merge([Ainv.code, knl1, eval_kernel])
+
+    # try:
+    # except Exception as e:
+    #     import pdb; pdb.set_trace()
+    #     pass
+    #
+    mytest = lp.generate_code_v2(fullkernel).device_code()
+    import pdb; pdb.set_trace()
+    pass
 
     return op2.Kernel(fullkernel,
                       name="pyop2_kernel_injection_dg",
                       cpp=False,
                       include_dirs=Ainv.include_dirs,
                       headers=Ainv.headers)
+
+
+def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
+    if not iname_prefix:
+        iname_prefix = name
+
+    domains = []
+    assignees = []
+    parameters = []
+    swept_iname_counter = 0
+    for arg in args:
+        try:
+            shape, = arg.shape
+        except ValueError:
+            raise NotImplementedError("Expecting vector-shaped arguments")
+
+        swept_iname = f"{iname_prefix}_i{swept_iname_counter}"
+        swept_iname_counter += 1
+        domains.append(f"{{ [{swept_iname}]: 0 <= {swept_iname} < {shape} }}")
+        swept_index = (pym.var(swept_iname),)
+        param = lp.symbolic.SubArrayRef(
+            swept_index, pym.subscript(pym.var(arg.name), swept_index))
+        parameters.append(param)
+        if arg.is_output:
+            assignees.append(param)
+    assignees = tuple(assignees)
+    parameters = tuple(parameters)
+    expression = pym.primitives.Call(pym.var(name), parameters)
+    return lp.CallInstruction(assignees, expression, **kwargs), domains
