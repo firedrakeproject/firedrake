@@ -22,6 +22,7 @@ import loopy
 import numpy
 import os
 import tempfile
+import weakref
 
 __all__ = ("PMGPC", "PMGSNES")
 
@@ -56,7 +57,8 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-    _cache = {}
+    _coarsen_cache = weakref.WeakKeyDictionary()
+    _transfer_cache = weakref.WeakKeyDictionary()
 
     def coarsen_element(self, ele):
         """
@@ -277,26 +279,13 @@ class PMGBase(PCSNESBase):
         interpolate = None
         if fctx._nullspace or fctx._nullspace_T or fctx._near_nullspace:
             interpolate, _ = cdm.createInterpolation(fdm)
-        cctx._nullspace = self.coarsen_nullspace(cV, interpolate, fctx._nullspace)
-        cctx._nullspace_T = self.coarsen_nullspace(cV, interpolate, fctx._nullspace_T)
-        cctx._near_nullspace = self.coarsen_nullspace(cV, interpolate, fctx._near_nullspace)
+        cctx._nullspace = self.coarsen_nullspace(fctx._nullspace, cV, interpolate)
+        cctx._nullspace_T = self.coarsen_nullspace(fctx._nullspace_T, cV, interpolate)
+        cctx._near_nullspace = self.coarsen_nullspace(fctx._near_nullspace, cV, interpolate)
         cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
         cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
         cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
         return cdm
-
-    def coarsen_bcs(self, fbcs, cV):
-        cbcs = []
-        for bc in fbcs:
-            cV_ = cV
-            for index in bc._indices:
-                cV_ = cV_.sub(index)
-            cbc_value = self.coarsen_bc_value(bc, cV_)
-            if isinstance(bc, firedrake.DirichletBC):
-                cbcs.append(bc.reconstruct(V=cV_, g=cbc_value))
-            else:
-                raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
-        return cbcs
 
     def coarsen_quadrature(self, metadata, fdeg, cdeg):
         """Coarsen the quadrature degree in a dictionary preserving the ratio of
@@ -308,28 +297,50 @@ class PMGBase(PCSNESBase):
         except (KeyError, TypeError):
             return metadata
 
-    def coarsen_nullspace(self, coarse_V, interpolate, fine_nullspace):
-        """Coarsen a nullspace or retrieve it from class cache"""
-        cache = self._cache.setdefault("nullspace", {})
-        key = (coarse_V.ufl_element(), fine_nullspace)
+    def coarsen_bcs(self, fbcs, cV):
+        """Coarsen a list of bcs"""
+        cbcs = []
+        for bc in fbcs:
+            cache = self._coarsen_cache.setdefault(bc, {})
+            key = (cV.ufl_element(), self.is_snes)
+            try:
+                coarse_bc = cache[key]
+            except KeyError:
+                cV_ = cV
+                for index in bc._indices:
+                    cV_ = cV_.sub(index)
+                cbc_value = self.coarsen_bc_value(bc, cV_)
+                if isinstance(bc, firedrake.DirichletBC):
+                    coarse_bc = cache.setdefault(key, bc.reconstruct(V=cV_, g=cbc_value))
+                else:
+                    raise NotImplementedError("Unsupported BC type, please get in touch if you need this")
+            cbcs.append(coarse_bc)
+        return cbcs
+
+    def coarsen_nullspace(self, fine_nullspace, cV, interpolate):
+        """Coarsen a nullspace"""
+        if fine_nullspace is None:
+            return fine_nullspace
+        cache = self._coarsen_cache.setdefault(fine_nullspace, {})
+        key = cV.ufl_element()
         try:
             return cache[key]
         except KeyError:
             if isinstance(fine_nullspace, MixedVectorSpaceBasis):
                 if interpolate.getType() == "python":
                     interpolate = interpolate.getPythonContext()
-                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(coarse_V))]
+                submats = [interpolate.getNestSubMatrix(i, i) for i in range(len(cV))]
                 coarse_bases = []
-                for fs, submat, basis in zip(coarse_V, submats, fine_nullspace._bases):
+                for fs, submat, basis in zip(cV, submats, fine_nullspace._bases):
                     if isinstance(basis, VectorSpaceBasis):
-                        coarse_bases.append(self.coarsen_nullspace(fs, submat, basis))
+                        coarse_bases.append(self.coarsen_nullspace(basis, fs, submat))
                     else:
-                        coarse_bases.append(coarse_V.sub(basis.index))
-                coarse_nullspace = MixedVectorSpaceBasis(coarse_V, coarse_bases)
+                        coarse_bases.append(cV.sub(basis.index))
+                coarse_nullspace = MixedVectorSpaceBasis(cV, coarse_bases)
             elif isinstance(fine_nullspace, VectorSpaceBasis):
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
-                    wc = firedrake.Function(coarse_V)
+                    wc = firedrake.Function(cV)
                     with wc.dat.vec_wo as xc:
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
@@ -341,13 +352,9 @@ class PMGBase(PCSNESBase):
             return cache.setdefault(key, coarse_nullspace)
 
     def create_transfer(self, mat_type, cctx, fctx, cbcs, fbcs):
-        """Create a transfer or retrieve it from class cache"""
-        cV = cctx.J.arguments()[0].function_space()
-        fV = fctx.J.arguments()[0].function_space()
-        cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
-        fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
-        key = (mat_type, fV.mesh(), cV.ufl_element(), fV.ufl_element(), cbcs, fbcs)
-        cache = self._cache.setdefault("transfer", {})
+        """Create a transfer operator"""
+        cache = self._transfer_cache.setdefault(fctx, {})
+        key = (mat_type, cctx, cbcs, fbcs)
         try:
             return cache[key]
         except KeyError:
@@ -357,6 +364,10 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
+            cV = cctx.J.arguments()[0].function_space()
+            fV = fctx.J.arguments()[0].function_space()
+            cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
+            fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
             return cache.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
 
     def create_interpolation(self, dmc, dmf):
