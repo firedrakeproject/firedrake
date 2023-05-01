@@ -2,6 +2,8 @@
 
 import numpy
 from firedrake.petsc import PETSc
+import ctypes
+
 from firedrake.utils import IntType, ScalarType, RealType
 
 cimport numpy
@@ -24,6 +26,12 @@ cdef extern from "libsupermesh-c.h" nogil:
     void libsupermesh_tree_intersection_finder_set_input(long* nnodes_a, int* dim_a, long* nelements_a, int* loc_a, long* nnodes_b, int* dim_b, long* nelements_b, int* loc_b, double* positions_a, long* enlist_a, double* positions_b, long* enlist_b);
     void libsupermesh_tree_intersection_finder_query_output(long* nindices);
     void libsupermesh_tree_intersection_finder_get_output(long* nelements, long* nindices, long* indices, long* ind_ptr);
+    void libsupermesh_build_rtree(void **rtree, int dim, int nnodes, const double *positions, int loc, int nelements, const int *enlist)
+    void libsupermesh_query_rtree(void **rtree, int dim, int loc_a, const double *element_a, int *neles_b)
+    void libsupermesh_query_rtree_intersections(void **rtree, int *eles_b)
+    void libsupermesh_deallocate_rtree(void **rtree)
+
+
 
 
 # Compute M_AB:
@@ -171,3 +179,44 @@ def intersection_finder(mesh_A, mesh_B):
         out[cell_A] = indices[start:end]
 
     return out
+
+cdef class SpatialIndex2(object):
+    """Python class for holding a native spatial index object."""
+
+    cdef void* rtree
+
+    def __cinit__(self, mesh):
+        """Initialize a native spatial index.
+
+        :arg mesh: spatial (geometric) dimension
+        """
+        cdef:
+            numpy.ndarray[int, ndim=2, mode="c"] vertex_map
+            numpy.ndarray[double, ndim=2, mode="c"] vertices
+            long nnodes, ncells
+            int dim, loc
+
+        vertices = numpy.ndarray.astype(mesh.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
+        vertex_map = numpy.ndarray.astype(mesh.coordinates.cell_node_map().values_with_halo + 1, dtype=numpy.int32)
+        nnodes = mesh.coordinates.dof_dset.total_size
+        dim = mesh.geometric_dimension()
+        ncells = mesh.num_cells()
+        loc = vertex_map.shape[1]
+        libsupermesh_build_rtree(&self.rtree, dim, nnodes, <double*>vertices.data, loc, ncells, <int*>vertex_map.data)
+
+    def query(self, numpy.ndarray[PetscScalar, ndim=2, mode="c"] node_locations):
+        loc = node_locations.shape[0]
+        dim = node_locations.shape[1]
+        cdef int neles  # n/o elements found to intersect
+        libsupermesh_query_rtree(&self.rtree, dim, loc, <double*>node_locations.data, &neles)
+        cdef numpy.ndarray[int, ndim=1, mode="c"] eles = numpy.empty(neles, dtype=numpy.int32)
+        libsupermesh_query_rtree_intersections(&self.rtree, <int*>eles.data)
+        return eles
+
+    @property
+    def ctypes(self):
+        """Returns a ctypes pointer to the native spatial index."""
+        return ctypes.c_void_p(<uintptr_t> &self.rtree)
+
+    def __dealloc__(self):
+        libsupermesh_deallocate_rtree(&self.rtree)

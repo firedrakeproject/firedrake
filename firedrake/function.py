@@ -31,7 +31,8 @@ class _CFunction(ctypes.Structure):
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
-                ("sidx", c_void_p)]
+                ("sidx", c_void_p),
+                ("sidx2", c_void_p)]
 
 
 class CoordinatelessFunction(ufl.Coefficient):
@@ -481,6 +482,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+        c_function.sidx2 = mesh.spatial_index2 and mesh.spatial_index2.ctypes
 
         # Return pointer
         return ctypes.pointer(c_function)

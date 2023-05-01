@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <spatialindex/capi/sidx_api.h>
+#include <libsupermesh-c.h>
 #include <float.h>
 #include <evaluate.h>
 
@@ -13,7 +14,7 @@ int locate_cell(struct Function *f,
         void *found_ref_coords,
         double *found_ref_cell_dist_l1)
 {
-    RTError err;
+    RTError err = RT_None;
     int cell = -1;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
     struct ReferenceCoords but can't be declared as such in the function
@@ -28,23 +29,31 @@ int locate_cell(struct Function *f,
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
-    if (f->sidx) {
-        int64_t *ids = NULL;
-        uint64_t nids = 0;
+    if (f->sidx2) {
+        // int64_t *ids = NULL;
+        // uint64_t nids = 0;
+        int *ids = NULL;
+        int nids = 0;
         /* We treat our list of candidate cells (ids) from libspatialindex's
             Index_Intersects_id as our source of truth: the point must be in
             one of the cells. */
-        err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
+        // err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
+        libsupermesh_query_rtree(f->sidx2, dim, 1, x, &nids);
+        ids = malloc(nids*sizeof(int));
+        libsupermesh_query_rtree_intersections(f->sidx2, ids);
+
+
         if (err != RT_None) {
             fputs("ERROR: Index_Intersects_id failed in libspatialindex!", stderr);
             return -1;
         }
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
-                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+                int candidate = ids[i]-1;
+                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, candidate, x);
                 if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
-                    cell = ids[i];
+                    cell = candidate;
                     memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                     found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
                     break;
@@ -54,7 +63,7 @@ int locate_cell(struct Function *f,
                     ref_cell_dist_l1 = current_ref_cell_dist_l1;
                     if (ref_cell_dist_l1 < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
-                        cell = ids[i];
+                        cell = candidate;
                         memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
                         found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                     }

@@ -23,6 +23,7 @@ import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
+import firedrake.cython.supermeshimpl as supermeshimpl
 import firedrake.utils as utils
 from firedrake.utils import IntType, RealType
 from firedrake.logging import info_red
@@ -2042,6 +2043,10 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    @utils.cached_property
+    def spatial_index2(self):
+        return supermeshimpl.SpatialIndex2(self)
+
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None):
         """Locate cell containing a given point.
@@ -2171,6 +2176,7 @@ values from f.)"""
                                        + ["-I%s/include" % d for d in get_petsc_dir()],
                                        ldargs=["-L%s/lib" % sys.prefix,
                                                "-lspatialindex_c",
+                                               "-lsupermesh",
                                                "-Wl,-rpath,%s/lib" % sys.prefix])
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),

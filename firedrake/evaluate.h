@@ -28,6 +28,9 @@ struct Function {
 	/* Spatial index */
 	void *sidx;
 
+	/* Spatial index */
+	void **sidx2;
+
 	/*
 	 * TODO:
 	 * - cell orientation
