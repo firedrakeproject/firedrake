@@ -203,7 +203,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         impero_c, loopy_args, ScalarType,
         kernel_name="pyop2_kernel_"+name, index_names={})
 
-    return kernel_code
+    return lp.generate_code_v2(kernel_code).device_code()
 
 
 def prolong_kernel(expression):
@@ -226,12 +226,10 @@ def prolong_kernel(expression):
         return cache[key]
     except KeyError:
         mesh = extract_unique_domain(coordinates)
-        evaluate_kernel = compile_element(expression)
+        eval_code = compile_element(expression)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
-
-        eval_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
         args = "double *f"
         R, coarse = "R", "f"
@@ -318,12 +316,10 @@ def restrict_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         mesh = extract_unique_domain(coordinates)
-        evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc), Vf)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
-
-        evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
         args = "double *b"
         R, fine = "R", "b"
@@ -415,10 +411,8 @@ def inject_kernel(Vf, Vc):
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.ufl_domain().coordinates
-        evaluate_kernel = compile_element(ufl.Coefficient(Vf))
+        evaluate_code = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-
-        evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
 
         coords_element = create_element(coordinates.ufl_element())
         Vf_element = create_element(Vf.ufl_element())
