@@ -226,6 +226,11 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
+        if not f.integrals():
+            # If we're assembling the R space component of a mixed argument,
+            # and that component doesn't actually appear in the form then we
+            # have an empty form, which we should not attempt to assemble.
+            continue
         # Map local coefficient numbers (as seen inside the
         # compiler) to the global coefficient numbers
         number_map = tuple(coefficient_numbers[c] for c in f.coefficients())
