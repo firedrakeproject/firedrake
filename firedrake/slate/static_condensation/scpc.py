@@ -47,15 +47,16 @@ class SCPC(SCBase):
         if len(W) > 3:
             raise NotImplementedError("Only supports up to three function spaces.")
 
+        sentinel = object()
         elim_fields = PETSc.Options().getString(pc.getOptionsPrefix()
                                                 + "pc_sc_eliminate_fields",
-                                                None)
-        if elim_fields:
-            elim_fields = [int(i) for i in elim_fields.split(',')]
-        else:
+                                                sentinel)
+        if elim_fields is sentinel:
             # By default, we condense down to the last field in the
             # mixed space.
             elim_fields = [i for i in range(0, len(W) - 1)]
+        else:
+            elim_fields = [int(i) for i in elim_fields.split(',')]
 
         condensed_fields = list(set(range(len(W))) - set(elim_fields))
         if len(condensed_fields) != 1:
@@ -74,6 +75,7 @@ class SCPC(SCBase):
             bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
+        element_inverse = PETSc.Options().getBool(prefix + "element_inverse", False)
 
         self.c_field = c_field
         self.condensed_rhs = Function(Vc)
@@ -121,13 +123,18 @@ class SCPC(SCBase):
 
         # If a different matrix is used for preconditioning,
         # assemble this as well
-        if A != P:
-            self.cxt_pc = P.getPythonContext()
-            P_tensor = Tensor(self.cxt_pc.a)
-            P_reduced_sys, _ = self.condensed_system(P_tensor,
-                                                     self.residual,
-                                                     elim_fields)
-            S_pc_expr = P_reduced_sys.lhs
+        if A != P or element_inverse:
+            if A == P:
+                S_pc_expr = S_expr
+            else:
+                self.cxt_pc = P.getPythonContext()
+                P_tensor = Tensor(self.cxt_pc.a)
+                P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
+                                                         prefix, pc)
+                S_pc_expr = P_reduced_sys.lhs
+
+            if element_inverse:
+                S_pc_expr = S_pc_expr.inv
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
