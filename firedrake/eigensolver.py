@@ -4,6 +4,7 @@ from firedrake import solving_utils
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.logging import warning
+from firedrake.exceptions import ConvergenceError
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -86,7 +87,7 @@ class LinearEigensolver(OptionsManager):
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
-            print("Did not converge any eigenvalues")  # or value error?
+            raise ConvergenceError("Did not converge any eigenvalues.")  # solving_utils
         return nconv
 
     def eigenvalue(self, i):

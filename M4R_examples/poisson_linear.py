@@ -19,7 +19,7 @@ a = (inner(grad(u), grad(v))) * dx
 # Apply the homogeneous Dirichlet boundary conditions
 bc = None#DirichletBC(V, 0.0, "on_boundary")
 
-# Create eigenproblem
+# Create linear variational problem
 eigenprob = LinearVariationalProblem(a, bcs=bc)
 
 # Create corresponding eigensolver, looking for 2 eigenvalues

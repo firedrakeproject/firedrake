@@ -1,3 +1,15 @@
+
+"""This demo program solves the Poisson eigenvalue problem
+
+  - div grad u(x) = lambda u(x) (STRONG FORM)
+  grad u(x) dot grad v(x) dx = lambda u(x)v(x) dx (WEAK FORM)
+
+on the unit interval (0, pi)
+
+and the analytical solution
+
+  u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi) TO CHANGE
+"""
 from firedrake import *
 
 # number of elements in each direction
@@ -17,7 +29,7 @@ v = TestFunction(V)
 a = (inner(grad(u), grad(v))) * dx
 
 # Apply the homogeneous Dirichlet boundary conditions
-bc = DirichletBC(V, 0.0, "on_boundary")
+bc = DirichletBC(V, 0.0, "on_boundary", weight=0)
 
 # Create eigenproblem with boundary conditions
 eigenprob = LinearEigenproblem(a, bcs=bc)
@@ -33,20 +45,21 @@ vr, vi = eigensolver.eigenfunction(0)
 print(type(vr), vi)
 
 '''TESTING THE EVALS'''
-# for i in range(ncov):
-#     print(eigensolver.eigenvalue(i))
-# # View eigenvalues and eigenvectors
-# eval_1 = eigensolver.eigenvalue(0)
-# vr, vi = eigensolver.eigenfunction(0)
+print('my fns')
+for i in range(ncov):
+    print(eigensolver.eigenvalue(i))
+# View eigenvalues and eigenvectors
+eval_1 = eigensolver.eigenvalue(0)
+vr, vi = eigensolver.eigenfunction(0)
 
-# print('eval')
-# print(eval_1)
+print('eval')
+print(eval_1)
 
 
-
-# h = pi /5
-# ans = 6 / h**2
-# print(ans * 2)
-# k = 1
-# ans *= (1-cos(k*h))/(2+cos(k*h))
-# print(ans)
+print('numerical')
+h = pi /5
+ans = 6 / h**2
+for k in range(ncov):
+    ans = 6 / h**2
+    ans *= (1-cos(k*h))/(2+cos(k*h))
+    print(ans)
