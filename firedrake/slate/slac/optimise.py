@@ -223,6 +223,7 @@ def _drop_double_transpose_terminals(expr, self):
 
 @_drop_double_transpose.register(Factorization)
 def _drop_double_transpose_factorization(expr, self):
+    # FIXME
     """Drop any factorisations. This is needed because whenever
     a Solve node is created so is a Factorization node inside it.
     The Factorization nodes are only needed for the Eigen Backend however."""
@@ -441,6 +442,7 @@ b) y.T*TensorOp(op1, op2)
 
 @_push_mul.register(Factorization)
 def _push_mul_factorization(expr, self, state):
+    # FIXME
     """Drop any factorisations. This is needed because whenever
     a Solve node is created so is a Factorization node inside it.
     The Factorization nodes are only needed for the Eigen Backend however."""
