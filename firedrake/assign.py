@@ -10,6 +10,7 @@ from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
+from ufl.domain import extract_unique_domain
 
 from firedrake.constant import Constant
 from firedrake.function import Function
@@ -137,7 +138,7 @@ class Assigner:
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
-                if coeff.ufl_domain() != assignee.ufl_domain():
+                if extract_unique_domain(coeff) != extract_unique_domain(assignee):
                     raise ValueError("All functions in the expression must use the same "
                                      "mesh as the assignee")
 

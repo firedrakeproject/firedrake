@@ -1,5 +1,6 @@
 from functools import wraps
 import ufl
+from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
@@ -51,7 +52,7 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
-                if isinstance(b, firedrake.Function) and b.ufl_domain() != self.function_space().mesh():
+                if isinstance(b, firedrake.Function) and extract_unique_domain(b) != self.function_space().mesh():
                     block = SupermeshProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
                 else:
                     block = ProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
