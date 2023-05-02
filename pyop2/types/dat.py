@@ -218,6 +218,32 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         v.setflags(write=False)
         return v
 
+    @property
+    @mpi.collective
+    def data_wo(self):
+        """Numpy array containing the data values that is only valid for writing to.
+
+        This only shows local values, to see the halo values too use
+        :meth:`data_wo_with_halos`.
+
+        """
+        return self.data
+
+    @property
+    @mpi.collective
+    def data_wo_with_halos(self):
+        """Return a write-only view of all the data values.
+
+        This method, unlike :meth:`data_with_halos`, avoids a halo exchange
+        if the halo is dirty.
+
+        """
+        self.increment_dat_version()
+        self.halo_valid = False
+        v = self._data.view()
+        v.setflags(write=True)
+        return v
+
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""
         np.save(filename, self.data_ro)
@@ -655,12 +681,12 @@ class DatView(AbstractDat):
             if not (0 <= i < d):
                 raise ex.IndexValueError("Can't create DatView with index %s for Dat with shape %s" % (index, dat.dim))
         self.index = index
+        self._parent = dat
         # Point at underlying data
         super(DatView, self).__init__(dat.dataset,
                                       dat._data,
                                       dtype=dat.dtype,
                                       name="view[%s](%s)" % (index, dat.name))
-        self._parent = dat
 
     @utils.cached_property
     def _kernel_args_(self):
@@ -687,6 +713,14 @@ class DatView(AbstractDat):
         return (self.dataset.total_size, )
 
     @property
+    def halo_valid(self):
+        return self._parent.halo_valid
+
+    @halo_valid.setter
+    def halo_valid(self, value):
+        self._parent.halo_valid = value
+
+    @property
     def data(self):
         full = self._parent.data
         idx = (slice(None), *self.index)
@@ -699,6 +733,12 @@ class DatView(AbstractDat):
         return full[idx]
 
     @property
+    def data_wo(self):
+        full = self._parent.data_wo
+        idx = (slice(None), *self.index)
+        return full[idx]
+
+    @property
     def data_with_halos(self):
         full = self._parent.data_with_halos
         idx = (slice(None), *self.index)
@@ -707,6 +747,12 @@ class DatView(AbstractDat):
     @property
     def data_ro_with_halos(self):
         full = self._parent.data_ro_with_halos
+        idx = (slice(None), *self.index)
+        return full[idx]
+
+    @property
+    def data_wo_with_halos(self):
+        full = self._parent.data_wo_with_halos
         idx = (slice(None), *self.index)
         return full[idx]
 
@@ -843,6 +889,18 @@ class MixedDat(AbstractDat, VecAccessMixin):
     def data_ro_with_halos(self):
         """Numpy arrays with read-only data including halos."""
         return tuple(s.data_ro_with_halos for s in self._dats)
+
+    @property
+    @mpi.collective
+    def data_wo(self):
+        """Numpy arrays with read-only data excluding halos."""
+        return tuple(s.data_wo for s in self._dats)
+
+    @property
+    @mpi.collective
+    def data_wo_with_halos(self):
+        """Numpy arrays with read-only data including halos."""
+        return tuple(s.data_wo_with_halos for s in self._dats)
 
     @property
     def halo_valid(self):

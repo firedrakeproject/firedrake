@@ -130,6 +130,10 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
         view.setflags(write=False)
         return view
 
+    @property
+    def data_wo(self):
+        return self.data
+
     @data.setter
     def data(self, value):
         self.increment_dat_version()
@@ -142,6 +146,18 @@ class Global(DataCarrier, EmptyDataMixin, VecAccessMixin):
     @property
     def data_ro_with_halos(self):
         return self.data_ro
+
+    @property
+    def data_wo_with_halos(self):
+        return self.data_wo
+
+    @property
+    def halo_valid(self):
+        return True
+
+    @halo_valid.setter
+    def halo_valid(self, value):
+        pass
 
     @property
     def split(self):
