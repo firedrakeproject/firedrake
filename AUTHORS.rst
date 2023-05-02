@@ -158,7 +158,7 @@ Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbec
 
 Joseph G. Wallwork............<https://www.imperial.ac.uk/people/j.wallwork16>
 
-Connor Ward...................<https://www.imperial.ac.uk/people/c.ward20>
+Connor J. Ward................<https://www.imperial.ac.uk/people/c.ward20>
 
 Florian Wechsung..............<https://florianwechsung.github.io>
 
