@@ -94,7 +94,7 @@ def inside_check(fiat_cell, eps, X="X"):
 
 def celldist_l1_c_expr(fiat_cell, X="X"):
     """Generate a C expression of type `PetscReal` to compute the L1 distance
-    (aka 'manhatten', 'taxicab' or rectilinear distance) to a FIAT reference
+    (aka 'manhattan', 'taxicab' or rectilinear distance) to a FIAT reference
     cell.
 
     Parameters
