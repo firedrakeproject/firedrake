@@ -1062,7 +1062,7 @@ def is_restricted(finat_element):
 
 def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
     """Convert dense numpy matrix into a sparse PETSc matrix"""
-    atol = rtol * max(A_numpy.min(), A_numpy.max(), key=abs)
+    atol = rtol * abs(max(A_numpy.min(), A_numpy.max(), key=abs))
     sparsity = abs(A_numpy) > atol
     nnz = numpy.count_nonzero(sparsity, axis=1).astype(PETSc.IntType)
     A = PETSc.Mat().createAIJ(A_numpy.shape, nnz=(nnz, 0), comm=comm)
