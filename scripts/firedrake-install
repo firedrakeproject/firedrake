@@ -433,7 +433,7 @@ else:
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
     parser.add_argument("--with-blas", default=None,
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
-    parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"]["netgen"],
+    parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
 
     args = parser.parse_args()
