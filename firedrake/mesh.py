@@ -2036,8 +2036,9 @@ values from f.)"""
         # tolerance. Note that if tolerance is too small it might not actually
         # change the value!
         if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_min -= self.tolerance
-            coords_max += self.tolerance
+            coords_diff = coords_max - coords_min
+            coords_min -= self.tolerance*coords_diff
+            coords_max += self.tolerance*coords_diff
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
