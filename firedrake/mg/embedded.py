@@ -1,8 +1,6 @@
 import firedrake
 import ufl
-from functools import reduce
 from enum import IntEnum
-from operator import and_
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 
