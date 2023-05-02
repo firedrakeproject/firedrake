@@ -43,6 +43,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: firedrakeproject/petsc
+          ref: connorjward/check-upstream
           path: ${{ env.PETSC_DIR }}
 
       - name: Build and install PETSc
