@@ -352,7 +352,7 @@ def test_p_multigrid_mixed(mat_type):
         ctx_levels += 1
     assert ctx_levels == 3
 
-    # test that caches are parallel safe
+    # test that caches are parallel-safe
     dummy_eq = type(object).__eq__
     for cache in (PMGPC._coarsen_cache, PMGPC._transfer_cache):
         assert len(cache) > 0

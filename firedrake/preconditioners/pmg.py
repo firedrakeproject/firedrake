@@ -57,7 +57,7 @@ class PMGBase(PCSNESBase):
     """
 
     _prefix = "pmg_"
-    # This is parallel safe because the keys are ids of a collective objects
+    # This is parallel-safe because the keys are ids of a collective objects
     _coarsen_cache = weakref.WeakKeyDictionary()
     _transfer_cache = weakref.WeakKeyDictionary()
 
