@@ -503,7 +503,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
 
@@ -884,7 +884,7 @@ class MeshTopology(AbstractMeshTopology):
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
 
@@ -1313,7 +1313,7 @@ class ExtrudedMeshTopology(MeshTopology):
                              reference cell) for the distance a point can be
                              from a cell and still be considered to be in the
                              cell. Note that this tolerance
-                             uses an L1 distance (aka 'manhatten', 'taxicab' or
+                             uses an L1 distance (aka 'manhattan', 'taxicab' or
                              rectilinear distance) so will scale with the
                              dimension of the mesh.
         """
@@ -1937,7 +1937,7 @@ values from f.)"""
         Increase this if points at mesh boundaries (either rank local or
         global) are reported as being outside the mesh, for example when
         creating a :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so will
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so will
         scale with the dimension of the mesh.
 
         If this property is not set (i.e. set to ``None``) no tolerance is
@@ -2036,8 +2036,9 @@ values from f.)"""
         # tolerance. Note that if tolerance is too small it might not actually
         # change the value!
         if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_min -= self.tolerance
-            coords_max += self.tolerance
+            coords_diff = coords_max - coords_min
+            coords_min -= self.tolerance*coords_diff
+            coords_max += self.tolerance*coords_diff
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
@@ -2361,7 +2362,7 @@ def Mesh(meshfile, **kwargs):
            this if point at mesh boundaries (either rank local or global) are
            reported as being outside the mesh, for example when creating a
            :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
-           distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+           distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
            will scale with the dimension of the mesh.
 
     When the mesh is read from a file the following mesh formats
@@ -2516,7 +2517,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
                          reference cell) for the distance a point can be from a
                          cell and still be considered to be in the cell.
                          Note that this tolerance uses an L1
-                         distance (aka 'manhatten', 'taxicab' or rectilinear
+                         distance (aka 'manhattan', 'taxicab' or rectilinear
                          distance) so will scale with the dimension of the
                          mesh.
 
@@ -2650,7 +2651,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
@@ -2800,7 +2801,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
@@ -3060,7 +3061,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         The relative tolerance (i.e. as defined on the reference cell) for the
         distance a point can be from a cell and still be considered to be in
         the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
