@@ -2683,6 +2683,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         assumed to be a new vertex.
 
     """
+    from firedrake_citations import Citations
+    Citations().register("nixonhill2023consistent")
 
     import firedrake.functionspace as functionspace
     import firedrake.function as function
