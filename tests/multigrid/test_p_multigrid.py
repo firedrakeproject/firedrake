@@ -328,17 +328,20 @@ def test_p_multigrid_mixed(mat_type):
     basis.orthonormalize()
     nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
     problem = NonlinearVariationalProblem(F, z, bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp,
-                                        nullspace=nullspace)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, nullspace=nullspace)
     solver.solve()
     assert solver.snes.ksp.its <= 7
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
 
-    level = solver._ctx
+    # test that nullspace component is zero
     assert abs(assemble(z[1]*dx)) < 1E-12
+    # test that we converge to the exact solution
     assert norm(z-z_exact, "H1") < 1E-12
+
+    # test that we have coarsened the nullspace correctly
     ctx_levels = 0
+    level = solver._ctx
     while level is not None:
         nsp = level._nullspace
         assert isinstance(nsp, MixedVectorSpaceBasis)
@@ -348,6 +351,13 @@ def test_p_multigrid_mixed(mat_type):
         level = level._coarse
         ctx_levels += 1
     assert ctx_levels == 3
+
+    # test that caches are parallel-safe
+    dummy_eq = type(object).__eq__
+    for cache in (PMGPC._coarsen_cache, PMGPC._transfer_cache):
+        assert len(cache) > 0
+        for k in cache:
+            assert type(k).__eq__ is dummy_eq
 
 
 def test_p_fas_scalar():
