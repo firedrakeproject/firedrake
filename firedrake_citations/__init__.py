@@ -291,3 +291,16 @@ Citations().add("Hiptmair1998", """
   url =          {https://doi.org/10.1137/S0036142997326203},
 }
 """)
+
+Citations().add("nixonhill2023consistent", """
+@misc{nixonhill2023consistent,
+  title={Consistent Point Data Assimilation in Firedrake and Icepack},
+  author={Reuben W. Nixon-Hill and Daniel Shapero and Colin J. Cotter and
+          David A. Ham},
+  year={2023},
+  eprint={2304.06058},
+  archivePrefix={arXiv},
+  primaryClass={cs.MS},
+  url = {https://arxiv.org/abs/2304.06058}
+}
+""")

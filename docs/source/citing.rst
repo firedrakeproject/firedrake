@@ -29,7 +29,8 @@ which are relevant depend a little on which functionality you used.
 For Firedrake itself, please cite :cite:`Rathgeber2016`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
-please cite :cite:`Homolya2016` and :cite:`McRae2016`.
+please cite :cite:`Homolya2016` and :cite:`McRae2016`. If you use
+:py:func:`~.VertexOnlyMesh`, please cite :cite:`nixonhill2023consistent`.
 
 The form compiler, TSFC, is documented in :cite:`Homolya2018` and
 :cite:`Homolya2017a`.  If, in addition, your work relies on the
