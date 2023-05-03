@@ -1055,16 +1055,16 @@ def entity_orientations(mesh,
                         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure):
     """Compute entity orientations.
 
-    :arg mesh: The `MeshTopology` object encapsulating the mesh topology
+    :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
     :arg cell_closure: The two-dimensional array, each row of which contains
         the closure of the associated cell
     :returns: A 2D array of the same shape as cell_closure, each row of which
         contains orientations of the entities in the closure of the associated cell
 
-    See ``AbstractMeshTopology.entity_orientations`` for details on the
+    See :meth:`~.AbstractMeshTopology.entity_orientations` for details on the
     returned array.
 
-    See `get_cell_nodes` for the usage of the returned array.
+    See :func:`~.get_cell_nodes` for the usage of the returned array.
     """
     cdef:
         PETSc.DM dm

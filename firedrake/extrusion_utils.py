@@ -22,7 +22,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     Given either a kernel or a (fixed) layer_height, compute an
     extruded coordinate field for an extruded mesh.
 
-    :arg extruded_topology: an ``ExtrudedMeshTopology`` to extrude
+    :arg extruded_topology: an :class:`~.ExtrudedMeshTopology` to extrude
          a coordinate field for.
     :arg base_coords: a :class:`~.Function` to read the base
          coordinates from.

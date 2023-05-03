@@ -38,7 +38,7 @@ class Table:
 
 
 def cache_web_image(name, url):
-    img_name = name.split()[0].lower().encode("punycode").decode()
+    img_name = "".join(name.split()).lower().encode("punycode").decode()
     img_name = img_name[:-1] if img_name[-1] == "-" else img_name
     with urlopen(url) as response:
         filetype = response.getheader("Content-Type")
