@@ -2,7 +2,7 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType_c, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
 from firedrake.mg import utils
@@ -132,13 +132,13 @@ def compile_element(expression, dual_space=None, parameters=None,
         coefficient = False
 
     # Replace coordinates (if any)
-    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType_c)
+    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
     domain = extract_unique_domain(expression)
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=ScalarType_c, shape=(dim,))
+    point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -165,11 +165,11 @@ def compile_element(expression, dual_space=None, parameters=None,
     if coefficient:
         if expression.ufl_shape:
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=expression.ufl_shape)
+            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=expression.ufl_shape)
             result = gem.Indexed(result, tensor_indices)
         else:
             return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-            result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=(1,))
+            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=(1,))
 
     else:
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
@@ -179,13 +179,13 @@ def compile_element(expression, dual_space=None, parameters=None,
             if elem.value_shape:
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
-                b_arg = [lp.GlobalArg("b", dtype=ScalarType_c, shape=elem.value_shape)]
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=elem.value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
-                b_arg = [lp.GlobalArg("b", dtype=ScalarType_c, shape=(1,))]
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
             result = gem.Product(result, var)
 
-        result_arg = lp.GlobalArg("R", dtype=ScalarType_c, shape=finat_elem.index_shape)
+        result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=finat_elem.index_shape)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -514,7 +514,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
-        funarg = lp.GlobalArg(name, dtype=ScalarType_c, shape=(size,))
+        funarg = lp.GlobalArg(name, dtype=ScalarType, shape=(size,))
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
         self.coefficient_map[coefficient] = expression
@@ -526,7 +526,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake.slate.slac import compile_expression
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
-    macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
+    macro_builder = MacroKernelBuilder(ScalarType, ncell)
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -694,7 +694,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # 3. Now we have the kernel that computes <f, phi_c>dx_c.
     # So now we need to hit it with the inverse mass matrix on dx_c
     retarg = lp.GlobalArg(
-        "R", dtype=ScalarType_c, shape=(Vce.space_dimension(),), is_output=True)
+        "R", dtype=ScalarType, shape=(Vce.space_dimension(),), is_output=True)
 
     kernel_data = [
         retarg, *macro_builder.kernel_args, macro_coordinates_arg,

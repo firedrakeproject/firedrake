@@ -52,7 +52,7 @@ def compile_element(expression, coordinates, parameters=None):
     assert extract_unique_domain(coordinates) == domain
 
     # Initialise kernel builder
-    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
+    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType)
     builder.domain_coordinate[domain] = coordinates
     builder._coefficient(coordinates, "x")
     x_arg = builder.generate_arg_from_expression(builder.coefficient_map[coordinates])
@@ -66,7 +66,7 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType_c, shape=(dim,))
+    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -88,11 +88,11 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=expression.ufl_shape)
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType, shape=expression.ufl_shape)
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=(1,))
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType, shape=(1,))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]

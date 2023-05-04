@@ -8,7 +8,7 @@ from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -139,20 +139,20 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr, complex_mode=complex_mode)
     expr = ufl_utils.simplify_abs(expr, complex_mode)
 
-    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
+    builder = firedrake_interface.KernelBuilderBase(ScalarType)
     builder.domain_coordinate[domain] = C
 
     Cexpr = builder._coefficient(C, "C")
     x0_expr = builder._coefficient(x0, "x0")
     loopy_args = [
         lp.GlobalArg(
-            "C", dtype=ScalarType_c, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
+            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
         lp.GlobalArg(
-            "x0", dtype=ScalarType_c, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
+            "x0", dtype=ScalarType, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    loopy_args.append(lp.GlobalArg("X", dtype=ScalarType_c, shape=(dim,)))
+    loopy_args.append(lp.GlobalArg("X", dtype=ScalarType, shape=(dim,)))
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
@@ -176,12 +176,12 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     # Translate to loopy
     ir = impero_utils.preprocess_gem(ir)
     return_variable = gem.Variable('dX', (dim,))
-    loopy_args.append(lp.GlobalArg("dX", dtype=ScalarType_c, shape=(dim,)))
+    loopy_args.append(lp.GlobalArg("dX", dtype=ScalarType, shape=(dim,)))
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
     kernel, _ = tsfc.loopy.generate(
-        impero_c, loopy_args, ScalarType_c,
+        impero_c, loopy_args, ScalarType,
         kernel_name="to_reference_coords_newton_step")
     return lp.generate_code_v2(kernel).device_code()
 
