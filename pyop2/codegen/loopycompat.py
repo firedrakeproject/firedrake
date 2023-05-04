@@ -9,7 +9,7 @@
 from loopy.kernel.instruction import CallInstruction, MultiAssignmentBase, \
     CInstruction, _DataObliviousInstruction
 from loopy.symbolic import CombineMapper, IdentityMapper
-from loopy.isl_helpers import simplify_via_aff
+from loopy.symbolic import simplify_via_aff
 from loopy.kernel.function_interface import CallableKernel
 from loopy.translation_unit import TranslationUnit
 
