@@ -205,9 +205,3 @@ def test_custom_transfer_setting():
         solver.set_transfer_manager(transfer)
 
     assert count == 1
-
-
-if __name__ == "__main__":
-    # from petsc4py import PETSc
-    # PETSc.Sys.popErrorHandler()
-    test_multiple_custom_transfer_split()

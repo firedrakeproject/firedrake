@@ -66,7 +66,6 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    # point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
     point_arg = lp.GlobalArg("X", dtype=utils.ScalarType_c, shape=(dim,))
 
     config = dict(interface=builder,
@@ -89,12 +88,10 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        # result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
         result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=expression.ufl_shape)
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        # result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
         result_arg = lp.GlobalArg("R", dtype=utils.ScalarType_c, shape=(1,))
 
     # Unroll

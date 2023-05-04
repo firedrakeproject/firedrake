@@ -3,7 +3,6 @@ import numpy
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp
-from cmath import isnan
 
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
@@ -121,29 +120,7 @@ def celldist_l1_c_expr(fiat_cell, X="X"):
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
-
-    precision = numpy.finfo(parameters["scalar_type"]).resolution
-    return "\n".join("%s = %s;" % ("X[%d]" % i, format_num(v, precision)) for i, v in enumerate(X))
-
-
-def format_num(v, precision):
-    """Format a real or complex value into a string, showing up to
-    ``precision`` decimal digits.  This function is partly
-    extracted from the open_source "FFC: the FEniCS Form
-    Compiler", freely accessible at
-    https://bitbucket.org/fenics-project/ffc.
-    """
-    f = "%%.%dg" % precision
-    f_int = "%%.%df" % 1
-    eps = 10.0**(-precision)
-    if isnan(v):
-        return "NAN"
-    elif abs(v.real - round(v.real, 1)) < eps and abs(v.imag - round(v.imag, 1)) < eps:
-        formatter = f_int
-    else:
-        formatter = f
-    re, im, zero = map(lambda arg: formatter % arg, (v.real, v.imag, 0))
-    return re if im == zero else re + ' + ' + im + ' * I'
+    return "\n".join(f"X[{i}] = {v};" for i, v in enumerate(X))
 
 
 @PETSc.Log.EventDecorator()
@@ -167,14 +144,11 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
 
     Cexpr = builder._coefficient(C, "C")
     x0_expr = builder._coefficient(x0, "x0")
-
-    Cshape = (numpy.prod(Cexpr.shape, dtype=int),)
-    x0shape = (numpy.prod(x0_expr.shape, dtype=int),)
-
     loopy_args = [
-        lp.GlobalArg("C", dtype=ScalarType_c, shape=Cshape),
-        lp.GlobalArg("x0", dtype=ScalarType_c, shape=x0shape),
-    ]
+        lp.GlobalArg(
+            "C", dtype=ScalarType_c, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
+        lp.GlobalArg(
+            "x0", dtype=ScalarType_c, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
