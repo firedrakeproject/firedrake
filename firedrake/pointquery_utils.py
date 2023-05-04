@@ -8,7 +8,7 @@ from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -157,7 +157,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
         lp.GlobalArg(
             "C", dtype=ScalarType_c, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
         lp.GlobalArg(
-            "x0", dtype=ScalarType_c, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
+            "x0", dtype=ScalarType, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
