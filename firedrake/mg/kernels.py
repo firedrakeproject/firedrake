@@ -2,7 +2,7 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, ScalarType_c
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
 from firedrake.mg import utils
@@ -74,11 +74,10 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
      */
 
 %(init_X)s
-    double x[space_dim];
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        double dX[%(topological_dimension)d] = { 0.0 };
+        PetscScalar dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -231,7 +230,7 @@ def prolong_kernel(expression):
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
 
-        args = "double *f"
+        args = f"{ScalarType_c} *f"
         R, coarse = "R", "f"
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -321,7 +320,7 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
 
-        args = "double *b"
+        args = f"{ScalarType_c} *b"
         R, fine = "R", "b"
         my_kernel = """#include <petsc.h>
         %(to_reference)s
