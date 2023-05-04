@@ -130,7 +130,7 @@ elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
     print("""
 Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
 some required package(s) are not available for earlier Python versions.""")
-elif sys.version_info < (3, 7):
+elif sys.version_info < (3, 8):
     if mode == "install":
         print("""\nInstalling Firedrake requires Python 3, at least version 3.8.
 You should run firedrake-install with python3.""")
