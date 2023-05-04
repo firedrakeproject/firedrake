@@ -104,7 +104,7 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.7.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
+Firedrake requires Python 3.8.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
 to 3.11.x is required. Many externally managed dependencies such as VTK
 have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
@@ -126,7 +126,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.7.x-3.11.x (3.9.x-3.11.x on MacOS Arm)
+* Python version 3.8.x-3.11.x (3.9.x-3.11.x on MacOS Arm)
 * The Python headers
 * autoconf, automake, libtool
 * CMake
