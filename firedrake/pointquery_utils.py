@@ -242,7 +242,7 @@ static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
+static inline void to_reference_coords_kernel(void *result_, %(ScalarType)s *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
@@ -272,14 +272,14 @@ static inline void wrap_to_reference_coords(
     void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
-%(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
+%(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, %(ScalarType)s *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
     %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
 }
 
-%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
+%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, %(ScalarType)s *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
     %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
