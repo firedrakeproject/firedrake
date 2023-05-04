@@ -2024,8 +2024,7 @@ values from f.)"""
         par_loop((domain, instructions), ufl.dx,
                  {'f': (coords, READ),
                   'f_min': (coords_min, MIN),
-                  'f_max': (coords_max, MAX)},
-                 is_loopy_kernel=True)
+                  'f_max': (coords_max, MAX)})
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)

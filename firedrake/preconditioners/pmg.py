@@ -1091,7 +1091,7 @@ class StandaloneInterpolationMatrix(object):
         """
         weight = firedrake.Function(V)
         firedrake.par_loop((domain, instructions), firedrake.dx,
-                           {"w": (weight, op2.INC)}, is_loopy_kernel=True)
+                           {"w": (weight, op2.INC)})
         return weight
 
     def multTranspose(self, mat, rf, rc):
