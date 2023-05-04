@@ -2,7 +2,7 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, ScalarType_c
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType_c, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 import firedrake
 from firedrake.mg import utils
@@ -50,7 +50,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
@@ -77,7 +77,7 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        PetscScalar dX[%(topological_dimension)d] = { 0.0 };
+        double dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -662,7 +662,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
             pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0,
             within_inames=frozenset({iname}), id="zero", depends_on=depends_on))
     kernel_data.append(
-        lp.TemporaryVariable(local_tensor.name, shape=(Vce.space_dimension(),), dtype=ScalarType))
+        lp.TemporaryVariable(local_tensor.name, shape=local_tensor.shape, dtype=local_tensor.dtype))
     depends_on |= {"zero"}
 
     # 2. Fill the local tensor
@@ -672,7 +672,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
     eval_args = [
         lp.GlobalArg(
-            local_tensor.name, dtype=ScalarType, shape=(Vce.space_dimension(),),
+            local_tensor.name, dtype=local_tensor.dtype, shape=local_tensor.shape,
             is_input=True, is_output=True),
         *macro_builder.kernel_args,
         macro_coordinates_arg,
@@ -693,7 +693,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # 3. Now we have the kernel that computes <f, phi_c>dx_c.
     # So now we need to hit it with the inverse mass matrix on dx_c
     retarg = lp.GlobalArg(
-        "R", dtype=ScalarType, shape=(Vce.space_dimension(),), is_output=True)
+        "R", dtype=ScalarType, shape=local_tensor.shape, is_output=True)
 
     kernel_data = [
         retarg, *macro_builder.kernel_args, macro_coordinates_arg,

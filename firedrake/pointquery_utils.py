@@ -124,7 +124,7 @@ def init_X(fiat_cell, parameters):
 
 
 @PETSc.Log.EventDecorator()
-def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
+def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype="double", dX_dtype=ScalarType):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
     domain = ufl.Mesh(ufl_coordinate_element)
@@ -148,7 +148,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
         lp.GlobalArg(
             "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)),
         lp.GlobalArg(
-            "x0", dtype=ScalarType, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
+            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),))]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
@@ -176,7 +176,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     # Translate to loopy
     ir = impero_utils.preprocess_gem(ir)
     return_variable = gem.Variable('dX', (dim,))
-    loopy_args.append(lp.GlobalArg("dX", dtype=ScalarType, shape=(dim,)))
+    loopy_args.append(lp.GlobalArg("dX", dtype=dX_dtype, shape=(dim,)))
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
@@ -233,7 +233,7 @@ static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(void *result_, %(ScalarType)s *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
@@ -263,14 +263,14 @@ static inline void wrap_to_reference_coords(
     void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
-%(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, %(ScalarType)s *x)
+%(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
     %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
 }
 
-%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, %(ScalarType)s *x)
+%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
     %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
