@@ -48,7 +48,11 @@ jobs:
         run: |
           . /home/firedrake/firedrake/bin/activate
           cd docs
-          make linkcheck
           make html
           make latex
           make latexpdf
+      - name: Check documentation links
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          cd docs
+          make linkcheck
