@@ -54,5 +54,6 @@ jobs:
       - name: Check documentation links
         if: ${{ github.ref == 'refs/heads/master' }}
         run: |
+          . /home/firedrake/firedrake/bin/activate
           cd docs
           make linkcheck
