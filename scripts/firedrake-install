@@ -990,9 +990,18 @@ def get_requirements(reqfname):
 
 def run_pip_install_wrap(reqs, parallel_compiler_env):
     for req in reqs:
-        if re.split('<|>|=', req)[0] in parallel_packages:
+        package_name = re.split('<|>|=', req)[0]
+        if package_name in parallel_packages:
             with environment(**parallel_compiler_env):
                 run_pip_install([req])
+        elif package_name == "numpy":
+            # Downgrade setuptools and wheel for numpy
+            run_pip(["install", "-U", "setuptools==59.2.0"])
+            run_pip(["install", "-U", "wheel==0.37.0"])
+            run_pip_install([req])
+            # Upgrade setuptools and wheel for everything else
+            run_pip(["install", "-U", "setuptools"])
+            run_pip(["install", "-U", "wheel"])
         else:
             run_pip_install([req])
 
@@ -1749,10 +1758,11 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
-run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
+# numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
+run_pip(["install", "-U", "setuptools==59.2.0"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
-run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
+run_pip(["install", "-U", "wheel==0.37.0"])
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1843,7 +1853,7 @@ if mode == "install":
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install(package.split())
+            run_pip_install_wrap(package.split())
 
     # "Temporary" workaround for missing VTK wheel on Python 3.11
     if sys.version_info[:2] == (3, 11):
