@@ -1897,6 +1897,13 @@ if mode == "install":
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
+    # numpy requires old setuptools (+wheel)
+    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
+    run_pip_install(["numpy"])
+    log.info("Updating setuptools and wheel to latest versions")
+    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "wheel"])
+
     for p in packages:
         pip_requirements(p, compiler_env)
 
