@@ -230,13 +230,11 @@ def prolong_kernel(expression):
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
 
-        args = f"{ScalarType_c} *f"
-        R, coarse = "R", "f"
         my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -273,18 +271,15 @@ def prolong_kernel(expression):
                     abort();
                 }
             }
-            const PetscScalar *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *coarsei = f + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
-                %(R)s[i] = 0;
+                R[i] = 0;
             }
-            pyop2_kernel_evaluate(%(R)s, coarsei, Xref);
+            pyop2_kernel_evaluate(R, coarsei, Xref);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": eval_code,
-               "args": args,
-               "R": R,
                "spacedim": element.cell.get_spatial_dimension(),
-               "coarse": coarse,
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -320,14 +315,12 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
 
-        args = f"{ScalarType_c} *b"
-        R, fine = "R", "b"
         my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -367,8 +360,8 @@ def restrict_kernel(Vf, Vc):
             }
 
             {
-            const PetscScalar *Ri = %(R)s + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
+            const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
+            pyop2_kernel_evaluate(Ri, b, Xref);
             }
         }
         """ % {"to_reference": str(to_reference_kernel),
@@ -378,10 +371,7 @@ def restrict_kernel(Vf, Vc):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "args": args,
                "spacedim": element.cell.get_spatial_dimension(),
-               "R": R,
-               "fine": fine,
                "tdim": mesh.topological_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
