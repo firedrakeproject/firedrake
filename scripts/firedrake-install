@@ -16,7 +16,10 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
-from pkg_resources.extern.packaging.version import Version, InvalidVersion
+try:
+    from pkg_resources.extern.packaging.version import Version, InvalidVersion
+except ModuleNotFoundError:
+    from packaging.version import Version, InvalidVersion
 
 osname = platform.uname().system
 arch = platform.uname().machine
