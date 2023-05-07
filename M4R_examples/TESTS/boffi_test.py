@@ -29,7 +29,7 @@ v = TestFunction(V)
 a = (inner(grad(u), grad(v))) * dx
 
 # Apply the homogeneous Dirichlet boundary conditions
-bc = DirichletBC(V, 0.0, "on_boundary", weight=0)
+bc = DirichletBC(V, 0.0, "on_boundary")
 
 # Create eigenproblem with boundary conditions
 eigenprob = LinearEigenproblem(a, bcs=bc)
@@ -42,18 +42,15 @@ ncov = eigensolver.solve()
 
 vr, vi = eigensolver.eigenfunction(0)
 
-print(type(vr), vi)
 
 '''TESTING THE EVALS'''
 print('my fns')
 for i in range(ncov):
     print(eigensolver.eigenvalue(i))
 # View eigenvalues and eigenvectors
-eval_1 = eigensolver.eigenvalue(0)
-vr, vi = eigensolver.eigenfunction(0)
+# eval_1 = eigensolver.eigenvalue(0)
+# vr, vi = eigensolver.eigenfunction(0)
 
-print('eval')
-print(eval_1)
 
 
 print('numerical')
