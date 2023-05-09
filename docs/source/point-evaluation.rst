@@ -322,6 +322,79 @@ We can express this in Firedrake as
    error = errornorm(interpolate(f, P0DG), y_pts)
 
 
+Mesh tolerance
+--------------
+
+If points are outside the mesh domain but ought to still be found a
+``tolerance`` parameter can be set. The tolerance is relative to the size of
+the mesh cells and is a property of the mesh itself
+
+.. code-block:: python3
+
+   parent_mesh = UnitSquareMesh(100, 100, quadrilateral = True)
+
+   # point (1.1, 1.0) is outside the mesh
+   points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
+
+   # This prints 1.0 - points can be up to around 1 mesh cell width away from
+   # the edge of the mesh and still be considered inside the domain.
+   print(parent_mesh.tolerance)
+
+   # This changes the tolerance and will cause the spatial index of the mesh
+   # to be rebuilt when first performing point evaluation which can take some
+   # time
+   parent_mesh.tolerance = 20.0
+
+   # This will now include the point (1.1, 1.0) in the mesh since each mesh
+   # cell is 1.0/100.0 wide.
+   vom = VertexOnlyMesh(parent_mesh, points)
+
+   # Similarly .at will not generate an error
+   V = FunctionSpace(parent_mesh, 'CG', 2)
+   Function(V).at((1.1, 1.0))
+
+
+Keyword arguments
+~~~~~~~~~~~~~~~~~
+
+Alternatively we can modify the tolerance by providing it as an argument to the
+vertex-only mesh. This will modify the tolerance property of the parent mesh.
+
+.. warning::
+
+   To avoid confusion, it is recommended that the tolerance be set for a mesh
+   before any point evaluations are performed, rather than making use of these
+   keyword arguments.
+
+.. code-block:: python3
+
+   # The point (1.1, 1.0) will still be included in the vertex-only mesh
+   vom = VertexOnlyMesh(parent_mesh, points, tolerance=30.0)
+
+   # The tolerance property has been changed - this will print 30.0
+   print(parent_mesh.tolerance)
+
+   # This doesn't generate an error
+   Function(V).at((1.1, 1.0), tolerance = 20.0)
+
+   # The tolerance property has been changed again - this will print 20.0
+   print(parent_mesh.tolerance)
+
+   try:
+      # This generates an error
+      Function(V).at((1.1, 1.0), tolerance = 1.0)
+   except :
+      # But the tolerance property has still been changed - this will print 1.0
+      print(parent_mesh.tolerance)
+
+Note that since our tolerance is relative, the number of cells in a mesh
+dictates the point loss behaviour close to cell edges. So the mesh
+``UnitSquareMesh(5, 5, quadrilateral = True)`` will include the point
+:math:`(1.1, 1.0)` by default.
+
+If a mesh tolerance changes where we already have an immersed vertex-only mesh,
+such that the new tolerance ought to cause points to disappear, they will not.
+
 
 UFL API
 -------
