@@ -258,7 +258,7 @@ def prolong_kernel(expression):
             if (cell == -1) {
                 /* We didn't find a cell that contained this point exactly.
                    Did we find one that was close enough? */
-                if (bestdist < 10) {
+                if (bestdist < 100) {
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
@@ -350,7 +350,7 @@ def restrict_kernel(Vf, Vc):
             if (cell == -1) {
                 /* We didn't find a cell that contained this point exactly.
                    Did we find one that was close enough? */
-                if (bestdist < 10) {
+                if (bestdist < 100) {
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
@@ -440,7 +440,7 @@ def inject_kernel(Vf, Vc):
             if (cell == -1) {
                 /* We didn't find a cell that contained this point exactly.
                    Did we find one that was close enough? */
-                if (bestdist < 10) {
+                if (bestdist < 100) {
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
