@@ -23,7 +23,7 @@ import ufl
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
-from firedrake import dmhooks, function, solving_utils
+from firedrake import dmhooks, function, solving_utils, vector
 import firedrake
 from firedrake.adjoint import annotate_solve
 from firedrake.petsc import PETSc
@@ -141,7 +141,7 @@ def _solve_varproblem(*args, **kwargs):
         options_prefix = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
-    if not isinstance(u, function.Function):
+    if not isinstance(u, (function.Function, vector.Vector)):
         raise TypeError("Provided solution is a '%s', not a Function" % type(u).__name__)
 
     if form_compiler_parameters is None:
@@ -222,7 +222,7 @@ def _la_solve(A, x, b, **kwargs):
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
 
     # Check whether solution is valid
-    if not isinstance(x, function.Function):
+    if not isinstance(x, (function.Function, vector.Vector)):
         raise TypeError("Provided solution is a '%s', not a Function" % type(x).__name__)
 
     if bcs is not None:
