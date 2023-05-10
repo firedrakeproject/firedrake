@@ -351,21 +351,21 @@ def test_partition_behaviour_2d_3procs():
 
 def test_partition_behaviour():
     parentmesh = UnitSquareMesh(1, 1)
-    inputcoords = [[0.0-1e-15, 0.5],
-                   [0.5, 0.0-1e-15],
-                   [0.5, 1.0+1e-15],
-                   [1.0+1e-15, 0.5],
+    inputcoords = [[0.0-1e-8, 0.5],
+                   [0.5, 0.0-1e-8],
+                   [0.5, 1.0+1e-8],
+                   [1.0+1e-8, 0.5],
                    [0.5, 0.5],
                    [0.5, 0.5],
-                   [0.5+1e-15, 0.5],
-                   [0.5, 0.5+1e-15]]
+                   [0.5+1e-12, 0.5],
+                   [0.5, 0.5+1e-12]]
     npts = len(inputcoords)
     # Check that we get all the points with a big enough tolerance
-    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13)
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-6)
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
     # Check that we lose all but the last 4 points with a small tolerance
     with pytest.warns(UserWarning):
-        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-16, missing_points_behaviour='warn')
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-10, missing_points_behaviour='warn')
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
 
 

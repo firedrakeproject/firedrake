@@ -89,8 +89,7 @@ class SCPC(SCBase):
         end
         """
         self.weight = Function(Vc)
-        par_loop((domain, instructions), dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
         with self.weight.dat.vec as wc:
             wc.reciprocal()
 

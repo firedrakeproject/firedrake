@@ -33,10 +33,7 @@ please cite :cite:`Homolya2016` and :cite:`McRae2016`. If you use
 :py:func:`~.VertexOnlyMesh`, please cite :cite:`nixonhill2023consistent`.
 
 The form compiler, TSFC, is documented in :cite:`Homolya2018` and
-:cite:`Homolya2017a`.  If, in addition, your work relies on the
-kernel-level performance optimisations that Firedrake performs using
-`COFFEE <https://github.com/coneoproject/COFFEE>`_, please cite the
-COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2017`.
+:cite:`Homolya2017a`.
 
 If you make use of matrix-free functionality and custom block
 preconditioning, please cite :cite:`Kirby2017`.

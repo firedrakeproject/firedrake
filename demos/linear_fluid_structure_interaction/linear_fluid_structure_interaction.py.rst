@@ -145,25 +145,21 @@ We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the 
     I_W = Function(V_DG0_W)
     par_loop(("{[i] : 0 <= i < f.dofs}", "f[i, 0] = 1.0"),
              dx(fluid_id),
-             {"f": (I_W, WRITE)},
-             is_loopy_kernel=True)
+             {"f": (I_W, WRITE)})
     I_cg_W = Function(V_W)
     par_loop(("{[i] : 0 <= i < A.dofs}", "A[i, 0] = fmax(A[i, 0], B[0, 0])"),
              dx,
-             {"A": (I_cg_W, RW), "B": (I_W, READ)},
-             is_loopy_kernel=True)
+             {"A": (I_cg_W, RW), "B": (I_W, READ)})
 
     # Heaviside step function in solid
     I_B = Function(V_DG0_B)
     par_loop(("{[i] : 0 <= i < f.dofs}", "f[i, 0] = 1.0"),
              dx(structure_id),
-             {"f": (I_B, WRITE)},
-             is_loopy_kernel=True)
+             {"f": (I_B, WRITE)})
     I_cg_B = Function(V_B)
     par_loop(("{[i, j] : 0 <= i < A.dofs and 0 <= j < 2}", "A[i, j] = fmax(A[i, j], B[0, 0])"),
              dx,
-             {"A": (I_cg_B, RW), "B": (I_B, READ)},
-             is_loopy_kernel=True)
+             {"A": (I_cg_B, RW), "B": (I_B, READ)})
 
 We use indicator functions to construct normal unit vector outward to the fluid domain at the fluid-structure interface::
 

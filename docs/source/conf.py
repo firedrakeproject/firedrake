@@ -124,7 +124,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'dolfin_adjoint_common\..*'),
     (r'py:.*', r'pyadjoint\..*'),
     (r'py:.*', r'tsfc\..*'),
-    (r'py:.*', r'coffee\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
@@ -388,6 +387,7 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
+    'loopy': ('https://documen.tician.de/loopy/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------

@@ -260,7 +260,6 @@ cells are not currently supported"
             "old_coords": (old_coordinates, READ),
             "L": (cL, READ),
         },
-        is_loopy_kernel=True,
     )
 
     return mesh.Mesh(
@@ -1005,7 +1004,6 @@ def PeriodicRectangleMesh(
             "Lx": (cLx, READ),
             "Ly": (cLy, READ),
         },
-        is_loopy_kernel=True,
     )
 
     return mesh.Mesh(
@@ -1824,7 +1822,6 @@ def PeriodicBoxMesh(
             "hy": (hy, READ),
             "hz": (hz, READ),
         },
-        is_loopy_kernel=True,
     )
     m1 = mesh.Mesh(
         new_coordinates,
@@ -2991,7 +2988,6 @@ def PartiallyPeriodicRectangleMesh(
             "Lx": (cLx, READ),
             "Ly": (cLy, READ),
         },
-        is_loopy_kernel=True,
     )
 
     if direction == "y":
