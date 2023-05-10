@@ -415,7 +415,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
-        # 
+        #
         elif (isinstance(expr, collections.abc.Container)
               and self.ufl_element().family() == "Real"):
             try:

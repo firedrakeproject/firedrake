@@ -1,8 +1,7 @@
-import numbers
 import numpy as np
 import ufl
 
-from pyop2 import op2, mpi
+from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
