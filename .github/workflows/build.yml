@@ -75,8 +75,9 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch tsfc no-coffee \
-            --package-branch pyop2 no-coffee || (cat firedrake-install.log && /bin/false)
+            --package-branch tsfc JDBetteridge/constant_update \
+            --package-branch pyop2 JDBetteridge/global_literal \
+            --package-branch pyadjoint connorjward/constants-away || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
