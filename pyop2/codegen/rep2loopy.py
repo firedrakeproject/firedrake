@@ -552,22 +552,16 @@ def generate(builder, wrapper_name=None):
         headers = headers | set(["#include <petsclog.h>"])
     preamble = "\n".join(sorted(headers))
 
-    from coffee.base import Node
-    from loopy.kernel.function_interface import CallableKernel
-
     if isinstance(kernel.code, loopy.TranslationUnit):
         knl = kernel.code
         wrapper = loopy.merge([wrapper, knl])
-        names = knl.callables_table
-        for name in names:
-            if isinstance(wrapper.callables_table[name], CallableKernel):
-                wrapper = _match_caller_callee_argument_dimension_(wrapper, name)
+        # remove the local kernel from the available entrypoints
+        wrapper = wrapper.copy(entrypoints=wrapper.entrypoints-{kernel.name})
+        wrapper = _match_caller_callee_argument_dimension_(wrapper, kernel.name)
     else:
         # kernel is a string, add it to preamble
-        if isinstance(kernel.code, Node):
-            code = kernel.code.gencode()
-        else:
-            code = kernel.code
+        assert isinstance(kernel.code, str)
+        code = kernel.code
         wrapper = loopy.register_callable(
             wrapper,
             kernel.name,

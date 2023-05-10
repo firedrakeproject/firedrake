@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import hashlib
 from typing import Union
 
-import coffee
 import loopy as lp
 from loopy.tools import LoopyKeyBuilder
 import numpy as np
@@ -36,8 +35,6 @@ def Kernel(code, name, **kwargs):
     """
     if isinstance(code, str):
         return CStringLocalKernel(code, name, **kwargs)
-    elif isinstance(code, coffee.base.Node):
-        return CoffeeLocalKernel(code, name, **kwargs)
     elif isinstance(code, (lp.LoopKernel, lp.TranslationUnit)):
         return LoopyLocalKernel(code, name, **kwargs)
     else:
@@ -120,9 +117,7 @@ class LocalKernel(abc.ABC):
     @cached_property
     def _immutable_cache_key(self):
         # We need this function because self.accesses is mutable due to legacy support
-        if isinstance(self.code, coffee.base.Node):
-            code = self.code.gencode()
-        elif isinstance(self.code, lp.TranslationUnit):
+        if isinstance(self.code, lp.TranslationUnit):
             key_hash = hashlib.sha256()
             self.code.update_persistent_hash(key_hash, LoopyKeyBuilder())
             code = key_hash.hexdigest()
@@ -160,10 +155,7 @@ class LocalKernel(abc.ABC):
         if not configuration["compute_kernel_flops"]:
             return 0
 
-        if isinstance(self.code, coffee.base.Node):
-            v = coffee.visitors.EstimateFlops()
-            return v.visit(self.code)
-        elif isinstance(self.code, lp.TranslationUnit):
+        if isinstance(self.code, lp.TranslationUnit):
             op_map = lp.get_op_map(
                 self.code.copy(options=lp.Options(ignore_boostable_into=True),
                                silenced_warnings=['insn_count_subgroups_upper_bound',
@@ -195,30 +187,13 @@ class CStringLocalKernel(LocalKernel):
     """:class:`LocalKernel` class where `code` is a string of C code.
 
     :kwarg dtypes: Iterable of datatypes (either `np.dtype` or `str`) for
-        each kernel argument. This is not required for :class:`CoffeeLocalKernel`
-        or :class:`LoopyLocalKernel` because it can be inferred.
+        each kernel argument. This is not required for :class:`LoopyLocalKernel`
+        because it can be inferred.
 
     All other `__init__` parameters are the same.
     """
 
     @validate_type(("code", str, TypeError))
-    def __init__(self, code, name, accesses=None, dtypes=None, **kwargs):
-        super().__init__(code, name, accesses, **kwargs)
-        self._dtypes = dtypes
-
-    @property
-    def dtypes(self):
-        return self._dtypes
-
-    @dtypes.setter
-    def dtypes(self, dtypes):
-        self._dtypes = dtypes
-
-
-class CoffeeLocalKernel(LocalKernel):
-    """:class:`LocalKernel` class where `code` has type :class:`coffee.base.Node`."""
-
-    @validate_type(("code", coffee.base.Node, TypeError))
     def __init__(self, code, name, accesses=None, dtypes=None, **kwargs):
         super().__init__(code, name, accesses, **kwargs)
         self._dtypes = dtypes

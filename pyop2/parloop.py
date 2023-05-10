@@ -14,7 +14,7 @@ from pyop2.datatypes import as_numpy_dtype
 from pyop2.exceptions import KernelTypeError, MapValueError, SetTypeError
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
                                  MatKernelArg, MixedMatKernelArg, GlobalKernel)
-from pyop2.local_kernel import LocalKernel, CStringLocalKernel, CoffeeLocalKernel, LoopyLocalKernel
+from pyop2.local_kernel import LocalKernel, CStringLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.utils import cached_property
@@ -624,7 +624,7 @@ def LegacyParloop(local_knl, iterset, *args, **kwargs):
 
     # finish building the local kernel
     local_knl.accesses = tuple(a.access for a in args)
-    if isinstance(local_knl, (CStringLocalKernel, CoffeeLocalKernel)):
+    if isinstance(local_knl, CStringLocalKernel):
         local_knl.dtypes = tuple(a.data.dtype for a in args)
 
     global_knl_args = tuple(a.global_kernel_arg for a in args)

@@ -39,9 +39,8 @@ from numpy.testing import assert_allclose
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
 
-from coffee.base import *
-
 from petsc4py.PETSc import ScalarType
+
 
 # Data type
 valuetype = ScalarType
@@ -164,7 +163,8 @@ def x_vec(dvnodes):
 
 @pytest.fixture
 def mass():
-    init = FlatBlock("""
+    kernel_code = """
+static void mass(double localTensor[3][3], double c0[3][2]) {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
                                 {  0.09157621, 0.81684757, 0.09157621,
@@ -206,26 +206,23 @@ def mass():
       };
     };
   };
-  for(int i_g = 0; i_g < 6; i_g++)
-""")
-    assembly = Incr(Symbol("localTensor", ("i_r_0", "i_r_1")),
-                    FlatBlock("ST0 * w[i_g]"))
-    assembly = Block([FlatBlock("double ST0 = 0.0;\nST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * \
-                                c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);\n"), assembly], open_scope=True)
-    assembly = c_for("i_r_0", 3, c_for("i_r_1", 3, assembly))
-
-    kernel_code = FunDecl("void", "mass",
-                          [Decl("double", Symbol("localTensor", (3, 3))),
-                           Decl("double", Symbol("c0", (3, 2)))],
-                          Block([init, assembly], open_scope=False),
-                          pred=["static"])
-
-    return op2.Kernel(kernel_code.gencode(), "mass")
+  for(int i_g = 0; i_g < 6; i_g++) {
+    for (int i_r_0=0; i_r_0<3; ++i_r_0) {
+      for (int i_r_1=0; i_r_1<3; ++i_r_1) {
+        double ST0 = 0.0;
+        ST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
+        localTensor[i_r_0][i_r_1] += ST0 * w[i_g];
+      }
+    }
+  }
+}
+    """
+    return op2.Kernel(kernel_code, "mass")
 
 
 @pytest.fixture
 def rhs():
-    kernel_code = FlatBlock("""
+    kernel_code = """
 static void rhs(double* localTensor, double c0[3][2], double* c1)
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
@@ -284,45 +281,40 @@ static void rhs(double* localTensor, double c0[3][2], double* c1)
       localTensor[i_r_0] += ST1 * w[i_g];
     };
   };
-}""")
-    return op2.Kernel(kernel_code.gencode(), "rhs")
+}"""
+    return op2.Kernel(kernel_code, "rhs")
 
 
 @pytest.fixture
 def mass_ffc():
-    init = FlatBlock("""
-double J_00 = x[1][0] - x[0][0];
-double J_01 = x[2][0] - x[0][0];
-double J_10 = x[1][1] - x[0][1];
-double J_11 = x[2][1] - x[0][1];
+    kernel_code = """
+static void mass_ffc(double A[3][3], double x[3][2]) {
+  double J_00 = x[1][0] - x[0][0];
+  double J_01 = x[2][0] - x[0][0];
+  double J_10 = x[1][1] - x[0][1];
+  double J_11 = x[2][1] - x[0][1];
 
-double detJ = J_00*J_11 - J_01*J_10;
-double det = fabs(detJ);
+  double detJ = J_00*J_11 - J_01*J_10;
+  double det = fabs(detJ);
 
-double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
-double FE0[3][3] = \
-{{0.666666666666667, 0.166666666666667, 0.166666666666667},
-{0.166666666666667, 0.166666666666667, 0.666666666666667},
-{0.166666666666667, 0.666666666666667, 0.166666666666667}};
+  double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+  double FE0[3][3] = \
+  {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+  {0.166666666666667, 0.166666666666667, 0.666666666666667},
+  {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
-for (unsigned int ip = 0; ip < 3; ip++)
-""")
-    assembly = Incr(Symbol("A", ("j", "k")),
-                    FlatBlock("FE0[ip][j]*FE0[ip][k]*W3[ip]*det"))
-    assembly = c_for("j", 3, c_for("k", 3, assembly))
-
-    kernel_code = FunDecl("void", "mass_ffc",
-                          [Decl("double", Symbol("A", (3, 3))),
-                           Decl("double", Symbol("x", (3, 2)))],
-                          Block([init, assembly], open_scope=False),
-                          pred=["static"])
-
-    return op2.Kernel(kernel_code.gencode(), "mass_ffc")
+  for (unsigned int ip = 0; ip < 3; ip++)
+    for (int j=0; j<3; ++j)
+      for (int k=0; k<3; ++k)
+        A[j][k] += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
+}
+    """
+    return op2.Kernel(kernel_code, "mass_ffc")
 
 
 @pytest.fixture
 def rhs_ffc():
-    kernel_code = FlatBlock("""
+    kernel_code = """
 static void rhs_ffc(double *A, double x[3][2], double *w0)
 {
     double J_00 = x[1][0] - x[0][0];
@@ -355,49 +347,39 @@ static void rhs_ffc(double *A, double x[3][2], double *w0)
       }
     }
 }
-""")
-    return op2.Kernel(kernel_code.gencode(), "rhs_ffc")
+"""
+    return op2.Kernel(kernel_code, "rhs_ffc")
 
 
 @pytest.fixture
 def rhs_ffc_itspace():
-    init = FlatBlock("""
-double J_00 = x[1][0] - x[0][0];
-double J_01 = x[2][0] - x[0][0];
-double J_10 = x[1][1] - x[0][1];
-double J_11 = x[2][1] - x[0][1];
+    kernel_code = """
+static void rhs_ffc_itspace(double A[3], double x[3][2], double *w0) {
+  double J_00 = x[1][0] - x[0][0];
+  double J_01 = x[2][0] - x[0][0];
+  double J_10 = x[1][1] - x[0][1];
+  double J_11 = x[2][1] - x[0][1];
 
-double detJ = J_00*J_11 - J_01*J_10;
-double det = fabs(detJ);
+  double detJ = J_00*J_11 - J_01*J_10;
+  double det = fabs(detJ);
 
-double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
-double FE0[3][3] = \
-{{0.666666666666667, 0.166666666666667, 0.166666666666667},
-{0.166666666666667, 0.166666666666667, 0.666666666666667},
-{0.166666666666667, 0.666666666666667, 0.166666666666667}};
+  double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+  double FE0[3][3] = \
+  {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+  {0.166666666666667, 0.166666666666667, 0.666666666666667},
+  {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
-for (unsigned int ip = 0; ip < 3; ip++)
-{
-  double F0 = 0.0;
+  for (unsigned int ip = 0; ip < 3; ip++) {
+    double F0 = 0.0;
 
-  for (unsigned int r = 0; r < 3; r++)
-  {
-    F0 += FE0[ip][r]*w0[r];
+    for (unsigned int r = 0; r < 3; r++)
+      F0 += FE0[ip][r]*w0[r];
+    for (unsigned int j=0; j<3; ++j)
+      A[j] += FE0[ip][j]*F0*W3[ip]*det;
   }
-
-""")
-    assembly = Incr(Symbol("A", ("j",)), FlatBlock("FE0[ip][j]*F0*W3[ip]*det"))
-    assembly = c_for("j", 3, assembly)
-    end = FlatBlock("}")
-
-    kernel_code = FunDecl("void", "rhs_ffc_itspace",
-                          [Decl("double", Symbol("A", (3,))),
-                           Decl("double", Symbol("x", (3, 2))),
-                              Decl("double*", Symbol("w0"))],
-                          Block([init, assembly, end], open_scope=False),
-                          pred=["static"])
-
-    return op2.Kernel(kernel_code.gencode(), "rhs_ffc_itspace")
+}
+    """
+    return op2.Kernel(kernel_code, "rhs_ffc_itspace")
 
 
 @pytest.fixture
@@ -424,32 +406,26 @@ static void zero_vec_dat(double *dat)
 
 @pytest.fixture
 def kernel_inc():
-    code = c_for("i", 3,
-                 c_for("j", 3,
-                       Incr(Symbol("entry", ("i", "j")), c_sym("*g"))))
-
-    kernel_code = FunDecl("void", "inc",
-                          [Decl("double", Symbol("entry", (3, 3))),
-                           Decl("double*", c_sym("g"))],
-                          Block([code], open_scope=False),
-                          pred=["static"])
-
-    return op2.Kernel(kernel_code.gencode(), "inc")
+    kernel_code = """
+static void inc(double entry[3][3], double *g) {
+  for (int i=0; i<3; ++i)
+    for (int j=0; j<3; ++j)
+      entry[i][j] += g[0];
+}
+    """
+    return op2.Kernel(kernel_code, "inc")
 
 
 @pytest.fixture
 def kernel_set():
-    code = c_for("i", 3,
-                 c_for("j", 3,
-                       Assign(Symbol("entry", ("i", "j")), c_sym("*g"))))
-
-    kernel_code = FunDecl("void", "set",
-                          [Decl("double", Symbol("entry", (3, 3))),
-                           Decl("double*", c_sym("g"))],
-                          Block([code], open_scope=False),
-                          pred=["static"])
-
-    return op2.Kernel(kernel_code.gencode(), "set")
+    kernel_code = """
+static void set(double entry[3][3], double *g) {
+  for (int i=0; i<3; ++i)
+    for (int j=0; j<3; ++j)
+      entry[i][j] = g[0];
+}
+    """
+    return op2.Kernel(kernel_code, "set")
 
 
 @pytest.fixture
@@ -642,20 +618,18 @@ class TestMatrices:
 
     def test_minimal_zero_mat(self):
         """Assemble a matrix that is all zeros."""
-
-        code = c_for("i", 1,
-                     c_for("j", 1,
-                           Assign(Symbol("local_mat", ("i", "j")), c_sym("0.0"))))
-        zero_mat_code = FunDecl("void", "zero_mat",
-                                [Decl("double", Symbol("local_mat", (1, 1)))],
-                                Block([code], open_scope=False))
+        zero_mat_code = """
+void zero_mat(double local_mat[1][1]) {
+  local_mat[0][0] = 0.0;
+}
+        """
 
         nelems = 128
         set = op2.Set(nelems)
         map = op2.Map(set, set, 1, np.array(list(range(nelems)), np.uint32))
         sparsity = op2.Sparsity((set, set), (map, map))
         mat = op2.Mat(sparsity, np.float64)
-        kernel = op2.Kernel(zero_mat_code.gencode(), "zero_mat")
+        kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set,
                      mat(op2.WRITE, (map, map)))
 
@@ -919,12 +893,13 @@ class TestMixedMatrices:
     @pytest.fixture
     def dat(self, mset, mmap, mdat):
         dat = op2.MixedDat(mset)
-        kernel_code = FunDecl("void", "addone_rhs",
-                              [Decl("double", Symbol("v", (3,))),
-                               Decl("double", Symbol("d", (3,)))],
-                              c_for("i", 3, Incr(Symbol("v", ("i")), FlatBlock("d[i]"))),
-                              pred=["static"])
-        addone = op2.Kernel(kernel_code.gencode(), "addone_rhs")
+        kernel_code = """
+static void addone_rhs(double v[3], double d[3]) {
+  for (int i=0; i<3; ++i)
+    v[i] += d[i];
+}
+        """
+        addone = op2.Kernel(kernel_code, "addone_rhs")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap),
                      mdat(op2.READ, mmap))
@@ -947,15 +922,15 @@ class TestMixedMatrices:
     def test_assemble_mixed_rhs_vector(self, mset, mmap, mvdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
         dat = op2.MixedDat(mset ** 2)
-        assembly = Block(
-            [Incr(Symbol("v", ("i"), ((2, 0),)), FlatBlock("d[i][0]")),
-             Incr(Symbol("v", ("i"), ((2, 1),)), FlatBlock("d[i][1]"))], open_scope=True)
-        kernel_code = FunDecl("void", "addone_rhs_vec",
-                              [Decl("double", Symbol("v", (6,))),
-                               Decl("double", Symbol("d", (3, 2)))],
-                              c_for("i", 3, assembly),
-                              pred=["static"])
-        addone = op2.Kernel(kernel_code.gencode(), "addone_rhs_vec")
+        kernel_code = """
+static void addone_rhs_vec(double v[6], double d[3][2]) {
+  for (int i=0; i<3; ++i) {
+    v[i*2+0] += d[i][0];
+    v[i*2+1] += d[i][1];
+  }
+}
+        """
+        addone = op2.Kernel(kernel_code, "addone_rhs_vec")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap),
                      mvdat(op2.READ, mmap))

@@ -48,7 +48,7 @@ from pyop2.types import (
 from pyop2.types import (READ, WRITE, RW, INC, MIN, MAX,
                          ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL)
 
-from pyop2.local_kernel import CStringLocalKernel, LoopyLocalKernel, CoffeeLocalKernel, Kernel  # noqa: F401
+from pyop2.local_kernel import CStringLocalKernel, LoopyLocalKernel, Kernel  # noqa: F401
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,  # noqa: F401
                                  MatKernelArg, MixedMatKernelArg, MapKernelArg, GlobalKernel)
 from pyop2.parloop import (GlobalParloopArg, DatParloopArg, MixedDatParloopArg,  # noqa: F401

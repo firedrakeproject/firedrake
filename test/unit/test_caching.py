@@ -40,8 +40,6 @@ import numpy
 from pyop2 import op2, mpi
 from pyop2.caching import disk_cached
 
-from coffee.base import *
-
 
 def _seed():
     return 0.02041724
@@ -419,11 +417,7 @@ static void swap(unsigned int* x)
     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
         self.cache.clear()
         assert len(self.cache) == 0
-        kernel_code = FunDecl("void", "k",
-                              [Decl("int*", c_sym("x"), qualifiers=["unsigned"])],
-                              c_for("i", 1, ""),
-                              pred=["static"])
-        k = op2.Kernel(kernel_code.gencode(), 'k')
+        k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))

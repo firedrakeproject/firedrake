@@ -172,7 +172,6 @@ def _match_caller_callee_argument_dimension_(program, callee_function_name):
         invocations would demand complex renaming logic which is not
         implemented yet.
     """
-
     assert isinstance(program, TranslationUnit)
     assert isinstance(callee_function_name, str)
     assert callee_function_name not in program.entrypoints

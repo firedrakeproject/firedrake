@@ -37,8 +37,6 @@ import numpy as np
 
 from pyop2 import op2
 
-from coffee.base import *
-
 nelems = 32
 
 
@@ -224,15 +222,14 @@ static void inc(unsigned int* v1, unsigned int* v2) {
         mat01 = op2.Mat(sparsity, np.float64)
         mat10 = op2.Mat(sparsity, np.float64)
 
-        assembly = c_for("i", 4,
-                         c_for("j", 4,
-                               Incr(Symbol("mat", ("i", "j")), FlatBlock("(*dat)*16+i*4+j"))))
-        kernel_code = FunDecl("void", "unique_id",
-                              [Decl("double", Symbol("mat", (4, 4))),
-                               Decl("double*", c_sym("dat"))],
-                              Block([assembly], open_scope=False),
-                              pred=["static"])
-        k = op2.Kernel(kernel_code.gencode(), "unique_id")
+        kernel_code = """
+static void unique_id(double mat[4][4], double *dat) {
+  for (int i=0; i<4; ++i)
+    for (int j=0; j<4; ++j)
+      mat[i][j] += (*dat)*16+i*4+j;
+}
+        """
+        k = op2.Kernel(kernel_code, "unique_id")
 
         mat.zero()
         mat01.zero()

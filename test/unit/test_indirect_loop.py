@@ -38,8 +38,6 @@ import numpy as np
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 
-from coffee.base import *
-
 
 nelems = 4096
 
@@ -265,14 +263,11 @@ class TestMixedIndirectLoop:
     def test_mixed_non_mixed_dat_itspace(self, mdat, mmap, iterset):
         """Increment into a MixedDat from a Dat using iteration spaces."""
         d = op2.Dat(iterset, np.ones(iterset.size))
-        assembly = Incr(Symbol("d", ("j",)), Symbol("x", (0,)))
-        assembly = c_for("j", 2, assembly)
-        kernel_code = FunDecl("void", "inc",
-                              [Decl("double", c_sym("*d")),
-                               Decl("double", c_sym("*x"))],
-                              Block([assembly], open_scope=False),
-                              pred=["static"])
-        op2.par_loop(op2.Kernel(kernel_code.gencode(), "inc"), iterset,
+        kernel_inc = """static void inc(double *d, double *x) {
+          for (int i=0; i<2; ++i)
+            d[i] += x[0];
+        }"""
+        op2.par_loop(op2.Kernel(kernel_inc, "inc"), iterset,
                      mdat(op2.INC, mmap),
                      d(op2.READ))
         assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0
