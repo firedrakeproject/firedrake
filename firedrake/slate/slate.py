@@ -280,9 +280,8 @@ class TensorBase(object, metaclass=ABCMeta):
             vector or a matrix.
         :arg decomposition: A string describing the type of
             factorization to use when inverting the local
-            systems. At the moment, these are determined by
-            what is available in Eigen. A complete list of
-            available matrix decompositions are outlined in
+            systems. A complete list of available matrix
+            decompositions are outlined in
             :class:`Factorization`.
         """
         return Solve(self, B, decomposition=decomposition)

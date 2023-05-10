@@ -110,19 +110,14 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
-        # FIXME Making the COFFEE parameters part of the cache key causes
-        # unnecessary repeated calls to TSFC when actually only the kernel code
-        # needs to be regenerated
+    def _cache_key(cls, form, name, parameters, number_map, interface, diagonal=False):
         return md5((form.signature() + name
-                    + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
                     + str(type(interface))
-                    + str(coffee)
                     + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, interface, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
@@ -134,19 +129,16 @@ class TSFCKernel(Cached):
         if self._initialized:
             return
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
-                                 interface=interface, coffee=coffee,
+                                 interface=interface,
                                  diagonal=diagonal, log=PETSc.Log.isActive())
         kernels = []
         for kernel in tree:
-            # Set optimization options
-            opts = default_parameters["coffee"].copy()
             # Unwind coefficient numbering
             numbers = tuple((number_map[number], indices) for number, indices in kernel.coefficient_numbers)
             events = (kernel.event,)
             pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
                                                  len(kernel.arguments),
                                                  flop_count=kernel.flop_count,
-                                                 opts=opts,
                                                  events=events)
             kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
@@ -168,7 +160,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
 
 
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
+def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -178,7 +170,6 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
          ``form_compiler`` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
     :arg split: If ``False``, then don't split mixed forms.
-    :arg coffee: compile coffee kernel instead of loopy kernel
 
     Returns a tuple of tuples of
     (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
@@ -208,7 +199,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     # if we assemble the same form again with the same optimisations
     cache = form._cache.setdefault("firedrake_kernels", {})
 
-    key = (utils.tuplify(default_parameters["coffee"]), name, utils.tuplify(parameters), split, diagonal)
+    key = (name, utils.tuplify(parameters), split, diagonal)
     try:
         return cache[key]
     except KeyError:
@@ -236,7 +227,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         number_map = tuple(coefficient_numbers[c] for c in f.coefficients())
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
-                            number_map, interface, coffee, diagonal).kernels
+                            number_map, interface, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
 
