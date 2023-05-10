@@ -9,8 +9,6 @@ from numpy import asarray
 
 from ufl.utils.sequences import max_degree
 
-import coffee.base as coffee
-
 from FIAT.reference_element import TensorProductCell
 
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
@@ -104,19 +102,6 @@ class KernelBuilderBase(KernelInterface):
             self.prepare.extend(prepare)
         if finalise is not None:
             self.finalise.extend(finalise)
-
-    def construct_kernel(self, name, args, body):
-        """Construct a COFFEE function declaration with the
-        accumulated glue code.
-
-        :arg name: function name
-        :arg args: function argument list
-        :arg body: function body (:class:`coffee.Block` node)
-        :returns: :class:`coffee.FunDecl` object
-        """
-        assert isinstance(body, coffee.Block)
-        body_ = coffee.Block(self.prepare + body.children + self.finalise)
-        return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
 
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be

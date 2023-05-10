@@ -96,9 +96,11 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         :arg coefficient: :class:`ufl.Coefficient`
         :arg name: coefficient name
+        :returns: GEM expression representing the coefficient
         """
         expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet)
         self.coefficient_map[coefficient] = expr
+        return expr
 
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".

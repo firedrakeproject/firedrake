@@ -53,8 +53,7 @@ def test_flop_count(cell, parameters):
         v = TestFunction(V)
         a = inner(u, v)*dx + inner(grad(u), grad(v))*dx
         kernel, = compile_form(a, prefix="form",
-                               parameters=parameters,
-                               coffee=False)
+                               parameters=parameters)
         # Record new flops here, and compare asymptotics and
         # approximate order of magnitude.
         new_flops.append(kernel.flop_count)

@@ -232,6 +232,13 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create instructions
     instructions = statement(impero_c.tree, ctx)
 
+    # add a no-op touching all kernel arguments to make sure they
+    # are not silently dropped
+    noop = lp.CInstruction(
+        (), "", read_variables=frozenset({a.name for a in args}),
+        within_inames=frozenset(), within_inames_is_final=True)
+    instructions.append(noop)
+
     # Profile the instructions
     instructions, event_name, preamble = profile_insns(kernel_name, instructions, log)
 

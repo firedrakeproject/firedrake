@@ -1,5 +1,6 @@
 import ufl
 from tsfc import compile_form
+import loopy
 import pytest
 
 
@@ -60,13 +61,6 @@ def form(V, itype, request):
 def test_idempotency(form):
     k1 = compile_form(form)[0]
     k2 = compile_form(form)[0]
-
-    assert k1.ast.gencode() == k2.ast.gencode()
-
-    # Test loopy backend
-    import loopy
-    k1 = compile_form(form, coffee=False)[0]
-    k2 = compile_form(form, coffee=False)[0]
 
     assert loopy.generate_code_v2(k1.ast).device_code() == loopy.generate_code_v2(k2.ast).device_code()
 

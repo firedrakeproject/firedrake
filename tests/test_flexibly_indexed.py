@@ -5,10 +5,10 @@ import pytest
 
 import gem
 import tsfc
-import tsfc.coffee
+import tsfc.loopy
 
 
-parameters = tsfc.coffee.Bunch()
+parameters = tsfc.loopy.LoopyContext()
 parameters.names = {}
 
 
@@ -16,7 +16,14 @@ def convert(expression, multiindex):
     assert not expression.free_indices
     element = gem.Indexed(expression, multiindex)
     element, = gem.optimise.remove_componenttensors((element,))
-    return tsfc.coffee.expression(element, parameters).rank
+    subscript = tsfc.loopy.expression(element, parameters)
+    # Convert a pymbolic subscript expression to a rank tuple. For example
+    # the subscript:
+    #
+    #     Subscript(Variable('A'), (Sum((3,)), Sum((5,))))
+    #
+    # will yield a rank of (3, 5).
+    return sum((idx.children for idx in subscript.index), start=())
 
 
 @pytest.fixture(scope='module')

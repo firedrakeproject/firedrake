@@ -1,8 +1,6 @@
 import numpy
 import pytest
 
-from coffee.visitors import EstimateFlops
-
 from ufl import (Mesh, FunctionSpace, VectorElement, TensorElement,
                  Coefficient, TestFunction, interval, indices, dx)
 from ufl.classes import IndexSum, Product, MultiIndex
@@ -29,7 +27,7 @@ def count_flops(n):
                             MultiIndex((i,))), MultiIndex((j,))) * dx))
 
     kernel, = compile_form(L, parameters=dict(mode='spectral'))
-    return EstimateFlops().visit(kernel.ast)
+    return kernel.flop_count
 
 
 def test_convergence():

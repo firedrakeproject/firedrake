@@ -18,6 +18,7 @@ from tsfc import fem, ufl_utils
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -45,18 +46,29 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, coffee=True, diagonal=False, log=False):
+def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False, log=False, **kwargs):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :arg coffee: compile coffee kernel instead of loopy kernel
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :arg log: bool if the Kernel should be profiled with Log events
     :returns: list of kernels
     """
     cpu_time = time.time()
+
+    if "coffee" in kwargs:
+        use_coffee = kwargs.pop("coffee")
+        if use_coffee:
+            raise ValueError("COFFEE support has been removed from TSFC")
+        else:
+            import warnings
+            warnings.warn(
+                "The coffee kwarg has been removed from compile_form as COFFEE "
+                "is no longer a supported backend.", FutureWarning)
+    if kwargs:
+        raise ValueError("compile_form called with unexpected arguments")
 
     assert isinstance(form, Form)
 
@@ -70,7 +82,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, coffee=coffee, diagonal=diagonal, log=log)
+        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal, log=log)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -79,7 +91,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, coffee=Tr
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, coffee, *, diagonal=False, log=False):
+def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False, log=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -96,13 +108,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, co
         raise NotImplementedError("interior facet integration in hex meshes not currently supported")
     parameters = preprocess_parameters(parameters)
     if interface is None:
-        if coffee:
-            import tsfc.kernel_interface.firedrake as firedrake_interface_coffee
-            interface = firedrake_interface_coffee.KernelBuilder
-        else:
-            # Delayed import, loopy is a runtime dependency
-            import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-            interface = firedrake_interface_loopy.KernelBuilder
+        interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
     if integral_type.startswith("interior_facet") and diagonal:

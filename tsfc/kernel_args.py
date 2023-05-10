@@ -1,11 +1,8 @@
 import abc
 
-import coffee.base as coffee
-import loopy as lp
-
 
 class KernelArg(abc.ABC):
-    """Abstract base class wrapping either a COFFEE or loopy argument.
+    """Abstract base class wrapping a loopy argument.
 
     Defining this type system allows Firedrake (or other libraries) to
     prepare arguments for the kernel without needing to worry about their
@@ -13,35 +10,12 @@ class KernelArg(abc.ABC):
     :func:`functools.singledispatch`.
     """
 
-    def __init__(self, ast_arg):
-        self._ast_arg = ast_arg
+    def __init__(self, arg):
+        self.loopy_arg = arg
 
     @property
     def dtype(self):
-        if self._is_coffee_backend:
-            return self._ast_arg.typ
-        elif self._is_loopy_backend:
-            return self._ast_arg.dtype
-
-    @property
-    def coffee_arg(self):
-        if not self._is_coffee_backend:
-            raise RuntimeError("Invalid type requested")
-        return self._ast_arg
-
-    @property
-    def loopy_arg(self):
-        if not self._is_loopy_backend:
-            raise RuntimeError("Invalid type requested")
-        return self._ast_arg
-
-    @property
-    def _is_coffee_backend(self):
-        return isinstance(self._ast_arg, coffee.Decl)
-
-    @property
-    def _is_loopy_backend(self):
-        return isinstance(self._ast_arg, lp.ArrayArg)
+        return self.loopy_arg.dtype
 
 
 class OutputKernelArg(KernelArg):
