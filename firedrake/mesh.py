@@ -3282,10 +3282,10 @@ def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
         for _ in range(len(old_coords) - len(coords)):
             swarm.removePoint()
 
-    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_old_coords, gdim))
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((len(coords), gdim))
     swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
     field_parent_cell_nums = swarm.getField("parentcellnum")
-    field_reference_coords = swarm.getField("refcoord").reshape((num_old_coords, tdim))
+    field_reference_coords = swarm.getField("refcoord").reshape((len(coords), tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
     for name, size, dtype in swarm.other_fields:
