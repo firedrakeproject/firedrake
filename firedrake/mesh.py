@@ -1741,9 +1741,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @property
     def missing_points_behaviour(self):
-        """Optional string argument for what to do when vertices which are
-        outside of the mesh are discarded. If ``'warn'``, will print a warning.
-        If ``'error'`` will raise a ValueError."""
+        """Optional string argument for what to do when VertexOnlyMehs vertices
+        which are outside of the mesh are discarded. If ``'warn'``, will print
+        a warning. If ``'error'`` will raise a ValueError."""
         return self._missing_points_behaviour
 
     @missing_points_behaviour.setter
@@ -2381,7 +2381,9 @@ values from f.)"""
 
     @property
     def missing_points_behaviour(self):
-        __doc__ = self.topology.missing_points_behaviour.__doc__
+        """Optional string argument for what to do when VertexOnlyMesh vertices
+        which are outside of the mesh are discarded. If ``'warn'``, will print
+        a warning. If ``'error'`` will raise a ValueError."""
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("missing_points_behaviour is only defined for VertexOnlyMeshTopology")
         return self.topology.missing_points_behaviour
