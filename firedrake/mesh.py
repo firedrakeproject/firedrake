@@ -2379,21 +2379,6 @@ values from f.)"""
         """
         self.topology.mark_entities(f.topological, label_name, label_value)
 
-    @property
-    def missing_points_behaviour(self):
-        """Optional string argument for what to do when VertexOnlyMesh vertices
-        which are outside of the mesh are discarded. If ``'warn'``, will print
-        a warning. If ``'error'`` will raise a ValueError."""
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("missing_points_behaviour is only defined for VertexOnlyMeshTopology")
-        return self.topology.missing_points_behaviour
-
-    @missing_points_behaviour.setter
-    def missing_points_behaviour(self, value):
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("missing_points_behaviour is only defined for VertexOnlyMeshTopology")
-        self.topology.missing_points_behaviour = value
-
 
 @PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates, name):
