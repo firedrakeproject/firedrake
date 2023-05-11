@@ -33,9 +33,9 @@ def get_topological_dimension(PETSc.DM dm):
 
     :returns: For a DMPlex ``dm.getDimension()``, for a DMSwarm ``0``.
     """
-    if type(dm) is PETSc.DMPlex:
+    if isinstance(dm, PETSc.DMPlex):
         return dm.getDimension()
-    elif type(dm) is PETSc.DMSwarm:
+    elif isinstance(dm, PETSc.DMSwarm):
         return 0
     else:
         raise ValueError("dm must be a DMPlex or DMSwarm")
@@ -605,7 +605,7 @@ def closure_ordering(PETSc.DM dm,
 
         # Find all edges (dim=1) (only relevant for `DMPlex`)
         if dim > 2:
-            assert type(dm) is PETSc.DMPlex
+            assert isinstance(dm, PETSc.DMPlex)
             nfaces = 0
             for ci in range(nclosure):
                 if eStart <= closure[2*ci] < eEnd:
@@ -1163,7 +1163,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
 
     dm = mesh.topology_dm
 
-    if type(dm) is PETSc.DMSwarm and on_base:
+    if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
 
     variable = mesh.variable_layers
@@ -1186,7 +1186,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
 
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
-    if type(dm) is PETSc.DMPlex:
+    if isinstance(dm, PETSc.DMPlex):
         # Renumbering only implemented for DMPlex
         renumbering = mesh._plex_renumbering
         CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
@@ -1249,7 +1249,7 @@ def get_cell_nodes(mesh,
         bint is_swarm, variable, extruded_periodic_1_layer
 
     dm = mesh.topology_dm
-    is_swarm = type(dm) is PETSc.DMSwarm
+    is_swarm = isinstance(dm, PETSc.DMSwarm)
     variable = mesh.variable_layers
     cell_closures = mesh.cell_closure
     entity_orientations = mesh.entity_orientations
@@ -1640,7 +1640,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
 
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
 
-    if type(dm) is PETSc.DMPlex:
+    if isinstance(dm, PETSc.DMPlex):
         dm_sec = dm.getCoordinateSection()
         dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
         coords = np.empty_like(dm_coords)
@@ -1650,7 +1650,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
             dm_offset = dm_offset//dim
             for i in range(dim):
                 coords[offset, i] = dm_coords[dm_offset, i]
-    elif type(dm) is PETSc.DMSwarm:
+    elif isinstance(dm, PETSc.DMSwarm):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
         # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
