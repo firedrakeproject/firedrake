@@ -1,8 +1,6 @@
 from firedrake import *
 import pytest
 import numpy as np
-from functools import reduce
-from operator import add
 import subprocess
 from mpi4py import MPI
 

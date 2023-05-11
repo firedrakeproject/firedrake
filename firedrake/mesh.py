@@ -1667,6 +1667,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
+        import pdb; pdb.set_trace()
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
@@ -1995,20 +1996,22 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coords_func = self._coordinates_function
         if type(self.topology) is VertexOnlyMeshTopology:
             if coords_func.dat.dat_version > self._coords_dat_version:
-                self._update_embedding(coords_func.dat)
-                # Reset dat version so we only call this again when we update
-                # the coordinates again
+                new_coords = coords_func.dat.data_ro.reshape(-1, self.geometric_dimension())
+                coords_func = self._update_embedding(new_coords)
+                # Update the dat version to ensure we don't enter this branch
+                # again unless the coordinates have changed
                 self._coords_dat_version = coords_func.dat.dat_version
 
         return coords_func
 
-    def _update_embedding(self, new_coords_dat):
+    def _update_embedding(self, new_coords):
         """Update the embedding of the vertex only mesh in the parent mesh.
 
         Parameters
         ----------
-        new_coords_dat : pyop2.Dat
-            The new coordinates of the vertices of the vertex only mesh.
+        new_coords : np.ndarray
+            The new coordinates of the vertices of the vertex only mesh of
+            shape (npoints, gdim).
 
         Notes
         -----
@@ -2019,13 +2022,78 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if type(self.topology) is not VertexOnlyMeshTopology:
             raise RuntimeError("Cannot update embedding of a non-vertex-only mesh")
         # We have moved the mesh, so we need to update the embedding
-        new_coords = new_coords_dat.data_ro.real.reshape(-1, self.geometric_dimension())
-        coords_lost = _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
+        swarm = self.topology_dm
+        coords_lost = _update_pic_swarm_in_mesh(swarm, self._parent_mesh, new_coords)
         if coords_lost and self.missing_points_behaviour == "warn":
             from warnings import warn
             warn("Some vertices have moved outside the mesh. They have been discarded.")
         elif coords_lost and self.missing_points_behaviour == "error":
             raise ValueError("Some vertices have moved outside the mesh.")
+
+        # delete cached properties that are marked as requiring recalculation
+        # if the mesh moves
+        for attr in ["cell_closure", "exterior_facets", "interior_facets", "cell_set", "cell_parent_cell_list", "cell_parent_cell_map", "cell_parent_base_cell_list", "cell_parent_base_cell_map", "cell_parent_extrusion_height_list", "cell_parent_extrusion_height_map", "cell_global_index"]:
+            try:
+                del self.__dict__[attr]
+            except KeyError:
+                pass
+
+
+        # Repeat some setup from the VertexOnlyMesh constructor
+        import firedrake.functionspace as functionspace
+        import firedrake.function as function
+        gdim = self.geometric_dimension()
+        tdim = self.topology_dm.getDimension()
+
+        # Create a new mesh topology and save it over the old one
+        topology = VertexOnlyMeshTopology(swarm, self._parent_mesh.topology, name="swarmmesh", reorder=False, missing_points_behaviour=self.missing_points_behaviour)
+        topology.init()
+        self._topology = topology
+
+        # # From VertexOnlyMeshTopology constructor...
+        # dmcommon.validate_mesh(swarm)
+        # swarm.setFromOptions()
+
+        # # Mark OP2 entities and derive the resulting Swarm numbering
+        # with PETSc.Log.Event("Mesh: re-numbering after movement"):
+        #     dmcommon.mark_entity_classes(swarm)
+        #     self.topology._entity_classes = dmcommon.get_entity_classes(swarm).astype(int)
+
+        #     # Derive a cell numbering from the Swarm numbering
+        #     entity_dofs = np.zeros(tdim+1, dtype=IntType)
+        #     entity_dofs[-1] = 1
+
+        #     self.topology._cell_numbering = self.topology.create_section(entity_dofs)
+        #     entity_dofs[:] = 0
+        #     entity_dofs[0] = 1
+        #     self.topology._vertex_numbering = self.topology.create_section(entity_dofs)
+
+        # Initialise mesh geometry
+        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "DG", 0,
+                                                           dim=gdim)
+
+        coordinates_data = dmcommon.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
+                                                     (self.num_vertices(), gdim))
+
+        coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                      val=coordinates_data,
+                                                      name="Coordinates")
+
+        # From MeshGeometry constructor...
+        topology = coordinates.function_space().mesh()
+        self.extruded = isinstance(topology, ExtrudedMeshTopology)
+        self.variable_layers = self.extruded and topology.variable_layers
+        self.ufl_cargo().init(coordinates)
+        coordinates._as_mesh_geometry = weakref.ref(self)
+
+
+        # Re-save vertex reference coordinate (within reference cell) in function
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(self, "DG", 0, dim=tdim)
+        self.reference_coordinates = \
+            dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+
+        import pdb; pdb.set_trace()
+        return coordinates
 
     @coordinates.setter
     def coordinates(self, value):

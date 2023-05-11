@@ -98,7 +98,23 @@ def functionspace_tests(vm):
     # constant on a vertex only mesh is evaluation of that constant
     # num_vertices (globally) times
     f.interpolate(Constant(2, domain=vm))
+    f_dat_copy = f.dat.data_ro.copy()
+    g_dat_copy = g.dat.data_ro.copy()
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
+    # Move the mesh coordinates and check that the function values haven't
+    # changed accordingly
+    old_coords = vm.coordinates.dat.data_ro.copy()
+    vm.coordinates.dat.data[:] = vm.coordinates.dat.data_ro + 0.5
+    assert np.array_equal(f.dat.data_ro, f_dat_copy)
+    assert np.array_equal(g.dat.data_ro, g_dat_copy)
+    # Check that they change when I interpolate or project again
+    f.interpolate(expr)
+    g.project(expr)
+    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro.reshape(-1, vm.geometric_dimension()), axis=1))
+    assert np.allclose(f.dat.data_ro, g.dat.data_ro)
+    # Heck that some of the coordinates have been removed
+    if vm.coordinates.dat.data_ro.shape[0] < old_coords.shape[0]:
+        import pdb; pdb.set_trace()
 
 
 def vectorfunctionspace_tests(vm):
