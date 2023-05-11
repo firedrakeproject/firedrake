@@ -1526,7 +1526,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
+    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0, missing_points_behaviour=None):
         """
         Half-initialise a mesh topology.
 
@@ -1537,9 +1537,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
-        :tolerance: The relative tolerance (i.e. as defined on the
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell.
+        :kwarg missing_points_behaviour: optional string argument for what to do
+            when vertices which are outside of the mesh are discarded. If
+            ``'warn'``, will print a warning. If ``'error'`` will raise a
+            ValueError.
         """
 
         super().__init__(name, tolerance=tolerance)
@@ -1555,6 +1559,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
         r"The PETSc DM representation of the mesh topology."
+
+        self._missing_points_behaviour = missing_points_behaviour
 
         # Set up the comms the same as the parent mesh
         self.user_comm = parentmesh.comm
@@ -1732,6 +1738,19 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell_global_index = np.copy(self.topology_dm.getField("globalindex"))
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
+
+    @property
+    def missing_points_behaviour(self):
+        """Optional string argument for what to do when vertices which are
+        outside of the mesh are discarded. If ``'warn'``, will print a warning.
+        If ``'error'`` will raise a ValueError."""
+        return self._missing_points_behaviour
+
+    @missing_points_behaviour.setter
+    def missing_points_behaviour(self, value):
+        if value not in [None, "warn", "error"]:
+            raise ValueError("Invalid value for missing_points_behaviour: {}".format(value))
+        self._missing_points_behaviour = value
 
     # def move_cells_by_global_index(self, global_index, new_coords, redundant=True):
     #     """Move cells by global index.
@@ -2355,6 +2374,19 @@ values from f.)"""
         """
         self.topology.mark_entities(f.topological, label_name, label_value)
 
+    @property
+    def missing_points_behaviour(self):
+        __doc__ = self.topology.missing_points_behaviour.__doc__
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("missing_points_behaviour is only defined for VertexOnlyMeshTopology")
+        return self.topology.missing_points_behaviour
+
+    @missing_points_behaviour.setter
+    def missing_points_behaviour(self, value):
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("missing_points_behaviour is only defined for VertexOnlyMeshTopology")
+        self.topology.missing_points_behaviour = value
+
 
 @PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates, name):
@@ -2834,7 +2866,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     # Topology
-    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
+    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False, missing_points_behaviour=missing_points_behaviour)
 
     # Geometry
     tcell = topology.ufl_cell()

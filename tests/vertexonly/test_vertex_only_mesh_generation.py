@@ -298,6 +298,7 @@ def test_missing_points_behaviour(parentmesh):
     assert len(inputcoord) == 1
     # Can surpress error
     vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
+    assert vm.missing_points_behaviour == None
     assert vm.cell_set.size == 0
     # Error by default
     with pytest.raises(ValueError):
@@ -308,6 +309,7 @@ def test_missing_points_behaviour(parentmesh):
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
         assert vm.cell_set.size == 0
+    assert vm.missing_points_behaviour == 'warn'
 
 
 def test_outside_boundary_behaviour(parentmesh):
