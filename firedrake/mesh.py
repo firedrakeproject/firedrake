@@ -1995,20 +1995,37 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coords_func = self._coordinates_function
         if type(self.topology) is VertexOnlyMeshTopology:
             if coords_func.dat.dat_version > self._coords_dat_version:
-                # We have moved the mesh, so we need to update the embedding
-                new_coords = coords_func.dat.data_ro.real.reshape(-1, self.geometric_dimension())
-                coords_lost = _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
-                if coords_lost and self.missing_points_behaviour == "warn":
-                    from warnings import warn
-                    warn("Some vertices have moved outside the mesh. They have been discarded.")
-                elif coords_lost and self.missing_points_behaviour == "error":
-                    raise ValueError("Some vertices have moved outside the mesh.")
-
+                self._update_embedding(coords_func.dat)
                 # Reset dat version so we only call this again when we update
                 # the coordinates again
                 self._coords_dat_version = coords_func.dat.dat_version
 
         return coords_func
+
+    def _update_embedding(self, new_coords_dat):
+        """Update the embedding of the vertex only mesh in the parent mesh.
+
+        Parameters
+        ----------
+        new_coords_dat : pyop2.Dat
+            The new coordinates of the vertices of the vertex only mesh.
+
+        Notes
+        -----
+        If points are lost, this method will either do nothing, warn or raise
+        an error depending on the value of the ``missing_points_behaviour``
+        attribute.
+        """
+        if type(self.topology) is not VertexOnlyMeshTopology:
+            raise RuntimeError("Cannot update embedding of a non-vertex-only mesh")
+        # We have moved the mesh, so we need to update the embedding
+        new_coords = new_coords_dat.data_ro.real.reshape(-1, self.geometric_dimension())
+        coords_lost = _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
+        if coords_lost and self.missing_points_behaviour == "warn":
+            from warnings import warn
+            warn("Some vertices have moved outside the mesh. They have been discarded.")
+        elif coords_lost and self.missing_points_behaviour == "error":
+            raise ValueError("Some vertices have moved outside the mesh.")
 
     @coordinates.setter
     def coordinates(self, value):
