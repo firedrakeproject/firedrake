@@ -339,7 +339,6 @@ class ImplicitMatrixContext(object):
                            type(self).__name__)
 
     def getInfo(self, mat, info=None):
-        from mpi4py import MPI
         memory = self._x.dat.nbytes + self._y.dat.nbytes
         if hasattr(self, "_xbc"):
             memory += self._xbc.dat.nbytes
