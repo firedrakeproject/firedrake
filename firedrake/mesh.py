@@ -1996,8 +1996,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if type(self.topology) is VertexOnlyMeshTopology:
             if coords_func.dat.dat_version > self._coords_dat_version:
                 # We have moved the mesh, so we need to update the embedding
-                new_coords = coords_func.dat.data_ro
-                _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
+                new_coords = coords_func.dat.data_ro.real.reshape(-1, self.geometric_dimension())
+                coords_lost = _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
+                if coords_lost and self.missing_points_behaviour == "warn":
+                    from warnings import warn
+                    warn("Some vertices have moved outside the mesh. They have been discarded.")
+                elif coords_lost and self.missing_points_behaviour == "error":
+                    raise ValueError("Some vertices have moved outside the mesh.")
 
                 # Reset dat version so we only call this again when we update
                 # the coordinates again
@@ -3229,6 +3234,12 @@ def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
     new_coords : ``np.ndarray``
         The new coordinates of the DMSwarm points.
 
+    Returns
+    -------
+    num_coords_lost : ``int``
+        The number of coordinates which were lost because they were outside the
+        parent mesh. Negative if coordinates have been gained.
+
     Notes
     -----
     This function is intended to be used when the parent mesh coordinates have
@@ -3268,6 +3279,8 @@ def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
     gdim = parent_mesh.geometric_dimension()
 
     old_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_old_coords, gdim))
+
+    num_coords_lost = num_old_coords - len(coords)
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("DMSwarmPIC_coor")
@@ -3321,6 +3334,8 @@ def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
         field_extrusion_heights[...] = extrusion_heights
         swarm.restoreField("parentcellbasenum")
         swarm.restoreField("parentcellextrusionheight")
+
+    return num_coords_lost
 
 
 def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
