@@ -408,10 +408,11 @@ class MetricBasedAdaptor(AdaptorBase):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, metric):
+    def __init__(self, mesh, metric, name=None):
         """
         :param mesh: :class:`~firedrake.mesh.MeshGeometry` to be adapted
         :param metric: :class:`.RiemannianMetric` to use for the adaptation
+        :param name: name for the adapted mesh
         """
         if metric._mesh is not mesh:
             raise ValueError("The mesh associated with the metric is inconsistent")
@@ -424,6 +425,9 @@ class MetricBasedAdaptor(AdaptorBase):
         super().__init__(mesh)
         self.metric = metric
         self.projectors = []
+        if name is None:
+            name = mesh.name
+        self.name = name
 
     @futils.cached_property
     @PETSc.Log.EventDecorator()
@@ -441,7 +445,7 @@ class MetricBasedAdaptor(AdaptorBase):
         v.destroy()
         newplex = self.metric._plex.adaptMetric(reordered, "Face Sets", "Cell Sets")
         reordered.destroy()
-        return fmesh.Mesh(newplex, distribution_parameters={"partition": False})
+        return fmesh.Mesh(newplex, distribution_parameters={"partition": False}, name=self.name)
 
     @PETSc.Log.EventDecorator()
     def project(self, f):
@@ -477,7 +481,7 @@ class MetricBasedAdaptor(AdaptorBase):
         )  # TODO
 
 
-def adapt(mesh, *metrics):
+def adapt(mesh, *metrics, name=None):
     r"""
     Adapt a mesh with respect to a metric and some adaptor parameters.
 
@@ -485,10 +489,11 @@ def adapt(mesh, *metrics):
 
     :param mesh: :class:`~firedrake.mesh.MeshGeometry` to be adapted.
     :param metrics: list of :class:`.RiemannianMetric`\s
+    :param name: name for the adapted mesh
     :return: a new :class:`~firedrake.mesh.MeshGeometry`.
     """
     metric = metrics[0]
     if len(metrics) > 1:
         metric.intersect(*metrics[1:])
-    adaptor = MetricBasedAdaptor(mesh, metric)
+    adaptor = MetricBasedAdaptor(mesh, metric, name=name)
     return adaptor.adapted_mesh
