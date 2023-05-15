@@ -2977,37 +2977,11 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         # to map point coordinates back to the parent mesh
         if parent_mesh.variable_layers:
             raise NotImplementedError("Cannot create a DMSwarm in an ExtrudedMesh with variable layers.")
-        # Extruded mesh parent_cell_nums goes from bottom to top. So for
-        # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
-        # mx.layers = 4
-        # and
-        #  -------------------layer 4-------------------
-        # | parent_cell_num =  2 | parent_cell_num =  5 |
-        # | extrusion_height = 2 | extrusion_height = 2 |
-        #  -------------------layer 3-------------------
-        # | parent_cell_num =  1 | parent_cell_num =  4 |
-        # | extrusion_height = 1 | extrusion_height = 1 |
-        #  -------------------layer 2-------------------
-        # | parent_cell_num =  0 | parent_cell_num =  3 |
-        # | extrusion_height = 0 | extrusion_height = 0 |
-        #  -------------------layer 1-------------------
-        #   base_cell_num = 0         base_cell_num = 1
-        # The base_cell_num is the cell number in the base mesh which, in this
-        # case, is a UnitIntervalMesh with two cells.
-        fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
-        base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
-        extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
-    elif parent_mesh.coordinates.dat.dat_version > 0:
-        # The parent mesh coordinates have been modified. The DMSwarm parent
-        # mesh plex numbering is now not guaranteed to match up with DMPlex
-        # numbering so are set to -1. DMSwarm functions which rely on the
-        # DMPlex numbering,such as DMSwarmMigrate() will not work as expected.
-        plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
+        default_extra_fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
+        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(parent_cell_nums, parent_mesh.layers)
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, base_parent_cell_nums)
     else:
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, parent_cell_nums)
 
     _, coordsdim = coords.shape
 
@@ -3102,6 +3076,85 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setPointSF(sf)
 
     return swarm, n_missing_points
+
+
+def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
+    """
+    Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) and
+    number of layers, get the base parent cell numbers and extrusion heights.
+
+    Parameters
+    ----------
+
+    parent_cell_nums : ``np.ndarray``
+        Firedrake cell numbers (e.g. from mesh.locate_cell)
+    parent_layers : ``int``
+        Number of layers in the extruded mesh
+
+    Returns
+    -------
+    base_parent_cell_nums : ``np.ndarray``
+        The base parent cell numbers
+    extrusion_heights : ``np.ndarray``
+        The extrusion heights
+
+    Notes
+    -----
+    Only works for meshes without variable layers.
+    """
+    # Extruded mesh parent_cell_nums goes from bottom to top. So for
+    # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
+    # mx.layers = 4
+    # and
+    #  -------------------layer 4-------------------
+    # | parent_cell_num =  2 | parent_cell_num =  5 |
+    # | extrusion_height = 2 | extrusion_height = 2 |
+    #  -------------------layer 3-------------------
+    # | parent_cell_num =  1 | parent_cell_num =  4 |
+    # | extrusion_height = 1 | extrusion_height = 1 |
+    #  -------------------layer 2-------------------
+    # | parent_cell_num =  0 | parent_cell_num =  3 |
+    # | extrusion_height = 0 | extrusion_height = 0 |
+    #  -------------------layer 1-------------------
+    #   base_cell_num = 0         base_cell_num = 1
+    # The base_cell_num is the cell number in the base mesh which, in this
+    # case, is a UnitIntervalMesh with two cells.
+    base_parent_cell_nums = parent_cell_nums // (parent_layers - 1)
+    extrusion_heights = parent_cell_nums % (parent_layers - 1)
+    return base_parent_cell_nums, extrusion_heights
+
+
+def _plex_parent_cell_nums(parent_mesh, parent_cell_nums):
+    """
+    Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) get
+    the corresponding DMPlex cell numbers.
+
+    Parameters
+    ----------
+    parent_mesh : ``Mesh``
+        The parent mesh we are embedding in.
+    parent_cell_nums : ``np.ndarray``
+        Firedrake cell numbers (e.g. from mesh.locate_cell)
+
+    Returns
+    -------
+    plex_parent_cell_nums : ``np.ndarray``
+        The corresponding DMPlex cell numbers.
+
+    Notes
+    -----
+    If the parent mesh coordinates have been modified then we return -1 for
+    the DMPlex cell number. This is because the DMSwarm parent mesh plex
+    numbering is now not guaranteed to match up with DMPlex numbering. DMSwarm
+    functions which rely on the DMPlex numbering,such as DMSwarmMigrate() will
+    not work as expected.
+    """
+    if parent_mesh.coordinates.dat.dat_version > 0:
+        return -np.ones_like(parent_cell_nums)
+    else:
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
+        # numbers.
+        return parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
 
 def _mpi_array_lexicographic_min(x, y, datatype):
