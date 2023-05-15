@@ -2782,6 +2782,57 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     return vmesh
 
 
+class FiredrakeDMSwarm(PETSc.DMSwarm):
+    """A DMSwarm with a saved list of added fields"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._fields = None
+        self._default_fields = None
+        self._default_extra_fields = None
+        self._other_fields = None
+
+    @property
+    def fields(self):
+        return self._fields
+
+    @fields.setter
+    def fields(self, fields):
+        if self._fields:
+            raise ValueError("Fields have already been set")
+        self._fields = fields
+
+    @property
+    def default_fields(self):
+        return self._default_fields
+
+    @default_fields.setter
+    def default_fields(self, fields):
+        if self._default_fields:
+            raise ValueError("Default fields have already been set")
+        self._default_fields = fields
+
+    @property
+    def default_extra_fields(self):
+        return self._default_extra_fields
+
+    @default_extra_fields.setter
+    def default_extra_fields(self, fields):
+        if self._default_extra_fields:
+            raise ValueError("Default extra fields have already been set")
+        self._default_extra_fields = fields
+
+    @property
+    def other_fields(self):
+        return self._other_fields
+
+    @other_fields.setter
+    def other_fields(self, fields):
+        if self._other_fields:
+            raise ValueError("Other fields have already been set")
+        self._other_fields = fields
+
+
 def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redundant=True):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
@@ -2854,6 +2905,13 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
            be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
            cannot be set.
 
+        If the parent mesh is extruded, two more fields are created:
+
+        #. ``parentcellbasenum`` which contains the firedrake cell number of the
+            base cell of the immersed vertex and
+        #. ``parentcellextrusionheight`` which contains the extrusion height of
+            the immersed vertex in the parent mesh cell.
+
         Another three are required for proper functioning of the DMSwarm:
 
         #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
@@ -2874,9 +2932,22 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     tdim = parent_mesh.topological_dimension()
     gdim = parent_mesh.geometric_dimension()
 
-    if fields is None:
-        fields = []
-    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType), ("globalindex", 1, IntType)]
+    # These are created by default for a PIC DMSwarm
+    default_fields = [
+        ("DMSwarmPIC_coor", parent_mesh.geometric_dimension(), RealType),
+        ("DMSwarm_cellid", 1, IntType),
+        ("DMSwarm_rank", 1, IntType),
+    ]
+
+    default_extra_fields = [
+        ("parentcellnum", 1, IntType),
+        ("refcoord", parent_mesh.topological_dimension(), RealType),
+        ("globalindex", 1, IntType),
+    ]
+
+    other_fields = fields
+    if other_fields is None:
+        other_fields = []
 
     (
         coords,
@@ -2929,7 +3000,13 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
-    swarm = PETSc.DMSwarm().create(comm=parent_mesh._comm)
+    swarm = FiredrakeDMSwarm().create(comm=parent_mesh._comm)
+
+    # save the fields on the swarm
+    swarm.fields = default_fields + default_extra_fields + other_fields
+    swarm.default_fields = default_fields
+    swarm.default_extra_fields = default_extra_fields
+    swarm.other_fields = other_fields
 
     plexdim = plex.getDimension()
     if plexdim != tdim:
@@ -2958,7 +3035,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setType(PETSc.DMSwarm.Type.PIC)
 
     # Register any fields
-    for name, size, dtype in fields:
+    for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
         swarm.registerField(name, size, dtype=dtype)
     swarm.finalizeFieldRegister()
     # Note that no new fields can now be associated with the DMSWARM.

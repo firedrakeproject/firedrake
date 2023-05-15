@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -144,7 +145,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
-    fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
+    other_fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
 
     if redundant:
         if MPI.COMM_WORLD.size == 1:
@@ -153,14 +154,14 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields)
         else:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
+            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields)
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
+        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant)
 
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
@@ -187,13 +188,33 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     assert n_missing_coords == 0
 
     # get custom fields on swarm - will fail if didn't get created
-    for name, size, dtype in fields:
+    for name, size, dtype in other_fields:
         f = swarm.getField(name)
         assert len(f) == size*nptslocal
         assert f.dtype == dtype
         swarm.restoreField(name)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
+    # Check swarm fields are correct
+    default_fields = [
+        ("DMSwarmPIC_coor", parentmesh.geometric_dimension(), RealType),
+        ("DMSwarm_cellid", 1, IntType),
+        ("DMSwarm_rank", 1, IntType),
+    ]
+    default_extra_fields = [
+        ("parentcellnum", 1, IntType),
+        ("refcoord", parentmesh.topological_dimension(), RealType),
+        ("globalindex", 1, IntType),
+    ]
+    if parentmesh.extruded:
+        default_extra_fields.append(("parentcellbasenum", 1, IntType))
+        default_extra_fields.append(("parentcellextrusionheight", 1, IntType))
+
+    all_fields = default_fields + default_extra_fields + other_fields
+    assert swarm.fields == all_fields
+    assert swarm.default_fields == default_fields
+    assert swarm.default_extra_fields == default_extra_fields
+    assert swarm.other_fields == other_fields
 
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
