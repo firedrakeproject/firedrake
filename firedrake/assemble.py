@@ -1247,8 +1247,12 @@ class _FormHandler:
     @staticmethod
     def iter_constants(form, kinfo):  # FIXME kinfo not currently needed
         from tsfc.ufl_utils import extract_firedrake_constants
-        for const in extract_firedrake_constants(form):
-            yield const
+        if isinstance(form, slate.TensorBase):
+            for const in form.constants():
+                yield const
+        else:
+            for const in extract_firedrake_constants(form):
+                yield const
 
     @staticmethod
     def index_function_spaces(form, indices):

@@ -195,7 +195,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs)
+    constants = builder.collect_constants()
+    builder.bag = SlateWrapperBag(coeffs, constants)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
@@ -223,6 +224,13 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     # Add profiling for the whole kernel
     insns, slate_wrapper_event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
+
+    # Add a no-op touching all kernel arguments to make sure they are not
+    # silently dropped
+    noop = lp.CInstruction(
+        (), "", read_variables=frozenset({a.name for a in loopy_args}),
+        within_inames=frozenset(), within_inames_is_final=True)
+    insns.append(noop)
 
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains

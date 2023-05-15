@@ -9,6 +9,7 @@ import loopy
 from loopy.symbolic import SubArrayRef
 import pymbolic.primitives as pym
 
+from firedrake.constant import Constant
 import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
@@ -107,13 +108,16 @@ class LocalLoopyKernelBuilder:
         else:
             return tensor.shape
 
-    def extent(self, coefficient):
-        """ Calculation of the range of a coefficient."""
-        element = coefficient.ufl_element()
-        if element.family() == "Real":
-            return (coefficient.dat.cdim, )
+    def extent(self, argument):
+        """ Calculation of the range of a constant or coefficient."""
+        if isinstance(argument, Constant):
+            return (argument.dat.cdim, )
         else:
-            return (create_element(element).space_dimension(), )
+            element = argument.ufl_element()
+            if element.family() == "Real":
+                return (argument.dat.cdim, )
+            else:
+                return (create_element(element).space_dimension(), )
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -123,7 +127,7 @@ class LocalLoopyKernelBuilder:
         lhs = pym.Subscript(temp, idx)
         return SubArrayRef(idx, lhs)
 
-    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, wrapper_coefficients, kinfo):
+    def collect_tsfc_kernel_data(self, mesh, tsfc_coefficients, tsfc_constants, wrapper_coefficients, wrapper_constants, kinfo):
         """ Collect the kernel data aka the parameters fed into the subkernel,
             that are coordinates, orientations, cell sizes and cofficients.
         """
@@ -147,11 +151,14 @@ class LocalLoopyKernelBuilder:
                         ind, = tsfc_coefficients[c]
                         if ind != 0:
                             raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
-                        kernel_data.extend([(c, cinfo[0])])
+                        kernel_data.append((c, cinfo[0]))
                 else:
                     for ind, (c_, info) in enumerate(cinfo.items()):
                         if ind in tsfc_coefficients[c]:
-                            kernel_data.extend([(c_, info[0])])
+                            kernel_data.append((c_, info[0]))
+
+        # Pick the constants associated with a Tensor()/TSFC kernel
+        kernel_data.extend([(c, c.name) for c in wrapper_constants if c in tsfc_constants])
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
@@ -243,6 +250,10 @@ class LocalLoopyKernelBuilder:
             else:
                 coeff_dict[coeff] = (f"w_{i}", self.extent(coeff))
         return coeff_dict
+
+    def collect_constants(self):
+        """ All constants of self.expression as a list """
+        return self.expression.constants()
 
     def initialise_terminals(self, var2terminal, coefficients):
         """ Initilisation of the variables in which coefficients
@@ -349,6 +360,14 @@ class LocalLoopyKernelBuilder:
                                                   dtype=self.tsfc_parameters["scalar_type"])
                 args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
 
+        for constant in self.bag.constants:
+            constant_loopy_arg = loopy.GlobalArg(
+                constant.name,
+                shape=constant.dat.cdim,
+                dtype=self.tsfc_parameters["scalar_type"]
+            )
+            args.append(kernel_args.ConstantKernelArg(constant_loopy_arg))
+
         if self.bag.needs_cell_facets:
             # Arg for is exterior (==0)/interior (==1) facet or not
             facet_loopy_arg = loopy.GlobalArg(self.cell_facets_arg_name,
@@ -398,7 +417,14 @@ class LocalLoopyKernelBuilder:
                 output_var = pym.Variable(loopy_tensor.name)
                 reads.append(output_var)
                 output = self.generate_lhs(slate_tensor, output_var)
-                kernel_data = self.collect_tsfc_kernel_data(mesh, cxt_kernel.coefficients, self.bag.coefficients, kinfo)
+                kernel_data = self.collect_tsfc_kernel_data(
+                    mesh,
+                    cxt_kernel.coefficients,
+                    cxt_kernel.constants,
+                    self.bag.coefficients,
+                    self.bag.constants,
+                    kinfo
+                )
                 reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
                 # Generate predicates for different integral types
@@ -427,8 +453,9 @@ class LocalLoopyKernelBuilder:
 
 class SlateWrapperBag:
 
-    def __init__(self, coeffs):
+    def __init__(self, coeffs, constants):
         self.coefficients = coeffs
+        self.constants = constants
         self.inames = OrderedDict()
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
