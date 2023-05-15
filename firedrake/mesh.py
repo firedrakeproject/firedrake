@@ -1862,6 +1862,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
 
+        # Save the coords dat version so we know if we have moved the mesh
+        self._coords_dat_version = coordinates.dat.dat_version
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
@@ -1970,7 +1973,18 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
-        return self._coordinates_function
+        coords_func = self._coordinates_function
+        if type(self.topology) is VertexOnlyMeshTopology:
+            if coords_func.dat.dat_version > self._coords_dat_version:
+                # We have moved the mesh, so we need to update the embedding
+                new_coords = coords_func.dat.data_ro
+                _update_pic_swarm_in_mesh(self.topology_dm, self._parent_mesh, new_coords)
+
+                # Reset dat version so we only call this again when we update
+                # the coordinates again
+                self._coords_dat_version = coords_func.dat.dat_version
+
+        return coords_func
 
     @coordinates.setter
     def coordinates(self, value):
@@ -3167,6 +3181,114 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setPointSF(sf)
 
     return swarm, n_missing_points
+
+
+def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
+    """
+    Update the coordinates of a Particle In Cell (PIC) DMSwarm immersed in a
+    Mesh.
+
+    Parameters
+    ----------
+    swarm : ``FiredrakeDMSwarm``
+        The DMSwarm to update.
+    parent_mesh : ``Mesh``
+        The parent mesh within which the DMSwarm is immersed.
+    new_coords : ``np.ndarray``
+        The new coordinates of the DMSwarm points.
+
+    Notes
+    -----
+    This function is intended to be used when the parent mesh coordinates have
+    been updated. The global indices of the DMSwarm points are recreated and
+    any extra fields are invalidated. For data types where this is possible,
+    the invalidation is indicated by setting their contents to 0.
+    """
+
+    # NOTE that the below recreates a new global index set, which is probably
+    # not desirable. I'll need to think of a way to get indices to be
+    # consistent across mesh coordinate updates so that there's a clear way to
+    # identify individual vertices. I don't think that can be done if you're
+    # updating the coordinates by updating the vertex only mesh coordinates
+    # dat directly.
+    (
+        coords,
+        coords_idxs,
+        reference_coords,
+        parent_cell_nums,
+        ranks,
+        missing_coords_idxs,
+    ) = _parent_mesh_embedding(parent_mesh, new_coords, parent_mesh.tolerance, redundant=False, exclude_halos=True)
+
+    n_missing_points = len(missing_coords_idxs)
+
+    if parent_mesh.extruded:
+        if parent_mesh.variable_layers:
+            raise NotImplementedError("Cannot use a DMSwarm in an ExtrudedMesh with variable layers.")
+        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(parent_cell_nums, parent_mesh.layers)
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, base_parent_cell_nums)
+    else:
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, parent_cell_nums)
+
+    # Update the swarm...
+    num_old_coords = swarm.getLocalSize()
+    tdim = parent_mesh.topological_dimension()
+    gdim = parent_mesh.geometric_dimension()
+
+    old_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_old_coords, gdim))
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("DMSwarmPIC_coor")
+
+    # add or remove any points as necessary
+    if len(old_coords) < len(coords):
+        swarm.addNPoints(len(coords) - len(old_coords))
+    elif len(old_coords) > len(coords):
+        # Note there is no removeNPoints method, so we have to use
+        # a loop
+        assert len(old_coords) - len(coords) == n_missing_points
+        for _ in range(len(old_coords) - len(coords)):
+            swarm.removePoint()
+
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_old_coords, gdim))
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    field_parent_cell_nums = swarm.getField("parentcellnum")
+    field_reference_coords = swarm.getField("refcoord").reshape((num_old_coords, tdim))
+    field_global_index = swarm.getField("globalindex")
+    field_rank = swarm.getField("DMSwarm_rank")
+    for name, size, dtype in swarm.other_fields:
+        from warnings import warn
+        # invalidate any other fields by setting them to zeros
+        warn(f"Field \'{name}\' has been invalidated by moving the DMSwarm")
+        swarm_field = swarm.getField(name)
+        try:
+            swarm_field[...] = dtype(0)
+        except TypeError:
+            warn(f"Field \'{name}\' could not be set to zero to indicate invalidity", stacklevel=2)
+
+        swarm.restoreField(name)
+
+    swarm_coords[...] = coords
+    swarm_parent_cell_nums[...] = plex_parent_cell_nums
+    field_parent_cell_nums[...] = parent_cell_nums
+    field_reference_coords[...] = reference_coords
+    field_global_index[...] = coords_idxs
+    field_rank[...] = ranks
+
+    swarm.restoreField("DMSwarm_rank")
+    swarm.restoreField("globalindex")
+    swarm.restoreField("refcoord")
+    swarm.restoreField("parentcellnum")
+    swarm.restoreField("DMSwarmPIC_coor")
+    swarm.restoreField("DMSwarm_cellid")
+
+    if parent_mesh.extruded:
+        field_base_parent_cell_nums = swarm.getField("parentcellbasenum")
+        field_extrusion_heights = swarm.getField("parentcellextrusionheight")
+        field_base_parent_cell_nums[...] = base_parent_cell_nums
+        field_extrusion_heights[...] = extrusion_heights
+        swarm.restoreField("parentcellbasenum")
+        swarm.restoreField("parentcellextrusionheight")
 
 
 def _parent_extrusion_numbering(parent_cell_nums, parent_layers):

@@ -306,9 +306,57 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         swarm.restoreField("DMSwarm_cellid")
         assert np.all(petsclocalparentcellindices == localparentcellindices)
 
-    # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
-    # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
-    # assert n_missing_coords == 2
+    # Try moving the swarm
+
+    parentcellnum = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    refcoord = np.copy(swarm.getField("refcoord"))
+    swarm.restoreField("refcoord")
+
+    # Updated coordinates should always be MPI rank local
+    new_coords = inputlocalpointcoords + 0.001
+    # no points should be lost here and all points should be in the same cells
+
+    # this should raise a user warning since we have added fields which will
+    # now be invalidated
+    with pytest.warns(UserWarning):
+        mesh._update_pic_swarm_in_mesh(swarm, parentmesh, new_coords)
+
+    # check coordinates
+    newlocalpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
+    swarm.restoreField("DMSwarmPIC_coor")
+    if len(inputpointcoords.shape) > 1:
+        newlocalpointcoords = np.reshape(newlocalpointcoords, (-1, inputpointcoords.shape[1]))
+    assert np.array_equal(newlocalpointcoords, localpointcoords + 0.001)
+
+    # at least some of refcoords should be different too
+    newrefcoord = np.copy(swarm.getField("refcoord"))
+    swarm.restoreField("refcoord")
+    assert len(newrefcoord) == len(refcoord)
+    if len(newrefcoord) > 0:
+        assert np.any(np.not_equal(newrefcoord, refcoord))
+
+    # check other fields are the same
+    newlocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+    swarm.restoreField("DMSwarm_cellid")
+    assert np.array_equal(newlocalparentcellindices, localparentcellindices)
+    newglobalindices = np.copy(swarm.getField("globalindex"))
+    swarm.restoreField("globalindex")
+    assert np.array_equal(newglobalindices, globalindices)
+    newranks = np.copy(swarm.getField("DMSwarm_rank"))
+    swarm.restoreField("DMSwarm_rank")
+    assert np.array_equal(newranks, ranks)
+    newparentcellnum = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    assert np.array_equal(newparentcellnum, parentcellnum)
+
+    # Check we've invalidated the other fields by setting them to zero
+    for name, size, dtype in other_fields:
+        f = swarm.getField(name)
+        assert len(f) == size*nptslocal
+        assert f.dtype == dtype
+        assert not np.any(f)
+        swarm.restoreField(name)
 
 
 @pytest.mark.parallel
