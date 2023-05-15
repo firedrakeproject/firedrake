@@ -305,6 +305,9 @@ def residual_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
+
         if kinfo.integral_type == "interior_facet":
             arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
