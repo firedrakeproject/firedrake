@@ -1733,6 +1733,78 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
+    # def move_cells_by_global_index(self, global_index, new_coords, redundant=True):
+    #     """Move cells by global index.
+
+    #     :arg cell_global_index: numpy array of cell global indices to move.
+    #     :arg new_coords: numpy array of new coordinates for the cells of shape
+    #         (num_cells, gdim).
+    #     :arg redundant: boolean to indicate whether the cell_global_index and
+    #         new_coords are the same on all MPI ranks. The rank 0 values are
+    #         used when this is True.
+    #     """
+    #     global_index = np.asarray(global_index)
+    #     new_coords = np.asarray(new_coords)
+    #     if len(global_index) != len(new_coords):
+    #         raise ValueError("Number of global indices and coordinates must match")
+    #     if new_coords.shape[1] != self.geometric_dimension():
+    #         raise ValueError("New coordinates do not have the geometric dimension of mesh")
+    #     # get all the local fields, move the necessary ones, then update the
+    #     # parent mesh embedding for those cells (i.e. do the locate cell
+    #     # business) for them using _parent_mesh_embedding
+    #     existing_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+    #     existing_plex_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    #     existing_parent_cell_nums = swarm.getField("parentcellnum")
+    #     existing_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+    #     existing_coords_idxs = swarm.getField("globalindex")
+    #     existing_ranks = swarm.getField("DMSwarm_rank")
+    #     # have to restore fields once accessed to allow access again
+    #     swarm.restoreField("DMSwarm_rank")
+    #     swarm.restoreField("globalindex")
+    #     swarm.restoreField("refcoord")
+    #     swarm.restoreField("parentcellnum")
+    #     swarm.restoreField("DMSwarmPIC_coor")
+    #     swarm.restoreField("DMSwarm_cellid")
+
+    #     # find global indices of cells to move
+    #     if redundant:
+    #         existing_coords_allranks = np.concatenate(self.comm.allgather(existing_coords), axis=0)
+    #         existing_plex_parent_cell_nums_allranks = np.concatenate(self.comm.allgather(existing_plex_parent_cell_nums), axis=0)
+    #         existing_parent_cell_nums_allranks = np.concatenate(self.comm.allgather(existing_parent_cell_nums), axis=0)
+    #         existing_reference_coords_allranks = np.concatenate(self.comm.allgather(existing_reference_coords), axis=0)
+    #         existing_coords_idxs_allranks = np.concatenate(self.comm.allgather(existing_coords_idxs), axis=0)
+    #         existing_ranks_allranks = np.concatenate(self.comm.allgather(existing_ranks), axis=0)
+
+    #         # Find the cells to move
+    #         cells_to_move = np.where(np.in1d(existing_coords_idxs_allranks, global_index))[0]
+    #         # Set the new coordinates
+    #         existing_coords_allranks[cells_to_move] = new_coords
+
+    #         # Update the parent mesh embedding for the cells to move
+
+    #     # need to be able to pass the global indices into _parent_mesh_embedding
+    #     # to avoid finding them again!
+
+    #     if len(global_index) != len(new_coords):
+    #         raise ValueError("Number of global indices and coordinates must match")
+    #     global_index = np.asarray(global_index)
+    #     new_coords = np.asarray(new_coords)
+    #     if new_coords.shape[1] != self.geometric_dimension():
+    #         raise ValueError("New coordinates do not have the geometric dimension of mesh")
+    #     # get on rank coordinates
+    #     coords = np.copy(self.topology_dm.getField("globalindex"))
+    #     # Gather the coordinates of all the cells on all ranks
+    #     coords_allranks = np.concatenate(self.comm.allgather(self.coordinates.dat.data_ro_with_halos), axis=0)
+    #     # Gather the global indices of all the cells on all ranks
+    #     global_indices_allranks = np.concatenate(parentmesh.comm.allgather(self.cell_global_index))
+    #     # Check that the given global indices are valid
+    #     if not np.all(np.in1d(global_index, global_indices_allranks)):
+    #         raise ValueError("Invalid global indices given")
+    #     # Update the coordinates of the cells
+
+    #     # Where we have repeated indices, only one of them will be owned by a
+    #     # rank.
+
 
 class MeshGeometryCargo:
     """Helper class carrying data for a :class:`MeshGeometry`.
