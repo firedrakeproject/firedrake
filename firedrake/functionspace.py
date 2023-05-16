@@ -11,6 +11,8 @@ from pyop2.utils import flatten
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
 
+import numbers
+
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
@@ -169,7 +171,10 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    dim = dim or mesh.ufl_cell().geometric_dimension()
+    if dim is None:
+        dim = mesh.ufl_cell().geometric_dimension()
+    if not isinstance(dim, numbers.Integral) and dim > 0:
+        raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = ufl.VectorElement(sub_element, dim=dim)
     return FunctionSpace(mesh, element, name=name)
 
