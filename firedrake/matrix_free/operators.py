@@ -240,29 +240,59 @@ class ImplicitMatrixContext(object):
 
         .. code-block:: text
 
-                               Domain
-                a a a a 0 a a    |
-                a a a a 0 a a    |
-                a a a a 0 a a    |   EBC1
-            M = b b b b b b b    |    |   EBC2 DBC1
-                0 0 0 0 1 0 0    |    |    |    |
-                c c c c 0 c c    |         |
-                c c c c 0 c c    |         |
-                                                         To avoid copys, use same _y, and update it
-                                                         from left (deepest ebc) to right (least deep ebc or domain)
-            Multiplication algorithm:                       _y         update ->     _y        update ->   _y
+                                   Domain
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |   EBC1
+            M = ( b b b b b b b )    |    |   EBC2 DBC1
+                ( 0 0 0 0 1 0 0 )    |    |    |    |
+                ( c c c c 0 c c )    |         |
+                ( c c c c 0 c c )    |         |
 
-                     a a a b 0 c c   _y0     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y0          0
-                     a a a b 0 c c   _y1     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y1          0
-                     a a a b 0 c c   _y2     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y2          0
-            M^T _y = a a a b 0 c c   _y3  =  0 0 0 0 c c c   *    + 0 0 0 b b 0 0   _y3  + a a a a a a a    0      +    0
-                     0 0 0 0 1 0 0   _y4     0 0 0 0 c c c   0      0 0 0 b b 0 0    0     a a a a a a a    0          _y4 (replace at the end)
-                     a a a b 0 c c   _y5     0 0 0 0 c c c   _y5    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                     a a a b 0 c c   _y6     0 0 0 0 c c c   _y6    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                                                 (uniform on           (uniform          (uniform on domain)
-                                                  on facet2)            on facet1)
+            Multiplication algorithm:
+            To avoid copys, use same y, and update it from left
+            (deepest ebc) to right (least deep ebc or domain).
+             * below can be any number
 
-            * = can be any number
+                    ( a a a b 0 c c )  ( y0 )
+                    ( a a a b 0 c c )  ( y1 )
+                    ( a a a b 0 c c )  ( y2 )
+            M^T y = ( a a a b 0 c c )  ( y3 )
+                    ( 0 0 0 0 1 0 0 )  ( y4 )
+                    ( a a a b 0 c c )  ( y5 )
+                    ( a a a b 0 c c )  ( y6 )
+
+                    ( 0 0 0 0 c c c )  ( *  )  Matrix is uniform
+                    ( 0 0 0 0 c c c )  ( *  )  on facet2 (EBC2)
+                    ( 0 0 0 0 c c c )  ( *  )
+                  = ( 0 0 0 0 c c c )  ( *  )  Initial y
+                    ( 0 0 0 0 c c c )  ( 0  )
+                    ( 0 0 0 0 c c c )  ( y5 )
+                    ( 0 0 0 0 c c c )  ( y6 )
+
+                       ( 0 0 0 b b 0 0 )  ( *  ) Matrix is uniform
+                       ( 0 0 0 b b 0 0 )  ( *  ) on facet1 (EBC1)
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                     + ( 0 0 0 b b 0 0 )  ( y3 ) Update y
+                       ( 0 0 0 b b 0 0 )  ( 0  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+
+                       ( a a a a a a a )  ( y0 ) Matrix is uniform
+                       ( a a a a a a a )  ( y1 ) on domain
+                       ( a a a a a a a )  ( y2 )
+                     + ( a a a a a a a )  ( 0  ) Update y
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+
+                       ( 0  )
+                       ( 0  ) Update y replace at the end (DBC1)
+                       ( 0  )
+                     + ( 0  )
+                       ( y4 )
+                       ( 0  )
+                       ( 0  )
 
         """
         with self._y.dat.vec_wo as v:
@@ -309,7 +339,6 @@ class ImplicitMatrixContext(object):
                            type(self).__name__)
 
     def getInfo(self, mat, info=None):
-        from mpi4py import MPI
         memory = self._x.dat.nbytes + self._y.dat.nbytes
         if hasattr(self, "_xbc"):
             memory += self._xbc.dat.nbytes

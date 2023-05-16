@@ -21,8 +21,9 @@ which this may depend, and associated issues.
 - Make a list of issues (with links!)
 - [Like this Issue#2824](https://github.com/firedrakeproject/firedrake/issues/2824)
 
-If issues are fixed by this PR, prepend each of them with the word "fixes", so they are 
-automatically closed when this PR is merged. For example "fixes #123, fixes #456".
+If issues are fixed by this PR, prepend each of them with the word
+"fixes", so they are automatically closed when this PR is merged. For
+example "fixes #123, fixes #456".
 
 # Checklist for author:
 

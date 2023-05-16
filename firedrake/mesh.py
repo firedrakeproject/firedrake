@@ -8,6 +8,7 @@ import weakref
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
+from ufl.domain import extract_unique_domain
 import enum
 import numbers
 import abc
@@ -29,9 +30,19 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
 
+try:
+    import netgen
+    from ngsolve import ngs2petsc
+except ImportError:
+    netgen = None
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh', 'SubDomainData', 'unmarked',
-           'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology', 'AbstractMeshTopology']
+
+__all__ = [
+    'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
+    'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
+    'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
+    'AbstractMeshTopology', 'ExtrudedMeshTopology'
+]
 
 
 _cells = {
@@ -39,6 +50,12 @@ _cells = {
     2: {3: "triangle", 4: "quadrilateral"},
     3: {4: "tetrahedron", 6: "hexahedron"}
 }
+
+
+_supported_embedded_cell_types = [ufl.Cell('interval', 2),
+                                  ufl.Cell('triangle', 3),
+                                  ufl.Cell("quadrilateral", 3),
+                                  ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), geometric_dimension=3)]
 
 
 unmarked = -1
@@ -264,6 +281,20 @@ class _Facets(object):
 
 
 @PETSc.Log.EventDecorator()
+def _from_netgen(ngmesh, comm=None):
+    """
+    Create a DMPlex from an Netgen mesh
+
+    :arg ngmesh: Netgen Mesh
+    TODO: Right now we construct Netgen mesh on a single worker, load it in Firedrake
+    and then distribute. We should find a way to take advantage of the fact that
+    Netgen can act as a parallel mesher.
+    """
+    meshMap = ngs2petsc.DMPlexMapping(ngmesh)
+    return meshMap.plex
+
+
+@PETSc.Log.EventDecorator()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -476,7 +507,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
 
@@ -676,14 +707,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
 
-    def cell_orientations(self):
-        """Return the orientation of each cell in the mesh.
-
-        Use :meth:`.init_cell_orientations` on the mesh *geometry* to initialise."""
-        if not hasattr(self, '_cell_orientations'):
-            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
-        return self._cell_orientations
-
     @abc.abstractmethod
     def num_cells(self):
         pass
@@ -810,7 +833,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         the distance a point can be from a cell and still be considered to be
         in the cell.
 
-        Should always be set via the ``MeshGeometry.tolerance`` to ensure
+        Should always be set via :attr:`MeshGeometry.tolerance` to ensure
         the spatial index is updated as necessary.
         """
         return self._tolerance
@@ -865,7 +888,7 @@ class MeshTopology(AbstractMeshTopology):
         :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhatten', 'taxicab' or
+            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
             rectilinear distance) so will scale with the dimension of the mesh.
         """
 
@@ -1294,7 +1317,7 @@ class ExtrudedMeshTopology(MeshTopology):
                              reference cell) for the distance a point can be
                              from a cell and still be considered to be in the
                              cell. Note that this tolerance
-                             uses an L1 distance (aka 'manhatten', 'taxicab' or
+                             uses an L1 distance (aka 'manhattan', 'taxicab' or
                              rectilinear distance) so will scale with the
                              dimension of the mesh.
         """
@@ -1890,7 +1913,7 @@ values from f.)"""
 
     @utils.cached_property
     def cell_sizes(self):
-        """A :class`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
@@ -1918,7 +1941,7 @@ values from f.)"""
         Increase this if points at mesh boundaries (either rank local or
         global) are reported as being outside the mesh, for example when
         creating a :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so will
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so will
         scale with the dimension of the mesh.
 
         If this property is not set (i.e. set to ``None``) no tolerance is
@@ -1928,7 +1951,7 @@ values from f.)"""
 
         Notes
         -----
-        Modifying this property will modify the ``MeshTopology.tolerance``
+        Modifying this property will modify the :attr:`AbstractMeshTopology.tolerance`
         property of the underlying mesh topology. Furthermore, after changing
         it any requests for :attr:`spatial_index` will cause the spatial index
         to be rebuilt with the new tolerance which may take some time.
@@ -2005,8 +2028,7 @@ values from f.)"""
         par_loop((domain, instructions), ufl.dx,
                  {'f': (coords, READ),
                   'f_min': (coords_min, MIN),
-                  'f_max': (coords_max, MAX)},
-                 is_loopy_kernel=True)
+                  'f_max': (coords_max, MAX)})
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
@@ -2017,8 +2039,9 @@ values from f.)"""
         # tolerance. Note that if tolerance is too small it might not actually
         # change the value!
         if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_min -= self.tolerance
-            coords_max += self.tolerance
+            coords_diff = coords_max - coords_min
+            coords_min -= self.tolerance*coords_diff
+            coords_max += self.tolerance*coords_diff
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
@@ -2161,6 +2184,28 @@ values from f.)"""
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :meth:`.init_cell_orientations` to initialise."""
+        # View `_cell_orientations` (`CoordinatelessFunction`) as a property of
+        # `MeshGeometry` as opposed to one of `MeshTopology`, and treat it just like
+        # `_coordinates` (`CoordinatelessFunction`) so that we have:
+        # -- Regular MeshGeometry  = MeshTopology + `_coordinates`,
+        # -- Immersed MeshGeometry = MeshTopology + `_coordinates` + `_cell_orientations`.
+        # Here, `_coordinates` and `_cell_orientations` both represent some geometric
+        # properties (i.e., "coordinates" and "cell normals").
+        #
+        # Two `MeshGeometry`s can share the same `MeshTopology` and `_coordinates` while
+        # having distinct definition of "cell normals"; they are then simply regarded as two
+        # distinct meshes as `dot(expr, cell_normal) * dx` in general gives different results.
+        #
+        # Storing `_cell_orientations` in `MeshTopology` would make the `MeshTopology`
+        # object only useful for specific definition of "cell normals".
+        if not hasattr(self, '_cell_orientations'):
+            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+        return self._cell_orientations
+
     @PETSc.Log.EventDecorator()
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
@@ -2172,14 +2217,10 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in (ufl.Cell('interval', 2),
-                                   ufl.Cell('triangle', 3),
-                                   ufl.Cell("quadrilateral", 3),
-                                   ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
-                                                         geometric_dimension=3)):
+        if self.ufl_cell() not in _supported_embedded_cell_types:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
-        if hasattr(self.topology, '_cell_orientations'):
+        if hasattr(self, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         if not isinstance(expr, ufl.classes.Expr):
@@ -2201,7 +2242,7 @@ values from f.)"""
 
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
-        self.topology._cell_orientations = cell_orientations
+        self._cell_orientations = cell_orientations.topological
 
     def __getattr__(self, name):
         val = getattr(self._topology, name)
@@ -2279,7 +2320,7 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: Mesh file name (or DMPlex object) defining
+    :param meshfile: the mesh file name, a DMPlex object or a Netgen mesh object defining
            mesh topology.  See below for details on supported mesh
            formats.
     :param name: optional name of the mesh object.
@@ -2324,7 +2365,7 @@ def Mesh(meshfile, **kwargs):
            this if point at mesh boundaries (either rank local or global) are
            reported as being outside the mesh, for example when creating a
            :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
-           distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+           distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
            will scale with the dimension of the mesh.
 
     When the mesh is read from a file the following mesh formats
@@ -2336,12 +2377,13 @@ def Mesh(meshfile, **kwargs):
     * CGNS: with extension `.cgns`
     * Triangle: with extension `.node`
     * HDF5: with extension `.h5`, `.hdf5`
-      (Can only load HDF5 files created by ``MeshGeometry.save`` method.)
+      (Can only load HDF5 files created by
+      :meth:`~.CheckpointFile.save_mesh` method.)
 
     .. note::
 
-        When the mesh is created directly from a DMPlex object,
-        the ``dim`` parameter is ignored (the DMPlex already
+        When the mesh is created directly from a DMPlex object or a Netgen
+        mesh object, the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """
@@ -2383,6 +2425,8 @@ def Mesh(meshfile, **kwargs):
         plex = meshfile
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
+    elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        plex = _from_netgen(meshfile, user_comm)
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -2409,7 +2453,37 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm, tolerance=tolerance)
-    return make_mesh_from_mesh_topology(topology, name)
+    mesh = make_mesh_from_mesh_topology(topology, name)
+    if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        # Adding Netgen mesh and inverse sfBC as attributes
+        mesh.netgen_mesh = meshfile
+        mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
+        mesh.comm = user_comm
+        # Refine Method
+
+        def refine_marked_elements(self, mark):
+            with mark.dat.vec as marked:
+                marked0 = marked
+                getIdx = self._cell_numbering.getOffset
+                if self.sfBCInv is not None:
+                    getIdx = lambda x: x
+                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,
+                                                                  self._cell_numbering,
+                                                                  marked)
+                if self.comm.Get_rank() == 0:
+                    mark = marked0.getArray()
+                    for i, el in enumerate(self.netgen_mesh.Elements2D()):
+                        if mark[getIdx(i)]:
+                            el.refine = True
+                        else:
+                            el.refine = False
+                    self.netgen_mesh.Refine(adaptive=True)
+                    return Mesh(self.netgen_mesh)
+                else:
+                    return Mesh(netgen.libngpy._meshing.Mesh(2))
+
+        setattr(MeshGeometry, "refine_marked_elements", refine_marked_elements)
+    return mesh
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
@@ -2447,7 +2521,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
                          reference cell) for the distance a point can be from a
                          cell and still be considered to be in the cell.
                          Note that this tolerance uses an L1
-                         distance (aka 'manhatten', 'taxicab' or rectilinear
+                         distance (aka 'manhattan', 'taxicab' or rectilinear
                          distance) so will scale with the dimension of the
                          mesh.
 
@@ -2581,7 +2655,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
@@ -2614,6 +2688,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         assumed to be a new vertex.
 
     """
+    from firedrake_citations import Citations
+    Citations().register("nixonhill2023consistent")
 
     import firedrake.functionspace as functionspace
     import firedrake.function as function
@@ -2727,11 +2803,11 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         would be initialised with ``fields = [("DMSwarmPIC_coor", coordsdim,
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
-        <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/DMSWARM/DMSWARM.html>_.
+        <https://www.mcs.anl.gov/petsc/petsc-current/manualpages/DMSWARM/DMSWARM.html>_.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
@@ -2991,7 +3067,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         The relative tolerance (i.e. as defined on the reference cell) for the
         distance a point can be from a cell and still be considered to be in
         the cell. Note that this tolerance uses an L1
-        distance (aka 'manhatten', 'taxicab' or rectilinear distance) so
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
@@ -3240,7 +3316,7 @@ def SubDomainData(geometric_expr):
     import firedrake.projection as projection
 
     # Find domain from expression
-    m = geometric_expr.ufl_domain()
+    m = extract_unique_domain(geometric_expr)
 
     # Find selected cells
     fs = functionspace.FunctionSpace(m, 'DG', 0)
