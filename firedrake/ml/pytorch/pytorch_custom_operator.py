@@ -31,7 +31,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
 
     Inputs:
         metadata: dictionary used to stash Firedrake objects.
-        *x_P: PyTorch tensors representing the inputs to the Firedrake operator F
+        x_P: PyTorch tensors representing the inputs to the Firedrake operator F
 
     Outputs:
         y_P: PyTorch tensor representing the output of the Firedrake operator F
