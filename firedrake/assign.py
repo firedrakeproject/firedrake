@@ -174,7 +174,8 @@ class Assigner:
         # * We can also write to the halo if we are assigning to a subset provided
         #   that the assignee halo is not dirty to start with.
         # * If we are assigning to a subset where the assignee dat has a dirty halo,
-        #   then we must only write to the owned values (marking the halo as dirty).
+        #   then we should only write to the owned values. There is no point in
+        #   writing to the halo since a full halo exchange is still required.
         # * If any of the functions in the expression do not have valid halos then
         #   we only write to the owned values in the assignee. Otherwise we might
         #   end up doing a lot of halo exchanges for the expression just to avoid

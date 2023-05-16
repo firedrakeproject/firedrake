@@ -9,19 +9,14 @@ from ufl.domain import join_domains, extract_domains
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-import coffee.base as ast
 from firedrake.parameters import target
 
-from firedrake.logging import warning
 from firedrake import constant
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType_c
-try:
-    from cachetools import LRUCache
-    kernel_cache = LRUCache(maxsize=128)
-except ImportError:
-    warning("cachetools not available, firedrake.par_loop calls will be slowed down")
-    kernel_cache = None
+from cachetools import LRUCache
+
+
+kernel_cache = LRUCache(maxsize=128)
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -122,68 +117,24 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                     key += (dat.shape, dat.dtype, intent)
             else:
                 key += (func.dat.shape, func.dat.dtype, intent)
-        if kernel_cache is not None:
-            return kernel_cache[key]
-        else:
-            raise KeyError("No cache")
+        return kernel_cache[key]
     except KeyError:
         kargs.append(...)
         knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
                                   seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
         knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
-        if kernel_cache is not None:
-            return kernel_cache.setdefault(key, knl)
-        else:
-            return knl
-
-
-def _form_string_kernel(body, measure, args, **kwargs):
-    kargs = []
-    if body.find("][") >= 0:
-        warning("""Your kernel body contains a double indirection.\n"""
-                """You should update it to single indirections.\n"""
-                """\n"""
-                """Mail firedrake@imperial.ac.uk for advice.\n""")
-    for var, (func, intent) in args.items():
-        if isinstance(func, constant.Constant):
-            if intent is not READ:
-                raise RuntimeError("Only READ access is allowed to Constant")
-            # Constants modelled as Globals, so no need for double
-            # indirection
-            ndof = func.dat.cdim
-            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
-                                  qualifiers=["const"]))
-        else:
-            # Do we have a component of a mixed function?
-            if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                ndof = c.function_space()[idx].finat_element.space_dimension()
-            else:
-                if len(func.function_space()) > 1:
-                    raise NotImplementedError("Must index mixed function in par_loop.")
-                ndof = func.function_space().finat_element.space_dimension()
-            if measure.integral_type() == 'interior_facet':
-                ndof *= 2
-            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
-        body = body.replace(var+".dofs", str(ndof))
-
-    return op2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,
-                                  ast.FlatBlock(body),
-                                  pred=["static"]), "par_loop_kernel", **kwargs)
+        return kernel_cache.setdefault(key, knl)
 
 
 @PETSc.Log.EventDecorator()
-def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
+def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel: a string containing the C code to be executed. Or a
-        2-tuple of (domains, instructions) to create a loopy kernel
-        (must also set ``is_loopy_kernel=True``). If loopy syntax is
-        used, the domains and instructions should be specified in
-        loopy kernel syntax. See the `loopy tutorial
+    :arg kernel: A 2-tuple of (domains, instructions) to create
+        a loopy kernel . The domains and instructions should be specified
+        in loopy kernel syntax. See the `loopy tutorial
         <https://documen.tician.de/loopy/tutorial.html>`_ for details.
 
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
@@ -216,18 +167,13 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++) A[i] = fmax(A[i], B[0]);', dx,
-          {'A' : (A, RW), 'B': (B, READ)})
-
-    The equivalent using loopy kernel syntax is::
-
       domain = '{[i]: 0 <= i < A.dofs}'
       instructions = '''
       for i
           A[i] = max(A[i], B[0])
       end
       '''
-      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)}, is_loopy_kernel=True)
+      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
@@ -289,16 +235,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
 
     **The kernel code**
 
-    The kernel code is plain C in which the variables specified in the
-    `args` dictionary are available to be read or written in according
-    to the argument intent specified. Most basic C operations are
-    permitted. However there are some restrictions:
-
-    * Only functions from `math.h
-      <http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/math.h.html>`_
-      may be called.
-    * Pointer operations other than dereferencing arrays are prohibited.
-
     Indirect free variables referencing :class:`.Function`\s are all
     of type `double*`. For spaces with rank greater than zero (Vector
     or TensorElement), the data are laid out XYZ... XYZ... XYZ....
@@ -317,6 +253,19 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     indirect and direct :func:`par_loop` calls.
 
     """
+    # catch deprecated C-string parloops
+    if isinstance(kernel, str):
+        raise TypeError("C-string kernels are no longer supported by Firedrake parloops")
+    if "is_loopy_kernel" in kwargs:
+        if kwargs.pop("is_loopy_kernel"):
+            import warnings
+            warnings.warn(
+                "is_loopy_kernel does not need to be specified", FutureWarning)
+        else:
+            raise ValueError(
+                "Support for C-string kernels has been dropped, firedrake.parloop "
+                "will only work with loopy parloops.")
+
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
@@ -356,11 +305,8 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         domain, = domains
         mesh = domain
 
-    if is_loopy_kernel:
-        kernel_domains, instructions = kernel
-        op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
-    else:
-        op2args = [_form_string_kernel(kernel, measure, args, **kernel_kwargs)]
+    kernel_domains, instructions = kernel
+    op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 

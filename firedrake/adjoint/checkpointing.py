@@ -213,12 +213,12 @@ def checkpointable_mesh(mesh):
 
     Parameters
     ----------
-    mesh : firedrake.Mesh
+    mesh : firedrake.mesh.MeshGeometry
         The mesh to be checkpointed.
 
     Returns
     -------
-    firedrake.Mesh
+    firedrake.mesh.MeshGeometry
         The checkpointed mesh to be used in the rest of the computation.
     """
     from firedrake.checkpointing import CheckpointFile

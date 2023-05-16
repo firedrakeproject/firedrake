@@ -19,15 +19,19 @@ def annotate_solve(solve):
     All of the callback functions follow the same signature, taking a single argument of type Function.
 
     Keyword Args:
-        adj_cb (function, optional): callback function supplying the adjoint solution in the interior.
-            The boundary values are zero.
-        adj_bdy_cb (function, optional): callback function supplying the adjoint solution on the boundary.
+        adj_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the adjoint solution in the interior. The boundary values are zero.
+        adj_bdy_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the adjoint solution on the boundary.
             The interior values are not guaranteed to be zero.
-        adj2_cb (function, optional): callback function supplying the second-order adjoint solution in the interior.
+        adj2_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the second-order adjoint solution in the interior.
             The boundary values are zero.
-        adj2_bdy_cb (function, optional): callback function supplying the second-order adjoint solution on
+        adj2_bdy_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the second-order adjoint solution on
             the boundary. The interior values are not guaranteed to be zero.
-        ad_block_tag (string, options): tag used to label the resulting block on the Pyadjoint tape. This
+        ad_block_tag (:obj:`string`, optional):
+            tag used to label the resulting block on the Pyadjoint tape. This
             is useful for identifying which block is associated with which equation in the forward model.
 
     """
