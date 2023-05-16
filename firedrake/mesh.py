@@ -2906,6 +2906,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
            cannot be set.
         #. ``inputrank`` which contains the MPI rank at which the ``coords``
            argument was specified. For ``redundant=True`` this is always 0.
+        #. ``inputindex`` which contains the index of the point in the
+           originally supplied ``coords`` array after it has been redistributed
+           to the correct rank. For ``redundant=True`` this is always the same
+           as ``globalindex`` since we only use the points on rank 0.
 
         If the parent mesh is extruded, two more fields are created:
 
@@ -2946,6 +2950,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         ("refcoord", parent_mesh.topological_dimension(), RealType),
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
+        ("inputindex", 1, IntType),
     ]
 
     other_fields = fields
@@ -2959,6 +2964,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         parent_cell_nums,
         ranks,
         input_ranks,
+        input_coords_ixs,
         missing_coords_idxs,
     ) = _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos=True)
 
@@ -3037,6 +3043,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
     field_input_rank = swarm.getField("inputrank")
+    field_input_index = swarm.getField("inputindex")
 
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
@@ -3045,8 +3052,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_global_index[...] = coords_idxs
     field_rank[...] = ranks
     field_input_rank[...] = input_ranks
+    field_input_index[...] = input_coords_ixs
 
     # have to restore fields once accessed to allow access again
+    swarm.restoreField("inputindex")
     swarm.restoreField("inputrank")
     swarm.restoreField("DMSwarm_rank")
     swarm.restoreField("globalindex")
@@ -3231,6 +3240,9 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         The MPI rank of the process that owns the parent cell of the points.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords``.
+    input_coords_idxs : ``np.ndarray``
+        The indices of the points in the input ``coords`` array that were
+        embedded.
     missing_coords_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
         embedded. See note below.
@@ -3256,6 +3268,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         coords_global = coords_local
         ncoords_global = coords_global.shape[0]
         coords_idxs = np.arange(coords_global.shape[0])
+        input_coords_idxs_local = np.arange(ncoords_local)
+        input_coords_idxs_global = input_coords_idxs_local
         input_ranks_local = np.zeros(ncoords_local, dtype=int)
         input_ranks_global = input_ranks_local
     else:
@@ -3285,6 +3299,11 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         # endidx = startidx + ncoords_local
         # coords_idxs = np.arange(startidx, endidx)
         coords_idxs = np.arange(coords_global.shape[0])
+        input_coords_idxs_local = np.arange(ncoords_local)
+        input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+        parent_mesh._comm.Allgatherv(
+            input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
+        )
         input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
         input_ranks_global = np.empty(ncoords_global, dtype=int)
         parent_mesh._comm.Allgatherv(
@@ -3356,6 +3375,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         np.compress(locally_visible, parent_cell_nums, axis=0),
         np.compress(locally_visible, ranks, axis=0),
         np.compress(locally_visible, input_ranks_global, axis=0),
+        np.compress(locally_visible, input_coords_idxs_global, axis=0),
         missing_coords_idxs,
     )
 
