@@ -158,12 +158,26 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         else:
             swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields)
         input_rank = 0
+        # inputcoordindices is the correct set of input indices for
+        # redundant==True but I need to work out where they will be after
+        # immersion in the parent mesh. I've done this by manually finding the
+        # indices of inputpointcoords which are close to the
+        # inputlocalpointcoords (this is nasty but I can't think of a better
+        # way to do it!)
+        indices_to_use = np.full(len(inputpointcoords), False)
+        for lp in inputlocalpointcoords:
+            for i, p in enumerate(inputpointcoords):
+                if np.allclose(p, lp):
+                    indices_to_use[i] = True
+                    break
+        input_local_coord_indices = inputcoordindices[indices_to_use]
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
         swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant)
         input_rank = parentmesh.comm.rank
+        input_local_coord_indices = np.arange(len(inputlocalpointcoords))
 
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
@@ -208,6 +222,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         ("refcoord", parentmesh.topological_dimension(), RealType),
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
+        ("inputindex", 1, IntType),
     ]
     if parentmesh.extruded:
         default_extra_fields.append(("parentcellbasenum", 1, IntType))
@@ -271,6 +286,13 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     input_ranks = np.copy(swarm.getField("inputrank"))
     swarm.restoreField("inputrank")
     assert np.all(input_ranks == input_rank)
+
+    # check that the input index is correct
+    input_indices = np.copy(swarm.getField("inputindex"))
+    swarm.restoreField("inputindex")
+    assert np.array_equal(input_indices, input_local_coord_indices)
+    if redundant:
+        assert np.array_equal(input_indices, globalindices)
 
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
