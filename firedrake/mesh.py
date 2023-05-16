@@ -2904,6 +2904,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
            and rank 3's points will be numbered 30-34. Note that this ought to
            be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
            cannot be set.
+        #. ``inputrank`` which contains the MPI rank at which the ``coords``
+           argument was specified. For ``redundant=True`` this is always 0.
 
         If the parent mesh is extruded, two more fields are created:
 
@@ -2943,6 +2945,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         ("parentcellnum", 1, IntType),
         ("refcoord", parent_mesh.topological_dimension(), RealType),
         ("globalindex", 1, IntType),
+        ("inputrank", 1, IntType),
     ]
 
     other_fields = fields
@@ -2955,6 +2958,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         reference_coords,
         parent_cell_nums,
         ranks,
+        input_ranks,
         missing_coords_idxs,
     ) = _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos=True)
 
@@ -3032,6 +3036,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
+    field_input_rank = swarm.getField("inputrank")
 
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
@@ -3039,8 +3044,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_reference_coords[...] = reference_coords
     field_global_index[...] = coords_idxs
     field_rank[...] = ranks
+    field_input_rank[...] = input_ranks
 
     # have to restore fields once accessed to allow access again
+    swarm.restoreField("inputrank")
     swarm.restoreField("DMSwarm_rank")
     swarm.restoreField("globalindex")
     swarm.restoreField("refcoord")
@@ -3222,6 +3229,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         that were embedded.
     ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of the points.
+    input_ranks : ``np.ndarray``
+        The MPI rank of the process that specified the input ``coords``.
     missing_coords_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
         embedded. See note below.
@@ -3247,6 +3256,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         coords_global = coords_local
         ncoords_global = coords_global.shape[0]
         coords_idxs = np.arange(coords_global.shape[0])
+        input_ranks_local = np.zeros(ncoords_local, dtype=int)
+        input_ranks_global = input_ranks_local
     else:
         # Here, we have to assume that all points we can see are unique.
         # We therefore gather all points on all ranks in rank order: if rank 0
@@ -3274,6 +3285,11 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         # endidx = startidx + ncoords_local
         # coords_idxs = np.arange(startidx, endidx)
         coords_idxs = np.arange(coords_global.shape[0])
+        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
+        input_ranks_global = np.empty(ncoords_global, dtype=int)
+        parent_mesh._comm.Allgatherv(
+            input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+        )
 
     # Get parent mesh rank ownership information:
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
@@ -3339,6 +3355,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         np.compress(locally_visible, reference_coords, axis=0),
         np.compress(locally_visible, parent_cell_nums, axis=0),
         np.compress(locally_visible, ranks, axis=0),
+        np.compress(locally_visible, input_ranks_global, axis=0),
         missing_coords_idxs,
     )
 
