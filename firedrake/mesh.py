@@ -2722,7 +2722,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         raise ValueError("Point coordinates must have zero imaginary part")
 
     if gdim != tdim:
-        raise NotImplementedError("Immersed manifold meshes are not supported")
+        if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("Immersed manifold meshes are not supported")
 
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
@@ -2787,9 +2788,16 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     vmesh.__init__(coordinates)
 
     # Save vertex reference coordinate (within reference cell) in function
-    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
-    vmesh.reference_coordinates = \
-        dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+    if tdim > 0:
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(
+            vmesh, "DG", 0, dim=tdim
+        )
+        vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(
+            function.Function(reference_coordinates_fs)
+        )
+    else:
+        # We can't do this in 0D so leave it undefined.
+        vmesh.reference_coordinates = None
 
     return vmesh
 
@@ -3028,7 +3036,14 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setCellDM(plex)
 
     # Set to Particle In Cell (PIC) type
-    swarm.setType(PETSc.DMSwarm.Type.PIC)
+    if not isinstance(plex, PETSc.DMSwarm):
+        swarm.setType(PETSc.DMSwarm.Type.PIC)
+    else:
+        # This doesn't work where we embed a DMSwarm in a DMSwarm, instead
+        # we register some default fields manually
+        for name, size, dtype in default_fields:
+            if name == "DMSwarmPIC_coor" or name == "DMSwarm_cellid":
+                swarm.registerField(name, size, dtype=dtype)
 
     # Register any fields
     for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
@@ -3339,14 +3354,27 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # See below for why np.inf is used here.
     ranks = np.full(ncoords_global, np.inf)
 
-    (
-        parent_cell_nums,
-        reference_coords,
-        ref_cell_dists_l1,
-    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    tdim = parent_mesh.topological_dimension()
+    if not isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
+        (
+            parent_cell_nums,
+            reference_coords,
+            ref_cell_dists_l1,
+        ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    else:
+        # Make sure that all the points are considered as being in the mesh
+        parent_cell_nums = np.zeros(ncoords_global, dtype=int)
+        reference_coords = np.zeros((ncoords_global, tdim), dtype=int)
+        reference_coords[:] = 0.0
+        ref_cell_dists_l1 = np.zeros(ncoords_global, dtype=float)
+
     assert len(parent_cell_nums) == ncoords_global
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
+    if reference_coords.shape != (ncoords_global, tdim):
+        raise ValueError(
+            f"Returned reference coordinates have shape {reference_coords.shape} but should be ({ncoords_global}, {tdim})"
+        )
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
