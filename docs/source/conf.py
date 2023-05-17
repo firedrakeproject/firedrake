@@ -388,6 +388,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
+    'torch': ('https://pytorch.org/docs/stable/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
