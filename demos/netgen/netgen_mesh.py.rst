@@ -11,7 +11,7 @@ Finally we will show how to use mesh refinement features included in Netgen to c
 
 Installing Netgen
 ------------------
-This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional --netgen flag to either firedrake-install (for a new installation), or firedrake-update (to add the NGSolve/Netgen suite to an existing installation).
+This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation).
 
 Constructive Solid Geometry
 ---------------------------
@@ -41,7 +41,7 @@ Now using the two of the predefined CSG geometries included in Netgen, a rectang
    geo.SetMaterial(2, "inner")
    geo.SetDomainMaxH(2, 0.02)
 
-Notice that the `leftdomain` and `rightdomain` attribute in the `AddRectangle` and `AddCircle` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrized in a counterclockwise direction. 
+Notice that the `leftdomain` and `rightdomain` attribute in the `AddRectangle` and `AddCircle` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction. 
 We can now construct a mesh for the geometry we have defined and save it to a PVD file for visualisation. We will do so using the `GenerateMesh` method inside of the `SplineGeometry` class: ::
 
    ngmsh = geo.GenerateMesh(maxh=0.1)
@@ -176,20 +176,20 @@ In order to do so we begin by computing the value of the indicator using a piece
 
    def Mark(msh, uh, lam):
         W = FunctionSpace(msh, "DG", 0)
-        #Both the error indicator and the marked element vector will be DG0 field.
+        # Both the error indicator and the marked element vector will be DG0 field.
         w = TestFunction(W)
         R_T = lam.real*uh + div(grad(uh))
         n = FacetNormal(V.mesh())
         h = CellDiameter(msh)
         R_dT = dot(grad(uh), n)
-        #Assembling the error indicator.
+        # Assembling the error indicator.
         eta = assemble(h**2*R_T**2*w*dx +
               (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
         frac = .95
         delfrac = .05
         part = .2
         mark = Function(W)
-        #Filling in the marked element vector using eta.
+        # Filling in the marked element vector using eta.
         with mark.dat.vec as markedVec:
             with eta.dat.vec as etaVec:
                 sum_eta = etaVec.sum()
