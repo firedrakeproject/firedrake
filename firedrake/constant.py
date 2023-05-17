@@ -77,7 +77,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin):
                 element = ufl.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
-            return Function(R, val=dat)
+            # Explicit assign ensures correct taping for adjoint
+            return Function(R).assign(value)
         else:
             return object.__new__(cls)
 

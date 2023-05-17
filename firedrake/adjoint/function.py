@@ -121,7 +121,6 @@ class FunctionMixin(FloatingType):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""
             ad_block_tag = kwargs.pop("ad_block_tag", None)
-
             # do not annotate in case of self assignment
             annotate = annotate_tape(kwargs) and self != other
 

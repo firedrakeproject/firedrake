@@ -14,6 +14,7 @@ def annotate_assemble(assemble):
         even when the user calls the lower-level :py:data:`solve(A, x, b)`.
         """
         ad_block_tag = kwargs.pop("ad_block_tag", None)
+        # ~ breakpoint()
         annotate = annotate_tape(kwargs)
         with stop_annotating():
             output = assemble(*args, **kwargs)
