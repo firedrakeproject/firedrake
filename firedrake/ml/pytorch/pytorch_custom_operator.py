@@ -26,7 +26,7 @@ backend = load_backend("pytorch")
 class FiredrakeTorchOperator(torch.autograd.Function):
     """
     PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
-    `FiredrakeTorchOperator` is a wrapper around `torch.autograd.Function` that executes forward and backward
+    `FiredrakeTorchOperator` is a wrapper around :class:`torch.autograd.Function` that executes forward and backward
     passes by directly calling the reduced functional F.
 
     Inputs:
