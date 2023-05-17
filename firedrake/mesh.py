@@ -3,6 +3,7 @@ import ctypes
 import os
 import sys
 import ufl
+import finat
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
@@ -46,9 +47,12 @@ __all__ = [
 
 
 _cells = {
-    1: {2: "interval"},
-    2: {3: "triangle", 4: "quadrilateral"},
-    3: {4: "tetrahedron", 6: "hexahedron"}
+    0: {0: FIAT.reference_element.Point()}
+    1: {2: FIAT.reference_element.UFCInterval()},
+    2: {3: FIAT.reference_element.UFCTriangle(),
+        4: FIAT.reference_element.UFCQuadrilateral()},
+    3: {4: FIAT.reference_element.UFCTetrahedron(),
+        6: FIAT.reference_element.UFCHexahedron()}
 }
 
 
@@ -995,8 +999,11 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        cell = ufl.Cell(_cells[tdim][nfacets])
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        cell = _cells[tdim][nfacets]
+        self._ufl_mesh = ufl.Mesh(
+            finat.VectorElement(finat.Lagrange(cell, 1),
+                                dim=cell.topological_dimension())
+        )
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
@@ -1354,8 +1361,11 @@ class ExtrudedMeshTopology(MeshTopology):
         self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
-        cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        cell = finat.TensorProductCell(mesh.ufl_cell(), _cells[1][1])
+        self._ufl_mesh = ufl.Mesh(
+            finat.VectorElement(finat.Lagrange(cell, 1),
+                                dim=cell.topological_dimension())
+        )
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self.topology_dm,
@@ -1570,8 +1580,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         tdim = 0
 
-        cell = ufl.Cell("vertex")
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+        cell = _cells[0][0]
+        self._ufl_mesh = ufl.Mesh(finat.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
@@ -2306,7 +2316,7 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
-    element = ufl.VectorElement("Lagrange", cell, 1)
+    element = finat.VectorElement("Lagrange", cell, 1)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
@@ -2631,7 +2641,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
     if extrusion_type == "radial_hedgehog":
         helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
-        element = ufl.TensorProductElement(helement, velement)
+        element = finat.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
