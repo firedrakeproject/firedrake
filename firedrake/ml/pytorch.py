@@ -89,8 +89,9 @@ class FiredrakeTorchOperator(torch.autograd.Function):
 
 
 def torch_operator(F):
-    """Operator that converts a :class:`pyadjoint.ReducedFunctional` into a :class:`~FiredrakeTorchOperator`
-       whose inputs and outputs are PyTorch tensors.
+    """Cast a Firedrake reduced functional to a PyTorch operator.
+
+    The resulting :class:`~FiredrakeTorchOperator` will take PyTorch tensors as inputs and return PyTorch tensors as outputs.
 
     Parameters
     ----------
