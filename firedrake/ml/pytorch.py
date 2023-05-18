@@ -188,7 +188,7 @@ def from_torch(x, V=None):
     x : torch.Tensor
         PyTorch tensor to convert.
     V : firedrake.functionspaceimpl.WithGeometry or None, optional
-        Function space of the corresponding :class:`firedrake.Function` or None when `x` is to be mapped to a :class:`firedrake.Constant`.
+        Function space of the corresponding :class:`~firedrake.Function` or None when `x` is to be mapped to a :class:`~firedrake.Constant`.
 
     Returns
     -------
