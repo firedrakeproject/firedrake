@@ -143,11 +143,11 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     ----------
     x : firedrake.Function, firedrake.Vector or firedrake.Constant
         Firedrake object to convert.
-    gather : bool, optional
+    gather : bool
              If True, gather data from all processes
-    batched : bool, optional
+    batched : bool
               If True, add a batch dimension to the tensor
-    kwargs : dict, optional
+    kwargs : dict
              Additional arguments to be passed to the :class:`torch.Tensor` constructor such as:
                 - device: device on which the tensor is allocated (default: "cpu")
                 - dtype: the desired data type of returned tensor (default: type of `x.dat.data`)
@@ -187,7 +187,7 @@ def from_torch(x, V=None):
     ----------
     x : torch.Tensor
         PyTorch tensor to convert.
-    V : firedrake.functionspaceimpl.WithGeometry or None, optional
+    V : firedrake.functionspaceimpl.WithGeometry or None
         Function space of the corresponding :class:`~firedrake.Function` or None when `x` is to be mapped to a :class:`~firedrake.Constant`.
 
     Returns
