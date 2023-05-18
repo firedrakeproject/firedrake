@@ -1,19 +1,19 @@
 from firedrake import *
-from netgen.geom2d import SplineGeometry
-from netgen.csg import CSGeometry, OrthoBrick, Pnt, Sphere
-from netgen.meshing import MeshingParameters
-from netgen.meshing import MeshingStep
-import netgen
 import numpy as np
 import gc
 from petsc4py import PETSc
 import pytest
 
-
 printf = lambda msg: PETSc.Sys.Print(msg)
 
 
 def poisson(h, degree=2):
+    try:
+        from netgen.geom2d import SplineGeometry
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
@@ -53,6 +53,12 @@ def poisson(h, degree=2):
 
 
 def poisson3D(h, degree=2):
+    try:
+        from netgen.csg import CSGeometry, OrthoBrick, Pnt
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
@@ -112,6 +118,12 @@ def test_firedrake_Poisson3D_netgen():
 
 
 def test_firedrake_integral_2D_netgen():
+    try:
+        from netgen.geom2d import SplineGeometry
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = SplineGeometry()
@@ -130,6 +142,12 @@ def test_firedrake_integral_2D_netgen():
 
 
 def test_firedrake_integral_3D_netgen():
+    try:
+        from netgen.csg import CSGeometry, OrthoBrick, Pnt
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
     # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
@@ -152,6 +170,14 @@ def test_firedrake_integral_3D_netgen():
 
 
 def test_firedrake_integral_sphere_netgen():
+    try:
+        from netgen.csg import CSGeometry, Pnt, Sphere
+        from netgen.meshing import MeshingParameters
+        from netgen.meshing import MeshingStep
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
     # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
@@ -171,10 +197,19 @@ def test_firedrake_integral_sphere_netgen():
 
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
+    try:
+        from netgen.geom2d import SplineGeometry
+        import netgen
+    except ImportError:
+        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+
+    try:
+        from slepc4py import SLEPc
+    except ImportError:
+        pytest.skip(msg="SLEPc unavailable, skipping adaptive test refinement.")
+
     gc.collect()
     comm = COMM_WORLD
-    from petsc4py import PETSc
-    from slepc4py import SLEPc
 
     def Solve(msh, labels):
         V = FunctionSpace(msh, "CG", 2)
