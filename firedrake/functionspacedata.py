@@ -39,7 +39,8 @@ __all__ = ("get_shared_data", )
 
 @PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
-    finat_element = _create_element(ufl_element)
+    # finat_element = _create_element(ufl_element)
+    finat_element = ufl_element
     if isinstance(finat_element, finat.TensorFiniteElement):
         # Retrieve scalar element
         finat_element = finat_element.base_element
