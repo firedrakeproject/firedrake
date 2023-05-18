@@ -30,6 +30,7 @@ __all__ = ['FiredrakeTorchOperator', 'torch_operator', 'to_torch', 'from_torch']
 
 class FiredrakeTorchOperator(torch.autograd.Function):
     """PyTorch custom operator representing a set of Firedrake operations expressed as a reduced functional `F`.
+
     `FiredrakeTorchOperator` is a wrapper around :class:`torch.autograd.Function` that executes forward and backward
     passes by directly calling the reduced functional `F`.
 
