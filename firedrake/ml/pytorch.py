@@ -120,7 +120,7 @@ def _extract_function_space(x):
 
     Parameters
     ----------
-    x : float, firedrake.Function or firedrake.Vector
+    x : float, firedrake.function.Function or firedrake.vector.Vector
         Firedrake object from which to extract the function space.
 
     Returns
@@ -143,7 +143,7 @@ def to_torch(x, gather=False, batched=True, **kwargs):
 
     Parameters
     ----------
-    x : firedrake.Function, firedrake.Vector or firedrake.Constant
+    x : firedrake.function.Function, firedrake.vector.Vector or firedrake.constant.Constant
         Firedrake object to convert.
     gather : bool
              If True, gather data from all processes
@@ -190,11 +190,11 @@ def from_torch(x, V=None):
     x : torch.Tensor
         PyTorch tensor to convert.
     V : firedrake.functionspaceimpl.WithGeometry or None
-        Function space of the corresponding :class:`~firedrake.Function` or None when `x` is to be mapped to a :class:`~firedrake.Constant`.
+        Function space of the corresponding :class:`.Function` or None when `x` is to be mapped to a :class:`.Constant`.
 
     Returns
     -------
-    firedrake.Function or firedrake.Constant
+    firedrake.function.Function or firedrake.constant.Constant
         Firedrake object representing the PyTorch tensor `x`.
     """
     if x.device.type != "cpu":
