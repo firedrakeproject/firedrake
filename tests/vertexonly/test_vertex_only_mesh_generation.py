@@ -100,7 +100,7 @@ def pseudo_random_coords(size):
 
 # Mesh Generation Tests
 
-def verify_vertexonly_mesh(m, vm, inputvertexcoords):
+def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     """
     Check that VertexOnlyMesh `vm` immersed in parent mesh `m` with
     creation coordinates `inputvertexcoords` behaves as expected.
@@ -113,6 +113,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert vm.topological_dimension() == 0
     # Can initialise
     vm.init()
+    # has correct name
+    assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
     ref_cell_dists_l1 = []
@@ -171,6 +173,15 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
     for i in range(len(stored_vertex_coords)):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
+    # Input is correct (and includes points that were out of bounds)
+    vm_input = vm.input_ordering
+    assert vm_input.name == name + "_input_ordering"
+    # We create vertex-only meshes using redundant=True by default so check
+    # that vm_input has vertices on rank 0 only
+    if MPI.COMM_WORLD.rank == 0:
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+    else:
+        assert len(vm_input.coordinates.dat.data_ro) == 0
 
 
 def test_generate_cell_midpoints(parentmesh, redundant):
@@ -198,11 +209,31 @@ def test_generate_cell_midpoints(parentmesh, redundant):
                 vm = VertexOnlyMesh(parentmesh, inputcoords)
             else:
                 vm = VertexOnlyMesh(parentmesh, np.empty(inputcoords.shape))
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        if MPI.COMM_WORLD.rank == 0:
+            assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoords.shape), inputcoords)
+            vm_input.num_cells() == len(inputcoords)
+        else:
+            assert len(vm_input.coordinates.dat.data_ro) == 0
+            vm_input.num_cells() == 0
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
         vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoordslocal.shape), inputcoordslocal)
+        vm_input.num_cells() == len(inputcoordslocal)
+
+    # Has correct name after not specifying one
+    assert vm.name == parentmesh.name + "_immersed_vom"
+
+    # More vm_input checks
+    vm_input._parent_mesh is vm
+    with pytest.raises(AttributeError):
+        vm_input.input_ordering  # Shouldn't have one!
 
     # Have correct number of vertices
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
@@ -230,8 +261,10 @@ def test_generate_cell_midpoints_parallel(parentmesh, redundant):
 
 
 def test_generate_random(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    verify_vertexonly_mesh(parentmesh, vm, vertexcoords)
+    vm = VertexOnlyMesh(
+        parentmesh, vertexcoords, missing_points_behaviour=None, name="testvom"
+    )
+    verify_vertexonly_mesh(parentmesh, vm, vertexcoords, name="testvom")
 
 
 @pytest.mark.parallel
