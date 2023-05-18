@@ -122,7 +122,7 @@ def test_pytorch_loss_backward(V, f_exact):
     assert all([pi.grad is None for pi in model.parameters()])
 
     # Convert f_exact to torch.Tensor
-    f_P = to_ml_backend(f_exact)
+    f_P = to_torch(f_exact)
 
     # Forward pass
     u_P = model(f_P)
@@ -152,9 +152,9 @@ def test_pytorch_loss_backward(V, f_exact):
     assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
-    u = from_ml_backend(u_P, V)
+    u = from_torch(u_P, V)
     residual = poisson_residual(u, f_exact, V)
-    residual_P_exact = to_ml_backend(residual)
+    residual_P_exact = to_torch(residual)
 
     assert (residual_P - residual_P_exact).detach().norm() < 1e-10
 
@@ -179,7 +179,7 @@ def test_firedrake_loss_backward(V):
     u = Function(V)
 
     # Convert f to torch.Tensor
-    u_P = to_ml_backend(u)
+    u_P = to_torch(u)
 
     # Forward pass
     f_P = model(u_P)
@@ -207,9 +207,9 @@ def test_firedrake_loss_backward(V):
     assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
-    f = from_ml_backend(f_P, V)
+    f = from_torch(f_P, V)
     loss = solve_poisson(f, V)
-    loss_P_exact = to_ml_backend(loss)
+    loss_P_exact = to_torch(loss)
 
     assert (loss_P - loss_P_exact).detach().norm() < 1e-10
 

@@ -25,18 +25,25 @@ Citations().add("Bouziani2023", """
 """)
 
 
+__all__ = ['FiredrakeTorchOperator', 'torch_operator', 'to_torch', 'from_torch']
+
+
 class FiredrakeTorchOperator(torch.autograd.Function):
-    """
-    PyTorch custom operator representing a set of Firedrake operations expressed as a ReducedFunctional F.
+    """PyTorch custom operator representing a set of Firedrake operations expressed as a reduced functional `F`.
     `FiredrakeTorchOperator` is a wrapper around :class:`torch.autograd.Function` that executes forward and backward
-    passes by directly calling the reduced functional F.
+    passes by directly calling the reduced functional `F`.
 
-    Inputs:
-        metadata: dictionary used to stash Firedrake objects.
-        x_P: PyTorch tensors representing the inputs to the Firedrake operator F
+    Parameters
+    ----------
+    metadata : dict
+               Dictionary used to stash Firedrake objects.
+    x_P : list of torch.Tensor
+          PyTorch tensors representing the inputs to the Firedrake operator `F`.
 
-    Outputs:
-        y_P: PyTorch tensor representing the output of the Firedrake operator F
+    Returns
+    -------
+    torch.Tensor
+          PyTorch tensor representing the output of the Firedrake operator `F`.
     """
 
     def __init__(self):
@@ -45,26 +52,28 @@ class FiredrakeTorchOperator(torch.autograd.Function):
     # This method is wrapped by something cancelling annotation (probably 'with torch.no_grad()')
     @staticmethod
     def forward(ctx, metadata, *x_P):
-        """Forward pass of the PyTorch custom operator."""
+        """Forward pass of the PyTorch custom operator.
+        """
         F = metadata['F']
         V = metadata['V_controls']
         # Convert PyTorch input (i.e. controls) to Firedrake
-        x_F = [from_ml_backend(xi, Vi) for xi, Vi in zip(x_P, V)]
+        x_F = [from_torch(xi, Vi) for xi, Vi in zip(x_P, V)]
         # Forward operator: delegated to pyadjoint.ReducedFunctional which recomputes the blocks on the tape
         y_F = F(x_F)
         # Stash metadata to the PyTorch context
         ctx.metadata.update(metadata)
         # Convert Firedrake output to PyTorch
-        y_P = to_ml_backend(y_F)
+        y_P = to_torch(y_F)
         return y_P.detach()
 
     @staticmethod
     def backward(ctx, grad_output):
-        """Backward pass of the PyTorch custom operator."""
+        """Backward pass of the PyTorch custom operator.
+        """
         F = ctx.metadata['F']
         V = ctx.metadata['V_output']
         # Convert PyTorch gradient to Firedrake
-        adj_input = from_ml_backend(grad_output, V)
+        adj_input = from_torch(grad_output, V)
         if isinstance(adj_input, Function):
             adj_input = adj_input.vector()
 
@@ -75,47 +84,79 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         adj_output = (adj_output,) if not isinstance(adj_output, collections.abc.Sequence) else adj_output
 
         # None is for metadata arg in `forward`
-        return None, *[to_ml_backend(di) for di in adj_output]
+        return None, *[to_torch(di) for di in adj_output]
 
 
 def torch_operator(F):
-    """Operator that converts a pyadjoint.ReducedFunctional into a firedrake.FiredrakeTorchOperator
+    """Operator that converts a :class:`pyadjoint.ReducedFunctional` into a :class:`~FiredrakeTorchOperator`
        whose inputs and outputs are PyTorch tensors.
+
+    Parameters
+    ----------
+    F : pyadjoint.ReducedFunctional
+        The reduced functional to wrap.
+
+    Returns
+    -------
+    firedrake.ml.pytorch.FiredrakeTorchOperator
+        A PyTorch custom operator that wraps the reduced functional `F`.
     """
     Citations().register("Bouziani2023")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
 
-    V_output = extract_function_space(F.functional)
+    V_output = _extract_function_space(F.functional)
     V_controls = [c.control.function_space() for c in F.controls]
     metadata = {'F': F, 'V_controls': V_controls, 'V_output': V_output}
     F_P = partial(FiredrakeTorchOperator.apply, metadata)
     return F_P
 
 
-def extract_function_space(x):
-    """Get function space out of x"""
+def _extract_function_space(x):
+    """Extract the function space from a Firedrake object `x`.
+
+    Parameters
+    ----------
+    x : float, firedrake.Function or firedrake.Vector
+        Firedrake object from which to extract the function space.
+
+    Returns
+    -------
+    firedrake.functionspaceimpl.WithGeometry or None
+        Extracted function space.
+    """
     if isinstance(x, Function):
         return x.function_space()
     elif isinstance(x, Vector):
-        return extract_function_space(x.function)
+        return _extract_function_space(x.function)
     elif isinstance(x, float):
         return None
     else:
         raise ValueError("Cannot infer the function space of %s" % x)
 
 
-def to_ml_backend(x, gather=False, batched=True, **kwargs):
-    r"""Convert a Firedrake object `x` into a PyTorch tensor.
+def to_torch(x, gather=False, batched=True, **kwargs):
+    """Convert a Firedrake object `x` into a PyTorch tensor.
 
-        :arg x: Firedrake object (Function, Vector, Constant)
-        :kwarg gather: if True, gather data from all processes
-        :kwarg batched: if True, add a batch dimension to the tensor
-        :kwarg kwargs: additional arguments to be passed to torch.Tensor constructor
-            - device: device on which the tensor is allocated (default: "cpu")
-            - dtype: the desired data type of returned tensor (default: type of x.dat.data)
-            - requires_grad: if the tensor should be annotated (default: False)
+    Parameters
+    ----------
+    x : firedrake.Function, firedrake.Vector or firedrake.Constant
+        Firedrake object to convert.
+    gather : bool, optional
+             If True, gather data from all processes
+    batched : bool, optional
+              If True, add a batch dimension to the tensor
+    kwargs : dict, optional
+             Additional arguments to be passed to the :class:`torch.Tensor` constructor such as:
+                - device: device on which the tensor is allocated (default: "cpu")
+                - dtype: the desired data type of returned tensor (default: type of `x.dat.data`)
+                - requires_grad: if the tensor should be annotated (default: False)
+
+    Returns
+    -------
+    torch.Tensor
+        PyTorch tensor representing the Firedrake object `x`.
     """
     if isinstance(x, (Function, Vector)):
         if gather:
@@ -139,11 +180,20 @@ def to_ml_backend(x, gather=False, batched=True, **kwargs):
         raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
 
 
-def from_ml_backend(x, V=None):
-    r"""Convert a PyTorch tensor `x` into a Firedrake object.
+def from_torch(x, V=None):
+    """Convert a PyTorch tensor `x` into a Firedrake object.
 
-        :arg x: PyTorch tensor (torch.Tensor)
-        :kwarg V: function space of the corresponding Function or None when `x` is to be mapped to a Constant
+    Parameters
+    ----------
+    x : torch.Tensor
+        PyTorch tensor to convert.
+    V : firedrake.functionspaceimpl.WithGeometry or None, optional
+        Function space of the corresponding :class:`firedrake.Function` or None when `x` is to be mapped to a :class:`firedrake.Constant`.
+
+    Returns
+    -------
+    firedrake.Function or firedrake.Constant
+        Firedrake object representing the PyTorch tensor `x`.
     """
     if x.device.type != "cpu":
         raise NotImplementedError("Firedrake does not support GPU tensors")
