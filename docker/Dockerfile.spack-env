@@ -1,0 +1,28 @@
+# DockerFile for an Spack environment into which firedrake can be installed.
+
+FROM archlinux:base-devel
+
+# This DockerFile is looked after by
+MAINTAINER Jack Betteridge <j.betteridge@imperial.ac.uk>
+
+# Update and install required packages for Firedrake
+USER root
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm cmake gcc-fortran git python openssh unzip && \
+    rm -rf /var/cache/pacman/pkg/*
+
+# Set up user so that we do not run as root
+RUN useradd -m -G wheel -s /bin/bash firedrake && \
+    echo "firedrake:docker" | chpasswd && \
+    echo "firedrake ALL=(ALL)  NOPASSWD: ALL" >> /etc/sudoers
+
+USER firedrake
+WORKDIR /home/firedrake
+
+RUN git clone -c feature.manyFiles=true https://github.com/spack/spack.git
+RUN cd spack && \
+    curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake-spack/main/.github/workflows/docker/spack_rename.patch && \
+    git apply spack_rename.patch
+RUN bash -c "source spack/share/spack/setup-env.sh; \
+    spack compiler find; \
+    spack external find -p /usr"
