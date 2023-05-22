@@ -524,6 +524,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
+        # Shortcut if function space is the R-space
+        if self.ufl_element().family() == "Real":
+            return self.dat.data_ro
+
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)

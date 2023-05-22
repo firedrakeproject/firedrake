@@ -10,7 +10,8 @@ from ufl.utils.counted import counted_init
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import ConstantMixin
+from firedrake.adjoint.constant import ConstantMixin, OverloadedType
+
 
 __all__ = ['Constant']
 
@@ -29,6 +30,28 @@ def _create_dat(op2type, value, comm):
     else:
         dat = op2type(shape, data, comm=comm)
     return dat, rank, shape
+
+
+#TODO: Work out where this goes
+def annotate_constant_fn_in_r(other, function, *args, **kwargs):
+    from pyadjoint.tape import annotate_tape, get_working_tape
+    from pyadjoint.overloaded_type import create_overloaded_object
+    from firedrake.adjoint.blocks import FunctionAssignBlock
+    from firedrake.adjoint import FunctionMixin, DelegatedFunctionCheckpoint
+    annotate = annotate_tape(kwargs)
+    ad_block_tag = kwargs.pop("ad_block_tag", None)
+    if annotate:
+        if not isinstance(other, ufl.core.operator.Operator):
+            other = create_overloaded_object(other)
+        block = FunctionAssignBlock(function, other, ad_block_tag=ad_block_tag)
+        tape = get_working_tape()
+        tape.add_block(block)
+
+        block_var = function.create_block_variable()
+        block.add_output(block_var)
+
+        if isinstance(other, FunctionMixin):
+            block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
 
 # Think "literal"
@@ -77,8 +100,11 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin):
                 element = ufl.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
-            # Explicit assign ensures correct taping for adjoint
-            return Function(R).assign(value)
+            f = Function(R, val=dat)
+            if isinstance(value, OverloadedType):
+                # Explicitly tape functions in R-space
+                annotate_constant_fn_in_r(value, f)
+            return f
         else:
             return object.__new__(cls)
 
