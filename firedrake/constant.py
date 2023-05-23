@@ -10,11 +10,7 @@ from ufl.utils.counted import counted_init
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import (
-    ConstantMixin,
-    OverloadedType,
-    _ad_annotate_constant_function_in_r,
-)
+from firedrake.adjoint.constant import ConstantMixin
 
 
 __all__ = ['Constant']
@@ -83,12 +79,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin):
                 element = ufl.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
-            # ~ return Function(R, val=dat).assign(value)
-            f = Function(R, val=dat)
-            if isinstance(value, OverloadedType):
-                # Explicitly tape values for functions in R-space
-                _ad_annotate_constant_function_in_r(f, value)
-            return f
+            return Function(R, val=dat).assign(value)
         else:
             return object.__new__(cls)
 

@@ -5,36 +5,11 @@ from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
 
 from firedrake.functionspace import FunctionSpace
-from firedrake.adjoint.blocks import ConstantAssignBlock, FunctionAssignBlock
-from firedrake.adjoint import FunctionMixin, DelegatedFunctionCheckpoint
+from firedrake.adjoint.blocks import ConstantAssignBlock
 
-from ufl.core.operator import Operator
 from ufl.domain import extract_unique_domain
 
 import numpy
-
-
-def _ad_annotate_constant_function_in_r(function, value, *args, **kwargs):
-    """Convenience function that works like the
-    `firedrake.adjoint.FunctionMixin._ad_annotate_assign` decorator.
-
-    This is used for when functions in the R-space are created using
-    `firedrake.Constant` and passing a domain.
-    """
-    annotate = annotate_tape(kwargs)
-    ad_block_tag = kwargs.pop("ad_block_tag", None)
-    if annotate:
-        if not isinstance(value, Operator):
-            value = create_overloaded_object(value)
-        block = FunctionAssignBlock(function, value, ad_block_tag=ad_block_tag)
-        tape = get_working_tape()
-        tape.add_block(block)
-
-        block_var = function.create_block_variable()
-        block.add_output(block_var)
-
-        if isinstance(value, FunctionMixin):
-            block_var._checkpoint = DelegatedFunctionCheckpoint(value.block_variable)
 
 
 class ConstantMixin(OverloadedType):
