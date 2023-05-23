@@ -1,6 +1,7 @@
 import numpy as np
 import ufl
 
+from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
@@ -33,7 +34,7 @@ def _create_dat(op2type, value, comm):
 
 
 # Think "literal"
-class Constant(ufl.constantvalue.ConstantValue, ConstantMixin):
+class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin):
     """A "constant" coefficient
 
     A :class:`Constant` takes one value over the whole
