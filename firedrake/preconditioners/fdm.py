@@ -100,7 +100,7 @@ class FDMPC(PCBase):
         if Pmat.getType() == "python":
             ctx = Pmat.getPythonContext()
             J = ctx.a
-            bcs = tuple(ctx.bcs)
+            bcs = tuple(ctx.row_bcs)
             mat_type = "matfree"
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
@@ -242,6 +242,7 @@ class FDMPC(PCBase):
         self.assemblers = {}
 
         Pmats = {}
+        diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
@@ -288,6 +289,11 @@ class FDMPC(PCBase):
                     if len(bdofs) > 0:
                         vals = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
                         assembly_callables.append(partial(P.setValuesRCV, bdofs, bdofs, vals, addv))
+
+                    gamma = self.coefficients.get("gamma")
+                    if gamma is not None and gamma.function_space() == Vrow:
+                        with gamma.dat.vec_ro as diag:
+                            diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -295,6 +301,7 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
         assembly_callables.append(Pmat.assemble)
+        assembly_callables.extend(diagonal_terms)
         return Pmat, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")
@@ -442,6 +449,14 @@ class FDMPC(PCBase):
             coefficients["alpha"] = tensor.subfunctions[1]
             assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
                                                        form_compiler_parameters=fcp).assemble)
+
+        if formdegree == tdim-1:
+            facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
+            J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
+            if len(J_facet.integrals()) > 0:
+                tensor = coefficients.setdefault("gamma", Function(V))
+                assembly_callables.append(OneFormAssembler(J_facet, tensor=tensor, diagonal=True,
+                                                           form_compiler_parameters=fcp).assemble)
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
