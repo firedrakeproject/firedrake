@@ -9,7 +9,7 @@ In this demo, we solve the scalar wave equation with a fully explicit, higher-or
 This scalar wave equation is widely used in seismology to model seismic waves and is especially popular
 in algorithms for geophysical exploration such as Full Waveform
 Inversion and Reverse Time Migration. This tutorial demonstrates how to
-use the mass-lumped triangular elements originally discovered in
+use the mass-lumped triangular elements from
 :cite:`Chin:1999` and later improved upon in :cite:`Geevers:2018` in the
 Firedrake computing environment.**
 
@@ -44,7 +44,7 @@ where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` 
 
 We solve the above weak formulation using the finite element method.
 
-In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. These elements have enriched function spaces in the interior of the element that lead to more degree-of-freedom per element than the standard Lagrange element. However, this additional computational cost is offset by the fact that these elements produce diagonal matrices that are comparatively quick to solve, which improve simulation throughput especially at scale. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "KMV" finite element.
+In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. These elements have enriched function spaces in the interior of the element that lead to more degree-of-freedom per element than the standard Lagrange element. However, this additional computational cost is offset by the fact that these elements produce diagonal matrices that are comparatively quick to solve, which improve simulation throughput especially at scale. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "MLT" finite element.
 
 In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.::
 
@@ -57,9 +57,9 @@ A simple uniform triangular mesh is created::
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space, set it up and then create some functions used in time-stepping::
+We choose a degree 2 `MLT` continuous function space, set it up and then create some functions used in time-stepping::
 
-    V = FunctionSpace(mesh, "KMV", 2)
+    V = FunctionSpace(mesh, "MLT", 2)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -107,10 +107,10 @@ of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::
         return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
 
 To assemble the diagonal mass matrix, we need to create the matching colocated quadrature rule.
-FInAT implements custom "KMV" quadrature rules to do this. We obtain the appropriate cell from the function
+FInAT implements custom "MLT" quadrature rules to do this. We obtain the appropriate cell from the function
 space, along with the degree of the element and construct the quadrature rule::
 
-    quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "KMV")
+    quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "MLT")
 
 Then we make a new Measure object that uses this rule::
 
