@@ -38,11 +38,11 @@ def interpolation_expr(mesh_type):
 
 def run_interpolation(mesh, expr, p):
     expr = expr(*SpatialCoordinate(mesh))
-    V = FunctionSpace(mesh, "KMV", p)
+    V = FunctionSpace(mesh, "MLT", p)
     return errornorm(expr, interpolate(expr, V))
 
 
-def test_interpolation_KMV(mesh, max_degree, interpolation_expr):
+def test_interpolation_MLT(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         errors = [
             run_interpolation(mesh(r), interpolation_expr, p) for r in range(3, 6)
@@ -53,10 +53,10 @@ def test_interpolation_KMV(mesh, max_degree, interpolation_expr):
 
 
 def run_projection(mesh, expr, p):
-    V = FunctionSpace(mesh, "KMV", p)
+    V = FunctionSpace(mesh, "MLT", p)
     T = V.finat_element.cell
     u, v = TrialFunction(V), TestFunction(V)
-    qr = finat.quadrature.make_quadrature(T, p, "KMV")
+    qr = finat.quadrature.make_quadrature(T, p, "MLT")
     r = Function(V)
     f = interpolate(expr(*SpatialCoordinate(mesh)), V)
     solve(
@@ -70,7 +70,7 @@ def run_projection(mesh, expr, p):
     return norm(r - f)
 
 
-def test_projection_KMV(mesh, max_degree, interpolation_expr):
+def test_projection_MLT(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         error = run_projection(mesh(1), interpolation_expr, p)
         if config['options']['complex']:
