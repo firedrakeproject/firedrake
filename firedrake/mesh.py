@@ -3094,23 +3094,59 @@ def _pic_swarm_in_mesh(
         gdim,
     )
 
+    # Set the SF graph for halos
+    owned_ranks_local_visible = owned_ranks_local[visible_idxs]
+    is_owned = parent_mesh.comm.rank == owned_ranks_local_visible
+    is_halo = ~is_owned
+    npts_owned = sum(is_owned)
+    npts_halo = sum(is_halo)
+    nroots = npts_owned  # roots should be owned
+    nleaves = npts_halo
+    local_halo_idxs = np.where(is_halo)[0].astype(IntType)  # what we pass as 'local' to the SF
+    remote_ranks = owned_ranks_local_visible[local_halo_idxs]
+
+    # Finding the remote indices is a bit of a faff...
+    remote_idxs = np.empty(npts_halo, dtype=IntType)
+    global_idxs_local_visible = global_idxs_local[visible_idxs]
+    global_idxs_local_visible_halo = global_idxs_local_visible[local_halo_idxs]
+    global_idxs_allranks = parent_mesh.comm.allgather(global_idxs_local[visible_idxs])  # this is in rank order
+    # move to cython...
+    for i, remote_rank in enumerate(remote_ranks):
+        remote_idxs[i] = np.where(global_idxs_allranks[remote_rank] == global_idxs_local_visible_halo[i])[0][0]
+
+    # Interleave each rank and index into (rank, index) pairs for use as remote
+    # in the SF
+    remote_ranks_and_idxs = np.empty(2*nleaves, dtype=IntType)
+    remote_ranks_and_idxs[0::2] = remote_ranks
+    remote_ranks_and_idxs[1::2] = remote_idxs
+    sf = swarm.getPointSF()
+    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs)  # I need to move halo points to ends of the local indexing
+    swarm.setPointSF(sf)
+
     # Note when getting original ordering for extruded meshes we recalculate
-    # the base_parent_cell_nums and extrusion_heights
+    # the base_parent_cell_nums and extrusion_heights - note this could
+    # be an SF operation
     original_ordering_swarm = _swarm_original_ordering_preserve(
         parent_mesh.comm,
         swarm,
-        coords_local,
+        coords_local,  # Don't need to rearrange this - I can just specify coords
         plex_parent_cell_nums,
         global_idxs_local,
         reference_coords_local,
         parent_cell_nums_local,
         owned_ranks_local,
         on_ranks_local,
-        input_ranks_local,
+        input_ranks_local,  # This is just an array of 0s for redundant, and comm.rank otherwise.
         input_coords_idxs_local,
         parent_mesh.extruded,
         parent_mesh.layers,
     )
+
+    # no halos here
+    sf = original_ordering_swarm.getPointSF()
+    nroots = original_ordering_swarm.getLocalSize()
+    sf.setGraph(nroots, None, [])
+    original_ordering_swarm.setPointSF(sf)
 
     return swarm, original_ordering_swarm, n_missing_points
 
@@ -3261,13 +3297,6 @@ def _dmswarm_create(
         field_extrusion_heights[...] = extrusion_heights
         swarm.restoreField("parentcellbasenum")
         swarm.restoreField("parentcellextrusionheight")
-
-    # Set the `SF` graph to advertises no shared points (since the halo
-    # is now empty) by setting the leaves to an empty list
-    sf = swarm.getPointSF()
-    nroots = swarm.getLocalSize()
-    sf.setGraph(nroots, None, [])
-    swarm.setPointSF(sf)
 
     return swarm
 
@@ -3612,7 +3641,7 @@ def _parent_mesh_embedding(
         np.compress(locally_visible, global_idxs_global, axis=0),
         np.compress(locally_visible, reference_coords, axis=0),
         np.compress(locally_visible, parent_cell_nums, axis=0),
-        np.compress(locally_visible, owned_ranks, axis=0),
+        np.compress(locally_visible, owned_ranks, axis=0).astype(int),
         np.compress(locally_visible, on_ranks, axis=0),
         np.compress(locally_visible, input_ranks_global, axis=0),
         np.compress(locally_visible, input_coords_idxs_global, axis=0),

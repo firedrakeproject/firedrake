@@ -146,7 +146,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     swarm is created in plex."""
 
     if not exclude_halos and parentmesh.comm.size == 1:
-        pytest.skip("Testing halo behaviour in parallel isn't worth the time")
+        pytest.skip("Testing halo behaviour in serial isn't worth the time")
 
     # Setup
 
