@@ -2776,9 +2776,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
-
     swarm, original_swarm, n_missing_points = _pic_swarm_in_mesh(
-        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=True
+        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
     # NOTE: If exclude_halos=False, then I need to update the SF to advertise
     # shared points.
@@ -3100,7 +3099,7 @@ def _pic_swarm_in_mesh(
     is_halo = ~is_owned
     npts_owned = sum(is_owned)
     npts_halo = sum(is_halo)
-    nroots = npts_owned  # roots should be owned
+    nroots = npts_owned + npts_halo  # roots should be all points
     nleaves = npts_halo
     local_halo_idxs = np.where(is_halo)[0].astype(IntType)  # what we pass as 'local' to the SF
     remote_ranks = owned_ranks_local_visible[local_halo_idxs]

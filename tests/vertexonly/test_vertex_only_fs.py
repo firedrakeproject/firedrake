@@ -63,8 +63,9 @@ def pseudo_random_coords(size):
 
 def functionspace_tests(vm):
     # Prep
-    num_cells = vm.num_cells()
+    num_cells = len(vm.coordinates.dat.data_ro)
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
+    num_cells_halo = len(vm.coordinates.dat.data_ro_with_halos) - num_cells
     # Can create DG0 function space
     V = FunctionSpace(vm, "DG", 0)
     # Can't create with degree > 0
@@ -81,10 +82,7 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.dof_dset.sizes == g.dof_dset.sizes == (num_cells, num_cells, num_cells)
-    # Empty halos for functions on vertex only mesh
-    assert np.allclose(f.dat.data_ro, f.dat.data_ro_with_halos)
-    assert np.allclose(g.dat.data_ro, g.dat.data_ro_with_halos)
+    assert f.dof_dset.sizes == g.dof_dset.sizes == vm.cell_set.sizes == (num_cells, num_cells, num_cells + num_cells_halo)
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
@@ -104,8 +102,9 @@ def functionspace_tests(vm):
 def vectorfunctionspace_tests(vm):
     # Prep
     gdim = vm.geometric_dimension()
-    num_cells = vm.num_cells()
+    num_cells = len(vm.coordinates.dat.data_ro)
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
+    num_cells_halo = len(vm.coordinates.dat.data_ro_with_halos) - num_cells
     # Can create DG0 function space
     V = VectorFunctionSpace(vm, "DG", 0)
     # Can't create with degree > 0
@@ -119,7 +118,7 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.dof_dset.sizes == g.dof_dset.sizes == (num_cells, num_cells, num_cells)
+    assert f.dof_dset.sizes == g.dof_dset.sizes == vm.cell_set.sizes == (num_cells, num_cells, num_cells + num_cells_halo)
     # Empty halos for functions on vertex only mesh
     assert np.allclose(f.dat.data_ro, f.dat.data_ro_with_halos)
     assert np.allclose(g.dat.data_ro, g.dat.data_ro_with_halos)

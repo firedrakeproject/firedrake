@@ -419,3 +419,28 @@ def test_inside_boundary_behaviour(parentmesh):
     # Tolerance might be too small to pick up point, but it's not deterministic
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
     assert vm.cell_set.size == 0 or vm.cell_set.size == 1
+
+@pytest.mark.parallel(nprocs=2)
+def test_pyop2_labelling():
+    m = UnitIntervalMesh(4)
+    points = np.asarray([[0.125], [0.375], [0.625], [0.875]])  # in cell centres
+    # Imagine we get 2 cells on each process. The middle two are in each others
+    # halos.
+    # mesh.cell_set.sizes are (ncore, nowned, nowned+nghost)
+    # On one rank we should get
+    # 0.125 CORE+OWNED
+    # 0.375 OWNED
+    # 0.625 GHOST
+    # so mesh.cell_set.sizes are (1, 2, 3)
+    # On the other we should get
+    # 0.375 GHOST
+    # 0.625 OWNED
+    # 0.875 CORE+OWNED
+    # so mesh.cell_set.size are (1, 2, 3)
+    # In practice we can't control the mesh domain decomposition so we count
+    # how many we expect
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    nowned = len(vm.coordinates.dat.data_ro)
+    ncore = nowned - 1  # must be true for interval mesh with points in cell centres
+    nghost = len(vm.coordinates.dat.data_ro_with_halos) - nowned
+    assert vm.cell_set.sizes == (ncore, nowned, nowned + nghost)

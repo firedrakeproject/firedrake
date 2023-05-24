@@ -1709,7 +1709,12 @@ def mark_entity_classes(PETSc.DM dm):
         point_sf = dm.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
         for p in range(nleaves):
-            CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
+            # If ilocal is NULL but we have leaves then ilocal is contiguous
+            # (0, 1, 2...)
+            if ilocal:
+                CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
+            else:
+                CHKERR(DMLabelSetValue(lbl_ghost, p, 1))
     else:
         # If sequential mark all points as core
         for p in range(pStart, pEnd):
@@ -3117,7 +3122,7 @@ def fill_reference_coordinates_function(reference_coordinates_f):
     reference_coords = swarm.getField("refcoord").reshape(shape)
 
     # store reference coord field in Function Dat.
-    reference_coordinates_f.dat.data[:] = reference_coords[:]
+    reference_coordinates_f.dat.data_with_halos[:] = reference_coords[:]
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("refcoord")

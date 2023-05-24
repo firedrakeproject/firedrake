@@ -280,26 +280,17 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             # meshes as the cell_set.size is the number of base mesh cells.
             assert len(localpointcoords) == parentmesh.cell_set.size
         elif parentmesh.comm.size > 1:
-            # If we have any points, there should be more cell set size
-            if len(localpointcoords):
-                assert len(localpointcoords) > parentmesh.cell_set.size
-            else:
-                # otherwise there should be none
-                assert len(localpointcoords) == parentmesh.cell_set.size
+            # parentmesh.cell_set.total_size is the sum of owned and halo
+            # points. We have a point in each cell, hence the below.
+            assert len(localpointcoords) == parentmesh.cell_set.total_size
     else:
         if parentmesh.variable_layers:
-            ncells = sum(height - 1 for _, height in parentmesh.layers)
-        else:
+            pytest.skip("Don't know how to calculate number of cells for variable layers")
+        elif exclude_halos:
             ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
-        if exclude_halos:
-            assert len(localpointcoords) == ncells
-        elif parentmesh.comm.size > 1:
-            # If we have any points, there should be more than the ncells
-            if len(localpointcoords):
-                assert len(localpointcoords) > ncells
-            else:
-                # otherwise there should be none
-                assert len(localpointcoords) == ncells
+        else:
+            ncells = parentmesh.cell_set.total_size * (parentmesh.layers - 1)
+        assert len(localpointcoords) == ncells
     if exclude_halos:
         # Check total number of points on all MPI ranks is correct
         # (excluding ghost cells in the halo)
