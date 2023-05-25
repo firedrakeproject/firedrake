@@ -196,7 +196,8 @@ class HiptmairPC(TwoLevelPC):
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                coarse_operator += beta(test, shift*trial, coefficients={})
+                shift = beta(test, shift*trial, coefficients={})
+                coarse_operator += ufl.Form([i for i in shift.integrals() if i.integral_type() == "cell"])
 
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
