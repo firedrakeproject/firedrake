@@ -16,7 +16,10 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
-from pkg_resources.extern.packaging.version import Version, InvalidVersion
+try:
+    from pkg_resources.extern.packaging.version import Version, InvalidVersion
+except ModuleNotFoundError:
+    from packaging.version import Version, InvalidVersion
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -986,9 +989,18 @@ def get_requirements(reqfname):
 
 def run_pip_install_wrap(reqs, parallel_compiler_env):
     for req in reqs:
-        if re.split('<|>|=', req)[0] in parallel_packages:
+        package_name = re.split('<|>|=', req)[0]
+        if package_name in parallel_packages:
             with environment(**parallel_compiler_env):
                 run_pip_install([req])
+        elif package_name == "numpy":
+            # Downgrade setuptools and wheel for numpy
+            run_pip(["install", "-U", "setuptools==59.2.0"])
+            run_pip(["install", "-U", "wheel==0.37.0"])
+            run_pip_install([req])
+            # Upgrade setuptools and wheel for everything else
+            run_pip(["install", "-U", "setuptools"])
+            run_pip(["install", "-U", "wheel"])
         else:
             run_pip_install([req])
 
@@ -1319,6 +1331,8 @@ def build_and_install_torch():
     log.info("Installing PyTorch (backend: %s)" % args.torch)
     if osname == "Darwin" and args.torch == "cuda":
         raise InstallError("CUDA installation is not available on MacOS.")
+    if sys.version_info >= (3, 10):
+        run_pip_install(["typing_extensions"])
     extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/cpu"] if args.torch == "cpu" else []
     run_pip_install(["torch"] + extra_index_url)
 
@@ -1716,10 +1730,11 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
-run_pip(["install", "-U", "setuptools==59.2.0"])  # Unpin this when numpy will build with latest setuptools
+# numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
+run_pip(["install", "-U", "setuptools==59.2.0"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
-run_pip(["install", "-U", "wheel==0.37.0"])  # Unpin this when numpy will build with latest wheel
+run_pip(["install", "-U", "wheel==0.37.0"])
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1810,7 +1825,7 @@ if mode == "install":
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install(package.split())
+            run_pip_install_wrap(package.split())
 
     # "Temporary" workaround for missing VTK wheel on Python 3.11
     if sys.version_info[:2] == (3, 11):
@@ -1863,6 +1878,13 @@ if mode == "install":
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
+
+    # numpy requires old setuptools (+wheel)
+    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
+    run_pip_install(["numpy"])
+    log.info("Updating setuptools and wheel to latest versions")
+    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "wheel"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
