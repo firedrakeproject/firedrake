@@ -223,7 +223,6 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Dictionary with kernel to compute the Schur complement
-        self.diagonal_scale = {}
         self.schur_kernel = {}
         if V == Vbig and Vbig.finat_element.formdegree == 0:
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
@@ -236,12 +235,10 @@ class FDMPC(PCBase):
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockQR
-            if "diagonal" in self.coefficients:
-                self.diagonal_scale[Vfacet] = Vfacet.dof_dset.layout_vec.duplicate()
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.coefficients, assembly_callables = self.assemble_coefficients(J, bcs, fcp)
+        self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
 
         Pmats = {}
@@ -269,10 +266,8 @@ class FDMPC(PCBase):
                 preallocator.assemble()
                 d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
                 preallocator.destroy()
-                diag_out = None
                 if on_diag:
                     numpy.maximum(d_nnz, 1, out=d_nnz)
-                    diag_out = self.diagonal_scale.get(Vrow)
 
                 P = PETSc.Mat().create(comm=self.comm)
                 P.setType(ptype)
@@ -286,7 +281,7 @@ class FDMPC(PCBase):
                 P.setUp()
                 # append callables to zero entries, insert element matrices, and apply BCs
                 assembly_callables.append(P.zeroEntries)
-                assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, diagonal=diag_out))
+                assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv))
                 if on_diag:
                     own = Vrow.dof_dset.layout_vec.getLocalSize()
                     bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
@@ -298,8 +293,6 @@ class FDMPC(PCBase):
                     gamma = self.coefficients.get("gamma")
                     if gamma is not None and gamma.function_space() == Vrow:
                         with gamma.dat.vec_ro as diag:
-                            if diag_out:
-                                diagonal_terms.append(partial(diag_out.axpy, 1.0, diag))
                             diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
@@ -309,7 +302,6 @@ class FDMPC(PCBase):
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
         assembly_callables.append(Pmat.assemble)
         assembly_callables.extend(diagonal_terms)
-        assembly_callables.append(partial(self.scale_diagonal, Pmats))
         return Pmat, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")
@@ -357,7 +349,7 @@ class FDMPC(PCBase):
             self.pc.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coefficients(self, J, bcs, fcp, block_diagonal=True):
+    def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
@@ -371,15 +363,8 @@ class FDMPC(PCBase):
                   order coefficients keyed on ``"beta"`` and ``"alpha"``,
                   and a list of assembly callables.
         """
-        from firedrake.assemble import OneFormAssembler
         coefficients = {}
         assembly_callables = []
-
-        if False:
-            tensor = coefficients.setdefault("diagonal", Function(J.arguments()[0].function_space()))
-            assembly_callables.append(OneFormAssembler(J, tensor=tensor, bcs=bcs, diagonal=True,
-                                                       form_compiler_parameters=fcp).assemble)
-
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
         # Then, replace the original arguments with arguments in broken(V^k).
@@ -458,6 +443,7 @@ class FDMPC(PCBase):
                 coefficients[name] = ctx._block_diagonal
                 assembly_callables.append(ctx._assemble_block_diagonal)
         else:
+            from firedrake.assemble import OneFormAssembler
             tensor = Function(Z)
             coefficients["beta"] = tensor.subfunctions[0]
             coefficients["alpha"] = tensor.subfunctions[1]
@@ -586,7 +572,7 @@ class FDMPC(PCBase):
         return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, triu=False, diagonal=None):
+    def set_values(self, A, Vrow, Vcol, addv, triu=False):
         """
         Assemble the stiffness matrix in the FDM basis using sparse reference
         tensors and diagonal mass matrices.
@@ -596,7 +582,6 @@ class FDMPC(PCBase):
         :arg Vcol: the :class:`.FunctionSpace` trial space
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg triu: are we assembling only the upper triangular part?
-        :arg diagonal: an optional :class:`PETSc.Vec` to store the diagonal of the uncondensed matrix
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         try:
@@ -624,31 +609,7 @@ class FDMPC(PCBase):
             assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
             self.assemblers.setdefault(key, assembler)
 
-        assembler.assemble(A, addv=addv, triu=triu, diagonal=diagonal)
-
-
-    def scale_diagonal(self, Amats):
-        true_diag = self.coefficients.get("diagonal")
-        if true_diag is None:
-            return
-
-        dscale = {}
-        for dsub in true_diag.subfunctions:
-            Vsub = dsub.function_space()
-            d = self.diagonal_scale.get(Vsub)
-            if d is None:
-                d = Amats[Vsub, Vsub].getDiagonal()
-
-            with dsub.dat.vec as true_d:
-                d.pointwiseDivide(true_d, d)
-            d.sqrtabs()
-            dscale[Vsub] = d
-
-        V = true_diag.function_space()
-        for Vrow, Vcol in product(V, V):
-            Asub = Amats[Vrow, Vcol]
-            if Asub.getType().endswith("aij"):
-                Asub.diagonalScale(L=dscale[Vrow], R=dscale[Vcol])
+        assembler.assemble(A, addv=addv, triu=triu)
 
 
 class SparseAssembler(object):
@@ -740,45 +701,26 @@ class SparseAssembler(object):
         for index, node_map in zip(self.indices, self.node_maps):
             index += node_map.offset
 
-    def assemble(self, A, addv=None, triu=False, diagonal=None):
+    def assemble(self, A, addv=None, triu=False):
         if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
             kernel = lambda *args, result=None: result
         else:
             kernel = self.kernel
         result = self.kernel.result
         insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
-        element_diagonal = None
 
         # Core assembly loop
         if self.layers is None:
-            if diagonal is None:
-                for e in range(self.nel):
-                    self.set_indices(e)
-                    insert(A, kernel(*self.kernel_args, result=result),
-                           self.map_rows(), self.map_cols(), addv)
-            else:
-                for e in range(self.nel):
-                    self.set_indices(e)
-                    insert(A, kernel(*self.kernel_args, result=result),
-                           self.map_rows(), self.map_cols(), addv)
-                    element_diagonal = kernel.diagonal(result=element_diagonal)
-                    diagonal.setValues(self.indices[0], element_diagonal.getArray(), addv=addv)
-
-        elif diagonal is None:
             for e in range(self.nel):
                 self.set_indices(e)
-                for _ in range(self.layers[e]):
-                    insert(A, kernel(*self.kernel_args, result=result),
-                           self.map_rows(), self.map_cols(), addv)
-                    self.add_offsets()
+                insert(A, kernel(*self.kernel_args, result=result),
+                       self.map_rows(), self.map_cols(), addv)
         else:
             for e in range(self.nel):
                 self.set_indices(e)
                 for _ in range(self.layers[e]):
                     insert(A, kernel(*self.kernel_args, result=result),
                            self.map_rows(), self.map_cols(), addv)
-                    element_diagonal = kernel.diagonal(result=element_diagonal)
-                    diagonal.setValues(self.indices[0], element_diagonal.getArray(), addv=addv)
                     self.add_offsets()
 
 
@@ -1435,7 +1377,7 @@ class PoissonFDMPC(FDMPC):
         return Afdm, Dfdm, bdof, axes_shifts
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, triu=False, diagonal=None):
+    def set_values(self, A, Vrow, Vcol, addv, triu=False):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
@@ -1660,7 +1602,7 @@ class PoissonFDMPC(FDMPC):
                     Ae.destroy()
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coefficients(self, J, bcs, fcp):
+    def assemble_coefficients(self, J, fcp):
         from firedrake.assemble import OneFormAssembler
         coefficients = {}
         assembly_callables = []
