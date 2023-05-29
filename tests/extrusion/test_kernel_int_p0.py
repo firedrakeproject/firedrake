@@ -29,7 +29,7 @@ def integrate_p0(family, degree):
     """.format(RealType)
 
     par_loop((domain, instructions), dx, {"A": (g, INC), "x": (coords, READ), "y": (f, READ)},
-             is_loopy_kernel=True, kernel_kwargs={"requires_zeroed_output_arguments": True})
+             kernel_kwargs={"requires_zeroed_output_arguments": True})
 
     return np.abs(g.dat.data[0] - 3.0)
 

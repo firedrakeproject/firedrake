@@ -90,7 +90,7 @@ If you move the mesh, by :doc:`changing the mesh coordinates
 <mesh-coordinates>`, then the bounding box tree that Firedrake
 maintains to ensure fast point evaluation must be rebuilt.  To do
 this, after moving the mesh, call
-``MeshGeometry.clear_spatial_index`` on the mesh you have just
+:meth:`~.MeshGeometry.clear_spatial_index` on the mesh you have just
 moved.
 
 Evaluation with a distributed mesh

@@ -1055,16 +1055,16 @@ def entity_orientations(mesh,
                         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure):
     """Compute entity orientations.
 
-    :arg mesh: The `MeshTopology` object encapsulating the mesh topology
+    :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
     :arg cell_closure: The two-dimensional array, each row of which contains
         the closure of the associated cell
     :returns: A 2D array of the same shape as cell_closure, each row of which
         contains orientations of the entities in the closure of the associated cell
 
-    See ``AbstractMeshTopology.entity_orientations`` for details on the
+    See :meth:`~.AbstractMeshTopology.entity_orientations` for details on the
     returned array.
 
-    See `get_cell_nodes` for the usage of the returned array.
+    See :func:`~.get_cell_nodes` for the usage of the returned array.
     """
     cdef:
         PETSc.DM dm
@@ -1633,31 +1633,36 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
 
     Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
     cdef:
-        PetscInt v, vStart, vEnd, offset
+        PETSc.Section dm_sec
+        PetscInt v, vStart, vEnd, offset, dm_offset
         PetscInt i, dim = shape[1]
         np.ndarray[PetscScalar, ndim=2, mode="c"] dm_coords, coords
 
+    get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
+
     if type(dm) is PETSc.DMPlex:
+        dm_sec = dm.getCoordinateSection()
         dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
         coords = np.empty_like(dm_coords)
+        for v in range(vStart, vEnd):
+            CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+            CHKERR(PetscSectionGetOffset(dm_sec.sec, v, &dm_offset))
+            dm_offset = dm_offset//dim
+            for i in range(dim):
+                coords[offset, i] = dm_coords[dm_offset, i]
     elif type(dm) is PETSc.DMSwarm:
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
         # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
         dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape).astype(ScalarType)
         coords = np.empty_like(dm_coords)
+        for v in range(vStart, vEnd):
+            CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+            for i in range(dim):
+                coords[offset, i] = dm_coords[v - vStart, i]
+        dm.restoreField("DMSwarmPIC_coor")
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
-
-    get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
-
-    for v in range(vStart, vEnd):
-        CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
-        for i in range(dim):
-            coords[offset, i] = dm_coords[v - vStart, i]
-
-    if type(dm) is PETSc.DMSwarm:
-        dm.restoreField("DMSwarmPIC_coor")
 
     return coords
 

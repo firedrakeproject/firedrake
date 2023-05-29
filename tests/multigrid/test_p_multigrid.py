@@ -2,58 +2,121 @@ import pytest
 from firedrake import *
 
 
-def test_reconstruct_degree():
-    meshes = [UnitSquareMesh(1, 1, quadrilateral=True)]
-    meshes.append(ExtrudedMesh(meshes[0], layers=1))
-    for mesh in meshes:
-        ndim = mesh.topological_dimension()
-        elist = []
-        for degree in [7, 2, 31]:
-            V = VectorFunctionSpace(mesh, "Q", degree)
-            Q = FunctionSpace(mesh, "DQ", degree-2)
-            Z = MixedFunctionSpace([V, Q])
-            e = Z.ufl_element()
-            elist.append(e)
-            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+@pytest.fixture(params=[2, 3],
+                ids=["Rectangle", "Box"])
+def tp_mesh(request):
+    nx = 4
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
+    if request.param == 3:
+        m = ExtrudedMesh(m, nx)
 
-        elist = []
-        for degree in [7, 2, 31]:
-            V = FunctionSpace(mesh, "NCF" if ndim == 3 else "RTCF", degree)
-            Q = FunctionSpace(mesh, "DQ", degree-1)
-            Z = MixedFunctionSpace([V, Q])
-            e = Z.ufl_element()
-            elist.append(e)
-            assert e == PMGPC.reconstruct_degree(elist[0], degree)
+    x = SpatialCoordinate(m)
+    xnew = as_vector([acos(1-2*xj)/pi for xj in x])
+    m.coordinates.interpolate(xnew)
+    return m
 
 
-def test_prolongation_matrix_matfree():
+@pytest.fixture(params=[0, 1, 2],
+                ids=["H1", "HCurl", "HDiv"])
+def tp_family(tp_mesh, request):
+    tdim = tp_mesh.topological_dimension()
+    if tdim == 3:
+        families = ["Q", "NCE", "NCF"]
+    else:
+        families = ["Q", "RTCE", "RTCF"]
+    return families[request.param]
+
+
+@pytest.fixture(params=[None, "hierarchical", "fdm"],
+                ids=["spectral", "hierarchical", "fdm"])
+def variant(request):
+    return request.param
+
+
+@pytest.fixture(params=[0, 1],
+                ids=["CG-DG", "HDiv-DG"])
+def mixed_family(tp_mesh, request):
+    if request.param == 0:
+        Vfamily = "Q"
+    else:
+        tdim = tp_mesh.topological_dimension()
+        Vfamily = "NCF" if tdim == 3 else "RTCF"
+    Qfamily = "DQ"
+    return Vfamily, Qfamily
+
+
+def test_reconstruct_degree(tp_mesh, mixed_family):
+    """ Construct a complicated mixed element and ensure we may recover it by
+        p-refining or p-coarsening an element of the same family with different
+        degree.
+    """
+    elist = []
+    Vfamily, Qfamily = mixed_family
+    for degree in [7, 2, 31]:
+        if Vfamily in ["NCF", "RTCF"]:
+            V = FunctionSpace(tp_mesh, Vfamily, degree)
+        else:
+            V = VectorFunctionSpace(tp_mesh, Vfamily, degree)
+        Q = FunctionSpace(tp_mesh, Qfamily, degree-2)
+        Z = MixedFunctionSpace([V, Q])
+        e = Z.ufl_element()
+
+        elist.append(e)
+        assert e == PMGPC.reconstruct_degree(elist[0], degree)
+
+
+def test_prolong_de_rham(tp_mesh):
+    """ Interpolate a linear vector function between [H1]^d, HCurl and HDiv spaces
+        where it can be exactly represented
+    """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
-    tol = 1E-14
-    meshes = [UnitSquareMesh(3, 2, quadrilateral=True)]
-    meshes.append(ExtrudedMesh(meshes[0], layers=2))
-    for mesh in meshes:
-        ndim = mesh.topological_dimension()
-        b = Constant(list(range(ndim)))
-        mat = diag(Constant([ndim+1]*ndim)) + Constant([[-1]*ndim]*ndim)
-        expr = dot(mat, SpatialCoordinate(mesh)) + b
+    tdim = tp_mesh.topological_dimension()
+    b = Constant(list(range(tdim)))
+    mat = diag(Constant([tdim+1]*tdim)) + Constant([[-1]*tdim]*tdim)
+    expr = dot(mat, SpatialCoordinate(tp_mesh)) + b
 
-        variant = None
-        cell = mesh.ufl_cell()
-        elems = []
-        elems.append(VectorElement(FiniteElement("Q", cell=cell, degree=3, variant=variant)))
-        elems.append(FiniteElement("NCF" if ndim == 3 else "RTCF", cell=cell, degree=2, variant=variant))
-        elems.append(FiniteElement("NCE" if ndim == 3 else "RTCE", cell=cell, degree=2, variant=variant))
-        fs = [FunctionSpace(mesh, e) for e in elems]
-        us = [Function(V) for V in fs]
-        us[0].interpolate(expr)
-        for u in us:
-            for v in us:
-                if u != v:
-                    v.assign(0)
-                    P = prolongation_matrix_matfree(v, u).getPythonContext()
-                    P._prolong()
-                    assert norm(v-expr, "L2") < tol
+    cell = tp_mesh.ufl_cell()
+    elems = [VectorElement(FiniteElement("Q", cell=cell, degree=2)),
+             FiniteElement("NCE" if tdim == 3 else "RTCE", cell=cell, degree=2),
+             FiniteElement("NCF" if tdim == 3 else "RTCF", cell=cell, degree=2)]
+    fs = [FunctionSpace(tp_mesh, e) for e in elems]
+    us = [Function(V) for V in fs]
+    us[0].interpolate(expr)
+    for u in us:
+        for v in us:
+            if u != v:
+                P = prolongation_matrix_matfree(u, v).getPythonContext()
+                P._prolong()
+                assert norm(v-expr, "L2") < 1E-14
+
+
+def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
+    """ Interpolate a low-order function to interior and facet high-order spaces
+        and ensure that the sum of the two high-order functions is equal to the
+        low-order function
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+
+    degree = 5
+    cell = tp_mesh.ufl_cell()
+    element = FiniteElement(tp_family, cell=cell, degree=degree, variant=variant)
+    Vi = FunctionSpace(tp_mesh, RestrictedElement(element, restriction_domain="interior"))
+    Vf = FunctionSpace(tp_mesh, RestrictedElement(element, restriction_domain="facet"))
+    Vc = FunctionSpace(tp_mesh, tp_family, degree=1)
+
+    ui = Function(Vi)
+    uf = Function(Vf)
+    uc = Function(Vc)
+    uc.dat.data[0::2] = 0.0
+    uc.dat.data[1::2] = 1.0
+
+    for v in [ui, uf]:
+        P = prolongation_matrix_matfree(uc, v).getPythonContext()
+        P._prolong()
+
+    assert norm(ui + uf - uc, "L2") < 2E-14
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
@@ -240,7 +303,8 @@ def test_p_multigrid_mixed(mat_type):
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
-    coarse = {"ksp_type": "richardson",
+    coarse = {"mat_type": "aij",  # This circumvents the need for AssembledPC
+              "ksp_type": "richardson",
               "ksp_max_it": 1,
               "ksp_norm_type": "unpreconditioned",
               "ksp_monitor": None,
@@ -255,7 +319,7 @@ def test_p_multigrid_mixed(mat_type):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          # "mat_type": mat_type,  # FIXME bug with mat-free jacobi on MixedFunctionSpace
+          "mat_type": mat_type,
           "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
@@ -270,10 +334,14 @@ def test_p_multigrid_mixed(mat_type):
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
 
-    level = solver._ctx
+    # test that nullspace component is zero
     assert abs(assemble(z[1]*dx)) < 1E-12
+    # test that we converge to the exact solution
     assert norm(z-z_exact, "H1") < 1E-12
+
+    # test that we have coarsened the nullspace correctly
     ctx_levels = 0
+    level = solver._ctx
     while level is not None:
         nsp = level._nullspace
         assert isinstance(nsp, MixedVectorSpaceBasis)
@@ -283,6 +351,13 @@ def test_p_multigrid_mixed(mat_type):
         level = level._coarse
         ctx_levels += 1
     assert ctx_levels == 3
+
+    # test that caches are parallel-safe
+    dummy_eq = type(object).__eq__
+    for cache in (PMGPC._coarsen_cache, PMGPC._transfer_cache):
+        assert len(cache) > 0
+        for k in cache:
+            assert type(k).__eq__ is dummy_eq
 
 
 def test_p_fas_scalar():
@@ -313,6 +388,7 @@ def test_p_fas_scalar():
     atol = rtol * Fnorm
 
     coarse = {
+        "mat_type": "aij",
         "ksp_type": "preonly",
         "ksp_norm_type": None,
         "pc_type": "cholesky"}
@@ -321,7 +397,6 @@ def test_p_fas_scalar():
         "ksp_type": "chebyshev",
         "ksp_monitor_true_residual": None,
         "ksp_norm_type": "unpreconditioned",
-        "ksp_max_it": 3,
         "pc_type": "jacobi"}
 
     pmg = {
@@ -340,7 +415,7 @@ def test_p_fas_scalar():
         "pmg_mg_coarse": coarse}
 
     pfas = {
-        "mat_type": "aij",
+        "mat_type": mat_type,
         "snes_monitor": None,
         "snes_converged_reason": None,
         "snes_atol": atol,
@@ -364,23 +439,23 @@ def test_p_fas_scalar():
 @pytest.mark.skipcomplex
 def test_p_fas_nonlinear_scalar():
     mat_type = "matfree"
-    N = 4
-    dxq = dx(degree=3*N+2)  # here we also test coarsening of quadrature degree
+    degree = 4
+    dxq = dx(degree=3*degree+2)  # here we also test coarsening of quadrature degree
 
     mesh = UnitSquareMesh(4, 4, quadrilateral=True)
-    V = FunctionSpace(mesh, "CG", N)
+    V = FunctionSpace(mesh, "CG", degree)
     u = Function(V)
     f = Constant(1)
     bcs = DirichletBC(V, 0, "on_boundary")
 
     # Regularized p-Laplacian
     p = 5
-    eps = 1
+    eps = Constant(1)
     y = eps + inner(grad(u), grad(u))
     E = (1/p)*(y**(p/2))*dxq - inner(f, u)*dxq
     F = derivative(E, u, TestFunction(V))
 
-    fcp = {"quadrature_degree": 3*N+2}
+    fcp = {"quadrature_degree": 3*degree+2}
     problem = NonlinearVariationalProblem(F, u, bcs, form_compiler_parameters=fcp)
 
     # Due to the convoluted nature of the nested iteration
@@ -391,7 +466,7 @@ def test_p_fas_nonlinear_scalar():
 
     rtol = 1E-8
     atol = rtol * Fnorm
-
+    rtol = 0.0
     newton = {
         "mat_type": "aij",
         "snes_monitor": None,
@@ -399,7 +474,7 @@ def test_p_fas_nonlinear_scalar():
         "snes_type": "newtonls",
         "snes_max_it": 20,
         "snes_atol": atol,
-        "snes_rtol": 1E-50}
+        "snes_rtol": rtol}
 
     coarse = {
         "ksp_type": "preonly",
@@ -414,7 +489,7 @@ def test_p_fas_nonlinear_scalar():
 
     pmg = {
         "ksp_atol": atol*1E-1,
-        "ksp_rtol": 1E-50,
+        "ksp_rtol": rtol,
         "ksp_type": "cg",
         "ksp_converged_reason": None,
         "ksp_monitor_true_residual": None,
@@ -434,7 +509,7 @@ def test_p_fas_nonlinear_scalar():
         "snes_monitor": None,
         "snes_converged_reason": None,
         "snes_atol": atol,
-        "snes_rtol": 1E-50,
+        "snes_rtol": rtol,
         "snes_type": "python",
         "snes_python_type": "firedrake.PMGSNES",
         "pfas_snes_fas_type": "kaskade",
@@ -458,7 +533,7 @@ def test_p_fas_nonlinear_scalar():
             Nq, = Nq
             Nl = p.u.ufl_element().degree()
             try:
-                Nl, = set(Nl)
+                Nl = max(Nl)
             except TypeError:
                 pass
             assert Nq == 3*Nl+2
