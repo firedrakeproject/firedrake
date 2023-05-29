@@ -27,8 +27,7 @@ def integrate_unit_cube(family, degree):
     A[0] = A[0] + 0.5*abs(area)*(real(x[1,2])-real(x[0,2]))
     """.format(RealType)
 
-    par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)},
-             is_loopy_kernel=True)
+    par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)})
 
     return np.abs(g.dat.data[0] - 1.0)
 

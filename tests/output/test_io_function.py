@@ -52,12 +52,20 @@ def _get_mesh(cell_type, comm):
         mesh = PeriodicUnitSquareMesh(20, 20, name=mesh_name)
     elif cell_type == "tetrahedra_periodic":
         mesh = PeriodicUnitCubeMesh(10, 10, 10, name=mesh_name)
+    elif cell_type == "triangle_3d":
+        mesh = UnitIcosahedralSphereMesh(refinement_level=1, name=mesh_name)
+        x = SpatialCoordinate(mesh)
+        mesh.init_cell_orientations(x)
+    elif cell_type == "quad_3d":
+        mesh = UnitCubedSphereMesh(refinement_level=4, name=mesh_name)
+        x = SpatialCoordinate(mesh)
+        mesh.init_cell_orientations(x)
     return mesh
 
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.topological_dimension()
+    dim = mesh.geometric_dimension()
     shape = V.ufl_element().value_shape()
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
@@ -172,7 +180,9 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
                                                 ("hexahedral", "DQ", 4),
                                                 ("hexahedral_möbius_solid", "Q", 6),
                                                 ("triangle_periodic", "P", 4),
-                                                ("tetrahedra_periodic", "P", 4)])
+                                                ("tetrahedra_periodic", "P", 4),
+                                                ("triangle_3d", "BDMF", 4),
+                                                ("quad_3d", "RTCF", 4)])
 def test_io_function_base(cell_family_degree, tmpdir):
     # Parameters
     cell_type, family, degree = cell_family_degree
@@ -181,6 +191,10 @@ def test_io_function_base(cell_family_degree, tmpdir):
     meshA = _get_mesh(cell_type, COMM_WORLD)
     VA = FunctionSpace(meshA, family, degree)
     method = get_embedding_method_for_checkpointing(VA.ufl_element())
+    if cell_type in ["triangle_3d", "quad_3d"]:
+        # interpolation into vector space is unsafe on immersed mesh, while
+        # project gives consistent result when the mesh is redistributed.
+        method = "project"
     fA = Function(VA, name=func_name)
     _initialise_function(fA, _get_expr(VA), method)
     with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
