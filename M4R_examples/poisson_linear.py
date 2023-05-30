@@ -17,7 +17,7 @@ v = TestFunction(V)
 a = (inner(grad(u), grad(v))) * dx
 
 # Apply the homogeneous Dirichlet boundary conditions
-bc = None#DirichletBC(V, 0.0, "on_boundary")
+bc = DirichletBC(V, 0.0, "on_boundary")
 
 # Create linear variational problem
 eigenprob = LinearVariationalProblem(a, bcs=bc)

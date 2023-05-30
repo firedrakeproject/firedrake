@@ -19,7 +19,6 @@ __all__ = ["LinearEigenproblem",
 
 class LinearEigenproblem():
     r"""Linear eigenvalue problem A(u; v) = lambda * M (u; v)."""
-
     def __init__(self, A, M=None, bcs=None):
         r"""
         :param A: the bilinear form A(u, v)
@@ -49,10 +48,10 @@ class LinearEigenproblem():
 
 class LinearEigensolver(OptionsManager): 
     r"""Solve a :class:`LinearEigenproblem`."""
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-                               "snes_linesearch_type": "basic"}
+    # DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
+    #                            "snes_linesearch_type": "basic"}
 
-    # Looser default tolerance for KSP inside SNES.
+    # # Looser default tolerance for KSP inside SNES.
     DEFAULT_EPS_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy() 
 
     DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None, 
@@ -66,7 +65,7 @@ class LinearEigensolver(OptionsManager):
         :param problem: :class:`LinearEigenproblem` to solve.
         :param n_evals: number of eigenvalues to compute.
         :param options_prefix: options prefix to use for the eigensolver.
-        :param solver_parameters: PETSc options  for the eigenvalue problem.
+        :param solver_parameters: PETSc options for the eigenvalue problem.
         '''
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
@@ -77,11 +76,11 @@ class LinearEigensolver(OptionsManager):
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
-        self.es.setFromOptions()
+        self.set_from_options(self.es)
     
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
-        r = es.getConvergedReason()
+        r = self.es.getConvergedReason()
         try:
             reason = SLEPc.EPS.ConvergedReasons[r]
         except KeyError:
@@ -89,14 +88,21 @@ class LinearEigensolver(OptionsManager):
         if r < 0:
             raise ConvergenceError(r"""Eigenproblem failed to converge after %d iterations.
         Reason:
-        %s""" % (eps.getIterationNumber(), reason))
+        %s""" % (self.es.getIterationNumber(), reason))
 
     def solve(self):
         r"""Solve the eigenproblem, return the number of converged eigenvalues."""
-        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs, weight=1.).M.handle
-        self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs, weight=0.).M.handle 
+        if self._problem.bcs is None: # Neumann BCs 
+            print('Neumann BCs')
+            self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
+            self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs).M.handle 
+        else:
+            self.A_mat = assemble(self._problem.M, bcs=self._problem.bcs, weight=0.).M.handle
+            self.M_mat = assemble(self._problem.A, bcs=self._problem.bcs, weight=1.).M.handle 
+        # E.setType(SLEPc.EPS.Type.KRYLOVSCHUR)
+        # E.setProblemType(SLEPc.EPS.ProblemType.GHEP);
         self.es.setOperators(self.A_mat, self.M_mat)
-        self.es.setDimensions(self.n_evals)
+        self.es.setDimensions(nev=self.n_evals,ncv=2*self.n_evals)
         with self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
@@ -115,10 +121,7 @@ class LinearEigensolver(OptionsManager):
         with eigenmodes_real.dat.vec_wo as vr:
             with eigenmodes_imag.dat.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
-        
         return eigenmodes_real, eigenmodes_imag  # firedrake fns
-
-
 class NonlinearEigenproblem():
     r"""Nonlinear eigenvalue problem A(u; v, lambda) = 0."""
 
