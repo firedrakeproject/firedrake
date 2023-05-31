@@ -170,10 +170,6 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-        cds = {coords: du}
-        if coefficient_derivatives is not None:
-            cds.update(coefficient_derivatives)
-        coefficient_derivatives = cds
     elif isinstance(uc, firedrake.Function):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
@@ -192,11 +188,18 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     if du is None:
         du = Argument(V, n + 1)
 
+    if is_dX:
+        internal_coefficient_derivatives = {coords: du}
+    else:
+        internal_coefficient_derivatives = {}
+    if coefficient_derivatives:
+        internal_coefficient_derivatives.update(coefficient_derivatives)
+
     if u.ufl_shape != du.ufl_shape:
         raise ValueError("Shapes of u and du do not match.\n"
                          "If you passed an indexed part of split(u) into "
                          "derivative, you need to provide an appropriate du as well.")
-    return ufl.derivative(form, u, du, coefficient_derivatives)
+    return ufl.derivative(form, u, du, internal_coefficient_derivatives)
 
 
 @PETSc.Log.EventDecorator()
