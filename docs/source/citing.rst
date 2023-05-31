@@ -16,7 +16,6 @@ would cite the Firedrake user manual::
     edition      = {First edition},
     year         = {2023},
     month        = {5},
-    doi          = {pending},
   }
 
 The simplest way to determine any additional relevant papers to cite is
