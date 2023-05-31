@@ -73,7 +73,7 @@ jobs:
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    #if: ${{ github.ref == 'refs/heads/JDBetteridge/rejig_actions' }} #change to master
+    if: ${{ github.ref == 'refs/heads/master' }}
     permissions:
       pages: write
       id-token: write
