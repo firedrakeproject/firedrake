@@ -8,19 +8,19 @@
 Citing Firedrake
 ================
 
-If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual:
+If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual::
 
   @manual{FiredrakeUserManual,
-    title		     = {Firedrake User Manual},
-    author		   = {{ '{' }}{{ author }}{{ '}' }},
+    title		 = {Firedrake User Manual},
+    author		 = {{ '{' }}{{ author }}{{ '}' }},
     organization = {{ '{' }}{{ institution }}{{ '}' }},
     edition	     = {First edition},
-    year		     = {2023},
-    month		     = {5},
+    year		 = {2023},
+    month		 = {5},
     doi          = {pending},
   }
 
-The simplest way to determine any additional relevant papers to cite is by asking Firedrake itself. You can ask that a list of citations relevant to your computation be printed when exiting by calling `Citations.print_at_exit` after importing Firedrake:
+The simplest way to determine any additional relevant papers to cite is by asking Firedrake itself. You can ask that a list of citations relevant to your computation be printed when exiting by calling `Citations.print_at_exit` after importing Firedrake::
 
   from firedrake import *
 
