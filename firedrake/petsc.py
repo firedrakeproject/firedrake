@@ -1,13 +1,12 @@
 # Utility module that imports and initialises petsc4py
 import os
 import subprocess
-import petsc4py
-import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
 import itertools
 import functools
 from contextlib import contextmanager
+
+import petsc4py
+from pyop2.petsc import PETSc
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
@@ -131,14 +130,30 @@ def get_blas_library():
     return None
 
 
-class OptionsManager(object):
+class OptionsManager:
 
-    # What appeared on the commandline, we should never clear these.
-    # They will override options passed in as a dict if an
-    # options_prefix was supplied.
-    commandline_options = frozenset(PETSc.Options().getAll())
+    _lazy_commandline_options = None
+    _lazy_options_object = None
 
-    options_object = PETSc.Options()
+    @property
+    @classmethod
+    def commandline_options(cls):
+        """What appeared on the command line, we should never clear these.
+
+        They will override options passed in as a dict if an
+        options_prefix was supplied.
+
+        """
+        if cls._lazy_commandline_options is None:
+            cls._lazy_commandline_options = frozenset(PETSc.Options().getAll())
+        return cls._lazy_commandline_options
+
+    @property
+    @classmethod
+    def options_object(cls):
+        if cls._lazy_options_object is None:
+            cls._lazy_options_object = PETSc.Options()
+        return cls._lazy_options_object
 
     count = itertools.count()
 

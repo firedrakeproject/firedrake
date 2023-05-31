@@ -24,6 +24,7 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from pyop2 import op2
 from pyop2.caching import Cached
 from pyop2.mpi import COMM_WORLD, MPI
+from pyop2.profiling import time_function
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -159,7 +160,7 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 

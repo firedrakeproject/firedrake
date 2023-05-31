@@ -2,17 +2,25 @@
 import collections.abc
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
-from pyop2.datatypes import ScalarType, as_cstr
-from pyop2.datatypes import RealType     # noqa: F401
-from pyop2.datatypes import IntType      # noqa: F401
+from pyop2.datatypes import as_cstr, get_int_type, get_real_type, get_scalar_type
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from firedrake_configuration import get_config
 
+
 _current_uid = 0
 
-RealType_c = as_cstr(RealType)
-ScalarType_c = as_cstr(ScalarType)
-IntType_c = as_cstr(IntType)
+
+def get_int_type_c():
+    return as_cstr(get_int_type())
+
+
+def get_real_type_c():
+    return as_cstr(get_real_type())
+
+
+def get_scalar_type_c():
+    return as_cstr(get_scalar_type())
+
 
 complex_mode = get_config()["options"].get("complex", False)
 

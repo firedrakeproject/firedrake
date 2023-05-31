@@ -24,6 +24,7 @@ from tsfc.finatinterface import create_element as _create_element
 
 from pyop2 import op2
 from firedrake.utils import IntType
+from pyop2.profiling import time_function
 from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
@@ -37,7 +38,7 @@ from firedrake.petsc import PETSc
 __all__ = ("get_shared_data", )
 
 
-@PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
+@time_function("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
     finat_element = _create_element(ufl_element)
     if isinstance(finat_element, finat.TensorFiniteElement):
@@ -402,7 +403,7 @@ class FunctionSpaceData(object):
                  "interior_facet_boundary_masks", "offset", "offset_quotient",
                  "extruded", "mesh", "global_numbering")
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, mesh, ufl_element):
         if type(ufl_element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -466,7 +467,7 @@ class FunctionSpaceData(object):
     def __str__(self):
         return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def boundary_nodes(self, V, sub_domain):
         if sub_domain in ["bottom", "top"]:
             if not V.extruded:
@@ -483,7 +484,7 @@ class FunctionSpaceData(object):
             key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
             return get_facet_closure_nodes(V.mesh(), key, V)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def get_map(self, V, entity_set, map_arity, name, offset, offset_quotient):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
@@ -510,7 +511,7 @@ class FunctionSpaceData(object):
         return val
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def get_shared_data(mesh, ufl_element):
     """Return the ``FunctionSpaceData`` for the given
     element.

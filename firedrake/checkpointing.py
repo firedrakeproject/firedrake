@@ -4,6 +4,7 @@ from petsc4py.PETSc import ViewerHDF5
 import ufl
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
+from pyop2.profiling import time_function
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc, OptionsManager
@@ -22,16 +23,30 @@ import os
 import h5py
 
 
-__all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
+__all__ = ["DumbCheckpoint", "HDF5File", "CheckpointFile"]
 
 
-FILE_READ = PETSc.Viewer.Mode.READ
+# TODO
+__dir__ = __all__ + ["FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
+
+
+def __getattr__(name):
+    if name == "FILE_READ":
+        return PETSc.Viewer.Mode.READ
+    elif name == "FILE_CREATE":
+        return PETSc.Viewer.Mode.WRITE
+    elif name == "FILE_UPDATE":
+        return PETSc.Viewer.Mode.APPEND
+    else:
+        raise AttributeError(f"{name} not found")
+
+# FILE_READ = PETSc.Viewer.Mode.READ
 r"""Open a checkpoint file for reading.  Raises an error if file does not exist."""
 
-FILE_CREATE = PETSc.Viewer.Mode.WRITE
+# FILE_CREATE = PETSc.Viewer.Mode.WRITE
 r"""Create a checkpoint file.  Truncates the file if it exists."""
 
-FILE_UPDATE = PETSc.Viewer.Mode.APPEND
+# FILE_UPDATE = PETSc.Viewer.Mode.APPEND
 r"""Open a checkpoint file for updating.  Creates the file if it does not exist, providing both read and write access."""
 
 
@@ -91,7 +106,7 @@ class DumbCheckpoint(object):
 
     """
     def __init__(self, basename, single_file=True,
-                 mode=FILE_UPDATE, comm=None):
+                 mode=None, comm=None):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
@@ -99,7 +114,7 @@ class DumbCheckpoint(object):
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
-        self.mode = mode
+        self.mode = mode or FILE_UPDATE
 
         self._single = single_file
         self._made_file = False
@@ -109,7 +124,7 @@ class DumbCheckpoint(object):
         self._fidx = 0
         self.new_file()
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def set_timestep(self, t, idx=None):
         r"""Set the timestep for output.
 
@@ -132,7 +147,7 @@ class DumbCheckpoint(object):
         new_steps = np.concatenate((steps, [self._time]))
         self.write_attribute("/", "stored_time_steps", new_steps)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def get_timesteps(self):
         r"""Return all the time steps (and time indices) in the current
         checkpoint file.
@@ -144,7 +159,7 @@ class DumbCheckpoint(object):
         steps = self.read_attribute("/", "stored_time_steps", [])
         return steps, indices
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def new_file(self, name=None):
         r"""Open a new on-disk file for writing checkpoint data.
 
@@ -214,7 +229,7 @@ class DumbCheckpoint(object):
         self._h5file = h5i.get_h5py_file(self.vwr)
         return self._h5file
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def close(self):
         r"""Close the checkpoint file (flushing any pending writes)"""
         if hasattr(self, "_vwr"):
@@ -240,7 +255,7 @@ class DumbCheckpoint(object):
             self.h5file.require_group(group)
             self.write_attribute(group, "timestep", self._time)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def store(self, function, name=None):
         r"""Store a function in the checkpoint file.
 
@@ -266,7 +281,7 @@ class DumbCheckpoint(object):
             v.setName(oname)
             self.vwr.popGroup()
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def load(self, function, name=None):
         r"""Store a function from the checkpoint file.
 
@@ -439,7 +454,7 @@ class HDF5File(object):
         r"""Flush any pending writes."""
         self._h5file.flush()
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def write(self, function, path, timestamp=None):
         r"""Store a function in the checkpoint file.
 
@@ -472,7 +487,7 @@ class HDF5File(object):
             attr["timestamp"] = timestamp
             self._set_timestamp(timestamp)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def read(self, function, path, timestamp=None):
         r"""Store a function from the checkpoint file.
 
@@ -543,7 +558,7 @@ class CheckpointFile(object):
     def __exit__(self, *args):
         self.close()
 
-    @PETSc.Log.EventDecorator("SaveMesh")
+    @time_function("SaveMesh")
     def save_mesh(self, mesh, distribution_name=None, permutation_name=None):
         r"""Save a mesh.
 
@@ -651,7 +666,7 @@ class CheckpointFile(object):
                     cell_orientations_iset.view(self.viewer)
                     self.viewer.popGroup()
 
-    @PETSc.Log.EventDecorator("SaveMeshTopology")
+    @time_function("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
         # -- Save DMPlex --
         tmesh.init()
@@ -716,7 +731,7 @@ class CheckpointFile(object):
             perm_is.setName(None)
             self.viewer.popGroup()
 
-    @PETSc.Log.EventDecorator("SaveFunctionSpace")
+    @time_function("SaveFunctionSpace")
     def _save_function_space(self, V):
         mesh = V.mesh()
         if isinstance(V.topological, impl.MixedFunctionSpace):
@@ -751,7 +766,7 @@ class CheckpointFile(object):
                 if loaded_element != element:
                     raise RuntimeError(f"Loaded UFL element ({loaded_element}) does not match the original element ({element})")
 
-    @PETSc.Log.EventDecorator("SaveFunctionSpaceTopology")
+    @time_function("SaveFunctionSpaceTopology")
     def _save_function_space_topology(self, tV):
         # -- Save mesh topology --
         tmesh = tV.mesh()
@@ -778,7 +793,7 @@ class CheckpointFile(object):
                     topology_dm.sectionView(self.viewer, dm)
                     topology_dm.setName(base_tmesh_name)
 
-    @PETSc.Log.EventDecorator("SaveFunction")
+    @time_function("SaveFunction")
     def save_function(self, f, idx=None, name=None):
         r"""Save a :class:`~.Function`.
 
@@ -833,7 +848,7 @@ class CheckpointFile(object):
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
 
-    @PETSc.Log.EventDecorator("SaveFunctionTopology")
+    @time_function("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
         # -- Save function space topology --
         tV = tf.function_space()
@@ -873,7 +888,7 @@ class CheckpointFile(object):
         if idx is not None:
             self.viewer.popTimestepping()
 
-    @PETSc.Log.EventDecorator("LoadMesh")
+    @time_function("LoadMesh")
     def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
         r"""Load a mesh.
 
@@ -984,7 +999,7 @@ class CheckpointFile(object):
                 mesh._cell_orientations = CoordinatelessFunction(cell_orientations_tV, val=cell_orientations, name=cell_orientations_name, dtype=np.int32)
         return mesh
 
-    @PETSc.Log.EventDecorator("LoadMeshTopology")
+    @time_function("LoadMeshTopology")
     def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters):
         """Load the :class:`~.MeshTopology`.
 
@@ -1073,7 +1088,7 @@ class CheckpointFile(object):
         plex.removeLabel("pyop2_ghost")
         return tmesh
 
-    @PETSc.Log.EventDecorator("LoadFunctionSpace")
+    @time_function("LoadFunctionSpace")
     def _load_function_space(self, mesh, name):
         mesh.init()
         mesh_key = self._generate_mesh_key_from_names(mesh.name,
@@ -1110,7 +1125,7 @@ class CheckpointFile(object):
         self._function_spaces[V_key] = V
         return V
 
-    @PETSc.Log.EventDecorator("LoadFunctionSpaceTopology")
+    @time_function("LoadFunctionSpaceTopology")
     def _load_function_space_topology(self, tmesh, element):
         tmesh.init()
         if element.family() == "Real":
@@ -1142,7 +1157,7 @@ class CheckpointFile(object):
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
-    @PETSc.Log.EventDecorator("LoadFunction")
+    @time_function("LoadFunction")
     def load_function(self, mesh, name, idx=None):
         r"""Load a :class:`~.Function` defined on `mesh`.
 
@@ -1197,7 +1212,7 @@ class CheckpointFile(object):
                 {self._path_to_mesh(tmesh.name, mesh.name)}
             """)
 
-    @PETSc.Log.EventDecorator("LoadFunctionTopology")
+    @time_function("LoadFunctionTopology")
     def _load_function_topology(self, tmesh, element, tf_name, idx=None):
         tV = self._load_function_space_topology(tmesh, element)
         topology_dm = tmesh.topology_dm

@@ -13,6 +13,7 @@ from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import cached
+from pyop2.profiling import time_function
 
 import firedrake
 import finat
@@ -623,7 +624,7 @@ def compare_element(e1, e2):
 
 
 @cached({}, key=lambda V: V.ufl_element())
-@PETSc.Log.EventDecorator("GetLineElements")
+@time_function("GetLineElements")
 def get_permutation_to_line_elements(V):
     """
     Find DOF permutation to factor out the EnrichedElement expansion into common
@@ -856,7 +857,7 @@ static inline void ipermute_axis(PetscBLASInt axis,
 """
 
 
-@PETSc.Log.EventDecorator("MakeKronCode")
+@time_function("MakeKronCode")
 def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     """
     Return interpolation and restriction kernels between enriched tensor product elements

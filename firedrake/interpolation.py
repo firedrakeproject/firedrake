@@ -11,6 +11,7 @@ from ufl.domain import extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
+from pyop2.profiling import time_function
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -26,7 +27,7 @@ from firedrake.petsc import PETSc
 __all__ = ("interpolate", "Interpolator")
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
@@ -95,7 +96,7 @@ class Interpolator(object):
         self.V = V
         self.bcs = bcs
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @annotate_interpolate
     def interpolate(self, *function, output=None, transpose=False):
         """Compute the interpolation.
@@ -155,7 +156,7 @@ class Interpolator(object):
                     return assembled_interpolator
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 

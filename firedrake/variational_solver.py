@@ -2,6 +2,7 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 
+from pyop2.profiling import time_function
 from firedrake import dmhooks
 from firedrake import slate
 from firedrake import solving_utils
@@ -42,7 +43,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
@@ -105,7 +106,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
     DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, *, solver_parameters=None,
                  options_prefix=None,
@@ -240,7 +241,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         self._ctx.transfer_manager = manager
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
@@ -289,7 +290,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
                  constant_jacobian=False):

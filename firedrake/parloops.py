@@ -7,6 +7,7 @@ from ufl.indexed import Indexed
 from ufl.domain import join_domains, extract_domains
 
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
+from pyop2.profiling import time_function
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
@@ -126,7 +127,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
         return kernel_cache.setdefault(key, knl)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets

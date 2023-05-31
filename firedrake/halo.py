@@ -1,4 +1,5 @@
 from pyop2 import mpi, op2, utils
+from pyop2.profiling import time_function
 from mpi4py import MPI
 import numpy
 from functools import partial
@@ -133,7 +134,7 @@ class Halo(op2.Halo):
         gsec = self.dm.getDefaultGlobalSection()
         return dmcommon.make_global_numbering(lsec, gsec)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def global_to_local_begin(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
@@ -141,7 +142,7 @@ class Halo(op2.Halo):
         mtype, _ = _get_mtype(dat)
         self.sf.bcastBegin(mtype, dat._data, dat._data, MPI.REPLACE)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def global_to_local_end(self, dat, insert_mode):
         assert insert_mode is op2.WRITE, "Only WRITE GtoL supported"
         if self.comm.size == 1:
@@ -149,7 +150,7 @@ class Halo(op2.Halo):
         mtype, _ = _get_mtype(dat)
         self.sf.bcastEnd(mtype, dat._data, dat._data, MPI.REPLACE)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def local_to_global_begin(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
@@ -163,7 +164,7 @@ class Halo(op2.Halo):
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
         self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def local_to_global_end(self, dat, insert_mode):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:

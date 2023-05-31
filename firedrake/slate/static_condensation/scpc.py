@@ -1,4 +1,5 @@
 import firedrake.dmhooks as dmhooks
+from pyop2.profiling import time_function
 import numpy as np
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -17,7 +18,7 @@ class SCPC(SCBase):
     static condensation for problems with up to three fields.
     """
 
-    @PETSc.Log.EventDecorator("SCPCInit")
+    @time_function("SCPCInit")
     def initialize(self, pc):
         """Set up the problem context. This takes the incoming
         three-field system and constructs the static
@@ -233,7 +234,7 @@ class SCPC(SCBase):
 
         return local_solvers
 
-    @PETSc.Log.EventDecorator("SCPCUpdate")
+    @time_function("SCPCUpdate")
     def update(self, pc):
         """Update by assembling into the KSP operator. No
         need to reconstruct symbolic objects.

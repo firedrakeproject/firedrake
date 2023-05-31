@@ -19,12 +19,12 @@ from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from pyop2.profiling import time_function
 from pyop2.utils import cached_property
 
 
@@ -35,7 +35,7 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 @annotate_assemble
 def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
@@ -110,7 +110,7 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
                     appctx=None, form_compiler_parameters=None, options_prefix=None):
     r"""Allocate a matrix given an expression.
@@ -190,7 +190,7 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
                          options_prefix=options_prefix)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
                              mat_type=None, sub_mat_type=None, diagonal=False):
     r"""Create a callable object than be used to assemble expr into a tensor.

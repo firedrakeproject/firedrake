@@ -17,6 +17,7 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
+from pyop2.profiling import time_function
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir
 
@@ -79,7 +80,7 @@ class FDMPC(PCBase):
     _citation = "Brubeck2022b"
     _cache = {}
 
-    @PETSc.Log.EventDecorator("FDMInit")
+    @time_function("FDMInit")
     def initialize(self, pc):
         Citations().register(self._citation)
         self.comm = pc.comm
@@ -184,7 +185,7 @@ class FDMPC(PCBase):
         else:
             fdmpc.setFromOptions()
 
-    @PETSc.Log.EventDecorator("FDMPrealloc")
+    @time_function("FDMPrealloc")
     def allocate_matrix(self, V, J, bcs, fcp, pmat_type, use_static_condensation):
         """
         Allocate the FDM sparse preconditioner.
@@ -297,12 +298,12 @@ class FDMPC(PCBase):
         assembly_callables.append(Pmat.assemble)
         return Pmat, assembly_callables
 
-    @PETSc.Log.EventDecorator("FDMAssemble")
+    @time_function("FDMAssemble")
     def _assemble_P(self):
         for _assemble in self.assembly_callables:
             _assemble()
 
-    @PETSc.Log.EventDecorator("FDMUpdate")
+    @time_function("FDMUpdate")
     def update(self, pc):
         if hasattr(self, "A"):
             self._assemble_A()
@@ -341,7 +342,7 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
-    @PETSc.Log.EventDecorator("FDMCoefficients")
+    @time_function("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
@@ -444,7 +445,7 @@ class FDMPC(PCBase):
                                                        form_compiler_parameters=fcp).assemble)
         return coefficients, assembly_callables
 
-    @PETSc.Log.EventDecorator("FDMRefTensor")
+    @time_function("FDMRefTensor")
     def assemble_reference_tensor(self, V, transpose=False, sort_interior=False):
         """
         Return the reference tensor used in the diagonal factorisation of the
@@ -557,7 +558,7 @@ class FDMPC(PCBase):
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
         return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
 
-    @PETSc.Log.EventDecorator("FDMSetValues")
+    @time_function("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
         """
         Assemble the stiffness matrix in the FDM basis using sparse reference
@@ -811,7 +812,7 @@ class SchurComplementKernel(ElementKernel):
             if isinstance(obj, PETSc.Object):
                 obj.destroy()
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         return result
 
@@ -823,7 +824,7 @@ class SchurComplementPattern(SchurComplementKernel):
         k(*args, result=k.result)
         return self.condense(result=result)
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         """By default pad with zeros the statically condensed pattern"""
         structure = PETSc.Mat.Structure.SUBSET if result else None
@@ -836,7 +837,7 @@ class SchurComplementPattern(SchurComplementKernel):
 
 class SchurComplementDiagonal(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -855,7 +856,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         # asssume that K10 = K01^T
         super().__init__(K11, K01, K00)
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A01, A00 = self.submats
@@ -883,7 +884,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
 
 class SchurComplementBlockQR(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -916,7 +917,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
 
 class SchurComplementBlockSVD(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -955,7 +956,7 @@ class SchurComplementBlockSVD(SchurComplementKernel):
 
 class SchurComplementBlockInverse(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    @time_function("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -980,7 +981,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         return result
 
 
-@PETSc.Log.EventDecorator("LoadCode")
+@time_function("LoadCode")
 def load_c_code(code, name, **kwargs):
     petsc_dir = get_petsc_dir()
     cppargs = ["-I%s/include" % d for d in petsc_dir]
@@ -1044,7 +1045,7 @@ PetscErrorCode {name}(Mat A,
     funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
                          restype=ctypes.c_int)
 
-    @PETSc.Log.EventDecorator(name)
+    @time_function(name)
     def wrapper(A, B, rows, cols, addv):
         return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
 
@@ -1356,7 +1357,7 @@ class PoissonFDMPC(FDMPC):
                 Dfdm[0] = None
         return Afdm, Dfdm, bdof, axes_shifts
 
-    @PETSc.Log.EventDecorator("FDMSetValues")
+    @time_function("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, triu=False):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
@@ -1581,7 +1582,7 @@ class PoissonFDMPC(FDMPC):
                     update_A(A, Ae, rows)
                     Ae.destroy()
 
-    @PETSc.Log.EventDecorator("FDMCoefficients")
+    @time_function("FDMCoefficients")
     def assemble_coefficients(self, J, fcp):
         from firedrake.assemble import OneFormAssembler
         coefficients = {}

@@ -17,6 +17,7 @@ from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
 )
+from pyop2.profiling import time_function
 from pyop2.utils import as_tuple, tuplify
 
 import firedrake.cython.dmcommon as dmcommon
@@ -132,7 +133,7 @@ class _Facets(object):
 
        The unique_markers argument **must** be the same on all processes."""
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number,
                  unique_markers=None):
 
@@ -183,7 +184,7 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -226,7 +227,7 @@ class _Facets(object):
         else:
             return self.subset(subdomain_id)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
@@ -280,7 +281,7 @@ class _Facets(object):
                        "facet_to_cell_map")
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_netgen(ngmesh, comm=None):
     """
     Create a DMPlex from an Netgen mesh
@@ -294,7 +295,7 @@ def _from_netgen(ngmesh, comm=None):
     return meshMap.plex
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_gmsh(filename, comm=None):
     """Read a Gmsh .msh file from `filename`.
 
@@ -324,7 +325,7 @@ def _from_gmsh(filename, comm=None):
     return gmsh_plex
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_exodus(filename, comm):
     """Read an Exodus .e or .exo file from `filename`.
 
@@ -335,7 +336,7 @@ def _from_exodus(filename, comm):
     return plex
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_cgns(filename, comm):
     """Read a CGNS .cgns file from `filename`.
 
@@ -345,7 +346,7 @@ def _from_cgns(filename, comm):
     return plex
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_triangle(filename, dim, comm):
     """Read a set of triangle mesh files from `filename`.
 
@@ -451,7 +452,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def _from_cell_list(dim, cells, coords, comm, name=None):
     """
     Create a DMPlex from a list of cells and coords.
@@ -553,7 +554,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
 
-    @PETSc.Log.EventDecorator("CreateMesh")
+    @time_function("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -748,7 +749,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def cell_set(self):
         pass
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
 
@@ -791,7 +792,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                                                     subdomain_id)
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
@@ -863,7 +864,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
-    @PETSc.Log.EventDecorator("CreateMesh")
+    @time_function("CreateMesh")
     def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
         """Half-initialise a mesh topology.
 
@@ -1113,7 +1114,7 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations(self):
         return dmcommon.entity_orientations(self, self.cell_closure)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
@@ -1208,7 +1209,7 @@ class MeshTopology(AbstractMeshTopology):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self._comm)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def set_partitioner(self, distribute, partitioner_type=None):
         """Set partitioner for (re)distributing underlying plex over comm.
 
@@ -1256,7 +1257,7 @@ class MeshTopology(AbstractMeshTopology):
         # Command line option `-petscpartitioner_type <type>` overrides.
         partitioner.setFromOptions()
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def get_partitioner(self):
         """Get partitioner actually used for (re)distributing underlying plex over comm."""
         return self.topology_dm.getPartitioner()
@@ -1305,7 +1306,7 @@ class MeshTopology(AbstractMeshTopology):
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, mesh, layers, periodic=False, name=None, tolerance=1.0):
         """Build an extruded mesh topology from an input mesh topology
 
@@ -1433,7 +1434,7 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
@@ -1525,7 +1526,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     another mesh.
     """
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
         """
         Half-initialise a mesh topology.
@@ -2046,7 +2047,7 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def locate_cell(self, x, tolerance=None):
         """Locate cell containing a given point.
 
@@ -2206,7 +2207,7 @@ values from f.)"""
             raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
@@ -2270,7 +2271,7 @@ values from f.)"""
         self.topology.mark_entities(f.topological, label_name, label_value)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def make_mesh_from_coordinates(coordinates, name):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
@@ -2313,7 +2314,7 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     return mesh
 
 
-@PETSc.Log.EventDecorator("CreateMesh")
+@time_function("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -2486,7 +2487,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@PETSc.Log.EventDecorator("CreateExtMesh")
+@time_function("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=1.0):
     """Build an extruded mesh from an input mesh
 
@@ -2639,7 +2640,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     return self
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                    tolerance=None, redundant=True):
     """
@@ -3298,7 +3299,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     return make_mesh_from_mesh_topology(tmesh1, name1)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def SubDomainData(geometric_expr):
     """Creates a subdomain data object from a boolean-valued UFL expression.
 

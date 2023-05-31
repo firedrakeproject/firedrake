@@ -6,7 +6,7 @@ import islpy as isl
 
 import finat
 from pyop2 import op2
-from firedrake.petsc import PETSc
+from pyop2.profiling import time_function
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
 import loopy as lp
@@ -15,7 +15,7 @@ from firedrake.parameters import target
 from ufl.domain import extract_unique_domain
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """

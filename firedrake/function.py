@@ -9,6 +9,7 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
+from pyop2.profiling import time_function
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -16,7 +17,6 @@ from firedrake import functionspaceimpl
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint import FunctionMixin
-from firedrake.petsc import PETSc
 
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
@@ -86,7 +86,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         r"""The underlying coordinateless function."""
         return self
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def copy(self, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
@@ -114,7 +114,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
@@ -129,7 +129,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                                                 name="view[%d](%s)" % (i, self.name()))
                          for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -232,7 +232,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  count=None):
@@ -283,7 +283,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
         r"""Return a copy of this Function.
@@ -326,7 +326,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
                          for i in range(self.function_space().value_size))
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
 
@@ -342,7 +342,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self._components[i]
         return self.subfunctions[i]
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
@@ -365,7 +365,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def interpolate(self, expression, subset=None, ad_block_tag=None):
         r"""Interpolate an expression onto this :class:`Function`.
 
@@ -385,7 +385,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # to write an _ad_annotate_zero function
         return self.assign(0, subset=subset)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @FunctionMixin._ad_annotate_assign
     def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of
@@ -501,7 +501,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         return self.at(coord)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
@@ -641,7 +641,7 @@ class PointNotInDomainError(Exception):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""

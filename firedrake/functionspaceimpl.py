@@ -13,6 +13,7 @@ import numpy
 import ufl
 
 from pyop2 import op2, mpi
+from pyop2.profiling import time_function
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -119,7 +120,7 @@ class WithGeometry(ufl.FunctionSpace):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
@@ -133,7 +134,7 @@ class WithGeometry(ufl.FunctionSpace):
         else:
             return self.subfunctions
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def sub(self, i):
         if len(self) == 1:
             bound = self.value_size
@@ -339,7 +340,7 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
@@ -607,7 +608,7 @@ class FunctionSpace(object):
         """
         return self._shared_data.boundary_nodes(self, sub_domain)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 

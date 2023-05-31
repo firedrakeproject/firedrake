@@ -6,17 +6,17 @@ backwards-compatibility, argument checking, and dispatch.
 """
 import ufl
 
+from pyop2.profiling import time_function
 from pyop2.utils import flatten
 
 from firedrake import functionspaceimpl as impl
-from firedrake.petsc import PETSc
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     """Build a scalar :class:`ufl.FiniteElement`.
 
@@ -96,7 +96,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-@PETSc.Log.EventDecorator("CreateFunctionSpace")
+@time_function("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -137,7 +137,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
         return new
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.
@@ -174,7 +174,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     return FunctionSpace(mesh, element, name=name)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
                         vdegree=None):
@@ -212,7 +212,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     return FunctionSpace(mesh, element, name=name)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 

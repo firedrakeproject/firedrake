@@ -3,7 +3,7 @@ import ufl
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
-from firedrake.petsc import PETSc
+from pyop2.profiling import time_function
 from firedrake.utils import ScalarType
 from ufl.formatting.ufl2unicode import ufl2unicode
 
@@ -87,7 +87,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
         if hasattr(self, "_comm"):
             mpi.decref(self._comm)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def evaluate(self, x, mapping, component, index_values):
         """Return the evaluation of this :class:`Constant`.
 
@@ -138,7 +138,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.

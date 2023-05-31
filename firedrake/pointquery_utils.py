@@ -6,8 +6,8 @@ import loopy as lp
 
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
+from pyop2.profiling import time_function
 
-from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
@@ -123,7 +123,7 @@ def init_X(fiat_cell, parameters):
     return "\n".join(f"X[{i}] = {v};" for i, v in enumerate(X))
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype="double", dX_dtype=ScalarType):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
@@ -186,7 +186,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     return lp.generate_code_v2(kernel).device_code()
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 

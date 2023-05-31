@@ -15,7 +15,7 @@ from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
 from tsfc.loopy import profile_insns
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 
 
 class RemoveRestrictions(MultiFunction):

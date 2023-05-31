@@ -3,6 +3,7 @@ from itertools import chain
 import numpy
 
 from pyop2 import op2
+from pyop2.profiling import time_function
 from firedrake_configuration import get_config
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
@@ -12,15 +13,28 @@ from firedrake.utils import cached_property
 from firedrake.logging import warning
 
 
+_lazy_KSPReasons = None
+_lazy_SNESReasons = None
+
+
 def _make_reasons(reasons):
     return dict([(getattr(reasons, r), r)
                  for r in dir(reasons) if not r.startswith('_')])
 
 
-KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
+def __getattr__(name):
+    global _lazy_KSPReasons, _lazy_SNESReasons
 
-
-SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+    if name == "KSPReasons":
+        if _lazy_KSPReasons is None:
+            _lazy_KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
+        return _lazy_KSPReasons
+    elif name == "SNESReasons":
+        if _lazy_SNESReasons is None:
+            _lazy_SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+        return _lazy_SNESReasons
+    else:
+        raise AttributeError(f"{name} not found")
 
 
 if get_config()["options"]["petsc_int_type"] == "int32":
@@ -172,7 +186,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
@@ -311,7 +325,7 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP

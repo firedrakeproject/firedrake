@@ -5,6 +5,7 @@ from mpi4py import MPI
 import numpy
 
 from pyop2.mpi import internal_comm, decref, temp_internal_comm
+from pyop2.profiling import time_function
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -15,7 +16,7 @@ from firedrake.utils import cached_property
 __all__ = ("ImplicitMatrixContext", )
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def find_sub_block(iset, ises, comm):
     """Determine if iset comes from a concatenation of some subset of
     ises.
@@ -84,7 +85,7 @@ class ImplicitMatrixContext(object):
        preconditioners and the like.
 
     """
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
         from firedrake.assemble import OneFormAssembler
@@ -194,7 +195,7 @@ class ImplicitMatrixContext(object):
     def missingDiagonal(self, mat):
         return (False, -1)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)
@@ -228,7 +229,7 @@ class ImplicitMatrixContext(object):
         with self._y.dat.vec_ro as v:
             v.copy(Y)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def multTranspose(self, mat, Y, X):
         """
         EquationBC makes multTranspose different from mult.
@@ -361,7 +362,7 @@ class ImplicitMatrixContext(object):
     # extraction for our custom matrix type.  Note that we are splitting UFL
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def createSubMatrix(self, mat, row_is, col_is, target=None):
         if target is not None:
             # Repeat call, just return the matrix, since we don't
@@ -423,7 +424,7 @@ class ImplicitMatrixContext(object):
 
         return submat
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def duplicate(self, mat, copy):
 
         if copy == 0:

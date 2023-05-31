@@ -1,3 +1,4 @@
+from pyop2.profiling import time_function
 import ufl
 import ufl.argument
 from ufl.split_functions import split
@@ -5,7 +6,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
 from firedrake import utils
-from firedrake.petsc import PETSc
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -69,7 +69,7 @@ class Argument(ufl.argument.Argument):
         return Argument(function_space, number, part=part)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def TestFunction(function_space, part=None):
     """Build a test function on the specified function space.
 
@@ -79,7 +79,7 @@ def TestFunction(function_space, part=None):
     return Argument(function_space, 0, part=part)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def TrialFunction(function_space, part=None):
     """Build a trial function on the specified function space.
 
@@ -115,7 +115,7 @@ def TrialFunctions(function_space):
     return split(TrialFunction(function_space))
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
@@ -194,7 +194,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     return ufl.derivative(form, u, du, coefficient_derivatives)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def action(form, coefficient):
     """Compute the action of a form on a coefficient.
 
@@ -210,7 +210,7 @@ def action(form, coefficient):
         return ufl.action(form, coefficient)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def adjoint(form, reordered_arguments=None):
     """Compute the adjoint of a form.
 
@@ -250,7 +250,7 @@ def adjoint(form, reordered_arguments=None):
         return ufl.adjoint(form, reordered_arguments)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def CellSize(mesh):
     """A symbolic representation of the cell size of a mesh.
 
@@ -260,7 +260,7 @@ def CellSize(mesh):
     return ufl.CellDiameter(mesh)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def FacetNormal(mesh):
     """A symbolic representation of the facet normal on a cell in a mesh.
 

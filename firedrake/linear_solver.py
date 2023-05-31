@@ -8,6 +8,7 @@ from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
 from pyop2.mpi import internal_comm, decref
+from pyop2.profiling import time_function
 
 __all__ = ["LinearSolver"]
 
@@ -16,7 +17,7 @@ class LinearSolver(OptionsManager):
 
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
                  near_nullspace=None, options_prefix=None):
@@ -135,7 +136,7 @@ class LinearSolver(OptionsManager):
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)

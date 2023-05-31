@@ -1,6 +1,7 @@
 import numpy
 
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
+from pyop2.profiling import time_function
 
 from firedrake import function
 from firedrake.logging import warning
@@ -64,7 +65,7 @@ class VectorSpaceBasis(object):
         if hasattr(self, "_comm"):
             decref(self._comm)
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def nullspace(self, comm=None):
         r"""The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
 
@@ -78,7 +79,7 @@ class VectorSpaceBasis(object):
                                                    comm=self._comm)
         return self._nullspace
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def orthonormalize(self):
         r"""Orthonormalize the basis.
 
@@ -103,7 +104,7 @@ class VectorSpaceBasis(object):
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
@@ -117,7 +118,7 @@ class VectorSpaceBasis(object):
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def check_orthogonality(self, orthonormal=True):
         r"""Check if the basis is orthogonal.
 

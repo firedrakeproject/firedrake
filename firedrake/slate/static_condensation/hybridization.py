@@ -9,6 +9,7 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
+from pyop2.profiling import time_function
 from pyop2.utils import as_tuple
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
@@ -29,7 +30,7 @@ class HybridizationPC(SCBase):
     are performed element-local using the Slate language.
     """
 
-    @PETSc.Log.EventDecorator("HybridInit")
+    @time_function("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -310,7 +311,7 @@ class HybridizationPC(SCBase):
         self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
                                               form_compiler_parameters=self.ctx.fc_params).assemble
 
-    @PETSc.Log.EventDecorator("HybridUpdate")
+    @time_function("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.

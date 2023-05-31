@@ -3,6 +3,7 @@ import ufl
 from functools import reduce
 from enum import IntEnum
 from operator import and_
+from pyop2.profiling import time_function
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 
@@ -193,7 +194,7 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
-    @PETSc.Log.EventDecorator()
+    @time_function()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 

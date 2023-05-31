@@ -11,6 +11,7 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
+from pyop2.profiling import time_function
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
@@ -73,7 +74,7 @@ def _get_collection_types(gdim, tdim):
     raise ValueError("Geometric dimension must be either 2 or 3!")
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
@@ -208,7 +209,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
     return method(triangulation, toreal(values, complex_component), *args, **kwargs)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def tricontourf(function, *args, complex_component="real", **kwargs):
     r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -224,7 +225,7 @@ def tricontourf(function, *args, complex_component="real", **kwargs):
     return _plot_2d_field("tricontourf", function, *args, complex_component=complex_component, **kwargs)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def tricontour(function, *args, complex_component="real", **kwargs):
     r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
 
@@ -240,7 +241,7 @@ def tricontour(function, *args, complex_component="real", **kwargs):
     return _plot_2d_field("tricontour", function, *args, complex_component=complex_component, **kwargs)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def tripcolor(function, *args, complex_component="real", **kwargs):
     r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
 
@@ -280,7 +281,7 @@ def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax
     return collection
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def trisurf(function, *args, complex_component="real", **kwargs):
     r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
 
@@ -319,7 +320,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     return axes.plot_trisurf(triangulation, values, *args, **_kwargs)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def quiver(function, *, complex_component="real", **kwargs):
     r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
 
@@ -356,7 +357,7 @@ def _step_to_boundary(mesh, x, u, dt, loc_tolerance):
     return bracket[0]
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-10,
                complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
@@ -567,7 +568,7 @@ class Streamplotter(object):
         self.streamlines.append(streamline)
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def streamplot(function, resolution=None, min_length=None, max_time=None,
                start_width=0.5, end_width=1.5, tolerance=3e-3, loc_tolerance=1e-10,
                seed=None, complex_component="real", **kwargs):
@@ -663,7 +664,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     return collection
 
 
-@PETSc.Log.EventDecorator()
+@time_function()
 def plot(function, *args, bezier=False, num_sample_points=10, complex_component="real", **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
