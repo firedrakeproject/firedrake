@@ -11,7 +11,7 @@ Firedrake '23
 -------------
                
 The seventh Firedrake user and developer workshop will
-be held at Missenden Abbey from 13-15 September 2023. The event is
+be held at `Missenden Abbey <https://missendenabbey.co.uk>`__ from 13-15 September 2023. The event is
 hosted by Imperial College London.
 
 The workshop is an opportunity for Firedrake users and
@@ -26,12 +26,15 @@ Key Dates
 
 * 21/7/2023 Abstract submission
 * 21/7/2023 Registration
-* 13-15/9/2023 Workshop
+* 13-15/9/2023 Workshop. The workshop will run from the afternoon of 13
+  September until lunchtime on 15 September.
 
-Programme
----------
+Registration
+------------
 
-TBA
+Registration will be £180 for students and £300 for others. This includes two
+nights accommodation and meals for the duration of the workshop. Registration
+will open soon.
 
 Organising committee
 --------------------
