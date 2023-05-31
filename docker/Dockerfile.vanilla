@@ -1,6 +1,6 @@
 # DockerFile for a plain Firedrake suitable for testing Firedrake components and applications
 
-FROM firedrakeproject/firedrake-test:latest
+FROM firedrakeproject/firedrake:latest
 
 # This DockerFile is looked after by
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
