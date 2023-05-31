@@ -51,12 +51,12 @@ publishpdf:
 publish: html
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.222.76:public_html/'
 
 scp:
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.222.76:public_html/'
 
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
