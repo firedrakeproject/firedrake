@@ -56,11 +56,7 @@ class RiemannianMetric(ffunc.Function):
             raise ValueError(
                 f"Riemannian metric should be 2D or 3D, not {tdim}D"
             )
-        el = fs.ufl_element()
-        if (el.family(), el.degree()) != ("Lagrange", 1):
-            raise ValueError(
-                f"Riemannian metric should be in P1 space, not {el}"
-            )
+        self._check_space()
         if isinstance(fs.dof_count, Iterable):
             raise ValueError(
                 "Riemannian metric cannot be built in a mixed space"
@@ -86,6 +82,13 @@ class RiemannianMetric(ffunc.Function):
         entity_dofs[0] = tdim ** 2
         plex.setSection(mesh.create_section(entity_dofs))
 
+    def _check_space(self):
+        el = self.function_space().ufl_element()
+        if (el.family(), el.degree()) != ("Lagrange", 1):
+            raise ValueError(
+                f"Riemannian metric should be in P1 space, not '{el}'."
+            )
+
     @staticmethod
     def _process_parameters(metric_parameters):
         mp = metric_parameters.copy()
@@ -100,7 +103,7 @@ class RiemannianMetric(ffunc.Function):
         Set metric parameter values internally.
 
         :param metric_parameters: a dictionary of parameters to be passed to PETSc's
-            Riemmanian metric implementation. All such options have the prefix
+            Riemannian metric implementation. All such options have the prefix
             `dm_plex_metric_`.
         """
         mp = self._process_parameters(metric_parameters)
@@ -153,7 +156,7 @@ class RiemannianMetric(ffunc.Function):
             :class:`~.RiemannianMetric` will share the dof values.
         :return: a copy of the metric with the same parameters set
         """
-        metric = RiemannianMetric(super().copy(deepcopy=deepcopy))
+        metric = type(self)(super().copy(deepcopy=deepcopy))
         metric.set_parameters(self.metric_parameters.copy())
         return metric
 
