@@ -370,6 +370,9 @@ honoured.""",
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
 
+    if args.documentation_dependencies:
+        args.torch = True
+
     config = FiredrakeConfiguration(args)
 else:
     # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
@@ -472,6 +475,9 @@ else:
         petsc_complex_type_changed = True
         args.rebuild = True
     args.complex = now_complex
+
+    if args.documentation_dependencies:
+        args.torch = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
 
