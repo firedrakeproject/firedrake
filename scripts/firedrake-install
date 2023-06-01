@@ -693,6 +693,8 @@ def brew_gcc_libdir():
     return brew_gcc_prefix + "/lib/gcc/" + gcc_major_version
 
 
+# See .github/workflows/docker.yml to see the PETSc options used on CI.
+# Edit these as appropriate if PETSc external packages are added or removed.
 def get_minimal_petsc_packages():
     pkgs = set()
     # File format
