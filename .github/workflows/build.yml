@@ -122,7 +122,6 @@ jobs:
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: self-hosted
-    if: ${{ github.head_ref == 'JDBetteridge/check_if_ci_is_completely_fubar' }}
     steps:
       - name: Set release tag
         # Set a release tag if triggered by monthly CRON job
