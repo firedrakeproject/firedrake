@@ -137,6 +137,7 @@ jobs:
       tag: ${{ env.RELEASE_TAG }}
   test_result:
     name: "Debugging 1"
+    runs-on: self-hosted
     needs: build
     steps:
       - name: Print status
@@ -144,6 +145,7 @@ jobs:
           echo needs.build.result = ${{ needs.build.result }}
   test_tag_result:
     name: "Debugging 2"
+    runs-on: self-hosted
     needs: [build, docker_tag]
     steps:
       - name: Print status
