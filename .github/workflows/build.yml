@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - master
-      - JDBetteridge/check_if_ci_is_completely_fubar
+      - 'JDBetteridge/check_if_ci_is_completely_fubar'
   pull_request:
   schedule:
     - cron: '0 0 * * 0'
