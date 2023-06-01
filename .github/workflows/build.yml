@@ -132,7 +132,6 @@ jobs:
       tag: ${{ env.RELEASE_TAG }}
   docker:
     name: "Build Docker containers"
-    runs-on: self-hosted
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
     if: ${{ (github.ref == 'refs/heads/master') && always() }}
