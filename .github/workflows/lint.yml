@@ -15,9 +15,9 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Setup python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: 3.8
       - name: Install linter
