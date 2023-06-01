@@ -30,6 +30,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
     'sphinx.ext.graphviz',
+    'sphinxcontrib.jquery',
     'sphinxcontrib.youtube',
     'sphinxcontrib.bibtex',
     'sphinxcontrib.inkscapeconverter',
