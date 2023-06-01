@@ -39,6 +39,7 @@ jobs:
           python -m pip install sphinxcontrib-jquery
           python -m pip install bibtexparser
           python -m pip install numpydoc
+          python -m pip install pylit
           python -m pip install git+https://github.com/sphinx-contrib/youtube.git
       - name: Check bibtex
         run: |
