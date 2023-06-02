@@ -1808,7 +1808,7 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    if "Build Firedrake" in os.environ.get("GITHUB_WORKFLOW", ""):
+    if os.environ.get("FIREDRAKE_CI_TESTS", ""):
         # When building Firedrake in CI, don't clone Firedrake again.
         check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
