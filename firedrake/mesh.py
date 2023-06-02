@@ -29,6 +29,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
+from pyadjoint import stop_annotating
 
 try:
     import netgen
@@ -3153,9 +3154,10 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
     P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
-    visible_ranks = interpolation.interpolate(
-        constant.Constant(parent_mesh.comm.rank), P0DG
-    ).dat.data_ro_with_halos.real
+    with stop_annotating():
+        visible_ranks = interpolation.interpolate(
+            constant.Constant(parent_mesh.comm.rank), P0DG
+        ).dat.data_ro_with_halos.real
 
     locally_visible = np.full(ncoords_global, False)
     # See below for why np.inf is used here.
