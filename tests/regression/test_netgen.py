@@ -6,7 +6,7 @@ from netgen.meshing import MeshingStep
 import netgen
 import numpy as np
 import gc
-from petsc4py import PETSc
+from firedrake.petsc import PETSc
 import pytest
 
 

@@ -1,10 +1,9 @@
 from collections import OrderedDict
 import itertools
 
-from mpi4py import MPI
 import numpy
 
-from pyop2.mpi import internal_comm, decref, temp_internal_comm
+from pyop2.mpi import internal_comm, decref, temp_internal_comm, MPI
 from pyop2.profiling import time_function
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock

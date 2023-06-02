@@ -1,3 +1,7 @@
+# put right at the top for now...
+import mpi4py
+mpi4py.initialize = False
+
 import firedrake_configuration
 import os
 import sys
@@ -45,8 +49,6 @@ pyadjoint.pause_annotation()
 del pyadjoint
 
 from firedrake_citations import Citations    # noqa: F401
-# Always get the firedrake paper.
-Citations().register("Rathgeber2016")
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
@@ -88,7 +90,14 @@ from firedrake.progress_bar import ProgressBar  # noqa: F401
 from firedrake.logging import *
 # Set default log level
 set_log_level(WARNING)
-set_log_handlers(comm=COMM_WORLD)
+
+import sys
+if "pytest" in sys.modules:
+    import mpi4py
+    mpi4py.initialize = False
+else:
+    set_log_handlers(comm=COMM_WORLD)
+del sys
 
 check()
 del check
@@ -97,46 +106,6 @@ from firedrake._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
 
-# Try to detect threading and either disable or warn user
-# Threading may come from
-# - OMP_NUM_THREADS: openmp,
-# - OPENBLAS_NUM_THREADS: openblas,
-# - MKL_NUM_THREADS: mkl,
-# - VECLIB_MAXIMUM_THREADS: accelerate,
-# - NUMEXPR_NUM_THREADS: numexpr
-# We only handle the first three cases
-# from ctypes import cdll
-# import firedrake.petsc as petsc
-# _blas_lib_path = petsc.get_blas_library()
-# del petsc
-#
-# try:
-#     _blas_lib = cdll.LoadLibrary(_blas_lib_path)
-#     _method_name = None
-#     if "openblas" in _blas_lib_path:
-#         _method_name = "openblas_set_num_threads"
-#     elif "libmkl" in _blas_lib_path:
-#         _method_name = "MKL_Set_Num_Threads"
-#
-#     if _method_name:
-#         try:
-#             getattr(_blas_lib, _method_name)(1)
-#         except AttributeError:
-#             info("Cannot set number of threads in BLAS library")
-# except OSError:
-#     info("Cannot set number of threads in BLAS library because the library could not be loaded")
-# except TypeError:
-#     info("Cannot set number of threads in BLAS library because the library could not be found")
-#
-# # OMP_NUM_THREADS can be set to a comma-separated list of positive integers
-# try:
-#     _omp_num_threads = int(os.environ.get('OMP_NUM_THREADS'))
-# except (ValueError, TypeError):
-#     _omp_num_threads = None
-# if (_omp_num_threads is None) or (_omp_num_threads > 1):
-#     warning('OMP_NUM_THREADS is not set or is set to a value greater than 1,'
-#             ' we suggest setting OMP_NUM_THREADS=1 to improve performance')
-# del _blas_lib, _method_name, _omp_num_threads, os, cdll
 
 from . import _version
 __version__ = _version.get_versions()['version']

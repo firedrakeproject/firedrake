@@ -1,7 +1,7 @@
 from firedrake import *
 import pytest
 import numpy as np
-from mpi4py import MPI
+from pyop2.mpi import MPI
 
 
 # Utility Functions

@@ -20,13 +20,12 @@ from firedrake.slate.slac.optimise import optimise
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.petsc import get_petsc_variables
+from firedrake.petsc import get_petsc_variables, PETSc
 from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
 from pyop2.utils import get_petsc_dir
-from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 
 import firedrake.slate.slate as slate
@@ -37,8 +36,6 @@ from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
 import copy
-
-from petsc4py import PETSc
 
 __all__ = ['compile_expression']
 
@@ -51,17 +48,9 @@ except ValueError:
     PETSC_DIR, = get_petsc_dir()
     PETSC_ARCH = None
 
-BLASLAPACK_LIB = None
-BLASLAPACK_INCLUDE = None
-if COMM_WORLD.rank == 0:
-    petsc_variables = get_petsc_variables()
-    BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-    BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
-    BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
-else:
-    BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
-    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
+petsc_variables = get_petsc_variables()
+BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
+BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
 
 cell_to_facets_dtype = np.dtype(np.int8)
 

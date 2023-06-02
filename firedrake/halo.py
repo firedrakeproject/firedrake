@@ -1,6 +1,6 @@
 from pyop2 import mpi, op2, utils
 from pyop2.profiling import time_function
-from mpi4py import MPI
+from pyop2.mpi import MPI
 import numpy
 from functools import partial
 
@@ -78,8 +78,22 @@ def reduction_op(op, invec, inoutvec, datatype):
     inoutvec[:] = op(invec, inoutvec)
 
 
-_contig_min_op = MPI.Op.Create(partial(reduction_op, numpy.minimum), commute=True)
-_contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=True)
+_lazy_contig_min_op = None
+_lazy_contig_max_op = None
+
+
+def get_contig_min_op():
+    global _lazy_contig_min_op
+    if _lazy_contig_min_op is None:
+        _lazy_contig_min_op = MPI.Op.Create(partial(reduction_op, numpy.minimum), commute=True)
+    return _lazy_contig_min_op
+
+
+def get_contig_max_op():
+    global _lazy_contig_max_op
+    if _lazy_contig_max_op is None:
+        _lazy_contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=True)
+    return _lazy_contig_max_op
 
 
 class Halo(op2.Halo):
@@ -158,9 +172,9 @@ class Halo(op2.Halo):
         mtype, builtin = _get_mtype(dat)
         op = {(False, op2.INC): MPI.SUM,
               (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
+              (False, op2.MIN): get_contig_min_op(),
               (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
+              (False, op2.MAX): get_contig_max_op(),
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
         self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
@@ -172,8 +186,8 @@ class Halo(op2.Halo):
         mtype, builtin = _get_mtype(dat)
         op = {(False, op2.INC): MPI.SUM,
               (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
+              (False, op2.MIN): get_contig_min_op(),
               (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
+              (False, op2.MAX): get_contig_max_op(),
               (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
         self.sf.reduceEnd(mtype, dat._data, dat._data, op)

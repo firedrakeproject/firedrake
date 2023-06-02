@@ -1,12 +1,9 @@
 # Utility module that imports and initialises petsc4py
-import os
 import subprocess
 import itertools
-import functools
 from contextlib import contextmanager
 
-import petsc4py
-from pyop2.petsc import PETSc
+from pyop2.petsc import PETSc, get_petsc_variables
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
@@ -77,22 +74,6 @@ def flatten_parameters(parameters, sep="_"):
                     option, new[option], value)
         new[option] = value
     return new
-
-
-@functools.lru_cache()
-def get_petsc_variables():
-    """Get dict of PETSc environment variables from the file:
-    $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables
-
-    The result is memoized to avoid constantly reading the file.
-    """
-    config = petsc4py.get_config()
-    path = [config["PETSC_DIR"], config["PETSC_ARCH"], "lib/petsc/conf/petscvariables"]
-    variables_path = os.path.join(*path)
-    with open(variables_path) as fh:
-        # Split lines on first '=' (assignment)
-        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
-    return {k.strip(): v.strip() for k, v in splitlines}
 
 
 def _get_dependencies(filename):

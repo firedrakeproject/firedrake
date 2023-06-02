@@ -188,10 +188,10 @@ import firedrake.extrusion_utils as eutils
 import numpy
 from firedrake.petsc import PETSc
 from firedrake.cython.dmcommon import count_labelled_points
-from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
 from pyop2 import op2
+from pyop2.mpi import MPI
 from firedrake.utils import IntType
 from tsfc.finatinterface import as_fiat_cell
 

@@ -3052,8 +3052,14 @@ def _mpi_array_lexicographic_min(x, y, datatype):
     return result
 
 
-array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
+_lazy_array_lexicographic_mpi_op = None
 
+
+def get_array_lexicographic_mpi_op():
+    global _lazy_array_lexicographic_mpi_op
+    if _lazy_array_lexicographic_mpi_op is None:
+        _lazy_array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
+    return _lazy_array_lexicographic_mpi_op
 
 def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos):
     """Find the parent mesh cells containing the given coordinates.
@@ -3190,7 +3196,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
     # break ties by minimising the distance.
     ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
-        ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
+        ref_cell_dists_l1_and_ranks, op=get_array_lexicographic_mpi_op()
     )
 
     ranks = ref_cell_dists_l1_and_ranks[:, 1]

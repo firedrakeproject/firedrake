@@ -4,7 +4,7 @@ import ufl
 
 from pyop2.mpi import COMM_WORLD
 from pyop2.profiling import time_function
-from firedrake.utils import get_int_type, get_real_type, get_scalar_type
+from firedrake.utils import IntType, RealType, ScalarType
 
 from firedrake import (
     VectorFunctionSpace,
@@ -232,18 +232,16 @@ cells are not currently supported"
     )
 
     domain = "{ [i, j] : 0 <= i, j < 2 }"
-    int_type = get_int_type()
-    real_type = get_real_type()
     instructions = f"""
-    <{real_type}> eps = 1e-12
-    <{real_type}> pi = 3.141592653589793
-    <{real_type}> oc[i, j] = real(old_coords[i, j])
-    <{real_type}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
-    <{real_type}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
-    <{int_type}> swap = 1 if a >= b else 0
-    <{real_type}> aa = fmin(a, b)
-    <{real_type}> bb = fmax(a, b)
-    <{real_type}> bb_abs = abs(bb)
+    <{RealType}> eps = 1e-12
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> oc[i, j] = real(old_coords[i, j])
+    <{RealType}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
+    <{RealType}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
+    <{IntType}> swap = 1 if a >= b else 0
+    <{RealType}> aa = fmin(a, b)
+    <{RealType}> bb = fmax(a, b)
+    <{RealType}> bb_abs = abs(bb)
     bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
     aa = aa + 1 if aa < -eps else aa
     bb = bb + 1 if bb < -eps else bb
@@ -354,7 +352,7 @@ def OneElementThickMesh(
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
-    cell_closure = np.zeros((cell_range[1], 9), dtype=get_int_type())
+    cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
 
     # Get the coordinates for this process
     coords = plex.getCoordinatesLocal().array_r
@@ -386,7 +384,7 @@ def OneElementThickMesh(
 
         # there are two vertices in the cell
         cell_vertices = closure[4:]
-        cell_X = np.array([0.0, 0.0], dtype=get_scalar_type())
+        cell_X = np.array([0.0, 0.0], dtype=ScalarType)
         for i, v in enumerate(cell_vertices):
             cell_X[i] = coords[coords_sec.getOffset(v)]
 
@@ -449,7 +447,7 @@ def OneElementThickMesh(
 
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    mesh1.topology.cell_closure = np.array(cell_closure, dtype=get_int_type())
+    mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
 
     mesh1.init()
 
@@ -964,30 +962,29 @@ def PeriodicRectangleMesh(
     )
 
     domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    real_type = get_real_type()
     instructions = f"""
-    <{real_type}> pi = 3.141592653589793
-    <{real_type}> eps = 1e-12
-    <{real_type}> bigeps = 1e-1
-    <{real_type}> oc[k, l] = real(old_coords[k, l])
-    <{real_type}> Y = 0
-    <{real_type}> Z = 0
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> eps = 1e-12
+    <{RealType}> bigeps = 1e-1
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
+    <{RealType}> Y = 0
+    <{RealType}> Z = 0
     for i
         Y = Y + oc[i, 1]
         Z = Z + oc[i, 2]
     end
     for j
-        <{real_type}> phi = atan2(oc[j, 1], oc[j, 0])
-        <{real_type}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
-        <{real_type}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
-        <{real_type}> abssin = abs(sin(phi))
-        <{real_type}> theta = theta1 if abssin > bigeps else theta2
-        <{real_type}> nc0 = phi / (2 * pi)
-        <{real_type}> absnc = 0
+        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
+        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
+        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
+        <{RealType}> abssin = abs(sin(phi))
+        <{RealType}> theta = theta1 if abssin > bigeps else theta2
+        <{RealType}> nc0 = phi / (2 * pi)
+        <{RealType}> absnc = 0
         nc0 = nc0 + 1 if nc0 < -eps else nc0
         absnc = abs(nc0)
         nc0 = 1 if absnc < eps and Y < 0 else nc0
-        <{real_type}> nc1 = theta / (2 * pi)
+        <{RealType}> nc1 = theta / (2 * pi)
         nc1 = nc1 + 1 if nc1 < -eps else nc1
         absnc = abs(nc1)
         nc1 = 1 if absnc < eps and Z < 0 else nc1
@@ -1779,23 +1776,22 @@ def PeriodicBoxMesh(
     )
 
     domain = ""
-    real_type = get_real_type()
     instructions = f"""
-    <{real_type}> x0 = real(old_coords[0, 0])
-    <{real_type}> x1 = real(old_coords[1, 0])
-    <{real_type}> x2 = real(old_coords[2, 0])
-    <{real_type}> x3 = real(old_coords[3, 0])
-    <{real_type}> x_max = fmax(fmax(fmax(x0, x1), x2), x3)
-    <{real_type}> y0 = real(old_coords[0, 1])
-    <{real_type}> y1 = real(old_coords[1, 1])
-    <{real_type}> y2 = real(old_coords[2, 1])
-    <{real_type}> y3 = real(old_coords[3, 1])
-    <{real_type}> y_max = fmax(fmax(fmax(y0, y1), y2), y3)
-    <{real_type}> z0 = real(old_coords[0, 2])
-    <{real_type}> z1 = real(old_coords[1, 2])
-    <{real_type}> z2 = real(old_coords[2, 2])
-    <{real_type}> z3 = real(old_coords[3, 2])
-    <{real_type}> z_max = fmax(fmax(fmax(z0, z1), z2), z3)
+    <{RealType}> x0 = real(old_coords[0, 0])
+    <{RealType}> x1 = real(old_coords[1, 0])
+    <{RealType}> x2 = real(old_coords[2, 0])
+    <{RealType}> x3 = real(old_coords[3, 0])
+    <{RealType}> x_max = fmax(fmax(fmax(x0, x1), x2), x3)
+    <{RealType}> y0 = real(old_coords[0, 1])
+    <{RealType}> y1 = real(old_coords[1, 1])
+    <{RealType}> y2 = real(old_coords[2, 1])
+    <{RealType}> y3 = real(old_coords[3, 1])
+    <{RealType}> y_max = fmax(fmax(fmax(y0, y1), y2), y3)
+    <{RealType}> z0 = real(old_coords[0, 2])
+    <{RealType}> z1 = real(old_coords[1, 2])
+    <{RealType}> z2 = real(old_coords[2, 2])
+    <{RealType}> z3 = real(old_coords[3, 2])
+    <{RealType}> z_max = fmax(fmax(fmax(z0, z1), z2), z3)
 
     new_coords[0, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[0, 0] == 0.) else old_coords[0, 0]
     new_coords[0, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[0, 1] == 0.) else old_coords[0, 1]
@@ -2125,7 +2121,7 @@ def OctahedralSphereMesh(
             [2, 3, 4],
             [3, 4, 5],
         ],
-        dtype=get_int_type(),
+        dtype=IntType,
     )
     if hemisphere == "north":
         vertices = vertices[[0, 1, 2, 3, 4], ...]
@@ -2965,16 +2961,15 @@ def PartiallyPeriodicRectangleMesh(
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
     domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    real_type = get_real_type()
     instructions = f"""
-    <{real_type}> Y = 0
-    <{real_type}> pi = 3.141592653589793
-    <{real_type}> oc[k, l] = real(old_coords[k, l])
+    <{RealType}> Y = 0
+    <{RealType}> pi = 3.141592653589793
+    <{RealType}> oc[k, l] = real(old_coords[k, l])
     for i
         Y = Y + oc[i, 1]
     end
     for j
-        <{real_type}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
+        <{RealType}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
         nc0 = nc0 + 1 if nc0 < 0 else nc0
         nc0 = 1 if nc0 == 0 and Y < 0 else nc0
         new_coords[j, 0] = nc0 * Lx[0]

@@ -517,7 +517,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)
-        from mpi4py import MPI
+        from pyop2.mpi import MPI
 
         if args:
             arg = (arg,) + args

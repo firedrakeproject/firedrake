@@ -79,8 +79,9 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
             handler = logging.StreamHandler()
             handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
 
-        if comm is not None and comm.rank != 0:
-            handler = logging.NullHandler()
+        # FIXME
+        # if comm is not None and comm.rank != 0:
+        #     handler = logging.NullHandler()
 
         logger.addHandler(handler)
 

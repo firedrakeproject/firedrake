@@ -1,6 +1,5 @@
 import functools
 import pickle
-from petsc4py.PETSc import ViewerHDF5
 import ufl
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
@@ -535,7 +534,7 @@ class CheckpointFile(object):
 
     """
     def __init__(self, filename, mode, comm=COMM_WORLD):
-        self.viewer = ViewerHDF5()
+        self.viewer = PETSc.ViewerHDF5()
         self.filename = filename
         self.comm = comm
         self._comm = internal_comm(comm)
@@ -716,7 +715,7 @@ class CheckpointFile(object):
         else:
             do_save = True
         if do_save:
-            self.viewer.pushFormat(format=ViewerHDF5.Format.HDF5_PETSC)
+            self.viewer.pushFormat(format=PETSc.ViewerHDF5.Format.HDF5_PETSC)
             with self.opts.inserted_options():
                 topology_dm.distributionSetName(distribution_name)
                 topology_dm.topologyView(viewer=self.viewer)
@@ -1045,7 +1044,7 @@ class CheckpointFile(object):
                                                 os.path.join(path, "order"),
                                                 os.path.join(path, "orientation")]):
             raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
-        format = ViewerHDF5.Format.HDF5_PETSC
+        format = PETSc.ViewerHDF5.Format.HDF5_PETSC
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)

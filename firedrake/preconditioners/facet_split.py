@@ -1,6 +1,6 @@
 from functools import partial
-from mpi4py import MPI
 from pyop2 import op2, PermutedMap
+from pyop2.mpi import MPI
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
