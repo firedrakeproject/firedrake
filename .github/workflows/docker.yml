@@ -48,6 +48,15 @@ jobs:
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
     secrets: inherit
+  # Firedrake container with documentation dependencies and TeX
+  docker_docdeps:
+    needs: docker_vanilla
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-docdeps
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.docdeps
+    secrets: inherit
   # Firedrake complex container
   docker_complex:
     needs: docker_env
