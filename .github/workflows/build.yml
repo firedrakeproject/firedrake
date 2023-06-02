@@ -20,6 +20,16 @@ env:
   RELEASE_TAG: latest
 
 jobs:
+  test_prebuild:
+    name: "Debugging 0"
+    runs-on: self-hosted
+    steps:
+      - name: Print status
+        run: |
+          echo github.ref = ${{ github.ref }}
+          echo github.head_ref = ${{ github.head_ref }}
+          echo github.workflow = ${{ github.workflow }}
+          echo github.event.pull_request.number = ${{ github.event.pull_request.number }}
   build:
     name: "Build Firedrake"
     # The type of runner that the job will run on
