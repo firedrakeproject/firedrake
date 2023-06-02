@@ -48,6 +48,11 @@ GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/fi
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
+validate-bibtex:
+	firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
+	firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+	firedrake-preprocess-bibtex --validate source/_static/references.bib
+
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
