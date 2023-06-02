@@ -71,7 +71,7 @@ source/demos: copy_demos
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
-	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
+	for file in source/demos/*.py.rst; do pylit $$file; done
 
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
