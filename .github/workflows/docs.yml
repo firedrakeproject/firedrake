@@ -77,13 +77,13 @@ jobs:
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    if: ${{ github.ref == 'refs/heads/master' }}
+    #~ if: ${{ github.ref == 'refs/heads/master' }}
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake
+      url: http://firedrakeproject.github.io
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
