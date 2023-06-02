@@ -145,6 +145,8 @@ jobs:
           echo needs.build.result = ${{ needs.build.result }}
           echo github.ref = ${{ github.ref }}
           echo github.head_ref = ${{ github.head_ref }}
+          echo github.workflow = ${{ github.workflow }}
+          echo github.event.pull_request.number = ${{ github.event.pull_request.number }}
   test_tag_result:
     name: "Debugging 2"
     runs-on: self-hosted
@@ -156,6 +158,8 @@ jobs:
           echo needs.docker_tag.outputs.tag = ${{ needs.docker_tag.outputs.tag }}
           echo github.ref = ${{ github.ref }}
           echo github.head_ref = ${{ github.head_ref }}
+          echo github.workflow = ${{ github.workflow }}
+          echo github.event.pull_request.number = ${{ github.event.pull_request.number }}
   docker:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
