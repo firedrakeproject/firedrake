@@ -5,7 +5,8 @@ on:
   push:
     branches:
       - master
-  pull_request:
+      - JDBetteridge/check_if_ci_is_completely_fubar
+  #~ pull_request:
   schedule:
     - cron: '0 0 * * 0'
     - cron: '0 0 1 * *' # Monthly release
@@ -121,7 +122,7 @@ jobs:
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: self-hosted
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: ${{ github.head_ref == 'JDBetteridge/check_if_ci_is_completely_fubar' }}
     steps:
       - name: Set release tag
         # Set a release tag if triggered by monthly CRON job
@@ -163,7 +164,7 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: ${{ (github.ref == 'refs/heads/master') && always() }}
+    if: ${{ (github.head_ref == 'JDBetteridge/check_if_ci_is_completely_fubar') && always() }}
     needs: [build, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
