@@ -1,4 +1,4 @@
-name: Build Firedrake
+name: Install and test Firedrake
 
 on:
   # Push to master or PR
