@@ -27,6 +27,17 @@ cdef extern from "petscsys.h" nogil:
     int PetscFree2(void*,void*)
     int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
+cdef extern from "petscdmlabel.h" nogil:
+    struct _n_DMLabel
+    ctypedef _n_DMLabel* DMLabel "DMLabel"
+    int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
+    int DMLabelDestroyIndex(DMLabel)
+    int DMLabelDestroy(DMLabel*)
+    int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
+    int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
+    int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
+
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
@@ -46,17 +57,6 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
     int DMPlexFilter(PETSc.PetscDM,DMLabel,PetscInt,PetcBool,PetscBool,PetscBool,PetscBool,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*,PETSc.PetscDM*)
-
-cdef extern from "petscdmlabel.h" nogil:
-    struct _n_DMLabel
-    ctypedef _n_DMLabel* DMLabel "DMLabel"
-    int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
-    int DMLabelDestroyIndex(DMLabel)
-    int DMLabelDestroy(DMLabel*)
-    int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
-    int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
-    int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
-    int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
 cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
