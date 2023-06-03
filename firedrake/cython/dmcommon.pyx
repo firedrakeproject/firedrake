@@ -3188,3 +3188,30 @@ def mark_points_with_function_array(PETSc.DM plex,
         CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
         if array[offset] == 1:
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
+
+
+# -- submesh --
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_create(PETSc.DM dm,
+                   label_name,
+                   PetscInt label_value):
+    """Create submesh.
+
+    :arg dm: DMPlex representing the mesh topology
+    :arg label_name: Name of the label
+    :arg label_value: Value in the label
+    """
+    cdef:
+        PETSc.DM subdm = PETSc.DMPlex()
+        DMLabel label = NULL
+        PetscBool ignoreLabelHalo = PETSC_TRUE
+        PetscBool addOverlap = PETSC_TRUE
+        PetscBool useCone = PETSC_FALSE
+        PetscBool useClosure = PETSC_TRUE
+
+    CHKERR(DMGetLabel(dm.dm, label_name.encode(), &label))
+    CHKERR(DMPlexFilter(dm.dm, label, label_value, ignoreLabelHalo, addOverlap, useCone, useClosure, DMPlexGetAdjacency_Facet_Support, NULL, &subdm.dm))
+    return subdm
