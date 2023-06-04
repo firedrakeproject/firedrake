@@ -74,7 +74,8 @@ jobs:
             --install gusto \
             --install icepack \
             --install irksome \
-            --install femlium || (cat firedrake-install.log && /bin/false)
+            --install femlium || (cat firedrake-install.log && /bin/false) \
+            --package-branch petsc ksagiyam/plex_submesh
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
