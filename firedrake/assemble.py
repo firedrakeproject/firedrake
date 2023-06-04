@@ -19,7 +19,7 @@ import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_unique_domain
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
@@ -1038,15 +1038,16 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        #try:
-        #    topology, = set(d.topology for d in self._form.ufl_domains())
-        #except ValueError:
-        #    raise NotImplementedError("All integration domains must share a mesh topology")
+        try:
+            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
+        except ValueError:
+            raise NotImplementedError("All integration domains must share a mesh topology")
 
-        #for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-        #    domain = extract_unique_domain(o)
-        #    if domain is not None and domain.topology != topology:
-        #        raise NotImplementedError("Assembly with multiple meshes is not supported")
+        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
+            domains = extract_domains(o)
+            for domain in domains:
+                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
+                    raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
@@ -1338,11 +1339,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         test, trial = self._form.arguments()
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self._allocation_integral_types)
-        elif any(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels):
+        elif any(local_kernel.indices == (None, None) for local_kernel, _ in self._all_local_kernels):
             # Handle special cases: slate or split=False
-            assert all(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels)
+            assert all(local_kernel.indices == (None, None) for local_kernel, _ in self._all_local_kernels)
             allocation_integral_types = set(local_kernel.kinfo.integral_type
-                                            for local_kernel in self._all_local_kernels)
+                                            for local_kernel, _ in self._all_local_kernels)
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
         else:
             maps_and_regions = defaultdict(lambda: defaultdict(set))
@@ -1369,8 +1370,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         # Use outer product of component maps.
         for integral_type in allocation_integral_types:
             region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-            for i, rmap_ in enumerate(test.function_space().topological.entity_node_map(integral_type)):
-                for j, cmap_ in enumerate(trial.function_space().topological.entity_node_map(integral_type)):
+            #for i, rmap_ in enumerate(test.function_space().topological.entity_node_map(mesh.topology, integral_type, None, None)):
+            #    for j, cmap_ in enumerate(trial.function_space().topological.entity_node_map(mesh.topology, integral_type, None, None)):
+            #        maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
+            for i, Vrow in enumerate(test.function_space()):
+                for j, Vcol in enumerate(trial.function_space()):
+                    mesh = Vrow.mesh()
+                    rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1392,7 +1399,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         When constructing sparsity, we use all parloop_builders
         that are to be used in the actual assembly.
         """
-        all_local_kernels = tuple(local_kernel for local_kernel, _ in self.local_kernels)
+        all_local_kernels = self.local_kernels
         for bc in self._bcs:
             if isinstance(bc, EquationBCSplit):
                 _assembler = type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False)

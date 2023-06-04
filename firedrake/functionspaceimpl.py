@@ -724,6 +724,7 @@ class FunctionSpace(object):
             Entity node map.
 
         """
+        integral_type = source_integral_type
         if integral_type == "cell":
             self_map = self.cell_node_map()
         elif integral_type == "exterior_facet_top":
