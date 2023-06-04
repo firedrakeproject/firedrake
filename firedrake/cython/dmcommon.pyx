@@ -3213,5 +3213,6 @@ def submesh_create(PETSc.DM dm,
         PetscBool useClosure = PETSC_TRUE
 
     CHKERR(DMGetLabel(dm.dm, label_name.encode(), &label))
-    CHKERR(DMPlexFilter(dm.dm, label_value, ignoreLabelHalo))
+    #CHKERR(DMPlexFilter(dm.dm, label_value, ignoreLabelHalo))
+    CHKERR(DMPlexSomeIntBool(dm.dm, label_value, ignoreLabelHalo))
     return subdm
