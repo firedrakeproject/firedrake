@@ -53,6 +53,12 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
+    int DMPlexDistributeOverlap(PETSc.PetscDM,PetscInt,PETSc.PetscSF*,PETSc.PetscDM*)
+
+    int DMPlexFilter(PETSc.PetscDM,PETSc.PetscDMLabel,PetscInt,PetscBool,PetscBool,PETSc.PetscSF*,PETSc.PetscDM*)
+    int DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
+    int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
+    int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
@@ -71,6 +77,8 @@ cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+    int DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
