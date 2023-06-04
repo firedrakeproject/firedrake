@@ -42,7 +42,8 @@ __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
-    'AbstractMeshTopology', 'ExtrudedMeshTopology'
+    'AbstractMeshTopology', 'ExtrudedMeshTopology',
+    'Submesh'
 ]
 
 
@@ -64,6 +65,15 @@ unmarked = -1
 
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
 """The default name of the mesh."""
+
+
+def _generate_default_submesh_name(name):
+    """Generate the default submesh name from the mesh name.
+
+    :arg name: the mesh name.
+    :returns: the default submesh name.
+    """
+    return "_".join([name, "submesh"])
 
 
 def _generate_default_mesh_coordinates_name(name):
@@ -536,6 +546,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
+        # submesh
+        self.submesh_parent = None
+
     def __del__(self):
         if hasattr(self, "_comm"):
             decref(self._comm)
@@ -859,6 +872,65 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     @utils.cached_property
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
+
+    # submesh
+
+    @property
+    def submesh_ancesters(self):
+        if self.submesh_parent:
+            return [self] + self.submesh_parent.submesh_ancesters
+        else:
+            return [self]
+
+    def submesh_youngest_common_ancester(self, other):
+        # self --- ... --- m --- common --- common --- common
+        #                          /
+        #       other --- ... --- m
+        self_ancesters = self.submesh_ancesters
+        other_ancesters = other.submesh_ancesters
+        c = None
+        while self_ancesters and other_ancesters:
+            a = self_ancesters.pop()
+            b = other_ancesters.pop()
+            if a is b:
+                c = a
+            else:
+                break
+        return c
+
+    def submesh_map_child_parent(self, dim):
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
+    def submesh_map_parent_child(self, dim):
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
+    def submesh_map_composed(self, other, dim):
+        """Create entity-entity map from ``other`` to `self`.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            Base mesh topology.
+        dim : int
+            Dimension of the entities for which map is created.
+
+        Returns
+        -------
+        op2.ComposedMap
+            `op2.ComposedMap` for entities of dimension ``dim`` from ``other`` to `self`.
+
+        """
+        common = self.submesh_youngest_common_ancester(other)
+        if common is None:
+            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
+        maps = []
+        aa = other.submesh_ancesters
+        for a in aa[:aa.index(common)]:
+            maps.append(a.submesh_map_child_parent(dim))
+        bb = self.submesh_ancesters
+        for b in reversed(bb[:bb.index(common)]):
+            maps.append(b.submesh_map_parent_child(dim))
+        return op2.ComposedMap(*reversed(maps))
 
 
 class MeshTopology(AbstractMeshTopology):
@@ -1265,9 +1337,7 @@ class MeshTopology(AbstractMeshTopology):
     def mark_entities(self, tf, label_name, label_value):
         import firedrake.function as function
 
-        if label_name in (dmcommon.CELL_SETS_LABEL,
-                          dmcommon.FACE_SETS_LABEL,
-                          "Vertex Sets",
+        if label_name in ("Vertex Sets",
                           "depth",
                           "celltype",
                           "ghost",
@@ -1301,6 +1371,48 @@ class MeshTopology(AbstractMeshTopology):
         section = tV.dm.getSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
+
+    # submesh
+
+    def submesh_map_child_parent(self, dim):
+        parent = self.submesh_parent
+        if parent is None:
+            raise RuntimeError("Must only be called on submesh")
+        parent_dim = parent.topology_dm.getDimension()
+        self_dim = self.topology_dm.getDimension()
+        if self_dim == parent_dim:
+            if dim == self_dim:
+                from_array = self.cell_closure[:, -1]
+                to_array = parent.cell_closure[:, -1]
+                from_set = self.cell_set
+                to_set = parent.cell_set
+            else:
+                raise NotImplementedError(f"Not implemented for (self_dim, parent_dim) == ({self_dim}, {parent_dim}) for entity dim == {dim}")
+        elif self_dim == parent_dim - 1:
+            raise NotImplementedError(f"Not implemented for (self_dim, parent_dim) == ({self_dim}, {parent_dim})")
+        else:
+            raise NotImplementedError(f"Not implemented for (self_dim, parent_dim) == ({self_dim}, {parent_dim})")
+        n = from_set.total_size
+        subpoints = self.topology_dm.getSubpointIS().getIndices()
+        _, from_indices, to_indices = np.intersect1d(subpoints[from_array], to_array, return_indices=True)
+        if from_indices.shape != (n, ):
+            raise RuntimeError(f"Can not associate all child entities with parent entities on dim = {dim}")
+        perm = np.empty_like(from_indices)
+        perm[from_indices] = np.arange(n)
+        return op2.Map(from_set, to_set, 1,
+                       to_indices[perm].reshape((n, 1)), f"submesh_map_child_parent_{dim}")
+
+    def submesh_map_parent_child(self, dim):
+        parent = self.submesh_parent
+        if parent is None:
+            raise RuntimeError("Must only be called on submesh")
+        m = self.submesh_map_child_parent(dim)
+        from_set = m.toset
+        to_set = m.iterset
+        values = np.full(from_set.total_size, -1, dtype=IntType)
+        values[m.values_with_halo.reshape(-1)] = np.arange(to_set.total_size)
+        return op2.Map(from_set, to_set, 1,
+                       values.reshape((from_set.total_size, 1)), f"submesh_map_parent_child_{dim}")
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -1376,6 +1488,8 @@ class ExtrudedMeshTopology(MeshTopology):
         else:
             self.variable_layers = False
         self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
+        # submesh
+        self.submesh_parent = None
 
     @utils.cached_property
     def cell_closure(self):
@@ -1790,6 +1904,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
+
+        # submesh
+        self.submesh_parent = None
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -3339,3 +3456,63 @@ def SubDomainData(geometric_expr):
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
     return op2.Subset(m.cell_set, indices)
+
+
+def Submesh(mesh, label_name, label_value, subdim, name=None):
+    """Construct a submesh from a given mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        The parent mesh (`MeshGeometry`).
+    label_name : str
+        The name of the label representing the submesh.
+    label_value : int
+        The value in the label representing the submesh.
+    subdim : int
+        The topological dimension of the submesh.
+    name : str
+        The name of the submesh.
+
+    Returns
+    -------
+    submesh : MeshGeometry
+        The submesh.
+
+    """
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("Parent mesh must be a `MeshGeometry`")
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
+    elif isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+    if subdim != mesh.topological_dimension():
+        raise NotImplementedError("Currently, can only make cell submeshes")
+    mesh.init()
+    name = name or _generate_default_submesh_name(mesh.name)
+    plex = mesh.topology_dm
+    otype, osize = mesh.topology._distribution_parameters["overlap_type"]
+    ignoreLabelHalo = True
+    if otype == DistributedMeshOverlapType.NONE:
+        addOverlap = True  # Does not matter if osize == 0.
+        useradjacency_facet_support = False
+    elif otype == DistributedMeshOverlapType.FACET:
+        addOverlap = True
+        useradjacency_facet_support = True
+    elif otype == DistributedMeshOverlapType.VERTEX:
+        addOverlap = True
+        useradjacency_facet_support = False
+    else:
+        raise ValueError(f"Unknown overlap type {otype}")
+    useCone, useClosure = plex.getFieldAdjacency(PETSc.DEFAULT)
+    subplex = dmcommon.submesh_create(plex, label_name, label_value, ignoreLabelHalo, addOverlap, useCone, useClosure, useradjacency_facet_support)
+    subplex.setName(_generate_default_mesh_topology_name(name))
+    # Create "exterior_facets" label and dmcommon.FACE_SETS_LABEL
+    # Currently, only good for cell submeshes.
+    dmcommon.submesh_update_facet_labels(subplex, plex)
+    submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
+                                                                "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
+    submesh.init()
+    submesh.topology.submesh_parent = mesh.topology
+    submesh.submesh_parent = mesh
+    return submesh

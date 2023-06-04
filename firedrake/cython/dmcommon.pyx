@@ -3188,3 +3188,114 @@ def mark_points_with_function_array(PETSc.DM plex,
         CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
         if array[offset] == 1:
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
+
+
+# -- submesh --
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_create(PETSc.DM dm,
+                   label_name,
+                   PetscInt label_value,
+                   PetscBool ignoreLabelHalo,
+                   PetscBool addOverlap,
+                   PetscBool useCone,
+                   PetscBool useClosure,
+                   PetscBool useradjacency_facet_support):
+    """Create submesh.
+
+    :arg dm: DMPlex representing the mesh topology
+    :arg label_name: Name of the label
+    :arg label_value: Value in the label
+    :arg ignoreLabelHalo: To ignore points in halo in the label
+    :arg addOverlap: To add overlap
+    :arg useCone: To use cone
+    :arg useClosure: To use closure
+    :arg useradjacency_facet_support: If `True`, use DMPlexGetAdjacency_Facet_Support
+
+    """
+    cdef:
+        PETSc.DM subdm = PETSc.DMPlex()
+        PETSc.DMLabel label
+
+    if useradjacency_facet_support:
+        useradjacency = DMPlexGetAdjacency_Facet_Support
+    else:
+        useradjacency = NULL
+    label = dm.getLabel(label_name)
+    CHKERR(DMPlexFilter(dm.dm, label.dmlabel, label_value, ignoreLabelHalo, addOverlap, useCone, useClosure, useradjacency, NULL, &subdm.dm))
+    subdm.removeLabel("pyop2_core")
+    subdm.removeLabel("pyop2_owned")
+    subdm.removeLabel("pyop2_ghost")
+    subdm.clearLabelStratum(label_name, label_value)
+    return subdm
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def submesh_update_facet_labels(PETSc.DM subdm, PETSc.DM dm):
+    """Update facet labels of subdm taking the new exterior facet points into account.
+
+    Parameters
+    ----------
+    subdm : PETSc.DM
+        The subdm.
+    dm : PETSc.DM
+        The parent dm.
+
+    """
+    cdef:
+        PetscInt dim, subdim, pStart, pEnd, f, subfStart, subfEnd, subf, sub_ext_facet_size, next_label_val, i
+        PETSc.IS subpoint_is
+        PETSc.IS sub_ext_facet_is
+        const PetscInt *subpoint_indices = NULL
+        const PetscInt *sub_ext_facet_indices = NULL
+        char *int_facet_label_name = <char *>"interior_facets"
+        char *ext_facet_label_name = <char *>"exterior_facets"
+        char *face_sets_label_name = <char *>"Face Sets"
+        DMLabel ext_facet_label
+        PETSc.DMLabel sub_int_facet_label, sub_ext_facet_label
+        PetscBool has_point
+
+    # Mark interior and exterior facets
+    subdm.removeLabel("interior_facets")
+    subdm.removeLabel("exterior_facets")
+    subdm.createLabel("interior_facets")
+    subdm.createLabel("exterior_facets")
+    sub_int_facet_label = subdm.getLabel("interior_facets")
+    sub_ext_facet_label = subdm.getLabel("exterior_facets")
+    CHKERR(DMPlexMarkInteriorExteriorFacets(subdm.dm, 1, 1, sub_int_facet_label.dmlabel, sub_ext_facet_label.dmlabel))
+    # Mark new exterior facets with current max label value + 1 in "Face Sets"
+    dim = dm.getDimension()
+    subdim = subdm.getDimension()
+    subpoint_is = subdm.getSubpointIS()
+    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+    if subdim == dim:
+        label_value_indices = dm.getLabelIdIS(FACE_SETS_LABEL).getIndices()
+        next_label_val = label_value_indices.max() + 1 if len(label_value_indices) > 0 else 0
+        next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
+        subdm.createLabel(FACE_SETS_LABEL)
+        sub_ext_facet_size = subdm.getStratumSize("exterior_facets", 1)
+        sub_ext_facet_is = subdm.getStratumIS("exterior_facets", 1)
+        if sub_ext_facet_is.iset:
+            CHKERR(ISGetIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
+        CHKERR(DMGetLabel(dm.dm, ext_facet_label_name, &ext_facet_label))
+        pStart, pEnd = dm.getChart()
+        CHKERR(DMLabelCreateIndex(ext_facet_label, pStart, pEnd))
+        subfStart, subfEnd = subdm.getHeightStratum(1)
+        for i in range(sub_ext_facet_size):
+            subf = sub_ext_facet_indices[i]
+            if subf < subfStart or subf >= subfEnd:
+                continue
+            f = subpoint_indices[subf]
+            CHKERR(DMLabelHasPoint(ext_facet_label, f, &has_point))
+            if not has_point:
+                # Found a new exterior facet
+                CHKERR(DMSetLabelValue(subdm.dm, face_sets_label_name, subf, next_label_val))
+        CHKERR(DMLabelDestroyIndex(ext_facet_label))
+        if sub_ext_facet_is.iset:
+            CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
+    else:
+        raise NotImplementedError("Currently, only implemented for cell submesh")
+    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
