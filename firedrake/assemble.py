@@ -19,7 +19,7 @@ import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_unique_domain
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
@@ -1038,15 +1038,16 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        #try:
-        #    topology, = set(d.topology for d in self._form.ufl_domains())
-        #except ValueError:
-        #    raise NotImplementedError("All integration domains must share a mesh topology")
+        try:
+            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
+        except ValueError:
+            raise NotImplementedError("All integration domains must share a mesh topology")
 
-        #for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-        #    domain = extract_unique_domain(o)
-        #    if domain is not None and domain.topology != topology:
-        #        raise NotImplementedError("Assembly with multiple meshes is not supported")
+        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
+            domains = extract_domains(o)
+            for domain in domains:
+                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
+                    raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
