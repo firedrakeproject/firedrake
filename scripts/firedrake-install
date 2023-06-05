@@ -1892,7 +1892,7 @@ if mode == "install":
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install("--no-cache-dir", "mpi4py")
+        run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # numpy requires old setuptools (+wheel)
     log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
@@ -2029,7 +2029,7 @@ else:
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install("--no-cache-dir", "mpi4py")
+        run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # update dependencies.
     for p in packages:
