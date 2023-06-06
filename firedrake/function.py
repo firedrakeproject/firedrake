@@ -110,7 +110,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+        return tuple(CoordinatelessFunction(fs, dat, name="%s" % (self.name()[i]))
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
