@@ -3569,7 +3569,23 @@ def _parent_mesh_embedding(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
 
+    owned_ref_cell_dists_l1 = ref_cell_dists_l1_and_ranks[:, 0]
     owned_ranks = ref_cell_dists_l1_and_ranks[:, 1]
+
+    # If reference cell l1 distance has changed from what we saw locally (i.e.
+    # what's in ref_cell_dists_l1 as opposed to owned_ref_cell_dists_l1) then
+    # the point has been claimed by a cell that we cannot see. It must,
+    # therefore, not be locally visible and we should update our information
+    # accordingly. This should only happen for points which we've already
+    # marked as being owned by a different rank.
+    extra_missing_points = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+    if any(owned_ranks[extra_missing_points] == parent_mesh.comm.rank):
+        raise RuntimeError(
+            "Some points have been claimed by a cell that we cannot see, "
+            "but which we think we own. This should not happen."
+        )
+    locally_visible[extra_missing_points] = False
+    parent_cell_nums[extra_missing_points] = -1
 
     # Any ranks which are still np.inf are not in the mesh
     missing_global_idxs = np.where(owned_ranks == np.inf)[0]
