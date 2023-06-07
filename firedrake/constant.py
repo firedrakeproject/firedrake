@@ -6,7 +6,6 @@ from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
-from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.utils.counted import counted_init
 
 
@@ -18,8 +17,6 @@ __all__ = ['Constant']
 
 
 def _create_dat(op2type, value, comm):
-    # ~ if op2type is op2.Literal and not comm is None:
-        # Literals raise value error if created with a comm
     if op2type is op2.Global and comm is None:
         raise ValueError("Attempted to create pyop2 Global with no communicator")
 
@@ -33,7 +30,6 @@ def _create_dat(op2type, value, comm):
     return dat, rank, shape
 
 
-# Think "literal"
 class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin):
     """A "constant" coefficient
 
@@ -89,17 +85,14 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        self.dat, rank, self._ufl_shape = _create_dat(op2.Literal, value, None)
+        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
 
         self.uid = utils._new_uid()
         self.name = name or 'constant_%d' % self.uid
 
         super().__init__()
         counted_init(self, None, self.__class__)
-        # ~ self._repr = 'Constant(?, %r)' % self.count()
-        # ~ self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
         self._hash = None
-        # ~ self._ufl_function_space = None
 
     def __repr__(self):
         return f"Constant({self.dat.data_ro}, {self.count()})"
@@ -107,9 +100,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     @property
     def ufl_shape(self):
         return self._ufl_shape
-
-    # ~ def ufl_domains(self):
-        # ~ return ()
 
     def count(self):
         return self._count
