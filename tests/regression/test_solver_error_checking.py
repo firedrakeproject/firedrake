@@ -37,9 +37,6 @@ def test_invalid_solution_type(a, L, c):
         solve(a == L, c)
 
 
-# TODO: Check with a Constant with a domain (ie: add check for vector lengths)
-
-
 def test_invalid_lhs_type(L, f):
     with pytest.raises(TypeError):
         solve(f == L, f)

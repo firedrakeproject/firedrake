@@ -415,11 +415,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
-        #
+        # Assign literal collections to vector and tensor valued functions in R.
         elif (isinstance(expr, collections.abc.Container)
               and self.ufl_element().family() == "Real"):
             try:
-                self.dat.data = expr
+                self.dat.data_wo[...] = expr
                 return self
             except (DataTypeError, DataValueError) as e:
                 raise ValueError(e)

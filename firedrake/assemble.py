@@ -1245,7 +1245,9 @@ class _FormHandler:
                 yield form.coefficients()[idx].subfunctions[subidx]
 
     @staticmethod
-    def iter_constants(form, kinfo):  # FIXME kinfo not currently needed
+    def iter_constants(form, kinfo):
+        """Yield the form constants"""
+        # Is kinfo really needed?
         from tsfc.ufl_utils import extract_firedrake_constants
         if isinstance(form, slate.TensorBase):
             for const in form.constants():

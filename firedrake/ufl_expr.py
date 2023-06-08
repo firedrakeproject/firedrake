@@ -180,6 +180,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         V = firedrake.FunctionSpace(mesh, "Real", 0)
         x = ufl.Coefficient(V, n + 1)
         n += 1
+        # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
         form = ufl.replace(form, {u: x})
         u = x
     else:
