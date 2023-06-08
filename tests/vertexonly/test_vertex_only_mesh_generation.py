@@ -254,6 +254,18 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         if cell_num is not None:
             assert (f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i]).all()
 
+    # Have correct pyop2 labels as implied by cell set sizes
+    if parentmesh.extruded:
+        layers = parentmesh.layers
+        if parentmesh.variable_layers:
+            # I think the below is correct but it's not actually tested...
+            expected = tuple(size*(layer-1) for size, layer in zip(parentmesh.cell_set.sizes, layers))
+            assert vm.cell_set.sizes == expected
+        else:
+            assert vm.cell_set.sizes == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes)
+    else:
+        assert vm.cell_set.sizes == parentmesh.cell_set.sizes
+
 
 @pytest.mark.parallel
 def test_generate_cell_midpoints_parallel(parentmesh, redundant):
@@ -423,24 +435,12 @@ def test_inside_boundary_behaviour(parentmesh):
 @pytest.mark.parallel(nprocs=2)
 def test_pyop2_labelling():
     m = UnitIntervalMesh(4)
-    points = np.asarray([[0.125], [0.375], [0.625], [0.875]])  # in cell centres
-    # Imagine we get 2 cells on each process. The middle two are in each others
-    # halos.
-    # mesh.cell_set.sizes are (ncore, nowned, nowned+nghost)
-    # On one rank we should get
-    # 0.125 CORE+OWNED
-    # 0.375 OWNED
-    # 0.625 GHOST
-    # so mesh.cell_set.sizes are (1, 2, 3)
-    # On the other we should get
-    # 0.375 GHOST
-    # 0.625 OWNED
-    # 0.875 CORE+OWNED
-    # so mesh.cell_set.size are (1, 2, 3)
-    # In practice we can't control the mesh domain decomposition so we count
-    # how many we expect
+    # We inherit pyop2 labelling (owned, core and ghost) from the parent mesh
+    # cell. Here we have one point per cell so can check directly
+    points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    nowned = len(vm.coordinates.dat.data_ro)
-    ncore = nowned - 1  # must be true for interval mesh with points in cell centres
-    nghost = len(vm.coordinates.dat.data_ro_with_halos) - nowned
-    assert vm.cell_set.sizes == (ncore, nowned, nowned + nghost)
+    assert vm.cell_set.sizes == m.cell_set.sizes
+    assert vm.cell_set.total_size == m.cell_set.total_size
+    points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    assert vm.cell_set.total_size == 2*m.cell_set.total_size

@@ -1576,7 +1576,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
-            dmcommon.mark_entity_classes(self.topology_dm)
+            dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
+
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
             # Derive a cell numbering from the Swarm numbering

@@ -63,6 +63,7 @@ cdef extern from "petscdm.h" nogil:
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
+    int DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
 
 cdef extern from "petscvec.h" nogil:
     int VecGetArray(PETSc.PetscVec,PetscScalar**)
@@ -75,6 +76,7 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+    int ISGetSize(PETSc.PetscIS,PetscInt*)
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     int ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)
