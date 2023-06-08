@@ -1,6 +1,11 @@
+import functools
+
 import ufl
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.corealg.multifunction import MultiFunction
 from itertools import chain
 from contextlib import ExitStack
+import weakref
 
 from firedrake import dmhooks
 from firedrake import slate
@@ -9,6 +14,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
+from firedrake.function import Function
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
@@ -16,6 +22,31 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
+
+@functools.singledispatch
+def weakreffed(arg):
+    raise TypeError
+
+
+@weakreffed.register
+def _(arg: Function):
+    return weakref.proxy(arg)
+
+
+@weakreffed.register
+def _(arg: ufl.Form):
+    result = map_integrand_dags(WeakReffer(), arg, compress=False)
+    breakpoint()
+    return result
+
+
+class WeakReffer(MultiFunction):
+    def coefficient(self, o):
+        # this won't work - breaks hashing
+        breakpoint()
+        return weakref.proxy(o)
+
+    expr = MultiFunction.reuse_if_untouched
 
 def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
@@ -47,7 +78,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False):
+                 is_linear=False,
+                 weak=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -64,6 +96,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         from firedrake import solving
         from firedrake import function
 
+        J = J or ufl_expr.derivative(F, u)
+
+        if weak:
+            #TODO don't really like the name
+            u = weakreffed(u)
+            F = weakreffed(F)
+            J = weakreffed(J)
+            #TODO
+            # Jp = as_weakref(Jp)
+
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
@@ -77,7 +119,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J = J or ufl_expr.derivative(F, u)
+        self.J = J
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
@@ -292,7 +334,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False):
+                 constant_jacobian=False, weak=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -322,7 +364,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True)
+                                                       is_linear=True, weak=weak)
         self._constant_jacobian = constant_jacobian
 
 

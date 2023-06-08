@@ -20,6 +20,7 @@
 __all__ = ["solve"]
 
 import ufl
+from pyop2.caching import PLRUCache, cached, cache_manager
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
@@ -28,7 +29,13 @@ from firedrake import dmhooks
 import firedrake
 from firedrake.adjoint import annotate_solve
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, ufl_form_cache_key, tuplify
+
+
+SOLVER_CACHE_NAME = "firedrake.solver"
+cache_manager.add_cache(
+    SOLVER_CACHE_NAME, PLRUCache()
+)
 
 
 @PETSc.Log.EventDecorator()
@@ -148,33 +155,33 @@ def _solve_varproblem(*args, **kwargs):
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
-        # Create problem
-        problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              form_compiler_parameters=form_compiler_parameters)
-        # Create solver and call solve
-        solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                            nullspace=nullspace,
-                                            transpose_nullspace=nullspace_T,
-                                            near_nullspace=near_nullspace,
-                                            options_prefix=options_prefix,
-                                            appctx=appctx)
-        solver.solve()
+        solver = _create_linear_variational_solver(
+            eq, u, bcs, Jp,
+            form_compiler_parameters,
+            solver_parameters,
+            nullspace,
+            nullspace_T,
+            near_nullspace,
+            options_prefix,
+            appctx,
+        )
 
     # Solve nonlinear variational problem
     else:
         if eq.rhs != 0:
             raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
-        # Create problem
-        problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
-                                                 form_compiler_parameters=form_compiler_parameters)
-        # Create solver and call solve
-        solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                               nullspace=nullspace,
-                                               transpose_nullspace=nullspace_T,
-                                               near_nullspace=near_nullspace,
-                                               options_prefix=options_prefix,
-                                               appctx=appctx)
-        solver.solve()
+        solver = _create_nonlinear_variational_solver(
+            eq, u, bcs, J, Jp,
+            form_compiler_parameters,
+            solver_parameters,
+            nullspace,
+            nullspace_T,
+            near_nullspace,
+            options_prefix,
+            appctx,
+        )
+
+    solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):
@@ -332,4 +339,109 @@ def _extract_bcs(bcs):
     for bc in bcs:
         if not isinstance(bc, (BCBase, EquationBC)):
             raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
-    return bcs
+    return tuple(bcs)
+
+
+def _linear_variational_solver_key(
+    eq, u, bcs, Jp,
+    form_compiler_parameters,
+    solver_parameters,
+    nullspace,
+    nullspace_T,
+    near_nullspace,
+    options_prefix,
+    appctx,
+):
+    key = [
+        ufl_form_cache_key(eq.lhs), ufl_form_cache_key(eq.rhs), u, bcs,
+        nullspace, nullspace_T, near_nullspace, options_prefix
+    ]
+    if Jp is not None:
+        key.append(ufl_form_cache_key(Jp))
+    if form_compiler_parameters is not None:
+        key.append(tuplify(form_compiler_parameters))
+    if solver_parameters is not None:
+        key.append(tuplify(solver_parameters))
+    if appctx:
+        key.append(id(appctx))
+
+    return u.function_space().mesh()._comm, tuple(key)
+
+
+def _nonlinear_variational_solver_key(
+    eq, u, bcs, J, Jp,
+    form_compiler_parameters,
+    solver_parameters,
+    nullspace,
+    nullspace_T,
+    near_nullspace,
+    options_prefix,
+    appctx,
+):
+    assert eq.rhs == 0
+    key = [
+        ufl_form_cache_key(eq.lhs), u, bcs,
+        nullspace, nullspace_T, near_nullspace, options_prefix
+    ]
+    if J is not None:
+        key.append(ufl_form_cache_key(J))
+    if Jp is not None:
+        key.append(ufl_form_cache_key(Jp))
+    if form_compiler_parameters is not None:
+        key.append(tuplify(form_compiler_parameters))
+    if solver_parameters is not None:
+        key.append(tuplify(solver_parameters))
+    if appctx:
+        key.append(id(appctx))
+
+    return u.function_space().mesh()._comm, tuple(key)
+
+
+@cached(cache=cache_manager[SOLVER_CACHE_NAME], key=_linear_variational_solver_key)
+def _create_linear_variational_solver(
+    eq, u, bcs, Jp,
+    form_compiler_parameters,
+    solver_parameters,
+    nullspace,
+    nullspace_T,
+    near_nullspace,
+    options_prefix,
+    appctx,
+):
+    problem = vs.LinearVariationalProblem(
+        eq.lhs, eq.rhs, u, bcs, Jp,
+        form_compiler_parameters=form_compiler_parameters
+    )
+    return vs.LinearVariationalSolver(
+        problem, solver_parameters=solver_parameters,
+        nullspace=nullspace,
+        transpose_nullspace=nullspace_T,
+        near_nullspace=near_nullspace,
+        options_prefix=options_prefix,
+        appctx=appctx
+    )
+
+
+@cached(cache=cache_manager[SOLVER_CACHE_NAME], key=_nonlinear_variational_solver_key)
+def _create_nonlinear_variational_solver(
+    eq, u, bcs, J, Jp,
+    form_compiler_parameters,
+    solver_parameters,
+    nullspace,
+    nullspace_T,
+    near_nullspace,
+    options_prefix,
+    appctx,
+):
+    problem = vs.NonlinearVariationalProblem(
+        eq.lhs, u, bcs, J, Jp,
+        form_compiler_parameters=form_compiler_parameters
+    )
+    return vs.NonlinearVariationalSolver(
+        problem, solver_parameters=solver_parameters,
+        nullspace=nullspace,
+        transpose_nullspace=nullspace_T,
+        near_nullspace=near_nullspace,
+        options_prefix=options_prefix,
+        appctx=appctx
+    )
