@@ -690,30 +690,46 @@ def test_consecutive_nonlinear_solves():
     assert taylor_test(rf, uic, h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_repeated_nonlinear_solves_reuses_cached_solvers():
-    from pyop2.caching import cache_manager
+def test_repeated_linear_solves_reuses_cached_solvers():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+    # Defining the domain, 100 points from 0 to 1
+    mesh = IntervalMesh(100, 0, 1)
 
-    mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(mesh, "CG", 1)
-    uic = Constant(2.0)
-    u1 = Function(V).assign(uic)
-    u0 = Function(u1)
+    # Defining function space, test and trial functions
+    V = FunctionSpace(mesh,"CG",1)
+    u = TrialFunction(V)
+    u_ = Function(V)
     v = TestFunction(V)
 
-    for i in range(3):
-        u0.assign(u1)
-        solve(v * u1**2 * dx - v*u0 * dx == 0, u1)
+    # Dirichlet boundary conditions
+    bc_left = DirichletBC(V, 1, 1)
+    bc_right = DirichletBC(V, 2, 2)
+    bc = [bc_left, bc_right]
 
+    T = 1.0
+    dt = 0.1
+    f = Constant(1)
+
+    u_1 = Function(V).assign(1)
+
+    a = u_1*u*v*dx + dt*f*inner(grad(u),grad(v))*dx
+    L = u_1*v*dx
+
+    t = dt
+    while t <= T:
+        solve(a == L, u_, bc)
+        u_1.assign(u_)
+        t += dt
+
+    J = assemble(u_1**2*dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    from pyop2.caching import cache_manager
     solver_cache = cache_manager["firedrake.solver"]
     solver_cache.clear(mesh.comm)
 
-    J = assemble(u1**16*dx)
-    rf = ReducedFunctional(J, Control(uic))
-    # rf.derivative()
-    h = Constant(0.01)
-    assert taylor_test(rf, uic, h) > 1.9
+    # check that things replay correctly
+    assert rf(f) == J
 
     assert solver_cache.currsize(mesh.comm) > 0
     assert solver_cache.cache(mesh.comm).hit_rate > 0.8
