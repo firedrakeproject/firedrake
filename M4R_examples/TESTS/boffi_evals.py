@@ -30,8 +30,8 @@ bc = DirichletBC(V, 0.0, "on_boundary")
 # Create eigenproblem with boundary conditions
 eigenprob = LinearEigenproblem(a, bcs=bc) #bcs=bc)
 
-# Create corresponding eigensolver, looking for n eigenvalues 
-eigensolver = LinearEigensolver(eigenprob, n)
+# Create corresponding eigensolver, looking for 5 eigenvalues 
+eigensolver = LinearEigensolver(eigenprob, 5)
 
 # Solve the problem
 ncov = eigensolver.solve()
@@ -53,19 +53,5 @@ def evals():
         ans *= (1-cos(k*h))/(2+cos(k*h))
         print(ans)
 
-# '''TESTING THE EFUNCTIONS'''
-def evecs():
 
-    print('eigensolver solns')
-    # returns them in smallest to largest
-    for i in range(ncov-2): # we consider the n-2 internal eigenvalues, final 2 correspond to boundary ones
-        eigenmodes_real, eigenmodes_imag = eigensolver.eigenfunction(i)
-        evec = eigenmodes_real.vector()[:]
-    
-    print('BOFFI solns')
-    h = pi /n
-    for k in range(1, ncov-1):
-        ans = 6 / h**2
-        ans *= (1-cos(k*h))/(2+cos(k*h))
-        print(ans)
-
+evals()

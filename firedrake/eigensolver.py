@@ -122,6 +122,7 @@ class LinearEigensolver(OptionsManager):
             with eigenmodes_imag.dat.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
         return eigenmodes_real, eigenmodes_imag  # firedrake fns
+    
 class NonlinearEigenproblem():
     r"""Nonlinear eigenvalue problem A(u; v, lambda) = 0."""
 

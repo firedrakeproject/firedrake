@@ -29,26 +29,33 @@ def main(n, k_range):
 
 
     # plotting
-    fig, axs = plt.subplots(k_range, 1, figsize=(12, 8))
+    fig, axs = plt.subplots(k_range, 2, figsize=(12, 8), sharex=True, sharey=True)
+    fig.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+    plt.grid(False)
     for k in range(k_range):        
         # my results
         eval=eigensolver.eigenvalue(k)
         eigenmodes_real, _ = eigensolver.eigenfunction(k)
         evec = eigenmodes_real.vector()[1:-1] # scale by max norm
-        max_evec_val = max(evec)
+        max_evec_val = max(abs(evec))
         evec_scaled = evec / max_evec_val
 
         # boffi
-        boffi_evec = np.sin(k * x)
+        boffi_evec = np.sin((k+1) * x)
         boffi_eval = boffi_evals[k]
         
         # plot
-        axs[k].plot(x, boffi_evec, label=f'Boffi eval = {boffi_eval:.2f}')
-        axs[k].plot(x, evec_scaled, label=f'Firedrake eval = {(1/eval):.2f}')
-        # axs[k].xlabel('x')
-        # axs[k].ylabel('u')
-        axs[k].legend()
-        axs[k].set_title(f'Eigenspace for k = {k}')
+        axs[k, 0].plot(x, boffi_evec, label=r'$\lambda^{(k)}_h$' + f'= {boffi_eval:.3f}', c='g')
+        axs[k, 1].plot(x, evec_scaled, label=r'$\hat\lambda$'+ f'= {(1/eval.real):.3f}', c='r')
+ 
+
+        axs[k, 0].legend(loc='lower left')
+        axs[k, 0].set_title(f'Eigenspace for k = {k+1}')
+        axs[k, 1].legend(loc='lower left')
+        axs[k, 1].set_title(f'Eigenspace for k = {k+1}')
+    plt.xlabel("x")
+    plt.ylabel("Eigenfunction value")
     fig.tight_layout()
     plt.show()
 
