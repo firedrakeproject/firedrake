@@ -260,3 +260,23 @@ def test_complexity(dim):
         expected = 8 / 27 * (22 * np.sqrt(2) - 25)
     metric.interpolate(as_matrix(mat))
     assert np.isclose(metric.complexity(), expected)
+
+
+@pytest.mark.skipcomplex
+def test_enforce_spd_a_max(dim):
+    """
+    Tests that the :meth:`enforce_spd` method applies maximum anisotropy as expected.
+    """
+    mesh = uniform_mesh(dim)
+    P1_ten = TensorFunctionSpace(mesh, "CG", 1)
+    metric = RiemannianMetric(P1_ten)
+    M = np.eye(dim)
+    M[0][0] = 10.0
+    metric.interpolate(as_matrix(M))
+    mp = {"dm_plex_metric_a_max": 1.0}
+    metric.set_parameters(mp)
+    metric.enforce_spd(restrict_anisotropy=True)
+
+    expected = Function(P1_ten)
+    expected.interpolate(Identity(dim))
+    assert np.isclose(errornorm(metric, expected), 0)
