@@ -96,16 +96,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         from firedrake import solving
         from firedrake import function
 
-        J = J or ufl_expr.derivative(F, u)
-
-        if weak:
-            #TODO don't really like the name
-            u = weakreffed(u)
-            F = weakreffed(F)
-            J = weakreffed(J)
-            #TODO
-            # Jp = as_weakref(Jp)
-
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
@@ -119,7 +109,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J = J
+        self.J = J or ufl_expr.derivative(F, u)
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
