@@ -502,9 +502,7 @@ class FunctionSpaceData(object):
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           entity_node_list,
-                          ("%s_"+name) % (V.name),
-                          offset=offset,
-                          offset_quotient=offset_quotient)
+                          f"{V.name}_{name}")
 
             self.map_cache[entity_set] = val
         return val

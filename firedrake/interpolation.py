@@ -9,8 +9,8 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import extract_unique_domain
 
-from pyop2 import op2
-from pyop2.caching import disk_cached
+import pyop3
+from pyop3.cache import disk_cached
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -28,7 +28,7 @@ __all__ = ("interpolate", "Interpolator")
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
+def interpolate(expr, V, subset=None, access=pyop3.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: a UFL expression.
@@ -84,7 +84,7 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=pyop3.WRITE, bcs=None):
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
@@ -201,6 +201,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
                     argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+        raise NotImplementedError
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -236,7 +237,6 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     return partial(callable, loops, f), arguments
 
 
-@utils.known_pyop2_safe
 def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     try:
         expr = ufl.as_ufl(expr)
@@ -248,7 +248,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
 
-    if access is op2.READ:
+    if access is pyop3.READ:
         raise ValueError("Can't have READ access for output function")
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
@@ -302,18 +302,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters,
                                 log=PETSc.Log.isActive())
-    ast = kernel.ast
-    oriented = kernel.oriented
-    needs_cell_sizes = kernel.needs_cell_sizes
-    coefficient_numbers = kernel.coefficient_numbers
-    needs_external_coords = kernel.needs_external_coords
-    name = kernel.name
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
-                        flop_count=kernel.flop_count, events=(kernel.event,))
-    parloop_args = [kernel, cell_set]
+
+    loop_index = cell_set
+    parloop_args = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
-    if needs_external_coords:
+    if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
     if target_mesh is not source_mesh:
@@ -329,7 +323,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         #       replacing `to_element` with a CoFunction/CoArgument as the
         #       target `dual` which would contain `dual` related
         #       coefficient(s))
-        if rt_var_name in [arg.name for arg in kernel.code[name].args]:
+        if rt_var_name in [arg.name for arg in kernel.ast[kernel.name].args]:
             # Add the coordinates of the target mesh quadrature points in the
             # source mesh's reference cell as an extra argument for the inner
             # loop. (With a vertex only mesh this is a single point for each
@@ -338,8 +332,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = op2.Dat(tensor.dataset)
-        if access is not op2.WRITE:
+        tensor = pyop3.Dat(tensor.dataset)
+        if access is not pyop3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
             copyin = ()
@@ -347,12 +341,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     else:
         copyin = ()
         copyout = ()
-    if isinstance(tensor, op2.Global):
-        parloop_args.append(tensor(access))
-    elif isinstance(tensor, op2.Dat):
-        parloop_args.append(tensor(access, V.cell_node_map()))
+
+    if isinstance(tensor, pyop3.Global):
+        parloop_args.append(tensor[...])
+    elif isinstance(tensor, pyop3.Dat):
+        parloop_args.append(tensor[V.cell_node_map()])
     else:
-        assert access == op2.WRITE  # Other access descriptors not done for Matrices.
+        raise NotImplementedError
+        assert access == pyop3.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_node_map()
         Vcol = arguments[0].function_space()
         columns_map = Vcol.cell_node_map()
@@ -373,46 +369,52 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
         parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
-    if oriented:
+
+    if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
-    if needs_cell_sizes:
+        parloop_args.append(co.dat[co.cell_node_map()])
+    if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+        parloop_args.append(cs.dat[cs.cell_node_map()])
+
     for coefficient in coefficients:
         coeff_mesh = extract_unique_domain(coefficient)
         if coeff_mesh is target_mesh or not coeff_mesh:
             # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
             # a Real space
-            m_ = coefficient.cell_node_map()
+            coeff_index = coefficient.cell_node_map()
         elif coeff_mesh is source_mesh:
             if coefficient.cell_node_map():
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
                 # function space nodes on the source mesh.
                 if source_mesh.extruded:
+                    raise NotImplementedError
                     # ExtrudedSet cannot be a map target so we need to build
                     # this ourselves
                     m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
                 else:
-                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+                    raise NotImplementedError
+                    coeff_index = coefficient.cell_node_map(target_mesh.cell_parent_cell_map())
             else:
                 # m_ is allowed to be None when interpolating from a Real space,
                 # even in the trans-mesh case.
-                m_ = coefficient.cell_node_map()
+                coeff_index = coefficient.cell_node_map()
         else:
             raise ValueError("Have coefficient with unexpected mesh")
-        parloop_args.append(coefficient.dat(op2.READ, m_))
+        parloop_args.append(coefficient.dat[coeff_index])
 
-    for const in extract_firedrake_constants(expr):
-        parloop_args.append(const.dat(op2.READ))
+    #FIXME PYOP3
+    # for const in extract_firedrake_constants(expr):
+    #     parloop_args.append(const.dat(op2.READ))
 
-    parloop = op2.ParLoop(*parloop_args)
-    parloop_compute_callable = parloop.compute
-    if isinstance(tensor, op2.Mat):
-        return parloop_compute_callable, tensor.assemble
+    #FIXME PYOP3 requires_zeroed_output_arguments is not handled
+    expression_kernel = pyop3.LoopyKernel(kernel.ast, [access] + [pyop3.READ for _ in parloop_args[1:]])
+    parloop = pyop3.loop(loop_index, expression_kernel(*parloop_args))
+    if isinstance(tensor, pyop3.Mat):
+        return parloop, tensor.assemble
     else:
-        return copyin + (parloop_compute_callable, ) + copyout
+        return copyin + (parloop,) + copyout
 
 
 try:
@@ -488,6 +490,8 @@ def rebuild_te(element, expr, rt_var_name):
 
 
 def compose_map_and_cache(map1, map2):
+    #FIXME PYOP3
+    raise AssertionError("delete this")
     """
     Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
     using map2 as the cache key. The composed map maps from the iterset

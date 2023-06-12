@@ -4,6 +4,7 @@ import functools
 import itertools
 from itertools import product
 import operator
+from functools import cached_property
 
 import cachetools
 import finat
@@ -13,6 +14,7 @@ from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
+import pyop3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
@@ -23,9 +25,6 @@ from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, tuplify
-from pyop2 import op2
-from pyop2.exceptions import MapValueError, SparsityFormatError
-from pyop2.utils import cached_property
 
 
 __all__ = "assemble",
@@ -119,6 +118,7 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
        Do not use this function unless you know what you're doing.
     """
+    raise NotImplementedError
     bcs = bcs or ()
     appctx = appctx or {}
 
@@ -362,7 +362,7 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
         # Getting the comm attribute of a form isn't straightforward
         # form.ufl_domains()[0]._comm seems the most robust method
         # revisit in a refactor
-        return op2.Global(
+        return pyop3.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
@@ -428,7 +428,7 @@ class FormAssembler(abc.ABC):
             )
 
         if self._needs_zeroing:
-            self._as_pyop2_type(self._tensor).zero()
+            self._as_pyop3_type(self._tensor).zero()
 
         self.execute_parloops()
 
@@ -514,8 +514,8 @@ class FormAssembler(abc.ABC):
         return None
 
     @staticmethod
-    def _as_pyop2_type(tensor):
-        if isinstance(tensor, op2.Global):
+    def _as_pyop3_type(tensor):
+        if isinstance(tensor, pyop3.Global):
             return tensor
         elif isinstance(tensor, firedrake.Function):
             return tensor.dat
@@ -567,9 +567,12 @@ class OneFormAssembler(FormAssembler):
     def execute_parloops(self):
         # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
         # can be skipped.
-        with self._tensor.dat.frozen_halo(op2.INC):
-            for parloop in self.parloops:
-                parloop()
+        #FIXME PYOP3 restore halo freezing
+        # with self._tensor.dat.frozen_halo(pyop3.INC):
+        #     for parloop in self.parloops:
+        #         parloop()
+        for parloop in self.parloops:
+            parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?

@@ -557,14 +557,12 @@ class FunctionSpace(object):
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
 
-    def cell_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from cels to
-        function space nodes."""
+    def cell_closure_map(self):
+        """Return a map from cells to cell closures."""
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().cell_set,
-                             self.finat_element.space_dimension(),
-                             "cell_node",
+                             "cell_closure",
                              self.offset,
                              self.offset_quotient)
 

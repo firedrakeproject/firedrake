@@ -18,6 +18,7 @@ from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple, tuplify
+import pyop3
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -663,6 +664,50 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
+    @utils.cached_property
+    def cell_closure_map(self):
+        map_data = [
+            np.empty((self.num_cells(), npoints), dtype=IntType)
+            for npoints in self.cell_closure_sizes
+        ]
+        for cell in self.num_cells():
+            closure = self.topology_dm.getTransitiveClosure(cell)
+            offset = 0
+            for tdim, npoints in enumerate(self.cell_closure_sizes):
+                mapdata_per_entity[tdim][cell] = closure[offset:npoints]
+                offset += npoints
+
+        map_axes = [
+            pyop3.AxisTree(
+                self.cell_set,
+                {
+                    self.cell_set.id: pyop3.Index(pyop3.Range(("mesh", tdim), clsize)),
+                }
+            )
+            for tdim, clsize in enumerate(self.cell_closure_sizes)
+        ]
+        map_arrays = [
+            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim])
+            for tdim in range(self.tdim)
+        ]
+
+        return pyop3.IndexTree(
+            self.cell_set,
+            {
+                self.cell_set.id: [
+                    pyop3.Index(
+                        pyop3.TabulatedMap(
+                            [("mesh", 0)],  # from (cells)
+                            [("mesh", tdim)],  # to
+                            arity=npoints,
+                            data=map_arrays[tdim],
+                        )
+                    )
+                    for tdim, npoints in enumerate(self.cell_closure_sizes)
+                ]
+            }
+        )
+
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
         """Create a PETSc Section describing a function space.
 
@@ -1074,13 +1119,8 @@ class MeshTopology(AbstractMeshTopology):
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
         if cell.is_simplex():
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-
             return dmcommon.closure_ordering(plex, vertex_numbering,
-                                             cell_numbering, entity_per_cell)
+                                             cell_numbering, self.cell_closure_sizes)
 
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
@@ -1104,11 +1144,29 @@ class MeshTopology(AbstractMeshTopology):
                 plex, vertex_numbering, cell_numbering, cell_orientations)
         elif cell.cellname() == "hexahedron":
             # TODO: Should change and use create_cell_closure() for all cell types.
-            topology = FIAT.ufc_cell(cell).get_topology()
-            closureSize = sum([len(ents) for _, ents in topology.items()])
+            closureSize = sum(self.cell_closure_sizes)
             return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         else:
-            raise NotImplementedError("Cell type '%s' not supported." % cell)
+            raise NotImplementedError(f"Cell type '{cell}' not supported.")
+
+    @property
+    def cell_closure_sizes(self):
+        """Return the number of entities in the closure of a cell.
+
+        The sizes are ordered by topological dimension (i.e. vertices then
+        edges etc).
+        """
+        cell = self.ufl_cell()
+        if cell.is_simplex() or cell.cellname() == "hexahedron":
+            topology = FIAT.ufc_cell(cell).get_topology()
+            sizes = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                sizes[d] = len(ents)
+            return sizes
+        elif cell.cellname() == "quadrilateral":
+            raise NotImplementedError("TODO PYOP3")
+        else:
+            raise NotImplementedError(f"Cell type '{cell}' not supported.")
 
     @utils.cached_property
     def entity_orientations(self):
