@@ -99,5 +99,3 @@ def poisson_2d(n, quadrilateral=False, degree=1, mesh=None):
 def test_poisson_eigenvalue_convergence(n, quadrilateral, degree, tolerance):
     true_values, estimates = poisson_1d(n, quadrilateral=quadrilateral, degree=degree)
     assert np.allclose(true_values, estimates, rtol=tolerance)
-
-
