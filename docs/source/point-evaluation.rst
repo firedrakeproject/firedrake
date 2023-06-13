@@ -12,7 +12,7 @@ Three APIs are offered to this feature: two Firedrake-specific ones, and one
 from UFL.
 
 
-Firedrake API 1: 'at' method
+Firedrake convenience function
 ----------------------------
 
 Firedrake's first API for evaluating functions at arbitrary points,
@@ -100,19 +100,19 @@ in parallel. There is no special API, but there are some restrictions:
 * Each process will get the same values.
 
 
-Firedrake API 2: Interpolation onto a vertex-only mesh
+Primary API: Interpolation onto a vertex-only mesh
 ------------------------------------------------------
 
-Firedrake's second API for evaluating functions at arbitrary points,
+Firedrake's principal API for evaluating functions at arbitrary points,
 interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
-function at many points and for creating expressions which contain point
+function at many points, or repeatedly, and for creating expressions which contain point
 evaluations. It has been designed from the ground up to be entirely parallel
-compatible. Whilst :meth:`~.Function.at` produces a list of values, a
+compatible. Whilst :meth:`~.Function.at` produces a list of values,
 cross-mesh interpolation onto :func:`~.VertexOnlyMesh` gives Firedrake
 :py:class:`~.Function`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
-the idea is that the :func:`~.VertexOnlyMesh` is a mesh whose wich represents a
+the idea is that the :func:`~.VertexOnlyMesh` is a mesh whose that represents a
 point cloud domain. Each cell of the mesh is a vertex at a chosen location in
 space. As usual for a mesh, we represent values by creating functions in
 function spaces on it. The only function space that makes sense for a mesh
@@ -252,7 +252,7 @@ be switched to a warning or switched off entirely
 Expressions with point evaluations
 ----------------------------------
 
-In general integrating over a vertex-only mesh is equivalent to summing over
+Integrating over a vertex-only mesh is equivalent to summing over
 it. So if we have a vertex-only mesh :math:`\Omega_v` with :math:`N` vertices
 at points :math:`\{x_i\}_{i=0}^{N-1}` and we have interpolated a function
 :math:`f` onto it giving a new function :math:`f_v` then
