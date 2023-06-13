@@ -5,7 +5,6 @@ from pyadjoint import stop_annotating
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
 from .checkpointing import maybe_disk_checkpoint
-
 import firedrake
 import firedrake.utils as utils
 
@@ -32,8 +31,9 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        result = super().recompute_component(inputs, block_variable, idx, prepared)
-        return maybe_disk_checkpoint(result)
+        if hasattr(block_variable.checkpoint, "other") is False:
+            result = super().recompute_component(inputs, block_variable, idx, prepared)
+            return maybe_disk_checkpoint(result)
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
