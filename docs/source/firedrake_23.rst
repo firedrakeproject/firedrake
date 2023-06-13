@@ -29,6 +29,15 @@ Key Dates
 * 13-15/9/2023 Workshop. The workshop will run from the afternoon of 13
   September until lunchtime on 15 September.
 
+Abstracts
+---------
+
+We welcome presentations by anyone working on or using Firedrake. Come and show
+your results, present us with your problems, and show us your plans. Please
+submit your abstract on
+`EasyChair <https://easychair.org/conferences/?conf=firedrake23>`__. The
+deadline is 21 July.
+
 Registration
 ------------
 
