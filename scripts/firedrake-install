@@ -27,7 +27,7 @@ arch = platform.uname().machine
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-parallel_packages = ["mpi4py", "h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -1808,7 +1808,7 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    if "Build Firedrake" in os.environ.get("GITHUB_WORKFLOW", ""):
+    if os.environ.get("FIREDRAKE_CI_TESTS", ""):
         # When building Firedrake in CI, don't clone Firedrake again.
         check_call(["ln", "-s", "../../firedrake", "firedrake"])
     else:
@@ -1882,6 +1882,18 @@ if mode == "install":
         f90 = os.path.join(compilerbin, "mpif90")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
+    # Make sure that we link against the right MPI and PETSc shared libraries
+    link_env = {
+        "LDFLAGS": (
+            "-Wl,-rpath,{petsc_dir}/{petsc_arch}/lib -L{petsc_dir}/{petsc_arch}/lib"
+            .format(petsc_dir=petsc_dir, petsc_arch=petsc_arch)
+        ),
+    }
+
+    # Install mpi4py
+    with environment(**compiler_env, **link_env):
+        run_pip_install(["--no-cache-dir", "mpi4py"])
+
     # numpy requires old setuptools (+wheel)
     log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
     run_pip_install(["numpy"])
@@ -1906,7 +1918,7 @@ if mode == "install":
     with pipargs("--no-deps"):
         for p in packages:
             if p in parallel_packages:
-                with environment(**compiler_env):
+                with environment(**compiler_env, **link_env):
                     install(p+"/")
             else:
                 install(p+"/")
@@ -2007,6 +2019,18 @@ else:
             f90 = os.path.join(compilerbin, "mpif90")
             compiler_env = create_compiler_env(cc, cxx, f90)
 
+    # Make sure that we link against the right MPI and PETSc shared libraries
+    link_env = {
+        "LDFLAGS": (
+            "-Wl,-rpath,{petsc_dir}/{petsc_arch}/lib -L{petsc_dir}/{petsc_arch}/lib"
+            .format(petsc_dir=petsc_dir, petsc_arch=petsc_arch)
+        ),
+    }
+
+    # Install mpi4py
+    with environment(**compiler_env, **link_env):
+        run_pip_install(["--no-cache-dir", "mpi4py"])
+
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
@@ -2056,7 +2080,7 @@ Please consider updating your PETSc manually.
         for p in packages:
             clean(p)
             if p in parallel_packages:
-                with environment(**compiler_env):
+                with environment(**compiler_env, **link_env):
                     install(p+"/")
             else:
                 install(p+"/")
