@@ -61,7 +61,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             from firedrake.function import Function
             from firedrake.functionspace import FunctionSpace
             import warnings
-            warnings.warn("Constants with a domain defined are functions in the Real space")
+            warnings.warn(
+                "Giving Constants a domain is no longer supported. Instead please "
+                "create a Function in the Real space.", FutureWarning
+            )
 
             dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
             dat.zero()
