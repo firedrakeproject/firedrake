@@ -939,7 +939,7 @@ def PeriodicRectangleMesh(
             "2D periodic meshes with fewer than 3 cells in each direction are not currently supported"
         )
 
-    m = TorusMesh(
+    immersed = TorusMesh(
         nx,
         ny,
         1.0,
@@ -952,86 +952,86 @@ def PeriodicRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
-    old_coordinates = m.coordinates
 
-    coord_family = "DQ" if quadrilateral else "DG"
-    cell = "quadrilateral" if quadrilateral else "triangle"
-    coord_element = ufl.VectorElement(
-        ufl.FiniteElement(coord_family, cell, 1, variant="equispaced"), 2
-    )
-    sdata = get_shared_data(m.topology, coord_element)
-    new_coordinates = op2.Dat(
-        sdata.dof_dset,
-        name=mesh._generate_default_mesh_coordinates_name(name),
-    )
+    def callback(old_coordinates):
+        coord_family = "DQ" if quadrilateral else "DG"
+        cell = "quadrilateral" if quadrilateral else "triangle"
+        coord_element = ufl.VectorElement(
+            ufl.FiniteElement(coord_family, cell, 1, variant="equispaced"), 2
+        )
+        sdata = get_shared_data(m.topology, coord_element)
+        new_coordinates = op2.Dat(
+            sdata.dof_dset,
+            name=mesh._generate_default_mesh_coordinates_name(name),
+        )
 
-    domain = f"{{[i, j, k, l]: 0 <= i, k < {old_coordinates.dat.cdim} and 0 <= j < {new_coordinates.cdim} and 0 <= l < 3}}"
-    instructions = f"""
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> eps = 1e-12
-    <{RealType}> bigeps = 1e-1
-    <{RealType}> oc[k, l] = real(old_coords[k, l])
-    <{RealType}> Y = 0
-    <{RealType}> Z = 0
-    for i
-        Y = Y + oc[i, 1]
-        Z = Z + oc[i, 2]
-    end
-    for j
-        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
-        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
-        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
-        <{RealType}> abssin = abs(sin(phi))
-        <{RealType}> theta = theta1 if abssin > bigeps else theta2
-        <{RealType}> nc0 = phi / (2 * pi)
-        <{RealType}> absnc = 0
-        nc0 = nc0 + 1 if nc0 < -eps else nc0
-        absnc = abs(nc0)
-        nc0 = 1 if absnc < eps and Y < 0 else nc0
-        <{RealType}> nc1 = theta / (2 * pi)
-        nc1 = nc1 + 1 if nc1 < -eps else nc1
-        absnc = abs(nc1)
-        nc1 = 1 if absnc < eps and Z < 0 else nc1
-        new_coords[j, 0] = nc0 * Lx[0]
-        new_coords[j, 1] = nc1 * Ly[0]
-    end
-    """
+        domain = f"{{[i, j, k, l]: 0 <= i, k < {old_coordinates.cdim} and 0 <= j < {new_coordinates.cdim} and 0 <= l < 3}}"
+        instructions = f"""
+        <{RealType}> pi = 3.141592653589793
+        <{RealType}> eps = 1e-12
+        <{RealType}> bigeps = 1e-1
+        <{RealType}> oc[k, l] = real(old_coords[k, l])
+        <{RealType}> Y = 0
+        <{RealType}> Z = 0
+        for i
+            Y = Y + oc[i, 1]
+            Z = Z + oc[i, 2]
+        end
+        for j
+            <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
+            <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
+            <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
+            <{RealType}> abssin = abs(sin(phi))
+            <{RealType}> theta = theta1 if abssin > bigeps else theta2
+            <{RealType}> nc0 = phi / (2 * pi)
+            <{RealType}> absnc = 0
+            nc0 = nc0 + 1 if nc0 < -eps else nc0
+            absnc = abs(nc0)
+            nc0 = 1 if absnc < eps and Y < 0 else nc0
+            <{RealType}> nc1 = theta / (2 * pi)
+            nc1 = nc1 + 1 if nc1 < -eps else nc1
+            absnc = abs(nc1)
+            nc1 = 1 if absnc < eps and Z < 0 else nc1
+            new_coords[j, 0] = nc0 * Lx[0]
+            new_coords[j, 1] = nc1 * Ly[0]
+        end
+        """
 
-    cLx = Constant(Lx)
-    cLy = Constant(Ly)
+        cLx = Constant(Lx)
+        cLy = Constant(Ly)
 
-    data = [
-        lp.GlobalArg("new_coords", dtype=ScalarType, shape=new_coordinates.dim),
-        lp.GlobalArg("old_coords", dtype=ScalarType, shape=old_coordinates.dat.dim),
-        lp.GlobalArg("Lx", dtype=ScalarType, shape=(1,)),
-        lp.GlobalArg("Ly", dtype=ScalarType, shape=(1,)),
-    ]
+        data = [
+            lp.GlobalArg("new_coords", dtype=ScalarType, shape=new_coordinates.dim),
+            lp.GlobalArg("old_coords", dtype=ScalarType, shape=old_coordinates.dat.dim),
+            lp.GlobalArg("Lx", dtype=ScalarType, shape=(1,)),
+            lp.GlobalArg("Ly", dtype=ScalarType, shape=(1,)),
+        ]
 
-    name = "transform_coords"
-    ast = lp.make_kernel(
-        domain, instructions, data, name=name, target=target, seq_dependencies=True
-    )
-    kernel = op2.Kernel(ast, "transform_coords")
+        name = "transform_coords"
+        ast = lp.make_kernel(
+            domain, instructions, data, name=name, target=target, seq_dependencies=True
+        )
+        kernel = op2.Kernel(ast, "transform_coords")
 
-    op2.par_loop(
-        kernel,
-        m.topology.cell_set,
-        new_coordinates(op2.WRITE, sdata.cell_node_map()),
-        old_coordinates.dat(op2.READ, old_coordinates.cell_node_map()),
-        cLx.dat(op2.READ),
-        cLy.dat(op2.READ),
-    )
+        op2.par_loop(
+            kernel,
+            m.topology.cell_set,
+            new_coordinates(op2.WRITE, sdata.cell_node_map()),
+            old_coordinates.dat(op2.READ, old_coordinates.cell_node_map()),
+            cLx.dat(op2.READ),
+            cLy.dat(op2.READ),
+        )
 
-    return mesh.Mesh(
-        m.topology.topology_dm,
-        coordinates=new_coordinates,
-        coordinate_element=coord_element,
+    m = mesh.Mesh(
+        immersed.topology.topology_dm,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
         dim=2,
     )
+    m._coordinate_callback = callback
+    return m
 
 
 @PETSc.Log.EventDecorator()

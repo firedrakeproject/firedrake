@@ -149,6 +149,12 @@ def MeshHierarchy(mesh, refinement_levels,
                                     reorder=reorder, comm=mesh.comm)
                        for dm in dms]
 
+    # Attach the coordinate transformation callback to the refined meshes. This can
+    # go away if we can use DG coordinates tied to the plex.
+    if hasattr(mesh, "_coordinate_callback"):
+        for rmesh in meshes[1:]:
+            rmesh._coordinate_callback = mesh._coordinate_callback
+
     lgmaps = []
     for i, m in enumerate(meshes):
         no = impl.create_lgmap(m.topology_dm)

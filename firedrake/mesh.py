@@ -1781,7 +1781,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         this is carried out automatically, however, in some cases (for
         example accessing a property of the mesh directly after
         constructing it) you need to call this manually."""
-        self.topology.init()
         if hasattr(self, '_callback'):
             self._callback(self)
 
@@ -1802,12 +1801,27 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
+
+            # Generate the mesh coordinates. For CG coordinates (i.e.
+            # non-periodic meshes) we simply need to permute the plex
+            # coordinates. For DG coordinates (periodic meshes) we need to
+            # transform the CG coordinates from the plex via a callback.
+            # The callback is required because this coordinate transformation
+            # must come after any mesh refinement.
             coordinates_fs = FunctionSpace(self, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(
+            coordinates = dmcommon.reordered_coords(
                 self.topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                (self.topology.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension())
+                (
+                    self.topology.num_vertices(),
+                    self.ufl_coordinate_element().cell().geometric_dimension(),
+                ),
             )
-            self.__init__(coordinates_data)
+
+            if hasattr(self, "_coordinate_callback"):
+                coordinates = self._coordinate_callback(coordinates)
+                del self._coordinate_callback
+
+            self.__init__(coordinates)
         self._callback = callback
 
     @property
@@ -2218,6 +2232,9 @@ def make_mesh_from_coordinates(topology, coordinates, element, name):
     :arg name: The name of the mesh.
     """
     mesh = MeshGeometry.__new__(MeshGeometry, topology, element, name)
+    #TODO this should actually be a callback of some sort so it can be set in mesh.init()
+    # this lets us get DG coordinates from the plex even though the plex only stores
+    # vertex coordinates AFAIK
     mesh.__init__(coordinates)
     mesh.name = name
     return mesh
