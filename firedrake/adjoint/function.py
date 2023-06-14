@@ -121,7 +121,6 @@ class FunctionMixin(FloatingType):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""
             ad_block_tag = kwargs.pop("ad_block_tag", None)
-
             # do not annotate in case of self assignment
             annotate = annotate_tape(kwargs) and self != other
 
@@ -347,6 +346,9 @@ class FunctionMixin(FloatingType):
             vec *= 2
         else:
             vec += ovec
+
+    def _ad_function_space(self, mesh):
+        return self.ufl_function_space()
 
     def _reduce(self, r, r0):
         vec = self.vector().get_local()

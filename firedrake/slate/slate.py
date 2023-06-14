@@ -36,6 +36,8 @@ import hashlib
 
 from firedrake.formmanipulation import ExtractSubBlock
 
+from tsfc.ufl_utils import extract_firedrake_constants
+
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
@@ -212,6 +214,10 @@ class TensorBase(object, metaclass=ABCMeta):
     @abstractmethod
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
+
+    @abstractmethod
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
 
     @abstractmethod
     def slate_coefficients(self):
@@ -463,6 +469,9 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
+    def constants(self):
+        return ()
+
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
@@ -707,6 +716,11 @@ class Block(TensorBase):
         tensor, = self.operands
         return tensor.coefficients()
 
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        tensor, = self.operands
+        return tensor.constants()
+
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
@@ -796,6 +810,11 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
         return tensor.coefficients()
+
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        tensor, = self.operands
+        return tensor.constants()
 
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -896,6 +915,10 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        return unique(extract_firedrake_constants(self.form))
+
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
@@ -943,6 +966,11 @@ class TensorOp(TensorBase):
         """Returns the expected coefficients of the resulting tensor."""
         coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        const = [op.constants() for op in self.operands]
+        return unique(chain(*const))
 
     def slate_coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
@@ -1358,6 +1386,16 @@ def space_equivalence(A, B):
     """
 
     return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
+
+
+def unique(iterable):
+    """ Return tuple of unique items in iterable, items must be hashable
+    """
+    # Use dict to preserve order and compare by hash
+    unique_dict = {}
+    for item in iterable:
+        unique_dict[item] = None
+    return tuple(unique_dict.keys())
 
 
 # Establishes levels of precedence for Slate tensors

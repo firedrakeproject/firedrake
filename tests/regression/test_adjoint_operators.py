@@ -94,7 +94,7 @@ def test_interpolate_scalar_valued():
     f = interpolate(x, V1)
     g = interpolate(sin(x), V2)
     u = Function(V3)
-    u.interpolate(3*f**2 + Constant(4.0)*g)
+    u.interpolate(3*f**2 + Constant(4.0, domain=mesh)*g)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
@@ -169,15 +169,15 @@ def test_interpolate_tlm_wit_constant():
     x = SpatialCoordinate(mesh)
     f = interpolate(x[0], V1)
     g = interpolate(sin(x[0]), V1)
-    c = Constant(5.0)
+    c = Constant(5.0, domain=mesh)
     u = Function(V2)
     u.interpolate(c * f ** 2)
 
     # test tlm w.r.t constant only:
-    c.block_variable.tlm_value = Constant(1.0)
+    c.block_variable.tlm_value = Constant(1.0, domain=mesh)
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    h = Constant(1.0)
+    h = Constant(1.0, domain=mesh)
 
     tape = get_working_tape()
     tape.evaluate_tlm()
@@ -186,7 +186,7 @@ def test_interpolate_tlm_wit_constant():
 
     # test tlm w.r.t constant c and function f:
     tape.reset_tlm_values()
-    c.block_variable.tlm_value = Constant(0.4)
+    c.block_variable.tlm_value = Constant(0.4, domain=mesh)
     f.block_variable.tlm_value = g
     rf(c)  # replay to reset checkpoint values based on c=5
     tape.evaluate_tlm()
@@ -200,14 +200,14 @@ def test_interpolate_bump_function():
     V = FunctionSpace(mesh, "CG", 2)
 
     x, y = SpatialCoordinate(mesh)
-    cx = Constant(0.5)
-    cy = Constant(0.5)
+    cx = Constant(0.5, domain=mesh)
+    cy = Constant(0.5, domain=mesh)
     f = interpolate(exp(-1/(1-(x-cx)**2)-1/(1-(y-cy)**2)), V)
 
     J = assemble(f*y**3*dx)
     rf = ReducedFunctional(J, [Control(cx), Control(cy)])
 
-    h = [Constant(0.1), Constant(0.1)]
+    h = [Constant(0.1, domain=mesh), Constant(0.1, domain=mesh)]
     assert taylor_test(rf, [cx, cy], h) > 1.9
 
 
@@ -218,13 +218,13 @@ def test_self_interpolate():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
 
-    c = Constant(1.)
+    c = Constant(1., domain=mesh)
     u.interpolate(u+c)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
 
-    h = Constant(0.1)
+    h = Constant(0.1, domain=mesh)
     assert taylor_test(rf, c, h) > 1.9
 
 
@@ -235,15 +235,15 @@ def test_self_interpolate_function():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
 
-    c = Constant(1.)
+    c = Constant(1., domain=mesh)
     interpolate(u+c, u)
     interpolate(u+c*u**2, u)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
 
-    h = Constant(0.1)
-    assert taylor_test(rf, Constant(3.), h) > 1.9
+    h = Constant(0.1, domain=mesh)
+    assert taylor_test(rf, Constant(3., domain=mesh), h) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -256,13 +256,13 @@ def test_interpolate_to_function_space():
 
     x = SpatialCoordinate(mesh)
     u.interpolate(x[0])
-    c = Constant(1.)
+    c = Constant(1., domain=mesh)
     w = interpolate((u+c)*u, W)
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    h = Constant(0.1)
-    assert taylor_test(rf, Constant(1.), h) > 1.9
+    h = Constant(0.1, domain=mesh)
+    assert taylor_test(rf, Constant(1., domain=mesh), h) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -290,7 +290,7 @@ def test_interpolate_hessian_linear_expr():
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1), "on_boundary")
+    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -348,7 +348,7 @@ def test_interpolate_hessian_nonlinear_expr():
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1), "on_boundary")
+    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -403,13 +403,13 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     f.vector()[:] = 5
     w = Function(W)
     w.vector()[:] = 4
-    c = Constant(2.)
+    c = Constant(2., domain=mesh)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1), "on_boundary")
+    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -649,8 +649,9 @@ def test_supermesh_project_hessian(vector):
 def test_init_constant():
     from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(1, 1)
-    c1 = Constant(1.0)
-    c2 = Constant(c1)
+    c1 = Constant(1.0, domain=mesh)
+    c2 = Constant(0.0, domain=mesh)
+    c2.assign(c1)
     J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
     assert np.isclose(rf(-1.0), -1.0)
@@ -661,7 +662,7 @@ def test_copy_function():
     from firedrake_adjoint import ReducedFunctional, Control
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    one = Constant(1.0)
+    one = Constant(1.0, domain=mesh)
     f = interpolate(one, V)
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
@@ -674,7 +675,7 @@ def test_consecutive_nonlinear_solves():
     from firedrake_adjoint import ReducedFunctional, Control, taylor_test
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    uic = Constant(2.0)
+    uic = Constant(2.0, domain=mesh)
     u1 = Function(V).assign(uic)
     u0 = Function(u1)
     v = TestFunction(V)
@@ -686,5 +687,5 @@ def test_consecutive_nonlinear_solves():
         solver.solve()
     J = assemble(u1**16*dx)
     rf = ReducedFunctional(J, Control(uic))
-    h = Constant(0.01)
+    h = Constant(0.01, domain=mesh)
     assert taylor_test(rf, uic, h) > 1.9

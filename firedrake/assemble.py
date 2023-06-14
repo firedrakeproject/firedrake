@@ -781,6 +781,7 @@ class _GlobalKernelBuilder:
         self._unroll = unroll
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -984,6 +985,13 @@ def _as_global_kernel_arg_coefficient(_, self):
         return self._make_dat_global_kernel_arg(finat_element, index)
 
 
+@_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
+def _as_global_kernel_arg_constant(_, self):
+    const = next(self._constants)
+    value_size = numpy.prod(const.ufl_shape, dtype=int)
+    return op2.GlobalKernelArg((value_size,))
+
+
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
 def _as_global_kernel_arg_cell_sizes(_, self):
     # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
@@ -1049,6 +1057,7 @@ class ParloopBuilder:
         self._lgmaps = lgmaps
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
     def build(self):
         """Construct the parloop."""
@@ -1179,6 +1188,12 @@ def _as_parloop_arg_coefficient(arg, self):
         return op2.DatParloopArg(coeff.dat, m)
 
 
+@_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+def _as_parloop_arg_constant(arg, self):
+    const = next(self._constants)
+    return op2.GlobalParloopArg(const.dat)
+
+
 @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_parloop_arg_cell_orientations(_, self):
     func = self._mesh.cell_orientations()
@@ -1228,6 +1243,18 @@ class _FormHandler:
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
                 yield form.coefficients()[idx].subfunctions[subidx]
+
+    @staticmethod
+    def iter_constants(form, kinfo):
+        """Yield the form constants"""
+        # Is kinfo really needed?
+        from tsfc.ufl_utils import extract_firedrake_constants
+        if isinstance(form, slate.TensorBase):
+            for const in form.constants():
+                yield const
+        else:
+            for const in extract_firedrake_constants(form):
+                yield const
 
     @staticmethod
     def index_function_spaces(form, indices):

@@ -16,6 +16,7 @@ import numpy
 from ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
 import ctypes
@@ -211,6 +212,9 @@ def matrix_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
+
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
@@ -300,6 +304,9 @@ def residual_funptr(form, state):
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
+
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
@@ -535,6 +542,10 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 if k not in seen:
                     map_args.append(k)
                     seen.add(k)
+
+    for constant in extract_firedrake_constants(form):
+        data_args.extend(constant.dat._kernel_args_)
+
     if require_facet_number:
         data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
