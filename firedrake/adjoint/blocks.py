@@ -55,11 +55,11 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         firedrake.Function
             Return a firedrake function.
         """
-        if not hasattr(block_variable.checkpoint, "other"):
+        if hasattr(block_variable.checkpoint, "other"):
+            return block_variable.checkpoint
+        else:
             result = super().recompute_component(inputs, block_variable, idx, prepared)
             return maybe_disk_checkpoint(result)
-        else:
-            return block_variable
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
