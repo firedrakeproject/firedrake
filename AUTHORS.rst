@@ -96,7 +96,7 @@ Anna Kalogirou
 
 Paul H. J. Kelly..............<https://www.imperial.ac.uk/people/p.kelly>
 
-Rob C. Kirby..................<https://www.baylor.edu/math/index.php?id=90540>
+Robert C. Kirby...............<https://www.baylor.edu/math/index.php?id=90540>
 
 Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
