@@ -142,7 +142,7 @@ def _solve_varproblem(*args, **kwargs):
 
     # Check whether solution is valid
     if not isinstance(u, (function.Function, vector.Vector)):
-        raise TypeError("Provided solution is a '%s', not a Function" % type(u).__name__)
+        raise TypeError(f"Provided solution is a '{type(u).__name__}', not a Function")
 
     if form_compiler_parameters is None:
         form_compiler_parameters = {}
