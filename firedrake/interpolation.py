@@ -210,20 +210,11 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
 
-    # Make sure we have an expression of the right length i.e. a value for
-    # each component in the value shape of each function space
-    dims = [numpy.prod(fs.ufl_element().value_shape(), dtype=int)
-            for fs in V]
-    loops = []
-    if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
-        raise RuntimeError('Expression of length %d required, got length %d'
-                           % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
-
     if len(V) > 1:
         raise NotImplementedError(
             "UFL expressions for mixed functions are not yet supported.")
-    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
 
+    loops = _interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs)
     if bcs and len(arguments) == 0:
         loops.extend([partial(bc.apply, f) for bc in bcs])
 
@@ -284,7 +275,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
-    cell_set = target_mesh.cell_set
+    cell_set = target_mesh.topology.cell_set
     if subset is not None:
         assert subset.superset == cell_set
         cell_set = subset

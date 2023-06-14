@@ -24,7 +24,7 @@ def sanitise_input(v, V):
 
 
 def create_output(V, name=None):
-    if isinstance(V, functionspaceimpl.WithGeometry):
+    if isinstance(V, functionspaceimpl.FunctionSpace):
         return function.Function(V, name=name)
     elif isinstance(V, function.Function):
         return V

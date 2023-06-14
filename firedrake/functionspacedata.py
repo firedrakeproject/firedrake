@@ -31,6 +31,7 @@ from firedrake.cython import dmcommon
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
+from firedrake import utils
 from firedrake.petsc import PETSc
 
 
@@ -397,10 +398,11 @@ class FunctionSpaceData(object):
     :arg mesh: The mesh to share the data on.
     :arg ufl_element: The UFL element.
     """
-    __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
-                 "node_set", "cell_boundary_masks",
-                 "interior_facet_boundary_masks", "offset", "offset_quotient",
-                 "extruded", "mesh", "global_numbering")
+    # __slots__ = ("real_tensorproduct", "map_cache",
+    #              "shape", "finat_element", "nodes_per_entity", "entity_permutations",
+    #              "cell_boundary_masks",
+    #              "interior_facet_boundary_masks", "offset", "offset_quotient",
+    #              "extruded", "mesh", "edofs_key", "eperm_key")
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element):
@@ -416,40 +418,48 @@ class FunctionSpaceData(object):
         except NotImplementedError:
             entity_permutations = None
 
-        # Create the PetscSection mapping topological entities to functionspace nodes
-        # For non-scalar valued function spaces, there are multiple dofs per node.
-        key = (nodes_per_entity, real_tensorproduct)
-        # These are keyed only on nodes per topological entity.
-        global_numbering = get_global_numbering(mesh, key)
-        node_set = get_node_set(mesh, key)
+        # The function space shape is the number of dofs per node,
+        # hence it is not always the value_shape.  Vector and Tensor
+        # element modifiers *must* live on the outside!
+        if type(ufl_element) in {ufl.TensorElement, ufl.VectorElement} \
+           or (isinstance(ufl_element, ufl.WithMapping)
+               and type(ufl_element.wrapee) in {ufl.TensorElement, ufl.VectorElement}):
+            # The number of "free" dofs is given by reference_value_shape,
+            # not value_shape due to symmetry specifications
+            rvs = ufl_element.reference_value_shape()
+            # This requires that the sub element is not itself a
+            # tensor element (which is checked by the top level
+            # constructor of function spaces)
+            shape_element = ufl_element
+            if isinstance(ufl_element, ufl.WithMapping):
+                shape_element = ufl_element.wrapee
+            sub = shape_element.sub_elements()[0].value_shape()
+            self.shape = rvs[:len(rvs) - len(sub)]
+        else:
+            self.shape = ()
 
-        edofs_key = entity_dofs_key(entity_dofs)
+        self.edofs_key = entity_dofs_key(entity_dofs)
         # entity_permutations is None if not yet implemented
-        eperm_key = entity_permutations_key(entity_permutations) if entity_permutations else None
+        self.eperm_key = entity_permutations_key(entity_permutations) if entity_permutations else None
 
         self.real_tensorproduct = real_tensorproduct
-        # Empty map caches. This is a sui generis cache
-        # implementation because of the need to support boundary
-        # conditions.
-        # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key))
 
         if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
+            self.extruded = True
             self.offset = eutils.calculate_dof_offset(finat_element)
         else:
+            self.extruded = False
             self.offset = None
-        if isinstance(mesh, mesh_mod.ExtrudedMeshTopology) and mesh.extruded_periodic:
+
+        if self.extruded and mesh.extruded_periodic:
             self.offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
         else:
             self.offset_quotient = None
 
-        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
-        self.node_set = node_set
-        self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
-        self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
-        self.extruded = mesh.cell_set._extruded
+        self.finat_element = finat_element
         self.mesh = mesh
-        self.global_numbering = global_numbering
+        self.nodes_per_entity = nodes_per_entity
+        self.entity_permutations = entity_permutations
 
     def __eq__(self, other):
         if type(self) is not type(other):
@@ -484,30 +494,84 @@ class FunctionSpaceData(object):
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
-    def get_map(self, V, entity_set, map_arity, name, offset, offset_quotient):
+    def get_map(self, entity_set, map_arity, name, offset, offset_quotient):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
-        :arg V: The :class:`FunctionSpace` to create the map for.
         :arg entity_set: The :class:`pyop2.Set` of entities to map from.
         :arg map_arity: The arity of the resulting map.
         :arg name: A name for the resulting map.
         :arg offset: Map offset (for extruded).
         :arg offset_quotient: Map offset_quotient (for extruded)."""
-        # V is only really used for error checking and "name".
-        assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
         val = self.map_cache[entity_set]
         if val is None:
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           entity_node_list,
-                          ("%s_"+name) % (V.name),
+                          name,
                           offset=offset,
                           offset_quotient=offset_quotient)
 
             self.map_cache[entity_set] = val
         return val
+
+    def cell_node_map(self, name=None):
+        return self.get_map(
+            self.mesh.cell_set,
+            self.finat_element.space_dimension(),
+            f"{name or self.mesh.name}_cell_node",
+            self.offset,
+            self.offset_quotient,
+        )
+
+    @utils.cached_property
+    def global_numbering(self):
+        """Create the PetscSection mapping topological entities to function space nodes.
+
+        For non-scalar valued function spaces, there are multiple dofs per node.
+
+        """
+        key = (self.nodes_per_entity, self.real_tensorproduct)
+        # These are keyed only on nodes per topological entity.
+        return get_global_numbering(self.mesh, key)
+
+    @utils.cached_property
+    def node_set(self):
+        key = (self.nodes_per_entity, self.real_tensorproduct)
+        return get_node_set(self.mesh, key)
+
+    @utils.cached_property
+    def dof_dset(self):
+        return op2.DataSet(
+            self.node_set, self.shape or 1,
+            name="nodes_dset",
+        )
+
+    @utils.cached_property
+    def entity_node_lists(self):
+        return get_entity_node_lists(
+            self.mesh,
+            (self.edofs_key, self.real_tensorproduct, self.eperm_key),
+            self.finat_element.entity_dofs(), self.entity_permutations, self.global_numbering, self.offset
+        )
+
+    @utils.cached_property
+    def map_cache(self):
+        # Empty map caches. This is a sui generis cache
+        # implementation because of the need to support boundary
+        # conditions.
+        # Map caches are specific to a cell_node_list, which is keyed by entity_dof
+        return get_map_cache(self.mesh, (self.edofs_key, self.real_tensorproduct, self.eperm_key))
+
+    @utils.cached_property
+    def cell_boundary_masks(self):
+        return get_boundary_masks(self.mesh, (self.edofs_key, "cell"), self.finat_element)
+
+    @utils.cached_property
+    def interior_facet_boundary_masks(self):
+        return get_boundary_masks(self.mesh, (self.edofs_key, "interior_facet"), self.finat_element)
+
 
 
 @PETSc.Log.EventDecorator()

@@ -39,11 +39,10 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
        :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
-    topology = mesh.topology
-    cell = topology.ufl_cell()
     if isinstance(family, ufl.FiniteElementBase):
-        return family.reconstruct(cell=cell)
+        return family
 
+    cell = mesh.ufl_cell()
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = ufl.FiniteElement(family,
@@ -126,15 +125,11 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     check_element(element)
 
     # Otherwise, build the FunctionSpace.
-    topology = mesh.topology
     if element.family() == "Real":
-        new = impl.RealFunctionSpace(topology, element, name=name)
+        fs = impl.RealFunctionSpace(mesh, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name)
-    if mesh is not topology:
-        return impl.WithGeometry.create(new, mesh)
-    else:
-        return new
+        fs = impl.FunctionSpace(mesh, element, name=name)
+    return fs
 
 
 @PETSc.Log.EventDecorator()
@@ -245,8 +240,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     # Select mesh
     mesh = meshes[0]
-    # Get topological spaces
-    spaces = tuple(s.topological for s in flatten(spaces))
+    spaces = list(flatten(spaces))
     # Error checking
     for space in spaces:
         if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
@@ -258,7 +252,4 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    new = impl.MixedFunctionSpace(spaces, name=name)
-    if mesh is not mesh.topology:
-        return impl.WithGeometry.create(new, mesh)
-    return new
+    return impl.MixedFunctionSpace(spaces, name=name)

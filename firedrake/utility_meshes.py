@@ -1,7 +1,8 @@
+import loopy as lp
 import numpy as np
-
 import ufl
 
+from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
 from firedrake.utils import IntType, RealType, ScalarType
 
@@ -14,7 +15,6 @@ from firedrake import (
     WRITE,
     READ,
     interpolate,
-    FiniteElement,
     interval,
     tetrahedron,
 )
@@ -22,6 +22,8 @@ from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+from firedrake.functionspacedata import get_shared_data
+from firedrake.parameters import target
 from firedrake.petsc import PETSc
 
 from pyadjoint.tape import no_annotations
@@ -950,17 +952,20 @@ def PeriodicRectangleMesh(
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
+    old_coordinates = m.coordinates
+
     coord_family = "DQ" if quadrilateral else "DG"
     cell = "quadrilateral" if quadrilateral else "triangle"
-    coord_fs = VectorFunctionSpace(
-        m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
+    coord_element = ufl.VectorElement(
+        ufl.FiniteElement(coord_family, cell, 1, variant="equispaced"), 2
     )
-    old_coordinates = m.coordinates
-    new_coordinates = Function(
-        coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
+    sdata = get_shared_data(m.topology, coord_element)
+    new_coordinates = op2.Dat(
+        sdata.dof_dset,
+        name=mesh._generate_default_mesh_coordinates_name(name),
     )
 
-    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
+    domain = f"{{[i, j, k, l]: 0 <= i, k < {old_coordinates.dat.cdim} and 0 <= j < {new_coordinates.cdim} and 0 <= l < 3}}"
     instructions = f"""
     <{RealType}> pi = 3.141592653589793
     <{RealType}> eps = 1e-12
@@ -995,23 +1000,37 @@ def PeriodicRectangleMesh(
     cLx = Constant(Lx)
     cLy = Constant(Ly)
 
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "Lx": (cLx, READ),
-            "Ly": (cLy, READ),
-        },
+    data = [
+        lp.GlobalArg("new_coords", dtype=ScalarType, shape=new_coordinates.dim),
+        lp.GlobalArg("old_coords", dtype=ScalarType, shape=old_coordinates.dat.dim),
+        lp.GlobalArg("Lx", dtype=ScalarType, shape=(1,)),
+        lp.GlobalArg("Ly", dtype=ScalarType, shape=(1,)),
+    ]
+
+    name = "transform_coords"
+    ast = lp.make_kernel(
+        domain, instructions, data, name=name, target=target, seq_dependencies=True
+    )
+    kernel = op2.Kernel(ast, "transform_coords")
+
+    op2.par_loop(
+        kernel,
+        m.topology.cell_set,
+        new_coordinates(op2.WRITE, sdata.cell_node_map()),
+        old_coordinates.dat(op2.READ, old_coordinates.cell_node_map()),
+        cLx.dat(op2.READ),
+        cLy.dat(op2.READ),
     )
 
     return mesh.Mesh(
-        new_coordinates,
+        m.topology.topology_dm,
+        coordinates=new_coordinates,
+        coordinate_element=coord_element,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
+        dim=2,
     )
 
 

@@ -42,8 +42,10 @@ over degrees of freedom."""
 
 
 def indirect_measure(mesh, measure):
-    return mesh.measure_set(measure.integral_type(),
-                            measure.subdomain_id())
+    return mesh.topology.measure_set(
+        measure.integral_type(),
+        measure.subdomain_id()
+    )
 
 
 _maps = {

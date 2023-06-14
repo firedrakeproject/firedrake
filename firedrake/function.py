@@ -59,159 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 
-        # User comm
-        self.comm = function_space.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm)
-        self._function_space = function_space
-        self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
-        self._label = "a function"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
-            val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
-            self.dat = val
-        else:
-            self.dat = function_space.make_dat(val, dtype, self.name())
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
-
-    @utils.cached_property
-    def topological(self):
-        r"""The underlying coordinateless function."""
-        return self
-
-    @PETSc.Log.EventDecorator()
-    def copy(self, deepcopy=False):
-        r"""Return a copy of this CoordinatelessFunction.
-
-        :kwarg deepcopy: If ``True``, the new
-            :class:`CoordinatelessFunction` will allocate new space
-            and copy values.  If ``False``, the default, then the new
-            :class:`CoordinatelessFunction` will share the dof values.
-        """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
-        return type(self)(self.function_space(),
-                          val=val, name=self.name(),
-                          dtype=self.dat.dtype)
-
-    def ufl_id(self):
-        return self.uid
-
-    @utils.cached_property
-    def subfunctions(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
-                     for i, (fs, dat) in
-                     enumerate(zip(self.function_space(), self.dat)))
-
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
-    @utils.cached_property
-    def _components(self):
-        if self.dof_dset.cdim == 1:
-            return (self, )
-        else:
-            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                name="view[%d](%s)" % (i, self.name()))
-                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
-
-    @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
-
-        :arg i: the index to extract
-
-        See also :attr:`subfunctions`.
-
-        If the :class:`Function` is defined on a
-        rank-n :class:`~.FunctionSpace`, this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
-
-    @property
-    def cell_set(self):
-        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
-        :class:`Function` is defined."""
-        return self.function_space()._mesh.cell_set
-
-    @property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
-        :class:`Function`. One or (for rank-1 and 2
-        :class:`.FunctionSpace`\s) more degrees of freedom are stored
-        at each node.
-        """
-        return self.function_space().node_set
-
-    @property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Function`."""
-        return self.function_space().dof_dset
-
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
-    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
-
-    def interior_facet_node_map(self):
-        return self.function_space().interior_facet_node_map()
-    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
-
-    def exterior_facet_node_map(self):
-        return self.function_space().exterior_facet_node_map()
-    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
-
-    def function_space(self):
-        r"""Return the :class:`.FunctionSpace`, or
-        :class:`.MixedFunctionSpace` on which this :class:`Function`
-        is defined."""
-        return self._function_space
-
-    def name(self):
-        r"""Return the name of this :class:`Function`"""
-        return self._name
-
-    def label(self):
-        r"""Return the label (a description) of this :class:`Function`"""
-        return self._label
-
-    def rename(self, name=None, label=None):
-        r"""Set the name and or label of this :class:`Function`
-
-        :arg name: The new name of the `Function` (if not `None`)
-        :arg label: The new label for the `Function` (if not `None`)
-        """
-        if name is not None:
-            self._name = name
-        if label is not None:
-            self._label = label
-
-    def __str__(self):
-        if self._name is not None:
-            return self._name
-        else:
-            return ufl2unicode(self)
 
 
 class Function(ufl.Coefficient, FunctionMixin):
@@ -254,20 +102,27 @@ class Function(ufl.Coefficient, FunctionMixin):
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
-        elif not isinstance(V, functionspaceimpl.WithGeometry):
+        elif not isinstance(V, functionspaceimpl.AbstractFunctionSpace):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
-        if isinstance(val, (Function, CoordinatelessFunction)):
-            val = val.topological
-            if val.function_space() != V.topological:
-                raise ValueError("Function values have wrong function space.")
-            self._data = val
-        else:
-            self._data = CoordinatelessFunction(V.topological,
-                                                val=val, name=name, dtype=dtype)
-
+        # User comm
+        self.comm = function_space.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(function_space.comm)
         self._function_space = V
+        self.uid = utils._new_uid()
+        self._name = name or f"function_{self.uid}"
+        self._label = "a function"
+
+        if isinstance(val, (Function, vector.Vector)):
+            val = val.dat
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+            assert val.comm == self._comm
+            self.dat = val
+        else:
+            self.dat = V.make_dat(val, dtype, self.name())
+
         ufl.Coefficient.__init__(
             self, self.function_space().ufl_function_space(), count=count
         )
@@ -277,11 +132,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if isinstance(function_space, Function):
             self.assign(function_space)
-
-    @property
-    def topological(self):
-        r"""The underlying coordinateless function."""
-        return self._data
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_copy
@@ -293,24 +143,30 @@ class Function(ufl.Coefficient, FunctionMixin):
             default, then the new :class:`Function` will share the dof
             values.
         """
-        val = self.topological.copy(deepcopy=deepcopy)
-        return type(self)(self.function_space(), val=val)
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
-    def __getattr__(self, name):
-        val = getattr(self._data, name)
-        return val
+    def ufl_id(self):
+        return self.uid
 
-    def __dir__(self):
-        current = super(Function, self).__dir__()
-        return list(OrderedDict.fromkeys(dir(self._data) + current))
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            mpi.decref(self._comm)
 
     @utils.cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.subfunctions))
+        return tuple(
+            type(self)(fs, dat, name=f"{self.name()}[{i}]")
+            for i, (fs, dat) in enumerate(zip(self.function_space(), self.dat))
+        )
 
     @FunctionMixin._ad_annotate_subfunctions
     def split(self):
@@ -320,11 +176,16 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self, )
+        if self.dof_dset.cdim == 1:
+            return (self,)
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
+            return tuple(
+                type(self)(
+                    self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                    name=f"view[{i}]({self.name()})",
+                )
+                for i, j in enumerate(np.ndindex(self.dof_dset.dim))
+            )
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -364,6 +225,59 @@ class Function(ufl.Coefficient, FunctionMixin):
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
+
+    @property
+    def cell_set(self):
+        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
+        :class:`Function` is defined."""
+        return self.function_space()._mesh.cell_set
+
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
+        :class:`Function`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
+        """
+        return self.function_space().node_set
+
+    @property
+    def dof_dset(self):
+        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
+        this :class:`Function`."""
+        return self.function_space().dof_dset
+
+    def cell_node_map(self):
+        return self.function_space().cell_node_map()
+    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
+
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map()
+    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
+
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map()
+    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
+
+    def name(self):
+        r"""Return the name of this :class:`Function`"""
+        return self._name
+
+    def label(self):
+        r"""Return the label (a description) of this :class:`Function`"""
+        return self._label
+
+    def rename(self, name=None, label=None):
+        r"""Set the name and or label of this :class:`Function`
+
+        :arg name: The new name of the `Function` (if not `None`)
+        :arg label: The new label for the `Function` (if not `None`)
+        """
+        if name is not None:
+            self._name = name
+        if label is not None:
+            self._label = label
+
 
     @PETSc.Log.EventDecorator()
     def interpolate(self, expression, subset=None, ad_block_tag=None):

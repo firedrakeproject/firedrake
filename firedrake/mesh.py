@@ -4,7 +4,6 @@ import os
 import sys
 import ufl
 import FIAT
-import weakref
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -843,7 +842,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def mark_entities(self, tf, label_name, label_value):
         """Mark selected entities.
 
-        :arg tf: The :class:`.CoordinatelessFunction` object that marks
+        :arg tf: The :class:`.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
@@ -1277,8 +1276,8 @@ class MeshTopology(AbstractMeshTopology):
                           "pyop2_owned",
                           "pyop2_ghost"):
             raise ValueError(f"Label name {label_name} is reserved")
-        if not isinstance(tf, function.CoordinatelessFunction):
-            raise TypeError(f"tf must be an instance of CoordinatelessFunction: {type(tf)} is not CoordinatelessFunction")
+        if not isinstance(tf, function.Function):
+            raise TypeError(f"tf must be an instance of Function: {type(tf)} is not Function")
         tV = tf.function_space()
         elem = tV.ufl_element()
         if tV.mesh() is not self:
@@ -1735,75 +1734,58 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_global_index
 
 
-class MeshGeometryCargo:
-    """Helper class carrying data for a :class:`MeshGeometry`.
-
-    It is required because it permits Firedrake to have stripped forms
-    that still know that they are on an extruded mesh (for example).
-    """
-
-    def __init__(self, ufl_id):
-        self._ufl_id = ufl_id
-
-    def ufl_id(self):
-        return self._ufl_id
-
-    def init(self, coordinates):
-        """Initialise the cargo.
-
-        This function is separate to __init__ because of the two-step process we have
-        for initialising a :class:`MeshGeometry`.
-        """
-        self.topology = coordinates.function_space().mesh()
-        self.coordinates = coordinates
-        self.geometric_shared_data_cache = defaultdict(dict)
-
-
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
+    def __new__(cls, topology, element, name):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
         uid = utils._new_uid()
         mesh.uid = uid
-        cargo = MeshGeometryCargo(uid)
+        mesh.topology = topology
+        mesh.name = name
         assert isinstance(element, ufl.FiniteElementBase)
-        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
+        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
     @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
+        #FIXME docstring
         """Initialise a mesh geometry from coordinates.
 
         :arg coordinates: a coordinateless function containing the coordinates
         """
-        topology = coordinates.function_space().mesh()
+        from firedrake import Function, FunctionSpace
 
-        # this is codegen information so we attach it to the MeshGeometry rather than its cargo
-        self.extruded = isinstance(topology, ExtrudedMeshTopology)
-        self.variable_layers = self.extruded and topology.variable_layers
+        V = FunctionSpace(self, self.ufl_coordinate_element())
+        coordinates_func = Function(
+            V, val=coordinates, name=_generate_default_mesh_coordinates_name(self.name)
+        )
 
-        # initialise the mesh cargo
-        self.ufl_cargo().init(coordinates)
-
-        # Cache mesh object on the coordinateless coordinates function
-        coordinates._as_mesh_geometry = weakref.ref(self)
+        self._function_space = V
+        self.extruded = isinstance(self.topology, ExtrudedMeshTopology)
+        self.variable_layers = self.extruded and self.topology.variable_layers
+        self._coordinates_function = coordinates_func
+        self._geometric_shared_data_cache = defaultdict(dict)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
+
+    def function_space(self):
+        return self._function_space
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
         this is carried out automatically, however, in some cases (for
         example accessing a property of the mesh directly after
         constructing it) you need to call this manually."""
+        self.topology.init()
         if hasattr(self, '_callback'):
             self._callback(self)
 
-    def _init_topology(self, topology):
+    def _init_topology(self):
         """Initialise the topology.
 
         :arg topology: The :class:`.MeshTopology` object.
@@ -1813,57 +1795,32 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         its topology. We also set the `_callback` attribute that is
         later called to set its coordinates and finalise the initialisation.
         """
-        import firedrake.functionspace as functionspace
-        import firedrake.function as function
-
-        self._topology = topology
+        from firedrake.functionspace import FunctionSpace
 
         def callback(self):
             """Finish initialisation."""
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
-            coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name=_generate_default_mesh_coordinates_name(self.name))
-            self.__init__(coordinates)
+            coordinates_fs = FunctionSpace(self, self.ufl_coordinate_element())
+            coordinates_data = dmcommon.reordered_coords(
+                self.topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                (self.topology.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension())
+            )
+            self.__init__(coordinates_data)
         self._callback = callback
 
     @property
-    def topology(self):
-        """The underlying mesh topology object."""
-        return self.ufl_cargo().topology
-
-    @topology.setter
-    def topology(self, val):
-        self.ufl_cargo().topology = val
+    def topology_dm(self):
+        return self.topology.topology_dm
 
     @property
-    def _topology(self):
-        return self.topology
-
-    @_topology.setter
-    def _topology(self, val):
-        self.topology = val
+    def comm(self):
+        return self.topology.comm
 
     @property
-    def _parent_mesh(self):
-        return self.ufl_cargo()._parent_mesh
-
-    @_parent_mesh.setter
-    def _parent_mesh(self, val):
-        self.ufl_cargo()._parent_mesh = val
-
-    @property
-    def _coordinates(self):
-        return self.ufl_cargo().coordinates
-
-    @property
-    def _geometric_shared_data_cache(self):
-        return self.ufl_cargo().geometric_shared_data_cache
+    def _comm(self):
+        return self.topology._comm
 
     @property
     def topological(self):
@@ -1881,24 +1838,10 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
     @property
     @MeshGeometryMixin._ad_annotate_coordinates_function
-    def _coordinates_function(self):
-        """The :class:`.Function` containing the coordinates of this mesh."""
-        import firedrake.functionspaceimpl as functionspaceimpl
-        import firedrake.function as function
-
-        if hasattr(self.ufl_cargo(), "_coordinates_function"):
-            return self.ufl_cargo()._coordinates_function
-        else:
-            self.init()
-            coordinates_fs = self._coordinates.function_space()
-            V = functionspaceimpl.WithGeometry.create(coordinates_fs, self)
-            f = function.Function(V, val=self._coordinates)
-            self.ufl_cargo()._coordinates_function = f
-            return f
-
-    @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
+        if not hasattr(self, "_coordinates_function"):
+            self.init()
         return self._coordinates_function
 
     @coordinates.setter
@@ -2243,12 +2186,7 @@ values from f.)"""
 
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
-        self._cell_orientations = cell_orientations.topological
-
-    def __getattr__(self, name):
-        val = getattr(self._topology, name)
-        setattr(self, name, val)
-        return val
+        self._cell_orientations = cell_orientations
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
@@ -2272,31 +2210,16 @@ values from f.)"""
 
 
 @PETSc.Log.EventDecorator()
-def make_mesh_from_coordinates(coordinates, name):
+def make_mesh_from_coordinates(topology, coordinates, element, name):
+    #FIXME docstring
     """Given a coordinate field build a new mesh, using said coordinate field.
 
     :arg coordinates: A :class:`~.Function`.
     :arg name: The name of the mesh.
     """
-    if hasattr(coordinates, '_as_mesh_geometry'):
-        mesh = coordinates._as_mesh_geometry()
-        if mesh is not None:
-            return mesh
-
-    V = coordinates.function_space()
-    element = coordinates.ufl_element()
-    if V.rank != 1 or len(element.value_shape()) != 1:
-        raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
-    # Build coordinate element
-    cell = element.cell().reconstruct(geometric_dimension=V.value_size)
-    element = element.reconstruct(cell=cell)
-
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, topology, element, name)
     mesh.__init__(coordinates)
     mesh.name = name
-    # Mark mesh as being made from coordinates
-    mesh._made_from_coordinates = True
     return mesh
 
 
@@ -2308,9 +2231,8 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
     element = ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
-    mesh._init_topology(topology)
-    mesh.name = name
+    mesh = MeshGeometry.__new__(MeshGeometry, topology, element, name)
+    mesh._init_topology()
     return mesh
 
 
@@ -2406,13 +2328,9 @@ def Mesh(meshfile, **kwargs):
             return afile.load_mesh(name=name, reorder=reorder,
                                    distribution_parameters=distribution_parameters)
     elif isinstance(meshfile, function.Function):
-        coordinates = meshfile.topological
-    elif isinstance(meshfile, function.CoordinatelessFunction):
-        coordinates = meshfile
-    else:
-        coordinates = None
-    if coordinates is not None:
-        return make_mesh_from_coordinates(coordinates, name)
+        # I actually think that this API change is acceptable since it's not
+        # even documented
+        raise Exception("can't do this any more")
 
     tolerance = kwargs.get("tolerance", 1.0)
 
@@ -2454,7 +2372,14 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm, tolerance=tolerance)
-    mesh = make_mesh_from_mesh_topology(topology, name)
+
+    #TODO document
+    coordinates = kwargs.get("coordinates", None)
+    coordinate_element = kwargs.get("coordinate_element", None)
+    if coordinates is None:
+        mesh = make_mesh_from_mesh_topology(topology, name)
+    else:
+        mesh = make_mesh_from_coordinates(topology, coordinates, coordinate_element, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         # Adding Netgen mesh and inverse sfBC as attributes
         mesh.netgen_mesh = meshfile
@@ -2608,7 +2533,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
-    helement = mesh._coordinates.ufl_element().sub_elements()[0]
+    helement = mesh.coordinates.ufl_element().sub_elements()[0]
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
@@ -2619,22 +2544,21 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
-    coordinates = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
+    coords_element = ufl.VectorElement(element, gdim)
+    coords_name = _generate_default_mesh_coordinates_name(name)
+    ext_coords = eutils.make_extruded_coords(topology, coords_element, mesh.coordinates,
+                                layer_height, coords_name, gdim, extrusion_type=extrusion_type, kernel=kernel)
 
-    eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
-                                layer_height, extrusion_type=extrusion_type, kernel=kernel)
-
-    self = make_mesh_from_coordinates(coordinates, name)
+    self = make_mesh_from_coordinates(topology, ext_coords, coords_element, name)
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        helement = mesh.coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
         element = ufl.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
-        eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
+        eutils.make_extruded_coords(topology, mesh.coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)
 
     return self

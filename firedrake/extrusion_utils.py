@@ -16,8 +16,8 @@ from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
-def make_extruded_coords(extruded_topology, base_coords, ext_coords,
-                         layer_height, extrusion_type='uniform', kernel=None):
+def make_extruded_coords(extruded_topology, coordinate_element, base_coords,
+                         layer_height, ext_coords_name, gdim, extrusion_type='uniform', kernel=None):
     """
     Given either a kernel or a (fixed) layer_height, compute an
     extruded coordinate field for an extruded mesh.
@@ -50,7 +50,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the fixed layer
     height, and the current cell layer.
     """
-    _, vert_space = ext_coords.function_space().ufl_element().sub_elements()[0].sub_elements()
+    from firedrake.functionspacedata import get_shared_data
+
+    _, vert_space = coordinate_element.sub_elements()[0].sub_elements()
     if kernel is None and not (vert_space.degree() == 1
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
@@ -67,15 +69,18 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     layer_heights = layer_height.size
     layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology._comm)
 
+    sdata = get_shared_data(extruded_topology, coordinate_element)
+    ext_coords = op2.Dat(op2.DataSet(sdata.node_set, gdim), name=ext_coords_name)
+
     if kernel is not None:
         op2.ParLoop(kernel,
-                    ext_coords.cell_set,
-                    ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                    extruded_topology.cell_set,
+                    ext_coords(op2.WRITE, sdata.cell_node_map()),
                     base_coords.dat(op2.READ, base_coords.cell_node_map()),
                     layer_height(op2.READ),
                     pass_layer_arg=True).compute()
         return
-    ext_fe = create_element(ext_coords.ufl_element())
+    ext_fe = create_element(coordinate_element)
     ext_shape = ext_fe.index_shape
     base_fe = create_element(base_coords.ufl_element())
     base_shape = base_fe.index_shape
@@ -223,8 +228,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     kernel = op2.Kernel(ast, name)
     op2.ParLoop(kernel,
-                ext_coords.cell_set,
-                ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                extruded_topology.cell_set,
+                ext_coords(op2.WRITE, sdata.cell_node_map()),
                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
                 layer_height(op2.READ),
                 pass_layer_arg=True).compute()

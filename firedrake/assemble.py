@@ -17,7 +17,7 @@ from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.functionspaceimpl import WithGeometry, FunctionSpace
+from firedrake.functionspaceimpl import AbstractFunctionSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
@@ -798,8 +798,8 @@ class _GlobalKernelBuilder:
                              "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
         iteration_region = iteration_regions.get(self._integral_type, None)
         extruded = self._mesh.extruded
-        extruded_periodic = self._mesh.extruded_periodic
-        constant_layers = extruded and not self._mesh.variable_layers
+        extruded_periodic = self._mesh.topology.extruded_periodic
+        constant_layers = extruded and not self._mesh.topology.variable_layers
 
         return op2.GlobalKernel(self._kinfo.kernel,
                                 kernel_args,
@@ -868,7 +868,7 @@ class _GlobalKernelBuilder:
                 offset += offset
         else:
             offset = None
-        if self._mesh.extruded_periodic:
+        if self._mesh.topology.extruded_periodic:
             offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
             if offset_quotient is not None:
                 offset_quotient = tuple(offset_quotient)
@@ -1103,12 +1103,12 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._mesh.measure_set(self._integral_type, self._kinfo.subdomain_id,
+            return self._mesh.topology.measure_set(self._integral_type, self._kinfo.subdomain_id,
                                           self._all_integer_subdomain_ids)
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, (WithGeometry, FunctionSpace))
+        assert isinstance(V, AbstractFunctionSpace)
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:

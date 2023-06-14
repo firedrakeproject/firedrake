@@ -4,9 +4,10 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
+import abc
+import collections
 from collections import OrderedDict
-from dataclasses import dataclass
-from typing import Optional
+import numbers
 
 import numpy
 
@@ -16,94 +17,141 @@ from pyop2 import op2, mpi
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
 
 
-class WithGeometry(ufl.FunctionSpace):
-    r"""Attach geometric information to a :class:`~.FunctionSpace`.
+class AbstractFunctionSpace(ufl.FunctionSpace, abc.ABC, collections.abc.Sized, collections.abc.Iterable):
+    r"""A function space.
 
-    Function spaces on meshes with different geometry but the same
-    topology can share data, except for their UFL cell.  This class
-    facilitates that.
+    A :class:`FunctionSpace` associates degrees of freedom with
+    topological mesh entities.  The degree of freedom mapping is
+    determined from the provided element.
 
-    Users should not instantiate a :class:`WithGeometry` object
-    explicitly except in a small number of cases.
+    :arg mesh: The :func:`~.Mesh` to build the function space on.
+    :arg element: The :class:`~ufl.classes.FiniteElementBase` describing the
+        degrees of freedom.
+    :kwarg name: An optional name for this :class:`FunctionSpace`,
+        useful for later identification.
 
-    When instantiating a :class:`WithGeometry`, users should call
-    :meth:`WithGeometry.create` rather than ``__init__``.
+    The element can be a essentially any
+    :class:`~ufl.classes.FiniteElementBase`, except for a
+    :class:`~ufl.classes.MixedElement`, for which one should use the
+    :class:`MixedFunctionSpace` constructor.
+
+    To determine whether the space is scalar-, vector- or
+    tensor-valued, one should inspect the :attr:`rank` of the
+    resulting object.  Note that function spaces created on
+    *intrinsically* vector-valued finite elements (such as the
+    Raviart-Thomas space) have ``rank`` 0.
+
+    .. warning::
+
+       Users should not build a :class:`FunctionSpace` directly, instead
+       they should use the utility :func:`~.FunctionSpace` function,
+       which provides extra error checking and argument sanitising.
+
 
     :arg mesh: The mesh with geometric information to use.
     :arg element: The UFL element.
     :arg component: The component of this space in a parent vector
         element space, or ``None``.
-    :arg cargo: :class:`FunctionSpaceCargo` instance carrying
-        Firedrake-specific data that is not required for code
-        generation.
     """
-    def __init__(self, mesh, element, component=None, cargo=None):
-        assert component is None or isinstance(component, int)
-        assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
+    #FIXME docstring
+    def __init__(self, mesh, element, component=None, parent=None, name=None):
+        if not isinstance(mesh, MeshGeometry):
+            raise TypeError("Mesh must be of type MeshGeometry")
+
+        if component is not None and not isinstance(component, numbers.Integral):
+            raise TypeError("component must either be None or an integer")
+        if type(element) is ufl.MixedElement:
+            raise ValueError("Can't create FunctionSpace for MixedElement")
 
         super().__init__(mesh, element)
         self.component = component
-        self.cargo = cargo
+        self.parent = parent
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm)
+
+        sdata = get_shared_data(mesh.topology, element)
+
+        self._shared_data = sdata
+        self._mesh = mesh
+
+        self.value_size = int(numpy.prod(self.shape, dtype=int))
+        r"""The total number of degrees of freedom at each function
+        space node."""
+        self.name = name
+        r"""The (optional) descriptive name for this space."""
+
+        # Need to create finat element again as sdata does not
+        # want to carry finat_element.
+        self.finat_element = create_element(element)
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
 
     def __del__(self):
         if hasattr(self, "_comm"):
             mpi.decref(self._comm)
 
-    @classmethod
-    def create(cls, function_space, mesh):
-        """Create a :class:`WithGeometry`.
+    # These properties are overridden in ProxyFunctionSpaces, but are
+    # provided by FunctionSpace so that we don't have to special case.
+    index = None
+    r"""The position of this space in its parent
+    :class:`MixedFunctionSpace`, or ``None``."""
 
-        :arg function_space: The topological function space to attach
-            geometry to.
-        :arg mesh: The mesh with geometric information to use.
-        """
-        function_space = function_space.topological
-        assert mesh.topology is function_space.mesh()
-        assert mesh.topology is not mesh
+    parent = None
+    r"""The parent space if this space was extracted from one, or ``None``."""
 
-        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
+    component = None
+    r"""The component of this space in its parent VectorElement space, or
+    ``None``."""
 
-        topological = function_space
-        component = function_space.component
+    @property
+    def node_set(self):
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        return self._shared_data.node_set
 
-        if function_space.parent is not None:
-            parent = WithGeometry.create(function_space.parent, mesh)
-        else:
-            parent = None
+    @property
+    def dof_dset(self):
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        return self._shared_data.dof_dset
 
-        cargo = FunctionSpaceCargo(topological, parent)
-        return cls(mesh, element, component=component, cargo=cargo)
+    @property
+    def cell_boundary_masks(self):
+        return self._shared_data.cell_boundary_masks
+
+    @property
+    def interior_facet_boundary_masks(self):
+        return self._shared_data.interior_facet_boundary_masks
+
+    @property
+    def shape(self):
+        return self._shared_data.shape
+
+    @property
+    def rank(self):
+        r"""The rank of this :class:`FunctionSpace`.  Spaces where the
+        element is scalar-valued (or intrinsically vector-valued) have
+        rank zero.  Spaces built on :class:`~ufl.classes.VectorElement` or
+        :class:`~ufl.classes.TensorElement` instances have rank equivalent to
+        the number of components of their
+        :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
+        return len(self.shape)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.component,
                 super()._ufl_signature_data_(*args, **kwargs))
 
-    @property
-    def parent(self):
-        return self.cargo.parent
-
-    @parent.setter
-    def parent(self, val):
-        self.cargo.parent = val
-
-    @property
-    def topological(self):
-        return self.cargo.topological
-
-    @topological.setter
-    def topological(self, val):
-        self.cargo.topological = val
-
     @utils.cached_property
     def subfunctions(self):
-        r"""Split into a tuple of constituent spaces."""
-        return tuple(WithGeometry.create(subspace, self.mesh())
-                     for subspace in self.topological.subfunctions)
+        """Split into a tuple of constituent spaces."""
+        return (self,)
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -128,8 +176,7 @@ class WithGeometry(ufl.FunctionSpace):
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
-            return tuple(WithGeometry.create(self.topological.sub(i), self.mesh())
-                         for i in range(self.value_size))
+            return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
         else:
             return self.subfunctions
 
@@ -249,29 +296,25 @@ class WithGeometry(ufl.FunctionSpace):
         cache[function] = False
 
     def __eq__(self, other):
-        try:
-            return self.topological == other.topological and \
-                self.mesh() is other.mesh()
-        except AttributeError:
+        if not isinstance(other, FunctionSpace):
             return False
+        # FIXME: Think harder about equality
+        return self.mesh() is other.mesh() and \
+            self.dof_dset is other.dof_dset and \
+            self.ufl_element() == other.ufl_element() and \
+            self.component == other.component
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        return not self == other
 
     def __hash__(self):
-        return hash((self.mesh(), self.topological))
-
-    def __len__(self):
-        return len(self.topological)
+        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
 
     def __repr__(self):
-        return "WithGeometry(%r, %r)" % (self.topological, self.mesh())
+        return f"FunctionSpace({self.mesh()!r}, {self.ufl_element()!r}, name={self.name!r})"
 
     def __str__(self):
-        return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
-
-    def __iter__(self):
-        return iter(self.subfunctions)
+        return f"FunctionSpace({self.mesh()}, {self.ufl_element()}, name={self.name})"
 
     def __getitem__(self, i):
         return self.subfunctions[i]
@@ -281,15 +324,6 @@ class WithGeometry(ufl.FunctionSpace):
         :class:`.FunctionSpace` and other"""
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
-
-    def __getattr__(self, name):
-        val = getattr(self.topological, name)
-        setattr(self, name, val)
-        return val
-
-    def __dir__(self):
-        current = super(WithGeometry, self).__dir__()
-        return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.WithGeometry`.
@@ -305,147 +339,8 @@ class WithGeometry(ufl.FunctionSpace):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     def collapse(self):
-        return type(self).create(self.topological.collapse(), self.mesh())
-
-
-class FunctionSpace(object):
-    r"""A representation of a function space.
-
-    A :class:`FunctionSpace` associates degrees of freedom with
-    topological mesh entities.  The degree of freedom mapping is
-    determined from the provided element.
-
-    :arg mesh: The :func:`~.Mesh` to build the function space on.
-    :arg element: The :class:`~ufl.classes.FiniteElementBase` describing the
-        degrees of freedom.
-    :kwarg name: An optional name for this :class:`FunctionSpace`,
-        useful for later identification.
-
-    The element can be a essentially any
-    :class:`~ufl.classes.FiniteElementBase`, except for a
-    :class:`~ufl.classes.MixedElement`, for which one should use the
-    :class:`MixedFunctionSpace` constructor.
-
-    To determine whether the space is scalar-, vector- or
-    tensor-valued, one should inspect the :attr:`rank` of the
-    resulting object.  Note that function spaces created on
-    *intrinsically* vector-valued finite elements (such as the
-    Raviart-Thomas space) have ``rank`` 0.
-
-    .. warning::
-
-       Users should not build a :class:`FunctionSpace` directly, instead
-       they should use the utility :func:`~.FunctionSpace` function,
-       which provides extra error checking and argument sanitising.
-
-    """
-    @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None):
-        super(FunctionSpace, self).__init__()
-        if type(element) is ufl.MixedElement:
-            raise ValueError("Can't create FunctionSpace for MixedElement")
-        sdata = get_shared_data(mesh, element)
-        # The function space shape is the number of dofs per node,
-        # hence it is not always the value_shape.  Vector and Tensor
-        # element modifiers *must* live on the outside!
-        if type(element) in {ufl.TensorElement, ufl.VectorElement} \
-           or (isinstance(element, ufl.WithMapping)
-               and type(element.wrapee) in {ufl.TensorElement, ufl.VectorElement}):
-            # The number of "free" dofs is given by reference_value_shape,
-            # not value_shape due to symmetry specifications
-            rvs = element.reference_value_shape()
-            # This requires that the sub element is not itself a
-            # tensor element (which is checked by the top level
-            # constructor of function spaces)
-            shape_element = element
-            if isinstance(element, ufl.WithMapping):
-                shape_element = element.wrapee
-            sub = shape_element.sub_elements()[0].value_shape()
-            self.shape = rvs[:len(rvs) - len(sub)]
-        else:
-            self.shape = ()
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._shared_data = sdata
-        self._mesh = mesh
-
-        self.rank = len(self.shape)
-        r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-        element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`~ufl.classes.VectorElement` or
-        :class:`~ufl.classes.TensorElement` instances have rank equivalent to
-        the number of components of their
-        :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
-
-        self.value_size = int(numpy.prod(self.shape, dtype=int))
-        r"""The total number of degrees of freedom at each function
-        space node."""
-        self.name = name
-        r"""The (optional) descriptive name for this space."""
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-
-        # User comm
-        self.comm = mesh.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
-        # Need to create finat element again as sdata does not
-        # want to carry finat_element.
-        self.finat_element = create_element(element)
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
-
-    # These properties are overridden in ProxyFunctionSpaces, but are
-    # provided by FunctionSpace so that we don't have to special case.
-    index = None
-    r"""The position of this space in its parent
-    :class:`MixedFunctionSpace`, or ``None``."""
-
-    parent = None
-    r"""The parent space if this space was extracted from one, or ``None``."""
-
-    component = None
-    r"""The component of this space in its parent VectorElement space, or
-    ``None``."""
-
-    def __eq__(self, other):
-        if not isinstance(other, FunctionSpace):
-            return False
-        # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
-            self.dof_dset is other.dof_dset and \
-            self.ufl_element() == other.ufl_element() and \
-            self.component == other.component
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
-
-    @utils.cached_property
-    def _ad_parent_space(self):
-        return self.parent
-
-    @utils.cached_property
-    def dm(self):
-        r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
+        from firedrake import FunctionSpace
+        return FunctionSpace(self.mesh(), self.ufl_element())
 
     def _dm(self):
         from firedrake.mg.utils import get_level
@@ -459,29 +354,35 @@ class FunctionSpace(object):
         return dm
 
     @utils.cached_property
-    def _ises(self):
-        return self.dof_dset.field_ises
-
-    @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
     @utils.cached_property
-    def topological(self):
-        r"""Function space on a mesh topology."""
-        return self
+    def _ises(self):
+        return self.dof_dset.field_ises
 
-    def mesh(self):
-        return self._mesh
+    @property
+    @abc.abstractmethod
+    def node_count(self):
+        pass
 
-    def ufl_element(self):
-        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
-        return self.ufl_function_space().ufl_element()
+    @property
+    @abc.abstractmethod
+    def dof_count(self):
+        pass
 
-    def ufl_function_space(self):
-        r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
-        return self._ufl_function_space
+    @property
+    @abc.abstractmethod
+    def dim(self):
+        pass
+
+    @abc.abstractmethod
+    def make_dat(self, *args, **kwargs):
+        pass
+
+
+class FunctionSpace(AbstractFunctionSpace):
 
     def __len__(self):
         return 1
@@ -489,35 +390,11 @@ class FunctionSpace(object):
     def __iter__(self):
         yield self
 
-    def __repr__(self):
-        return "FunctionSpace(%r, %r, name=%r)" % (self.mesh(),
-                                                   self.ufl_element(),
-                                                   self.name)
-
-    def __str__(self):
-        return "FunctionSpace(%s, %s, name=%s)" % (self.mesh(),
-                                                   self.ufl_element(),
-                                                   self.name)
-
-    @utils.cached_property
-    def subfunctions(self):
-        r"""Split into a tuple of constituent spaces."""
-        return (self, )
-
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     def __getitem__(self, i):
         r"""Return the ith subspace."""
         if i != 0:
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
-
-    @utils.cached_property
-    def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
 
     def sub(self, i):
         r"""Return a view into the ith component."""
@@ -558,15 +435,9 @@ class FunctionSpace(object):
         return op2.Dat(self.dof_dset, val, valuetype, name)
 
     def cell_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from cels to
+        r"""Return the :class:`pyop2.types.map.Map` from cells to
         function space nodes."""
-        sdata = self._shared_data
-        return sdata.get_map(self,
-                             self.mesh().cell_set,
-                             self.finat_element.space_dimension(),
-                             "cell_node",
-                             self.offset,
-                             self.offset_quotient)
+        return self._shared_data.cell_node_map(self.name)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
@@ -622,7 +493,7 @@ class FunctionSpace(object):
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
                 fs = fs.parent
-            if fs.topological != self.topological:
+            if fs != self:
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
         unblocked = any(bc.function_space().component is not None
                         for bc in bcs)
@@ -655,12 +526,8 @@ class FunctionSpace(object):
         indices[nodes] = -1
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
-    def collapse(self):
-        from firedrake import FunctionSpace
-        return FunctionSpace(self.mesh(), self.ufl_element())
 
-
-class MixedFunctionSpace(object):
+class MixedFunctionSpace(AbstractFunctionSpace):
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -676,12 +543,12 @@ class MixedFunctionSpace(object):
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None):
-        super(MixedFunctionSpace, self).__init__()
-        self._spaces = tuple(IndexedFunctionSpace(i, s, self)
-                             for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
-                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
+        super(ufl.FunctionSpace, self).__init__(mesh, ufl.MixedElement(*[s.ufl_element() for s in spaces]))
+
+        self._spaces = tuple(
+            IndexedFunctionSpace(i, s, self) for i, s in enumerate(spaces)
+        )
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
@@ -696,18 +563,9 @@ class MixedFunctionSpace(object):
     def mesh(self):
         return self._mesh
 
-    @property
-    def topological(self):
-        r"""Function space on a mesh topology."""
-        return self
-
-    def ufl_element(self):
-        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
-        return self.ufl_function_space().ufl_element()
-
     def ufl_function_space(self):
         r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
-        return self._ufl_function_space
+        return self
 
     def __eq__(self, other):
         if not isinstance(other, MixedFunctionSpace) or len(other) != len(self):
@@ -873,14 +731,6 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None):
-        topology = mesh.topology
-        self = super(ProxyFunctionSpace, cls).__new__(cls)
-        if mesh is not topology:
-            return WithGeometry.create(self, mesh)
-        else:
-            return self
-
     def __repr__(self):
         return "%sProxyFunctionSpace(%r, %r, name=%r, index=%r, component=%r)" % \
             (str(self.identifier).capitalize(),
@@ -1036,16 +886,3 @@ class RealFunctionSpace(FunctionSpace):
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
         return None
-
-
-@dataclass
-class FunctionSpaceCargo:
-    """Helper class carrying data for a :class:`WithGeometry`.
-
-    It is required because it permits Firedrake to have stripped forms
-    that still know Firedrake-specific information (e.g. that they are a
-    component of a parent function space).
-    """
-
-    topological: FunctionSpace
-    parent: Optional[WithGeometry]
