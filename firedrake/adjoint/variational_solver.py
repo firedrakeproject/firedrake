@@ -103,8 +103,7 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import NonlinearVariationalProblem
-        from firedrake.function import Function
+        from firedrake import Function, NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 

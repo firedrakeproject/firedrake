@@ -109,7 +109,7 @@ class LocalLoopyKernelBuilder:
             return tensor.shape
 
     def extent(self, argument):
-        """ Calculation of the value size of a constant or coefficient."""
+        """ Return the value size of a constant or coefficient."""
         if isinstance(argument, Constant):
             return (argument.dat.cdim, )
         else:

@@ -67,7 +67,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             )
 
             dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
-            dat.zero()
 
             domain = ufl.as_domain(domain)
             cell = domain.ufl_cell()
