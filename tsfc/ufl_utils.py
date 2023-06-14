@@ -8,7 +8,7 @@ import ufl
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
-from ufl.algorithms.analysis import extract_arguments
+from ufl.algorithms.analysis import extract_arguments, extract_type
 from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
@@ -25,6 +25,7 @@ from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          MixedElement, MultiIndex, Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.domain import extract_unique_domain
+from ufl.utils.sorting import sorted_by_count
 
 from gem.node import MemoizerArg
 
@@ -61,7 +62,14 @@ def compute_form_data(form,
         do_estimate_degrees=do_estimate_degrees,
         complex_mode=complex_mode
     )
+    constants = extract_firedrake_constants(form)
+    fd.constants = constants
     return fd
+
+
+def extract_firedrake_constants(a):
+    """Build a sorted list of all constants in a"""
+    return sorted_by_count(extract_type(a, TSFCConstantMixin))
 
 
 def one_times(measure):
@@ -467,3 +475,10 @@ def apply_mapping(expression, element, domain):
     if rexpression.ufl_shape != element.reference_value_shape():
         raise ValueError(f"Mismatching reference shapes, got {rexpression.ufl_shape} expected {element.reference_value_shape()}")
     return rexpression
+
+
+class TSFCConstantMixin:
+    """ Mixin class to identify Constants """
+
+    def __init__(self):
+        pass

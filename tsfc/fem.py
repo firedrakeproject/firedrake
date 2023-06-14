@@ -10,16 +10,14 @@ import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
-                         CellFacetJacobian, CellOrientation,
-                         CellOrigin, CellVertices, CellVolume,
-                         Coefficient, FacetArea, FacetCoordinate,
-                         GeometricQuantity, Jacobian, JacobianDeterminant,
-                         NegativeRestricted, QuadratureWeight,
-                         PositiveRestricted, ReferenceCellVolume,
-                         ReferenceCellEdgeVectors,
-                         ReferenceFacetVolume, ReferenceNormal,
-                         SpatialCoordinate)
+from ufl.classes import (
+    Argument, CellCoordinate, CellEdgeVectors, CellFacetJacobian,
+    CellOrientation, CellOrigin, CellVertices, CellVolume, Coefficient,
+    FacetArea, FacetCoordinate, GeometricQuantity, Jacobian,
+    JacobianDeterminant, NegativeRestricted, QuadratureWeight,
+    PositiveRestricted, ReferenceCellVolume, ReferenceCellEdgeVectors,
+    ReferenceFacetVolume, ReferenceNormal, SpatialCoordinate
+)
 from ufl.domain import extract_unique_domain
 
 from FIAT.reference_element import make_affine_mapping
@@ -43,7 +41,7 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
 from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             entity_avg, one_times, simplify_abs,
-                            preprocess_expression)
+                            preprocess_expression, TSFCConstantMixin)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -627,6 +625,16 @@ def translate_argument(terminal, mt, ctx):
         return ffc_rounding(square, ctx.epsilon)
     table = ctx.entity_selector(callback, mt.restriction)
     return gem.ComponentTensor(gem.Indexed(table, argument_multiindex + sigma), sigma)
+
+
+@translate.register(TSFCConstantMixin)
+def translate_constant_value(terminal, mt, ctx):
+    value_size = numpy.prod(terminal.ufl_shape, dtype=int)
+    expression = gem.reshape(
+        gem.Variable(terminal.name, (value_size,)),
+        terminal.ufl_shape
+    )
+    return expression
 
 
 @translate.register(Coefficient)

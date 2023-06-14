@@ -11,7 +11,7 @@ import loopy as lp
 
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
 
 
@@ -172,6 +172,11 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             else:
                 self._coefficient(coefficient, f"w_{i}")
 
+    def set_constants(self, constants):
+        for const in constants:
+            gemexpr = prepare_constant(const)
+            self.constant_map[const] = gemexpr
+
     def set_coefficient_numbers(self, coefficient_numbers):
         """Store the coefficient indices of the original form.
 
@@ -212,6 +217,12 @@ class ExpressionKernelBuilder(KernelBuilderBase):
             # coefficient_map is OrderedDict.
             funarg = self.generate_arg_from_expression(expr)
             args.append(kernel_args.CoefficientKernelArg(funarg))
+
+        # now constants
+        for gemexpr in self.constant_map.values():
+            funarg = self.generate_arg_from_expression(gemexpr)
+            args.append(kernel_args.ConstantKernelArg(funarg))
+
         for name_, shape in self.tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
@@ -322,6 +333,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                     k += 1
                 n += 1
 
+    def set_constants(self, constants):
+        for const in constants:
+            gemexpr = prepare_constant(const)
+            self.constant_map[const] = gemexpr
+
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
@@ -374,6 +390,12 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                 funarg = self.generate_arg_from_expression(expr)
                 args.append(kernel_args.CoefficientKernelArg(funarg))
                 a.append(index)
+
+        # now constants
+        for gemexpr in self.constant_map.values():
+            funarg = self.generate_arg_from_expression(gemexpr)
+            args.append(kernel_args.ConstantKernelArg(funarg))
+
         coefficient_indices = tuple(tuple(v) for v in coefficient_indices.values())
         assert len(coefficient_indices) == len(info.coefficient_numbers)
         if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:

@@ -30,6 +30,10 @@ class CoefficientKernelArg(KernelArg):
     ...
 
 
+class ConstantKernelArg(KernelArg):
+    ...
+
+
 class CellOrientationsKernelArg(KernelArg):
     ...
 

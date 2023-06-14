@@ -17,7 +17,7 @@ import finat
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
-from tsfc.ufl_utils import apply_mapping
+from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
 
 # To handle big forms. The various transformations might need a deeper stack
@@ -142,6 +142,9 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
     builder.set_coefficients(integral_data, form_data)
+    # TODO: We do not want pass constants to kernels that do not need them
+    # so we should attach the constants to integral data instead
+    builder.set_constants(form_data.constants)
     ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
@@ -236,6 +239,9 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         coefficients = [coords_coefficient] + coefficients
         needs_external_coords = True
     builder.set_coefficients(coefficients)
+
+    constants = extract_firedrake_constants(expression)
+    builder.set_constants(constants)
 
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
