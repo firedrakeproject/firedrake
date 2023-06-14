@@ -223,7 +223,7 @@ def _la_solve(A, x, b, **kwargs):
 
     # Check whether solution is valid
     if not isinstance(x, (function.Function, vector.Vector)):
-        raise TypeError("Provided solution is a '%s', not a Function" % type(x).__name__)
+        raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
