@@ -201,7 +201,6 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
 
     key = (name, utils.tuplify(parameters), split, diagonal)
     try:
-        raise KeyError
         return cache[key]
     except KeyError:
         pass
