@@ -41,8 +41,8 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
             A firedrake function block variable.
         idx : int
             Index associated to the inputs list.
-        prepared : 
-            ....
+        prepared :
+            AAA
 
         Notes
         -----
@@ -55,9 +55,11 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
         firedrake.Function
             Return a firedrake function.
         """
-        if hasattr(block_variable.checkpoint, "other") is False:
+        if not hasattr(block_variable.checkpoint, "other"):
             result = super().recompute_component(inputs, block_variable, idx, prepared)
             return maybe_disk_checkpoint(result)
+        else:
+            return block_variable
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
