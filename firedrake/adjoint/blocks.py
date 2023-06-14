@@ -31,30 +31,6 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        """Recompute component.
-
-        Parameters
-        ----------
-        inputs : list
-            List of firedrake.Function.
-        block_variable : pyadjoint.block_variable
-            A firedrake function block variable.
-        idx : int
-            Index associated to the inputs list.
-        prepared :
-            AAA
-
-        Notes
-        -----
-        Recompute the block_variable function only if the
-        block_variable.checkpoint was not delegated to another
-        firedrake.Function.
-
-        Returns
-        -------
-        firedrake.Function
-            Return a firedrake function.
-        """
         if hasattr(block_variable.checkpoint, "other"):
             return block_variable.checkpoint
         else:
