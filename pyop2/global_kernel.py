@@ -13,7 +13,7 @@ from pyop2 import compilation, mpi
 from pyop2.caching import Cached
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
-from pyop2.types import IterationRegion
+from pyop2.types import IterationRegion, Constant, READ
 from pyop2.utils import cached_property, get_petsc_dir
 
 
@@ -277,13 +277,27 @@ class GlobalKernel(Cached):
             return
 
         if not len(local_kernel.accesses) == len(arguments):
-            raise ValueError("Number of arguments passed to the local "
-                             "and global kernels do not match")
+            raise ValueError(
+                "Number of arguments passed to the local and global kernels"
+                " do not match"
+            )
+
+        if any(
+            isinstance(garg, Constant) and larg.access is not READ
+            for larg, garg in zip(local_kernel.arguments, arguments)
+        ):
+            raise ValueError(
+                "Constants can only ever be read in a parloop, not modified"
+            )
 
         if pass_layer_arg and not extruded:
-            raise ValueError("Cannot request layer argument for non-extruded iteration")
+            raise ValueError(
+                "Cannot request layer argument for non-extruded iteration"
+            )
         if constant_layers and not extruded:
-            raise ValueError("Cannot request constant_layers argument for non-extruded iteration")
+            raise ValueError(
+                "Cannot request constant_layers argument for non-extruded iteration"
+            )
 
         self.local_kernel = local_kernel
         self.arguments = arguments

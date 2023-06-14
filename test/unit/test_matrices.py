@@ -38,6 +38,7 @@ from numpy.testing import assert_allclose
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
+from pyop2.mpi import COMM_WORLD
 
 from petsc4py.PETSc import ScalarType
 
@@ -112,7 +113,7 @@ def coords(dvnodes):
 
 @pytest.fixture
 def g(request):
-    return op2.Global(1, 1.0, np.float64, "g")
+    return op2.Global(1, 1.0, np.float64, "g", comm=COMM_WORLD)
 
 
 @pytest.fixture

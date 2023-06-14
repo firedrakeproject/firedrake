@@ -39,10 +39,10 @@ from pyop2.configuration import configuration
 from pyop2.logger import debug, info, warning, error, critical, set_log_level
 from pyop2.mpi import MPI, COMM_WORLD, collective
 
-from pyop2.types import (
+from pyop2.types import (  # noqa: F401
     Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
     Map, MixedMap, PermutedMap, ComposedMap, Sparsity, Halo,
-    Global, GlobalDataSet,
+    Global, Constant, GlobalDataSet,
     Dat, MixedDat, DatView, Mat
 )
 from pyop2.types import (READ, WRITE, RW, INC, MIN, MAX,

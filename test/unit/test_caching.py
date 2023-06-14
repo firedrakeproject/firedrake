@@ -75,7 +75,7 @@ def dindset2(indset):
 
 @pytest.fixture
 def g():
-    return op2.Global(1, 0, numpy.uint32, "g")
+    return op2.Global(1, 0, numpy.uint32, "g", comm=mpi.COMM_WORLD)
 
 
 @pytest.fixture
@@ -446,7 +446,7 @@ static void swap(unsigned int* x)
         assert len(self.cache) == 2
 
     def test_change_global_dtype_matters(self, iterset, diterset):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=mpi.COMM_WORLD)
         self.cache.clear()
         assert len(self.cache) == 0
 
@@ -456,7 +456,7 @@ static void swap(unsigned int* x)
 
         assert len(self.cache) == 1
 
-        g = op2.Global(1, 0, dtype=numpy.float64)
+        g = op2.Global(1, 0, dtype=numpy.float64, comm=mpi.COMM_WORLD)
         op2.par_loop(k, iterset, g(op2.INC))
 
         assert len(self.cache) == 2

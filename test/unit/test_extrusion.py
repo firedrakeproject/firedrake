@@ -37,6 +37,7 @@ import numpy
 import random
 
 from pyop2 import op2
+from pyop2.mpi import COMM_WORLD
 
 
 def compute_ind_extr(nums,
@@ -338,7 +339,7 @@ class TestExtrusion:
     """
 
     def test_extrusion(self, elements, dat_coords, dat_field, coords_map, field_map):
-        g = op2.Global(1, data=0.0, name='g')
+        g = op2.Global(1, data=0.0, name='g', comm=COMM_WORLD)
         mass = op2.Kernel("""
 static void comp_vol(double A[1], double x[6][2], double y[1])
 {

@@ -426,11 +426,14 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
     def _iop(self, other, op):
         from pyop2.parloop import parloop
-        from pyop2.types.glob import Global
+        from pyop2.types.glob import Global, Constant
 
         globalp = False
         if np.isscalar(other):
             other = Global(1, data=other, comm=self.comm)
+            globalp = True
+        elif isinstance(other, Constant):
+            other = Global(other, comm=self.comm)
             globalp = True
         elif other is not self:
             self._check_shape(other)

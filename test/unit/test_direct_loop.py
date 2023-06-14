@@ -37,6 +37,7 @@ import numpy as np
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
+from pyop2.mpi import COMM_WORLD
 
 nelems = 4096
 
@@ -79,11 +80,11 @@ class TestDirectLoop:
 
     @pytest.fixture
     def g(cls):
-        return op2.Global(1, 0, np.uint32, "g")
+        return op2.Global(1, 0, np.uint32, "g", comm=COMM_WORLD)
 
     @pytest.fixture
     def h(cls):
-        return op2.Global(1, 1, np.uint32, "h")
+        return op2.Global(1, 1, np.uint32, "h", comm=COMM_WORLD)
 
     def test_wo(self, elems, x):
         """Set a Dat to a scalar value with op2.WRITE."""
@@ -96,8 +97,11 @@ class TestDirectLoop:
         """The iterset of the parloop should match the dataset of the direct dat."""
         kernel_wo = """static void wo(unsigned int* x) { *x = 42; }"""
         with pytest.raises(MapValueError):
-            op2.par_loop(op2.Kernel(kernel_wo, "wo"),
-                         op2.Set(elems.size), x(op2.WRITE))
+            op2.par_loop(
+                op2.Kernel(kernel_wo, "wo"),
+                op2.Set(elems.size),
+                x(op2.WRITE)
+            )
 
     def test_rw(self, elems, x):
         """Increment each value of a Dat by one with op2.RW."""

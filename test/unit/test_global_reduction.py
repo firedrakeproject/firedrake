@@ -37,6 +37,7 @@ import numpy
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
+from pyop2.mpi import COMM_WORLD
 
 nelems = 4096
 
@@ -156,7 +157,7 @@ static void k(unsigned int* g, unsigned int* x)
   if ( *x < *g ) *g = *x;
 }
 """
-        g = op2.Global(1, 8, numpy.uint32, "g")
+        g = op2.Global(1, 8, numpy.uint32, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_min, "k"), set,
                      g(op2.MIN),
@@ -170,7 +171,7 @@ static void k(int* g, int* x)
   if ( *x < *g ) *g = *x;
 }
 """
-        g = op2.Global(1, 8, numpy.int32, "g")
+        g = op2.Global(1, 8, numpy.int32, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_min, "k"), set,
                      g(op2.MIN),
@@ -184,7 +185,7 @@ static void k(int* g, int* x)
   if ( *x > *g ) *g = *x;
 }
 """
-        g = op2.Global(1, -42, numpy.int32, "g")
+        g = op2.Global(1, -42, numpy.int32, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_max, "k"), set,
                      g(op2.MAX),
@@ -198,7 +199,7 @@ static void k(float* g, float* x)
   if ( *x < *g ) *g = *x;
 }
 """
-        g = op2.Global(1, -.8, numpy.float32, "g")
+        g = op2.Global(1, -.8, numpy.float32, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_min, "k"), set,
                      g(op2.MIN),
@@ -213,7 +214,7 @@ static void k(float* g, float* x)
   if ( *x > *g ) *g = *x;
 }
 """
-        g = op2.Global(1, -42.8, numpy.float32, "g")
+        g = op2.Global(1, -42.8, numpy.float32, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_max, "k"), set,
                      g(op2.MAX),
@@ -227,7 +228,7 @@ static void k(double* g, double* x)
   if ( *x < *g ) *g = *x;
 }
 """
-        g = op2.Global(1, -.8, numpy.float64, "g")
+        g = op2.Global(1, -.8, numpy.float64, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_min, "k"), set,
                      g(op2.MIN),
@@ -241,7 +242,7 @@ static void k(double* g, double* x)
   if ( *x > *g ) *g = *x;
 }
 """
-        g = op2.Global(1, -42.8, numpy.float64, "g")
+        g = op2.Global(1, -42.8, numpy.float64, "g", comm=COMM_WORLD)
 
         op2.par_loop(op2.Kernel(kernel_max, "k"), set,
                      g(op2.MAX),
@@ -249,7 +250,7 @@ static void k(double* g, double* x)
         assert_allclose(g.data[0], -12.0)
 
     def test_1d_read(self, k1_write_to_dat, set, d1):
-        g = op2.Global(1, 1, dtype=numpy.uint32)
+        g = op2.Global(1, 1, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_write_to_dat, set,
                      d1(op2.WRITE),
                      g(op2.READ))
@@ -257,7 +258,7 @@ static void k(double* g, double* x)
         assert all(d1.data == g.data)
 
     def test_1d_read_no_init(self, k1_write_to_dat, set, d1):
-        g = op2.Global(1, dtype=numpy.uint32)
+        g = op2.Global(1, dtype=numpy.uint32, comm=COMM_WORLD)
         d1.data[:] = 100
         op2.par_loop(k1_write_to_dat, set,
                      d1(op2.WRITE),
@@ -267,7 +268,7 @@ static void k(double* g, double* x)
         assert all(d1.data == 0)
 
     def test_2d_read(self, k2_write_to_dat, set, d1):
-        g = op2.Global(2, (1, 2), dtype=numpy.uint32)
+        g = op2.Global(2, (1, 2), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_write_to_dat, set,
                      d1(op2.WRITE),
                      g(op2.READ))
@@ -275,7 +276,7 @@ static void k(double* g, double* x)
         assert all(d1.data == g.data.sum())
 
     def test_1d_inc(self, k1_inc_to_global, set, d1):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_inc_to_global, set,
                      g(op2.INC),
                      d1(op2.READ))
@@ -283,7 +284,7 @@ static void k(double* g, double* x)
         assert g.data == d1.data.sum()
 
     def test_1d_inc_no_data(self, k1_inc_to_global, set, d1):
-        g = op2.Global(1, dtype=numpy.uint32)
+        g = op2.Global(1, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_inc_to_global, set,
                      g(op2.INC),
                      d1(op2.READ))
@@ -292,7 +293,7 @@ static void k(double* g, double* x)
 
     def test_1d_min_dat_is_min(self, k1_min_to_global, set, d1):
         val = d1.data.min() + 1
-        g = op2.Global(1, val, dtype=numpy.uint32)
+        g = op2.Global(1, val, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_min_to_global, set,
                      g(op2.MIN),
                      d1(op2.READ))
@@ -302,7 +303,7 @@ static void k(double* g, double* x)
     def test_1d_min_global_is_min(self, k1_min_to_global, set, d1):
         d1.data[:] += 10
         val = d1.data.min() - 1
-        g = op2.Global(1, val, dtype=numpy.uint32)
+        g = op2.Global(1, val, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_min_to_global, set,
                      g(op2.MIN),
                      d1(op2.READ))
@@ -310,7 +311,7 @@ static void k(double* g, double* x)
 
     def test_1d_max_dat_is_max(self, k1_max_to_global, set, d1):
         val = d1.data.max() - 1
-        g = op2.Global(1, val, dtype=numpy.uint32)
+        g = op2.Global(1, val, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_max_to_global, set,
                      g(op2.MAX),
                      d1(op2.READ))
@@ -319,7 +320,7 @@ static void k(double* g, double* x)
 
     def test_1d_max_global_is_max(self, k1_max_to_global, set, d1):
         val = d1.data.max() + 1
-        g = op2.Global(1, val, dtype=numpy.uint32)
+        g = op2.Global(1, val, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_max_to_global, set,
                      g(op2.MAX),
                      d1(op2.READ))
@@ -327,7 +328,7 @@ static void k(double* g, double* x)
         assert g.data == val
 
     def test_2d_inc(self, k2_inc_to_global, set, d2):
-        g = op2.Global(2, (0, 0), dtype=numpy.uint32)
+        g = op2.Global(2, (0, 0), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_inc_to_global, set,
                      g(op2.INC),
                      d2(op2.READ))
@@ -338,7 +339,7 @@ static void k(double* g, double* x)
     def test_2d_min_dat_is_min(self, k2_min_to_global, set, d2):
         val_0 = d2.data[:, 0].min() + 1
         val_1 = d2.data[:, 1].min() + 1
-        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_min_to_global, set,
                      g(op2.MIN),
                      d2(op2.READ))
@@ -351,7 +352,7 @@ static void k(double* g, double* x)
         d2.data[:, 1] += 10
         val_0 = d2.data[:, 0].min() - 1
         val_1 = d2.data[:, 1].min() - 1
-        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_min_to_global, set,
                      g(op2.MIN),
                      d2(op2.READ))
@@ -361,7 +362,7 @@ static void k(double* g, double* x)
     def test_2d_max_dat_is_max(self, k2_max_to_global, set, d2):
         val_0 = d2.data[:, 0].max() - 1
         val_1 = d2.data[:, 1].max() - 1
-        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_max_to_global, set,
                      g(op2.MAX),
                      d2(op2.READ))
@@ -372,7 +373,7 @@ static void k(double* g, double* x)
     def test_2d_max_global_is_max(self, k2_max_to_global, set, d2):
         max_val_0 = d2.data[:, 0].max() + 1
         max_val_1 = d2.data[:, 1].max() + 1
-        g = op2.Global(2, (max_val_0, max_val_1), dtype=numpy.uint32)
+        g = op2.Global(2, (max_val_0, max_val_1), dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k2_max_to_global, set,
                      g(op2.MAX),
                      d2(op2.READ))
@@ -381,7 +382,7 @@ static void k(double* g, double* x)
         assert g.data[1] == max_val_1
 
     def test_1d_multi_inc_same_global(self, k1_inc_to_global, set, d1):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_inc_to_global, set,
                      g(op2.INC),
                      d1(op2.READ))
@@ -394,7 +395,7 @@ static void k(double* g, double* x)
         assert g.data == d1.data.sum() * 2
 
     def test_1d_multi_inc_same_global_reset(self, k1_inc_to_global, set, d1):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_inc_to_global, set,
                      g(op2.INC),
                      d1(op2.READ))
@@ -408,8 +409,8 @@ static void k(double* g, double* x)
         assert g.data == d1.data.sum() + 10
 
     def test_1d_multi_inc_diff_global(self, k1_inc_to_global, set, d1):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
-        g2 = op2.Global(1, 10, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
+        g2 = op2.Global(1, 10, dtype=numpy.uint32, comm=COMM_WORLD)
         op2.par_loop(k1_inc_to_global, set,
                      g(op2.INC),
                      d1(op2.READ))
@@ -421,8 +422,8 @@ static void k(double* g, double* x)
         assert g2.data == d1.data.sum() + 10
 
     def test_globals_with_different_types(self, set):
-        g_uint32 = op2.Global(1, [0], numpy.uint32, "g_uint32")
-        g_double = op2.Global(1, [0.0], numpy.float64, "g_double")
+        g_uint32 = op2.Global(1, [0], numpy.uint32, "g_uint32", comm=COMM_WORLD)
+        g_double = op2.Global(1, [0.0], numpy.float64, "g_double", comm=COMM_WORLD)
         k = """static void k(unsigned int* i, double* d) { *i += 1; *d += 1.0f; }"""
         op2.par_loop(op2.Kernel(k, "k"),
                      set,
@@ -432,7 +433,7 @@ static void k(double* g, double* x)
         assert g_uint32.data[0] == set.size
 
     def test_inc_repeated_loop(self, set):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         k = """static void k(unsigned int* g) { *g += 1; }"""
         op2.par_loop(op2.Kernel(k, "k"),
                      set,
@@ -449,7 +450,7 @@ static void k(double* g, double* x)
         assert_allclose(g.data, set.size)
 
     def test_inc_reused_loop(self, set):
-        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         k = """void k(unsigned int* g) { *g += 1; }"""
         loop = op2.ParLoop(op2.Kernel(k, "k"), set, g(op2.INC))
         loop.compute()

@@ -37,6 +37,7 @@ import numpy as np
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
+from pyop2.mpi import COMM_WORLD
 
 
 nelems = 4096
@@ -173,7 +174,7 @@ class TestIndirectLoop:
 
     def test_global_read(self, iterset, x, iterset2indset):
         """Divide a Dat by a Global."""
-        g = op2.Global(1, 2, np.uint32, "g")
+        g = op2.Global(1, 2, np.uint32, "g", comm=COMM_WORLD)
 
         kernel_global_read = "static void global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
 
@@ -185,7 +186,7 @@ class TestIndirectLoop:
 
     def test_global_inc(self, iterset, x, iterset2indset):
         """Increment each value of a Dat by one and a Global at the same time."""
-        g = op2.Global(1, 0, np.uint32, "g")
+        g = op2.Global(1, 0, np.uint32, "g", comm=COMM_WORLD)
 
         kernel_global_inc = """
         static void global_inc(unsigned int *x, unsigned int *inc) {

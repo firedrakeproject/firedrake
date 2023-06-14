@@ -133,6 +133,14 @@ class Set:
         """Set the partition size"""
         self._partition_size = partition_value
 
+    def __hash__(self):
+        """Hash on sizes and name"""
+        return hash((self._sizes, self._name))
+
+    def __eq__(self, other):
+        """Two Sets are the same if they have the same sizes and names."""
+        return self._sizes == other._sizes and self._name == other._name
+
     def __iter__(self):
         """Yield self when iterated over."""
         yield self

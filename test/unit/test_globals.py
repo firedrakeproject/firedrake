@@ -32,11 +32,12 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from pyop2 import op2
+from pyop2.mpi import COMM_WORLD
 
 
 def test_global_operations():
-    g1 = op2.Global(1, data=2.)
-    g2 = op2.Global(1, data=5.)
+    g1 = op2.Global(1, data=2., comm=COMM_WORLD)
+    g2 = op2.Global(1, data=5., comm=COMM_WORLD)
 
     assert (g1 + g2).data == 7.
     assert (g2 - g1).data == 3.
@@ -47,8 +48,8 @@ def test_global_operations():
 
 
 def test_global_dat_version():
-    g1 = op2.Global(1, data=1.)
-    g2 = op2.Global(1, data=2.)
+    g1 = op2.Global(1, data=1., comm=COMM_WORLD)
+    g2 = op2.Global(1, data=2., comm=COMM_WORLD)
 
     assert g1.dat_version == 0
     assert g2.dat_version == 0

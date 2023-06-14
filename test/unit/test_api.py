@@ -40,6 +40,7 @@ import numpy as np
 from numpy.testing import assert_equal
 
 from pyop2 import exceptions, op2
+from pyop2.mpi import COMM_WORLD
 
 
 @pytest.fixture
@@ -180,7 +181,7 @@ def mmat(ms):
 
 @pytest.fixture
 def g():
-    return op2.Global(1, 1)
+    return op2.Global(1, 1, comm=COMM_WORLD)
 
 
 class TestClassAPI:
@@ -240,12 +241,6 @@ class TestSetAPI:
         "The equality test for sets is identity, not attribute equality"
         assert set == set
         assert not set != set
-
-    def test_set_ne(self, set):
-        "Sets with the same attributes should not be equal if not identical."
-        setcopy = op2.Set(set.size, set.name)
-        assert set != setcopy
-        assert not set == setcopy
 
     def test_dset_in_set(self, set, dset):
         "The in operator should indicate compatibility of DataSet and Set"
@@ -1220,67 +1215,67 @@ class TestGlobalAPI:
     def test_global_illegal_dim(self):
         "Global dim should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.Global('illegaldim')
+            op2.Global('illegaldim', comm=COMM_WORLD)
 
     def test_global_illegal_dim_tuple(self):
         "Global dim should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.Global((1, 'illegaldim'))
+            op2.Global((1, 'illegaldim'), comm=COMM_WORLD)
 
     def test_global_illegal_name(self):
         "Global name should be string."
         with pytest.raises(exceptions.NameTypeError):
-            op2.Global(1, 1, name=2)
+            op2.Global(1, 1, name=2, comm=COMM_WORLD)
 
     def test_global_dim(self):
         "Global constructor should create a dim tuple."
-        g = op2.Global(1, 1)
+        g = op2.Global(1, 1, comm=COMM_WORLD)
         assert g.dim == (1,)
 
     def test_global_dim_list(self):
         "Global constructor should create a dim tuple from a list."
-        g = op2.Global([2, 3], [1] * 6)
+        g = op2.Global([2, 3], [1] * 6, comm=COMM_WORLD)
         assert g.dim == (2, 3)
 
     def test_global_float(self):
         "Data type for float data should be numpy.float64."
-        g = op2.Global(1, 1.0)
+        g = op2.Global(1, 1.0, comm=COMM_WORLD)
         assert g.dtype == np.asarray(1.0).dtype
 
     def test_global_int(self):
         "Data type for int data should be numpy.int."
-        g = op2.Global(1, 1)
+        g = op2.Global(1, 1, comm=COMM_WORLD)
         assert g.dtype == np.asarray(1).dtype
 
     def test_global_convert_int_float(self):
         "Explicit float type should override NumPy's default choice of int."
-        g = op2.Global(1, 1, dtype=np.float64)
+        g = op2.Global(1, 1, dtype=np.float64, comm=COMM_WORLD)
         assert g.dtype == np.float64
 
     def test_global_convert_float_int(self):
         "Explicit int type should override NumPy's default choice of float."
-        g = op2.Global(1, 1.5, dtype=np.int64)
+        g = op2.Global(1, 1.5, dtype=np.int64, comm=COMM_WORLD)
         assert g.dtype == np.int64
 
     def test_global_illegal_dtype(self):
         "Illegal data type should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Global(1, 'illegal_type', 'double')
+            op2.Global(1, 'illegal_type', 'double', comm=COMM_WORLD)
 
     @pytest.mark.parametrize("dim", [1, (2, 2)])
     def test_global_illegal_length(self, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Global(dim, [1] * (np.prod(dim) + 1))
+            op2.Global(dim, [1] * (np.prod(dim) + 1), comm=COMM_WORLD)
 
     def test_global_reshape(self):
         "Data should be reshaped according to dim."
-        g = op2.Global((2, 2), [1.0] * 4)
+        g = op2.Global((2, 2), [1.0] * 4, comm=COMM_WORLD)
         assert g.dim == (2, 2) and g.data.shape == (2, 2)
 
     def test_global_properties(self):
         "Data globalructor should correctly set attributes."
-        g = op2.Global((2, 2), [1] * 4, 'double', 'bar')
+        g = op2.Global((2, 2), [1] * 4, 'double', 'bar', comm=COMM_WORLD)
         assert g.dim == (2, 2) and g.dtype == np.float64 and g.name == 'bar' \
             and g.data.sum() == 4
 
@@ -1303,16 +1298,9 @@ class TestGlobalAPI:
         "Global len should be 1."
         assert len(g) == 1
 
-    def test_global_repr(self):
-        "Global repr should produce a Global object when eval'd."
-        from pyop2.op2 import Global  # noqa: needed by eval
-        from numpy import array, dtype  # noqa: needed by eval
-        g = op2.Global(1, 1, 'double')
-        assert isinstance(eval(repr(g)), op2.Global)
-
     def test_global_str(self):
         "Global should have the expected string representation."
-        g = op2.Global(1, 1, 'double')
+        g = op2.Global(1, 1, 'double', comm=COMM_WORLD)
         s = "OP2 Global Argument: %s with dim %s and value %s" \
             % (g.name, g.dim, g.data)
         assert str(g) == s
@@ -1611,8 +1599,11 @@ class TestParLoopAPI:
         rmap, cmap = sparsity.maps[0]
         kernel = op2.Kernel("static void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            op2.par_loop(kernel, set1,
-                         m(op2.INC, (rmap, cmap)))
+            op2.par_loop(
+                kernel,
+                set1,
+                m(op2.INC, (rmap, cmap))
+            )
 
     def test_empty_map_and_iterset(self):
         """If the iterset of the ParLoop is zero-sized, it should not matter if
