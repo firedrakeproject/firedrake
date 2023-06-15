@@ -1,17 +1,15 @@
 # tests/regression/test_helmholtz.py
 
-from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 
 from firedrake import *
 
-cwd = abspath(dirname(__file__))
 
-def evals(n, quadrilateral=False, degree=1, mesh=None):
-    '''We base this test on the 1D Poisson problem with Dirichlet boundary conditions,
-    outlined in part 1 of Daniele Boffi's 'Finite element approximation
-    of eigenvalue problems' Acta Numerica 2010'''
+def evals(n, degree=1, mesh=None):
+    '''We base this test on the 1D Poisson problem with Dirichlet boundary
+    conditions, outlined in part 1 of Daniele Boffi's
+    'Finite element approximation of eigenvalue problems' Acta Numerica 2010'''
     # Create mesh and define function space
     if mesh is None:
         mesh = IntervalMesh(n, 0, pi)
@@ -24,22 +22,25 @@ def evals(n, quadrilateral=False, degree=1, mesh=None):
     # Create eigenproblem with boundary conditions
     bc = DirichletBC(V, 0.0, "on_boundary")
     eigenprob = LinearEigenproblem(a, bcs=bc)
-    
+
     # Create corresponding eigensolver, looking for n eigenvalues
     eigensolver = LinearEigensolver(eigenprob, n)
     ncov = eigensolver.solve()
 
-    # boffi solns 
-    h = pi /n
+    # boffi solns
+    h = pi / n
     true_values = np.zeros(ncov-2)
     estimates = np.zeros(ncov-2)
     for k in range(ncov-2):
         true_val = 6 / h**2
-        true_val *= (1-cos((k+1)*h))/(2+cos((k+1)*h)) # k+1 because we skip the trivial 0 eigenvalue
+        # k+1 because we skip the trivial 0 eigenvalue
+        true_val *= (1-cos((k+1)*h))/(2+cos((k+1)*h))
         true_values[k] = true_val
 
-        estimates[k] = 1/eigensolver.eigenvalue(k).real # takes real part 
-    return sorted(true_values), sorted(estimates) # sort in case order of evals returned differently
+        estimates[k] = 1/eigensolver.eigenvalue(k).real
+    # sort in case order of numerical and analytic values differs.
+    return sorted(true_values), sorted(estimates)
+
 
 @pytest.mark.parametrize(('n', 'quadrilateral', 'degree', 'tolerance'),
                          [(5, False, 1, 1e-13),
@@ -47,5 +48,5 @@ def evals(n, quadrilateral=False, degree=1, mesh=None):
                           (20, False, 1, 1e-13),
                           (30, False, 1, 1e-13)])
 def test_evals_1d(n, quadrilateral, degree, tolerance):
-    true_values, estimates = evals(n, quadrilateral=quadrilateral, degree=degree)
+    true_values, estimates = evals(n, degree=degree)
     assert np.allclose(true_values, estimates, rtol=tolerance)

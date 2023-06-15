@@ -1,18 +1,19 @@
 from firedrake.assemble import assemble
 from firedrake.function import Function
-from firedrake import solving_utils
 from firedrake import utils
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
-from firedrake.logging import warning
+from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
 try:
     from slepc4py import SLEPc
 except ImportError:
-    import sys
-    warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-    sys.exit(0)
+    raise ImportError(
+        "Unable to import SLEPc, eigenvalue computation not possible "
+        "(try firedrake-update --slepc)"
+    )
 __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
+
+
 class LinearEigenproblem():
     r"""Linear eigenvalue problem A(u; v) = lambda * M (u; v)."""
     def __init__(self, A, M=None, bcs=None):
@@ -21,7 +22,7 @@ class LinearEigenproblem():
         :param M: the mass form M(u, v) (optional)
         :param bcs: the boundary conditions (optional)
         """
-        self.A = A  # LHS 
+        self.A = A  # LHS
         args = A.arguments()
         v, u = args[0], args[1]
         if M:
@@ -42,19 +43,15 @@ class LinearEigenproblem():
         r"""Return the function space's distributed mesh associated with self.output_space (a cached property)."""
         return self.output_space.dm
 
-class LinearEigensolver(OptionsManager): 
+
+class LinearEigensolver(OptionsManager):
     r"""Solve a :class:`LinearEigenproblem`."""
-    # DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-    #                            "snes_linesearch_type": "basic"}
 
-    # # Looser default tolerance for KSP inside SNES.
-    DEFAULT_EPS_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy() 
-
-    DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None, 
+    DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None,
                               "st_pc_factor_shift_type": "NONZERO",
                               "eps_type": "krylovschur",
                               "eps_largest_imaginary": None,
-                              "eps_tol":1e-10}  # to change
+                              "eps_tol": 1e-10}
 
     def __init__(self, problem, n_evals, *, options_prefix=None, solver_parameters=None):
         r'''
@@ -65,7 +62,7 @@ class LinearEigensolver(OptionsManager):
         '''
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
-        self._problem = problem 
+        self._problem = problem
         self.n_evals = n_evals
         solver_parameters = flatten_parameters(solver_parameters or {})
         for key in self.DEFAULT_EPS_PARAMETERS:
@@ -73,34 +70,38 @@ class LinearEigensolver(OptionsManager):
             solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
         self.set_from_options(self.es)
-    
+
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
         r = self.es.getConvergedReason()
         try:
             reason = SLEPc.EPS.ConvergedReasons[r]
         except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -eps_converged_reason"
+            reason = ("unknown reason (petsc4py enum incomplete?), "
+                      "try with -eps_converged_reason")
         if r < 0:
-            raise ConvergenceError(r"""Eigenproblem failed to converge after %d iterations.
+            raise ConvergenceError(
+                r"""Eigenproblem failed to converge after %d iterations.
         Reason:
-        %s""" % (self.es.getIterationNumber(), reason))
+        %s""" % (self.es.getIterationNumber(), reason)
+            )
 
     def solve(self):
         r"""Solve the eigenproblem, return the number of converged eigenvalues."""
-        if self._problem.bcs is None: # Neumann BCs 
+        if self._problem.bcs is None:  # Neumann BCs
             self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
-            self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs).M.handle 
+            self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs).M.handle
         else:  # Dirichlet BCs - in this case we are solving Mu = lambda Au, so the eigenvalue needs to be inverted
             self.A_mat = assemble(self._problem.M, bcs=self._problem.bcs, weight=0.).M.handle
             self.M_mat = assemble(self._problem.A, bcs=self._problem.bcs, weight=1.).M.handle
         self.es.setOperators(self.A_mat, self.M_mat)
-        self.es.setDimensions(nev=self.n_evals,ncv=2*self.n_evals)  # SLEPc recommended params
+        # SLEPc recommended params
+        self.es.setDimensions(nev=self.n_evals, ncv=2*self.n_evals)
         with self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
-            raise ConvergenceError("Did not converge any eigenvalues.") 
+            raise ConvergenceError("Did not converge any eigenvalues.")
         return nconv
 
     def eigenvalue(self, i):
