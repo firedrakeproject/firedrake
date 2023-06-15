@@ -2040,7 +2040,7 @@ values from f.)"""
         # find points on the mesh within tolerance.
 
         # Note that getattr doesn't work here due to the inheritance games that
-        # are going on in getattr.
+        # are going on in getattr.
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
