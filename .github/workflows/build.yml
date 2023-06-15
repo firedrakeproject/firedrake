@@ -8,11 +8,13 @@ on:
   pull_request:
   schedule:
     - cron: '0 0 * * 0'
-    - cron: '0 0 1 * *' # Monthly release
+    - cron: '0 0 1 * *'  # Monthly release
 
 concurrency:
   # Cancels jobs running if new commits are pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -31,12 +33,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-         - scalar-type: real
-           complex: ""
-           petsc_arch: default
-         - scalar-type: complex
-           complex: --complex
-           petsc_arch: complex
+          - scalar-type: real
+            complex: ""
+            petsc_arch: default
+          - scalar-type: complex
+            complex: --complex
+            petsc_arch: complex
     env:
       # PETSC_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
@@ -80,7 +82,8 @@ jobs:
         run: |
           . ../firedrake_venv/bin/activate
           python $(which firedrake-clean)
-          python -m pip install pytest-cov pytest-timeout pytest-xdist pytest-timeout
+          python -m pip install \
+            pytest-cov pytest-timeout pytest-xdist pytest-timeout
           python -m pip list
       - name: Test Firedrake
         run: |
