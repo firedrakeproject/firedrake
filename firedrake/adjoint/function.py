@@ -6,25 +6,7 @@ from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_
 from firedrake.adjoint.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
-    CheckpointBase, checkpoint_init_data
-
-
-class DelegatedFunctionCheckpoint(CheckpointBase):
-    """A wrapper which delegates the checkpoint of this Function to another Function.
-
-    This enables us to avoid checkpointing a Function twice when it is copied.
-
-    Parameters
-    ----------
-    other: BlockVariable
-        The block variable to which we delegate checkpointing.
-    """
-    def __init__(self, other):
-        self.other = other
-
-    def restore(self):
-        return self.other.saved_output
-
+    CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
 
 class FunctionMixin(FloatingType):
 
