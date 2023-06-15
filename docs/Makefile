@@ -49,9 +49,9 @@ publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
 validate-bibtex:
-	firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
-	firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
-	firedrake-preprocess-bibtex --validate source/_static/references.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/references.bib
 
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
