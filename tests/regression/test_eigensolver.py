@@ -42,11 +42,11 @@ def evals(n, degree=1, mesh=None):
     return sorted(true_values), sorted(estimates)
 
 
-@pytest.mark.parametrize(('n', 'quadrilateral', 'degree', 'tolerance'),
-                         [(5, False, 1, 1e-13),
-                          (10, False, 1, 1e-13),
-                          (20, False, 1, 1e-13),
-                          (30, False, 1, 1e-13)])
-def test_evals_1d(n, quadrilateral, degree, tolerance):
+@pytest.mark.parametrize(('n', 'degree', 'tolerance'),
+                         [(5, 1, 1e-13),
+                          (10, 1, 1e-13),
+                          (20, 1, 1e-13),
+                          (30, 1, 1e-13)])
+def test_evals_1d(n, degree, tolerance):
     true_values, estimates = evals(n, degree=degree)
     assert np.allclose(true_values, estimates, rtol=tolerance)
