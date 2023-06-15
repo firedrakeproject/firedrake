@@ -20,6 +20,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: 3.8
+      - name: Setup flake8 annotations
+        uses: rbialon/flake8-annotations@v1
       - name: Install linter
         run: |
           pip install flake8 pylint
