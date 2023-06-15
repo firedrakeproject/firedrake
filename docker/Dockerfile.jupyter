@@ -1,9 +1,6 @@
 # DockerFile for a firedrake + jupyter container
 
-FROM firedrakeproject/firedrake
-
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
+FROM firedrakeproject/firedrake:latest
 
 USER firedrake
 WORKDIR /home/firedrake
@@ -31,4 +28,4 @@ RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in thetis/*.ip
 ENV OMPI_MCA_btl tcp,self
 ENV PATH /home/firedrake/firedrake/bin:$PATH
 
-CMD /home/firedrake/firedrake/bin/jupyter notebook --ip 0.0.0.0 --no-browser --allow-root
+CMD ["/home/firedrake/firedrake/bin/jupyter", "notebook", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
