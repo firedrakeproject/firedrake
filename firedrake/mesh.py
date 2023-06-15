@@ -2037,13 +2037,15 @@ values from f.)"""
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
         # Push max and min out to a hypercube centered at its average so we can
-        # find points on the mesh within tolerance. Note that if tolerance
-        # is not set it will not change the bounding box.
-        if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_mid = (coords_max + coords_min)/2
-            d = np.max(coords_max - coords_min, axis=1)[:, None]
-            coords_min = coords_mid - (self.tolerance + 0.5)*d
-            coords_max = coords_mid + (self.tolerance + 0.5)*d
+        # find points on the mesh within tolerance.
+
+        # Note that getattr doesn't work here due to the inheritance games that
+        # are going on in getattr.
+        tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
+        coords_mid = (coords_max + coords_min)/2
+        d = np.max(coords_max - coords_min, axis=1)[:, None]
+        coords_min = coords_mid - (tolerance + 0.5)*d
+        coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
