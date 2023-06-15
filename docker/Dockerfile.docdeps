@@ -8,13 +8,13 @@ MAINTAINER David Ham <david.ham@imperial.ac.uk>
 USER root
 WORKDIR /home/firedrake
 RUN apt-get update --fix-missing \
-	&& apt-get -y dist-upgrade \
-	&& apt-get -y install inkscape texlive-full \
-	&& rm -rf /var/lib/apt/lists/*
+    && apt-get -y dist-upgrade \
+    && apt-get -y install inkscape texlive-full \
+    && rm -rf /var/lib/apt/lists/*
 
 USER firedrake
 # PETSC_ARCH inherited from firedrakeproject/firedrake-vanilla
 # Now install extra Firedrake components.
 RUN bash -c "source firedrake/bin/activate; \
-	firedrake-update \
-		--documentation-dependencies
+    firedrake-update \
+        --documentation-dependencies
