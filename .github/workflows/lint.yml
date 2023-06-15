@@ -39,3 +39,20 @@ jobs:
       - name: Lint YAML files
         run: |
           yamllint -f github .github/workflows/*.yml
+  docker_linter:
+    name: "Lint dockerfiles"
+    runs-on: ubuntu-latest
+    container:
+      image: hadolint/hadolint:latest-alpine
+      env:
+        HADOLINT_IGNORE: "DL3005,DL3007,DL3008,DL3015,DL3059"
+    steps:
+      - uses: actions/checkout@v3
+      - name: Lint dockerfiles inside hadolint container
+        run: |
+          for DOCKERFILE in docker/Dockerfile.*; \
+            do \
+            echo "    Linting $DOCKERFILE"; \
+            hadolint $DOCKERFILE \
+            || exit 1; \
+          done
