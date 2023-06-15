@@ -23,7 +23,7 @@ jobs:
       - name: Install linter
         run: |
           pip install flake8 pylint
-      - name: Lint
+      - name: Lint codebase
         run: |
           make lint
       - name: Install bibtex linter
@@ -31,7 +31,11 @@ jobs:
           pip install bibtexparser
       - name: Check bibtex
         run: |
-          for bibfile in docs/source/_static/*.bib; do
-              echo "Checking $(basename $bibfile) for validation errors"
-              python3 scripts/firedrake-preprocess-bibtex --validate $bibfile
-          done
+          cd docs
+          make validate-bibtex
+      - name: Install YAML linter
+        run: |
+          pip install yamllint
+      - name: Lint YAML files
+        run: |
+          yamllint -f github .github/workflows/*.yml
