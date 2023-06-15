@@ -14,7 +14,7 @@ def vertex_only_mesh(function, point):
 
 
 @pytest.mark.parametrize("point_eval", [
-    at, 
+    at,
     pytest.param(vertex_only_mesh, marks=pytest.mark.xfail(
         reason="Immersed manifold VertexOnlyMesh not implemented."
     ))
