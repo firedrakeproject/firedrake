@@ -31,7 +31,7 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        """Recompute a function.
+        """Recompute the assignment.
 
         Parameters
         ----------
