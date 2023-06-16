@@ -1,8 +1,5 @@
-# tests/regression/test_helmholtz.py
-
 import numpy as np
 import pytest
-
 from firedrake import *
 
 

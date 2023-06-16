@@ -1,3 +1,4 @@
+"""Specify and solve finite element eigenproblems."""
 from firedrake.assemble import assemble
 from firedrake.function import Function
 from firedrake import utils
@@ -6,22 +7,45 @@ from firedrake.exceptions import ConvergenceError
 try:
     from slepc4py import SLEPc
 except ImportError:
-    raise ImportError(
-        "Unable to import SLEPc, eigenvalue computation not possible "
-        "(try firedrake-update --slepc)"
-    )
+    SLEPc = None
 __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
 
 class LinearEigenproblem():
-    r"""Linear eigenvalue problem A(u; v) = lambda * M (u; v)."""
-    def __init__(self, A, M=None, bcs=None):
-        r"""
-        :param A: the bilinear form A(u, v)
-        :param M: the mass form M(u, v) (optional)
-        :param bcs: the boundary conditions (optional)
-        """
+    """Linear eigenvalue problem
+
+    The problem has the form::
+
+        A(u, v) = λ * M(u, v)
+
+    Parameters
+    ----------
+    A : ufl.Form
+        the bilinear form A(u, v)
+    M : ufl.Form
+        the mass form M(u, v),  defaults to u * v * dx.
+    bcs : DirichletBC or list of DirichletBC
+        the boundary conditions
+    bc_shift: float
+        the value to shift the boundary condition eigenvalues by.
+
+    Notes
+    -----
+
+    If Dirichlet boundary conditions are supplied then these will result in the
+    eigenproblem having a nullspace spanned by the basis functions with support
+    on the boundary. To facilitate solution, this is shifted by the specified
+    amount. It is the user's responsibility to ensure that the shift is not
+    close to an actual eigenvalue of the system.
+    """
+    def __init__(self, A, M=None, bcs=None, bc_shift=666.0):
+        if not SLEPc:
+            raise ImportError(
+                "Unable to import SLEPc, eigenvalue computation not possible "
+                "(try firedrake-update --slepc)"
+            )
+
         self.A = A  # LHS
         args = A.arguments()
         v, u = args[0], args[1]
@@ -32,20 +56,33 @@ class LinearEigenproblem():
             self.M = inner(u, v) * dx
         self.output_space = u.function_space()
         self.bcs = bcs
+        self.bc_shift = bc_shift
 
-    def dirichlet_bcs(self):  # cargo cult
-        r"""Return an iterator over the Dirichlet boundary conditions in self.bcs."""
+    def dirichlet_bcs(self):
+        """Return an iterator over the Dirichlet boundary conditions."""
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
 
     @utils.cached_property
     def dm(self):  # cargo cult
-        r"""Return the function space's distributed mesh associated with self.output_space (a cached property)."""
+        r"""Return the dm associated with the output space."""
         return self.output_space.dm
 
 
 class LinearEigensolver(OptionsManager):
-    r"""Solve a :class:`LinearEigenproblem`."""
+    r"""Solve a LinearEigenproblem.
+
+    Parameters
+    ----------
+    problem : LinearEigenproblem
+        The eigenproblem to solve.
+    n_evals : int
+        The number of eigenvalues to compute.
+    options_prefix : str
+        The options prefix to use for the eigensolver.
+    solver_parameters : dict
+        PETSc options for the eigenvalue problem.
+    """
 
     DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None,
                               "st_pc_factor_shift_type": "NONZERO",
@@ -53,13 +90,8 @@ class LinearEigensolver(OptionsManager):
                               "eps_largest_imaginary": None,
                               "eps_tol": 1e-10}
 
-    def __init__(self, problem, n_evals, *, options_prefix=None, solver_parameters=None):
-        r'''
-        :param problem: :class:`LinearEigenproblem` to solve.
-        :param n_evals: number of eigenvalues to compute.
-        :param options_prefix: options prefix to use for the eigensolver.
-        :param solver_parameters: PETSc options for the eigenvalue problem.
-        '''
+    def __init__(self, problem, n_evals, *, options_prefix=None,
+                 solver_parameters=None):
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
         self._problem = problem
@@ -87,13 +119,17 @@ class LinearEigensolver(OptionsManager):
             )
 
     def solve(self):
-        r"""Solve the eigenproblem, return the number of converged eigenvalues."""
-        if self._problem.bcs is None:  # Neumann BCs
-            self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
-            self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs).M.handle
-        else:  # Dirichlet BCs - in this case we are solving Mu = lambda Au, so the eigenvalue needs to be inverted
-            self.A_mat = assemble(self._problem.M, bcs=self._problem.bcs, weight=0.).M.handle
-            self.M_mat = assemble(self._problem.A, bcs=self._problem.bcs, weight=1.).M.handle
+        r"""Solve the eigenproblem.
+
+        Returns
+        -------
+        int
+            The number of Eigenvalues found.
+        """
+        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
+        self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs,
+                              weight=self._problem.bc_shift).M.handle
+
         self.es.setOperators(self.A_mat, self.M_mat)
         # SLEPc recommended params
         self.es.setDimensions(nev=self.n_evals, ncv=2*self.n_evals)
@@ -105,11 +141,17 @@ class LinearEigensolver(OptionsManager):
         return nconv
 
     def eigenvalue(self, i):
-        r"""Return the `i`th eigenvalue of the solved problem."""
+        r"""Return the i-th eigenvalue of the solved problem."""
         return self.es.getEigenvalue(i)
 
     def eigenfunction(self, i):
-        r"""Return the `i`th eigenfunction of the solved problem."""
+        r"""Return the i-th eigenfunction of the solved problem.
+
+        Returns
+        -------
+        (Function, Function)
+            The real and imaginary parts of the eigenfunction.
+        """
         eigenmodes_real = Function(self._problem.output_space)  # fn of V
         eigenmodes_imag = Function(self._problem.output_space)
         with eigenmodes_real.dat.vec_wo as vr:
