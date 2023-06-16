@@ -30,36 +30,36 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-    def recompute_component(self, inputs, block_variable, idx, prepared):
+    def recompute_component(self, inputs, block_variable, idx, prepared=None):
         """Recompute the assignment.
 
         Parameters
         ----------
-        inputs : list
-            List of class:`~firedrake.Function`.
-        block_variable : pyadjoint.block_variable
+        inputs : list of Function or Constant
+            The variables in the RHS of the assignment.
+        block_variable : pyadjoint.block_variable.BlockVariable
             The output block variable.
         idx : int
             Index associated to the inputs list.
-        prepared : None|:class:`ufl.algebra`
-            It is copied to the output block variable if not ``None``.
+        prepared :
+            The precomputed RHS value.
 
         Notes
         -----
-        Recompute the block_variable only if the
-        checkpoint of the `BlockVariable` was not delegated to another
-        class:`~firedrake.Function`.
+        Recomputes the block_variable only if the checkpoint was not delegated 
+        to another :class:`~firedrake.function.Function`.
 
         Returns
         -------
-        firedrake.function.Function
+        Function
             Return either the firedrake function or `BlockVariable` checkpoint
             to which was delegated the checkpointing.
         """
         if isinstance(block_variable.checkpoint, DelegatedFunctionCheckpoint):
             return block_variable.checkpoint
         else:
-            result = super().recompute_component(inputs, block_variable, idx, prepared)
+            result = super().recompute_component(inputs, block_variable, idx,
+                                                 prepared)
             return maybe_disk_checkpoint(result)
 
 
