@@ -13,7 +13,7 @@ from UFL.
 
 
 Firedrake convenience function
-----------------------------
+------------------------------
 
 Firedrake's first API for evaluating functions at arbitrary points,
 :meth:`~.Function.at`, is designed for simple interrogation of a function with
@@ -101,15 +101,14 @@ in parallel. There is no special API, but there are some restrictions:
 
 
 Primary API: Interpolation onto a vertex-only mesh
-------------------------------------------------------
+--------------------------------------------------
 
 Firedrake's principal API for evaluating functions at arbitrary points,
 interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
-function at many points, or repeatedly, and for creating expressions which contain point
-evaluations. It has been designed from the ground up to be entirely parallel
-compatible. Whilst :meth:`~.Function.at` produces a list of values,
-cross-mesh interpolation onto :func:`~.VertexOnlyMesh` gives Firedrake
-:py:class:`~.Function`\s.
+function at many points, or repeatedly, and for creating expressions which
+contain point evaluations. It is parallel-safe. Whilst :meth:`~.Function.at`
+produces a list of values, cross-mesh interpolation onto
+:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
 the idea is that the :func:`~.VertexOnlyMesh` is a mesh whose that represents a
@@ -124,28 +123,10 @@ evaluation of a function :math:`f` defined in a function space
 :math:`V` on the parent mesh by interpolating into the P0DG space on the
 :func:`~.VertexOnlyMesh`. For example:
 
-.. code-block:: python3
-
-   parent_mesh = UnitSquareMesh(10, 10)
-
-   V = FunctionSpace(parent_mesh, "CG", 2)
-
-   # Create a function f on the parent mesh to point evaluate
-   x, y = SpatialCoordinate(parent_mesh)
-   f = Function(V).interpolate(x**2 + y**2)
-
-   # 3 points (i.e. vertices) at which to point evaluate f
-   points = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
-
-   vom = VertexOnlyMesh(parent_mesh, points)
-
-   # P0DG is the only function space you can make on a vertex-only mesh
-   P0DG = FunctionSpace(vom, "DG", 0)
-
-   # Interpolation performs point evaluation
-   f_at_points = interpolate(f, P0DG)
-
-   print(f_at_points.dat.data)
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 7-26
 
 will print ``[0.02, 0.08, 0.18]``, the values of :math:`x^2 + y^2` at the
 points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and :math:`(0.3, 0.3)`.
@@ -229,24 +210,14 @@ duplication.
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Be default points outside the domain will generate a ``ValueError``. This can
-be switched to a warning or switched off entirely
+Be default points outside the domain  by more than the :ref:`specified
+tolerance <tolerance>` will generate a ``ValueError``. This can be switched
+to a warning or switched off entirely:
 
-.. code-block:: python3
-
-   parent_mesh = UnitSquareMesh(100, 100, quadrilateral = True)
-
-   # point (1.1, 1.0) is outside the mesh
-   points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
-
-   # This will generate a ValueError
-   vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='error')
-
-   # This will generate a warning and the point will be lost
-   vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='warn')
-
-   # This will cause the point to be silently lost
-   vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour=None)
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 31-35,37-44
 
 
 Expressions with point evaluations
@@ -272,23 +243,10 @@ where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
 :math:`\delta` is a dirac delta distribition can therefore be written in
 Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 
-.. code-block:: python3
-
-   omega = parent_mesh
-   f = Function(V)  # assume V is scalar valued for this example
-
-   # assume we already have our list of points where N = len(points)
-
-   # Create a vertex-only mesh at the points
-   vom = VertexOnlyMesh(omega, points)
-
-   # Create a P0DG function space on the vertex-only mesh
-   P0DG = FunctionSpace(vom, "DG", 0)
-
-   # Interpolating f into the P0DG space on the vertex-only mesh evaluates f at
-   # the points
-   expr = assemble(interpolate(f, P0DG)*dx)
-
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 48-62
 
 Interacting with external point data
 ------------------------------------
@@ -321,6 +279,7 @@ We can express this in Firedrake as
    # or equivalently
    error = errornorm(interpolate(f, P0DG), y_pts)
 
+.. _tolerance:
 
 Mesh tolerance
 --------------
