@@ -46,7 +46,7 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
 
         Notes
         -----
-        Recomputes the block_variable only if the checkpoint was not delegated 
+        Recomputes the block_variable only if the checkpoint was not delegated
         to another :class:`~firedrake.function.Function`.
 
         Returns
