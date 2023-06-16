@@ -112,6 +112,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        raise NotImplementedError
         return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
@@ -311,6 +312,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        raise NotImplementedError
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 

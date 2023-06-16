@@ -667,7 +667,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     @utils.cached_property
     def cell_closure_map(self):
         map_data = [
-            np.empty((self.num_cells(), npoints), dtype=IntType)
+            np.empty((self.num_owned_cells, npoints), dtype=IntType)
             for npoints in self.cell_closure_sizes
         ]
         for cell in range(self.num_cells()):
@@ -681,7 +681,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         map_axes = [
             pyop3.AxisTree(
-                pyop3.Axis(self.num_cells(), "mesh", id="root"),
+                pyop3.Axis(self.num_owned_cells, "mesh", id="root"),
                 {
                     "root": pyop3.Axis(clsize),
                 }
@@ -689,26 +689,26 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             for clsize in self.cell_closure_sizes
         ]
         map_arrays = [
-            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim].flatten())
+            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim].flatten(), prefix="map")
             for tdim in range(self.dimension+1)
         ]
 
-        return pyop3.IndexTree(
-            self.cell_set,
-            {
-                self.cell_set.id: pyop3.Index(
-                    [
+        # NOTE: we need to be very careful here about selecting components. The cell_set
+        # Range has label ("mesh", tdim) whereas we always want a 0 here since the map
+        # is only single part.
+        # Aside: could we have a multipart map to achieve contiguous/interleaved storage?
+        p = pyop3.IndexTree(pyop3.Index(pyop3.Range(("mesh", 0), self.num_owned_cells), label=self.cell_set.root.label))
+
+        mapidxs = [
                         pyop3.TabulatedMap(
                             [("mesh", self.dimension)],  # from (cells)
                             [("mesh", tdim)],  # to
                             arity=npoints,
-                            data=map_arrays[tdim][self.cell_set],
+                            data=map_arrays[tdim][p],
                         )
                         for tdim, npoints in enumerate(self.cell_closure_sizes)
-                    ]
-                ),
-            }
-        )
+        ]
+        return self.cell_set.put_node(pyop3.Index(mapidxs), self.cell_set.root)
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
         """Create a PETSc Section describing a function space.
@@ -1069,7 +1069,10 @@ class MeshTopology(AbstractMeshTopology):
             # there are lots of parameters that can change distributions.
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
-            if reorder:
+
+            #debug: does this fix things for me?
+            # if reorder:
+            if False:
                 with PETSc.Log.Event("Mesh: reorder"):
                     old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
@@ -1288,13 +1291,28 @@ class MeshTopology(AbstractMeshTopology):
         eStart, eEnd = self.topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
+    @property
+    def num_core_cells(self):
+        size = list(self._entity_classes[self.cell_dimension(), :])
+        return size[0]
+
+    @property
+    def num_owned_cells(self):
+        size = list(self._entity_classes[self.cell_dimension(), :])
+        return size[1]
+
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         if not pyop3.utils.is_single_valued(size):
             # fix in parallel
             raise NotImplementedError("TODO PYOP3")
-        return pyop3.Index(pyop3.Range(("mesh", self.dimension), size[0]))
+        return pyop3.IndexTree(
+            pyop3.Index(
+                pyop3.Range(("mesh", self.dimension), self.num_owned_cells),
+                label="cells"
+            )
+        )
 
     @utils.cached_property
     def points(self):

@@ -206,11 +206,11 @@ class Assigner:
             data_ro = operator.attrgetter("data_ro")
 
         # If mixed, loop over individual components
-        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
-                                       *(f.dat.split for f in self._functions)):
-            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
+        for lhs, *funcs in zip(self._assignee.subfunctions,
+                               *(f.subfunctions for f in self._functions)):
+            func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
             rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
+            self._assign_single_dat(lhs.dat, subset_indices, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:

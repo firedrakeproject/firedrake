@@ -18,6 +18,8 @@ def test_function():
     V1 = FunctionSpace(m, 'P', 1)
     V2 = FunctionSpace(m, 'P', 2)
 
+    breakpoint()
+
     f = interpolate(x[0]*x[0], V1)
     g = interpolate(f, V2)
 
