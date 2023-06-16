@@ -41,7 +41,7 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
             The output block variable.
         idx : int
             Index associated to the inputs list.
-        prepared : None|ufl.algebra
+        prepared : None|:class:`ufl.algebra`
             It is copied to the output block variable if not ``None``.
 
         Notes
