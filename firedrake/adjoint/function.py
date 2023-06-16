@@ -8,6 +8,7 @@ import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
 
+
 class FunctionMixin(FloatingType):
 
     @staticmethod

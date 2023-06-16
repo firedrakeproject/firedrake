@@ -32,6 +32,7 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         """Recompute a function.
+
         Parameters
         ----------
         inputs : list
@@ -40,13 +41,15 @@ class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
             The output block variable.
         idx : int
             Index associated to the inputs list.
-        prepared : None|Any
-            It is copied in the output block variable if not ``None``.
+        prepared : None|ufl.algebra
+            It is copied to the output block variable if not ``None``.
+
         Notes
         -----
         Recompute the block_variable only if the
         checkpoint of the `BlockVariable` was not delegated to another
         class:`~firedrake.Function`.
+
         Returns
         -------
         firedrake.function.Function
