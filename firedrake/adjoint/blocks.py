@@ -4,8 +4,7 @@ from pyadjoint.block import Block
 from pyadjoint import stop_annotating
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
-from .checkpointing import maybe_disk_checkpoint
-
+from .checkpointing import maybe_disk_checkpoint, DelegatedFunctionCheckpoint
 import firedrake
 import firedrake.utils as utils
 
@@ -31,9 +30,37 @@ class ConstantAssignBlock(blocks.ConstantAssignBlock, Backend):
 
 
 class FunctionAssignBlock(blocks.FunctionAssignBlock, Backend):
-    def recompute_component(self, inputs, block_variable, idx, prepared):
-        result = super().recompute_component(inputs, block_variable, idx, prepared)
-        return maybe_disk_checkpoint(result)
+    def recompute_component(self, inputs, block_variable, idx, prepared=None):
+        """Recompute the assignment.
+
+        Parameters
+        ----------
+        inputs : list of Function or Constant
+            The variables in the RHS of the assignment.
+        block_variable : pyadjoint.block_variable.BlockVariable
+            The output block variable.
+        idx : int
+            Index associated to the inputs list.
+        prepared :
+            The precomputed RHS value.
+
+        Notes
+        -----
+        Recomputes the block_variable only if the checkpoint was not delegated
+        to another :class:`~firedrake.function.Function`.
+
+        Returns
+        -------
+        Function
+            Return either the firedrake function or `BlockVariable` checkpoint
+            to which was delegated the checkpointing.
+        """
+        if isinstance(block_variable.checkpoint, DelegatedFunctionCheckpoint):
+            return block_variable.checkpoint
+        else:
+            result = super().recompute_component(inputs, block_variable, idx,
+                                                 prepared)
+            return maybe_disk_checkpoint(result)
 
 
 class AssembleBlock(blocks.AssembleBlock, Backend):
