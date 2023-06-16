@@ -404,13 +404,19 @@ class FunctionSpaceData(object):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element):
+        #FIXME PYOP3 I don't want to be using this class. DoF stuff is getting moved
+        # inside pyop3. Also it seems like giving the plex a numbering and knowing the
+        # FInAT element is sufficient to determine all of this in a much less complex way.
+        assert False
         if type(ufl_element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
         finat_element = create_element(ufl_element)
+        self.finat_element = finat_element
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
+        breakpoint()
         try:
             entity_permutations = finat_element.entity_permutations
         except NotImplementedError:
@@ -420,7 +426,7 @@ class FunctionSpaceData(object):
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct)
         # These are keyed only on nodes per topological entity.
-        global_numbering = get_global_numbering(mesh, key)
+        # global_numbering = get_global_numbering(mesh, key)
         node_set = get_node_set(mesh, key)
 
         edofs_key = entity_dofs_key(entity_dofs)
@@ -443,13 +449,13 @@ class FunctionSpaceData(object):
         else:
             self.offset_quotient = None
 
-        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
+        # self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
         self.extruded = mesh.cell_set._extruded
         self.mesh = mesh
-        self.global_numbering = global_numbering
+        # self.global_numbering = global_numbering
 
     def __eq__(self, other):
         if type(self) is not type(other):

@@ -285,8 +285,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
-    cell_set = target_mesh.cell_set
+    cell_set = target_mesh.topology.cell_set
     if subset is not None:
+        raise NotImplementedError
         assert subset.superset == cell_set
         cell_set = subset
 
@@ -299,14 +300,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     # FIXME: for the runtime unknown point set (for cross-mesh
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
+    kernel = compile_expression(target_mesh._comm, expr, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters,
                                 log=PETSc.Log.isActive())
 
     loop_index = cell_set
     parloop_args = []
 
-    coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
+    coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
@@ -342,16 +343,16 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         copyin = ()
         copyout = ()
 
-    if isinstance(tensor, pyop3.Global):
+    if isinstance(tensor, pyop3.Const):
         parloop_args.append(tensor[...])
     elif isinstance(tensor, pyop3.Dat):
-        parloop_args.append(tensor[V.cell_node_map()])
+        parloop_args.append(tensor[V.cell_closure_map()])
     else:
         raise NotImplementedError
         assert access == pyop3.WRITE  # Other access descriptors not done for Matrices.
-        rows_map = V.cell_node_map()
+        rows_map = V.cell_closure_map()
         Vcol = arguments[0].function_space()
-        columns_map = Vcol.cell_node_map()
+        columns_map = Vcol.cell_closure_map()
         if target_mesh is not source_mesh:
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
@@ -372,19 +373,19 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat[co.cell_node_map()])
+        parloop_args.append(co.dat[co.cell_closure_map()])
     if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(cs.dat[cs.cell_node_map()])
+        parloop_args.append(cs.dat[cs.cell_closure_map()])
 
     for coefficient in coefficients:
         coeff_mesh = extract_unique_domain(coefficient)
         if coeff_mesh is target_mesh or not coeff_mesh:
             # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
             # a Real space
-            coeff_index = coefficient.cell_node_map()
+            coeff_index = coefficient.function_space().cell_closure_map()
         elif coeff_mesh is source_mesh:
-            if coefficient.cell_node_map():
+            if coefficient.cell_closure_map():
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
                 # function space nodes on the source mesh.
@@ -399,7 +400,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             else:
                 # m_ is allowed to be None when interpolating from a Real space,
                 # even in the trans-mesh case.
-                coeff_index = coefficient.cell_node_map()
+                coeff_index = None
         else:
             raise ValueError("Have coefficient with unexpected mesh")
         parloop_args.append(coefficient.dat[coeff_index])
@@ -412,6 +413,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     expression_kernel = pyop3.LoopyKernel(kernel.ast, [access] + [pyop3.READ for _ in parloop_args[1:]])
     parloop = pyop3.loop(loop_index, expression_kernel(*parloop_args))
     if isinstance(tensor, pyop3.Mat):
+        raise NotImplementedError
         return parloop, tensor.assemble
     else:
         return copyin + (parloop,) + copyout

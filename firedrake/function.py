@@ -10,6 +10,7 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
+import pyop3
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -72,7 +73,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+        if isinstance(val, (pyop3.Dat, pyop3.Const)):
             assert val.comm == self._comm
             self.dat = val
         else:

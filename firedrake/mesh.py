@@ -670,41 +670,43 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             np.empty((self.num_cells(), npoints), dtype=IntType)
             for npoints in self.cell_closure_sizes
         ]
-        for cell in self.num_cells():
+        for cell in range(self.num_cells()):
             closure = self.topology_dm.getTransitiveClosure(cell)
+            #FIXME PYOP3 Handle orientations
+            closure_pts, closure_ort = closure
             offset = 0
             for tdim, npoints in enumerate(self.cell_closure_sizes):
-                mapdata_per_entity[tdim][cell] = closure[offset:npoints]
+                map_data[tdim][cell] = closure_pts[offset:offset+npoints]
                 offset += npoints
 
         map_axes = [
             pyop3.AxisTree(
-                self.cell_set,
+                pyop3.Axis(self.num_cells(), "mesh", id="root"),
                 {
-                    self.cell_set.id: pyop3.Index(pyop3.Range(("mesh", tdim), clsize)),
+                    "root": pyop3.Axis(clsize),
                 }
             )
-            for tdim, clsize in enumerate(self.cell_closure_sizes)
+            for clsize in self.cell_closure_sizes
         ]
         map_arrays = [
-            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim])
-            for tdim in range(self.tdim)
+            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim].flatten())
+            for tdim in range(self.dimension+1)
         ]
 
         return pyop3.IndexTree(
             self.cell_set,
             {
-                self.cell_set.id: [
-                    pyop3.Index(
+                self.cell_set.id: pyop3.Index(
+                    [
                         pyop3.TabulatedMap(
-                            [("mesh", 0)],  # from (cells)
+                            [("mesh", self.dimension)],  # from (cells)
                             [("mesh", tdim)],  # to
                             arity=npoints,
-                            data=map_arrays[tdim],
+                            data=map_arrays[tdim][self.cell_set],
                         )
-                    )
-                    for tdim, npoints in enumerate(self.cell_closure_sizes)
-                ]
+                        for tdim, npoints in enumerate(self.cell_closure_sizes)
+                    ]
+                ),
             }
         )
 
@@ -1087,21 +1089,45 @@ class MeshTopology(AbstractMeshTopology):
                                                                        self._entity_classes,
                                                                        reordering)
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-                self._cell_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[0] = 1
-                self._vertex_numbering = self.create_section(entity_dofs)
-                entity_dofs[:] = 0
-                entity_dofs[-2] = 1
-                facet_numbering = self.create_section(entity_dofs)
-                self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
+                # these can all be determined from the axes and are only required
+                # internally for things like map construction (which I also do internally)
+                # entity_dofs = np.zeros(tdim+1, dtype=IntType)
+                # entity_dofs[-1] = 1
+                # self._cell_numbering = self.create_section(entity_dofs)
+                # entity_dofs[:] = 0
+                # entity_dofs[0] = 1
+                # self._vertex_numbering = self.create_section(entity_dofs)
+                # entity_dofs[:] = 0
+                # entity_dofs[-2] = 1
+                # facet_numbering = self.create_section(entity_dofs)
+                # self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
+
+            self.axes = pyop3.AxisTree(
+                pyop3.Axis(
+                    [self.num_entities(d) for d in range(tdim+1)],
+                    permutation=self._plex_renumbering.indices,
+                    label="mesh",
+                ),
+            )
+
         self._callback = callback
+
+    @property
+    def plex(self):
+        return self._topology_dm
+
+    @property
+    def dimension(self):
+        return self.plex.getDimension()
 
     def __del__(self):
         if hasattr(self, "_comm"):
             decref(self._comm)
+
+    #NB PYOP3 this class will eventually go into pyop3
+    def create_space(self, layout):
+        #TODO PYOP3 this is a natural way to have spaces cached on the mesh
+        return pyop3.Space(self, layout)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1265,7 +1291,22 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self._comm)
+        if not pyop3.utils.is_single_valued(size):
+            # fix in parallel
+            raise NotImplementedError("TODO PYOP3")
+        return pyop3.Index(pyop3.Range(("mesh", self.dimension), size[0]))
+
+    @utils.cached_property
+    def points(self):
+        if not all(pyop3.utils.is_single_valued(vals) for vals in self._entity_classes):
+            #FIXME PYOP3 This doesn't work in parallel yet, inspect
+            # _entity_classes for overlap information
+            raise NotImplementedError("TODO PYOP3 parallel not working yet")
+
+        return pyop3.Axis(
+            [self._entity_classes[tdim][0] for tdim in range(self.cell_dimension() + 1)],
+            "mesh"
+        )
 
     @PETSc.Log.EventDecorator()
     def set_partitioner(self, distribute, partitioner_type=None):
@@ -1720,6 +1761,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
+        raise NotImplementedError
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
@@ -1883,12 +1925,21 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+                                                         (self.topology.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+            # ah yes, coordinateless coordinates
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
             self.__init__(coordinates)
         self._callback = callback
+
+    @property
+    def comm(self):
+        return self.topology.comm
+
+    @property
+    def _comm(self):
+        return self.topology._comm
 
     @property
     def topology(self):
@@ -2303,10 +2354,11 @@ values from f.)"""
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self._cell_orientations = cell_orientations.topological
 
-    def __getattr__(self, name):
-        val = getattr(self._topology, name)
-        setattr(self, name, val)
-        return val
+    # Remove this, this class is moving to pyop3 anyway - code smell
+    # def __getattr__(self, name):
+    #     val = getattr(self._topology, name)
+    #     setattr(self, name, val)
+    #     return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()

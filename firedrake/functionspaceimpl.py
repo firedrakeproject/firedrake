@@ -13,6 +13,7 @@ import numpy
 import ufl
 
 from pyop2 import op2, mpi
+import pyop3
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -308,7 +309,7 @@ class WithGeometry(ufl.FunctionSpace):
         return type(self).create(self.topological.collapse(), self.mesh())
 
 
-class FunctionSpace(object):
+class FunctionSpace:
     r"""A representation of a function space.
 
     A :class:`FunctionSpace` associates degrees of freedom with
@@ -341,10 +342,9 @@ class FunctionSpace(object):
     """
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
-        super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        sdata = get_shared_data(mesh, element)
+
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -365,7 +365,6 @@ class FunctionSpace(object):
         else:
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._shared_data = sdata
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -380,29 +379,31 @@ class FunctionSpace(object):
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name
-        r"""The (optional) descriptive name for this space."""
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
 
         # User comm
         self.comm = mesh.comm
         # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
+        self._comm = mpi.internal_comm(mesh.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+
+        #TODO PYOP3 this calculation is obscure (and I think repeated elsewhere)
+        dof_counts = []
+        for tdim, edofs in self.finat_element.entity_dofs().items():
+            dof_counts.append(pyop3.utils.single_valued(map(len, edofs.values())))
+        layout = [
+            pyop3.ConstrainedAxis(pyop3.Axis(ndof), within_labels={("mesh", tdim)})
+            for tdim, ndof in enumerate(dof_counts)
+        ]
+
+        # possibly add extra shape axis
+        if self.shape:
+            if len(self.shape) > 1:
+                raise NotImplementedError("just need to stack I think")
+            dim = pyop3.utils.just_one(self.shape)
+            layout += [pyop3.ConstrainedAxis(pyop3.Axis(dim))]
+        self.pyop3_space = mesh.create_space(layout)
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -425,8 +426,9 @@ class FunctionSpace(object):
         if not isinstance(other, FunctionSpace):
             return False
         # FIXME: Think harder about equality
+            # don't think I need to include this. This comes from the UFL element
+            # self.dof_dset is other.dof_dset and \
         return self.mesh() is other.mesh() and \
-            self.dof_dset is other.dof_dset and \
             self.ufl_element() == other.ufl_element() and \
             self.component == other.component
 
@@ -443,20 +445,11 @@ class FunctionSpace(object):
     @utils.cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=self._shared_data.global_numbering)
+        space_dm = self.pyop3_space.dm
         # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+        dmhooks.set_function_space(space_dm, self)
+        return space_dm
+
 
     @utils.cached_property
     def _ises(self):
@@ -553,12 +546,12 @@ class FunctionSpace(object):
         return self.dof_dset.layout_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
-        :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name)
+        """Return a new Dat storing DoFs for the function space."""
+        return pyop3.Dat(self.pyop3_space, data=val, dtype=valuetype, name=name)
 
     def cell_closure_map(self):
         """Return a map from cells to cell closures."""
+        return self.mesh().cell_closure_map
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().cell_set,
