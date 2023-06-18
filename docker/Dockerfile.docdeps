@@ -5,20 +5,16 @@ FROM firedrakeproject/firedrake-vanilla:latest
 # This DockerFile is looked after by
 MAINTAINER David Ham <david.ham@imperial.ac.uk>
 
-USER firedrake
+USER root
 WORKDIR /home/firedrake
+RUN apt-get update --fix-missing \
+    && apt-get -y dist-upgrade \
+    && apt-get -y install inkscape texlive-full \
+    && rm -rf /var/lib/apt/lists/*
 
+USER firedrake
 # PETSC_ARCH inherited from firedrakeproject/firedrake-vanilla
-
 # Now install extra Firedrake components.
 RUN bash -c "source firedrake/bin/activate; \
-	firedrake-update \
-		--documentation-dependencies \
-		--netgen \
-		--slepc \
-		--tinyasm \
-		--install femlium \
-		--install gusto \
-		--install icepack \
-		--install irksome \
-		--install thetis"
+    firedrake-update \
+        --documentation-dependencies"

@@ -11,11 +11,3 @@ License for more details.
 You should have received a copy of the GNU Lesser General Public
 License along with Firedrake. If not, see <http://www.gnu.org/licenses/>.
 
-Included packages:
-
-Firedrake includes one third-party package:
-
-- pylit (in source directory pylit)
-
-Please see pylit/README.rst for its license.
-

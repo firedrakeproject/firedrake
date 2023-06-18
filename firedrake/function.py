@@ -10,6 +10,7 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
+from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -420,6 +421,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
+        elif self.ufl_element().family() == "Real":
+            try:
+                self.dat.data_wo[...] = expr
+                return self
+            except (DataTypeError, DataValueError) as e:
+                raise ValueError(e)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
@@ -521,6 +528,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
+        # Shortcut if function space is the R-space
+        if self.ufl_element().family() == "Real":
+            return self.dat.data_ro
+
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)

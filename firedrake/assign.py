@@ -19,6 +19,15 @@ from firedrake.utils import ScalarType, split_by
 from firedrake.vector import Vector
 
 
+def _isconstant(expr):
+    return isinstance(expr, Constant) or \
+        (isinstance(expr, Function) and expr.ufl_element().family() == "Real")
+
+
+def _isfunction(expr):
+    return isinstance(expr, Function) and expr.ufl_element().family() != "Real"
+
+
 class CoefficientCollector(MultiFunction):
     """Multifunction used for converting an expression into a weighted sum of coefficients.
 
@@ -90,6 +99,9 @@ class CoefficientCollector(MultiFunction):
     def coefficient(self, o):
         return ((o, 1),)
 
+    def constant_value(self, o):
+        return ((o, 1),)
+
     def expr(self, o, *operands):
         raise NotImplementedError(f"Handler not defined for {type(o)}")
 
@@ -97,11 +109,11 @@ class CoefficientCollector(MultiFunction):
         """Return ``True`` if the sequence of ``(coefficient, weight)`` can be compressed to
         a single scalar value.
 
-        This is only true when all coefficients are :class:`firedrake.Constant` and have
-        shape ``(1,)``.
+        This is only true when all coefficients are :class:`firedrake.Constant` or
+        are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
+        in both cases ``c.dat.dim`` must have shape ``(1,)``.
         """
-        return all(isinstance(c, Constant) and c.dat.dim == (1,)
-                   for (c, _) in weighted_coefficients)
+        return all(_isconstant(c) and c.dat.dim == (1,) for (c, _) in weighted_coefficients)
 
     def _as_scalar(self, weighted_coefficients):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
@@ -134,7 +146,7 @@ class Assigner:
         expression = as_ufl(expression)
 
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function):
+            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
@@ -206,23 +218,19 @@ class Assigner:
 
     @cached_property
     def _constants(self):
-        return tuple(c for (c, _) in self._weighted_coefficients
-                     if isinstance(c, Constant))
+        return tuple(c for (c, _) in self._weighted_coefficients if _isconstant(c))
 
     @cached_property
     def _constant_weights(self):
-        return tuple(w for (c, w) in self._weighted_coefficients
-                     if isinstance(c, Constant))
+        return tuple(w for (c, w) in self._weighted_coefficients if _isconstant(c))
 
     @cached_property
     def _functions(self):
-        return tuple(c for (c, _) in self._weighted_coefficients
-                     if isinstance(c, Function))
+        return tuple(c for (c, _) in self._weighted_coefficients if _isfunction(c))
 
     @cached_property
     def _function_weights(self):
-        return tuple(w for (c, w) in self._weighted_coefficients
-                     if isinstance(c, Function))
+        return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
     def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
         if assign_to_halos:
