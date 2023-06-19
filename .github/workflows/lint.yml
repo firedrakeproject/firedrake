@@ -37,6 +37,10 @@ jobs:
           make validate-bibtex
   actionlint:
     name: "Lint Github actions YAML files"
+    # There's a way to add error formatting so GH actions adds messages to code,
+    # but I can't work out the right number of quotes to get it to work
+    # https://github.com/rhysd/actionlint/blob/main/docs/usage.md
+    # #example-error-annotation-on-github-actions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

@@ -57,8 +57,10 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+          # Linting should ignore unquoted shell variable $COMPLEX
+          # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
-            "$COMPLEX" \
+            $COMPLEX \
             --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
             --mpicxx="$MPICH_DIR"/mpicxx \
