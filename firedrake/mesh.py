@@ -674,9 +674,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             closure = self.topology_dm.getTransitiveClosure(cell)
             #FIXME PYOP3 Handle orientations
             closure_pts, closure_ort = closure
+            assert len(closure_pts) == sum(self.cell_closure_sizes)
+
+            # the closure is arranged s.t. we get cells -> facets -> edges -> verts
+            # (inverse of depth)
             offset = 0
-            for tdim, npoints in enumerate(self.cell_closure_sizes):
-                map_data[tdim][cell] = closure_pts[offset:offset+npoints]
+            for i, npoints in enumerate(reversed(self.cell_closure_sizes)):
+                tdim = self.dimension - i
+                # we number from zero unlike plex
+                start, _ = self.plex.getDepthStratum(tdim)
+                map_data[tdim][cell] = closure_pts[offset:offset+npoints] - start
                 offset += npoints
 
         map_axes = [
@@ -1070,9 +1077,7 @@ class MeshTopology(AbstractMeshTopology):
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
 
-            #debug: does this fix things for me?
-            # if reorder:
-            if False:
+            if reorder:
                 with PETSc.Log.Event("Mesh: reorder"):
                     old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
                     reordering = np.empty_like(old_to_new)
@@ -1109,6 +1114,7 @@ class MeshTopology(AbstractMeshTopology):
                 pyop3.Axis(
                     [self.num_entities(d) for d in range(tdim+1)],
                     permutation=self._plex_renumbering.indices,
+                    # permutation=self._plex_renumbering.invertPermutation().indices,
                     label="mesh",
                 ),
             )

@@ -547,7 +547,7 @@ class FunctionSpace:
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
-        return pyop3.Dat(self.pyop3_space, data=val, dtype=valuetype, name=name)
+        return pyop3.Dat(self.pyop3_space, data=val.flatten() if val is not None else None, dtype=valuetype, name=name)
 
     def cell_closure_map(self):
         """Return a map from cells to cell closures."""
@@ -826,6 +826,7 @@ class MixedFunctionSpace(object):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
+        raise NotImplementedError
         if val is not None:
             assert len(val) == len(self)
         else:
@@ -999,6 +1000,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
+        raise NotImplementedError
         return op2.Global(self.value_size, val, valuetype, name, self.comm)
 
     def cell_node_map(self, bcs=None):

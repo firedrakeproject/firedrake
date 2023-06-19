@@ -118,7 +118,9 @@ class Interpolator(object):
             assembled_interpolator = self.frozen_assembled_interpolator
             copy_required = True
         except AttributeError:
+            print("interp 1", flush=True)
             assembled_interpolator = self.callable()
+            print("interp 2", flush=True)
             copy_required = False  # Return the original
             if self.freeze_expr:
                 if self.nargs:
