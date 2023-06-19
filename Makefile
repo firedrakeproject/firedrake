@@ -12,9 +12,10 @@ lint:
 	@echo "    Linting firedrake scripts"
 	@python -m flake8 scripts --filename=*
 
-yamllint:
-	@echo "    Linting YAML files"
-	@yamllint .github/workflows/*.yml
+actionlint:
+	@echo "    Pull latest actionlint image"
+	@docker pull rhysd/actionlint:latest
+	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
 dockerlint:
 	@echo "    Pull latest hadolint image"
