@@ -2036,11 +2036,18 @@ values from f.)"""
         coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
-        # Push max and min out to a hypercube centered at its average so we can
-        # find points on the mesh within tolerance.
+        # Change min and max to refer to an n-hypercube, where n is the
+        # geometric dimension of the mesh, centred on the midpoint of the
+        # bounding box. Its side length is the L1 diameter of the bounding box.
+        # This aids point evaluation on immersed manifolds and other cases
+        # where points may be just off the mesh but should be evaluated.
+        # TODO: This is perhaps unnecessary when we aren't in these special
+        # cases.
 
-        # Note that getattr doesn't work here due to the inheritance games that
-        # are going on in getattr.
+        # We also push max and min out so we can find points on the boundary
+        # within the mesh tolerance.
+        # NOTE: getattr doesn't work here due to the inheritance games that are
+        # going on in getattr.
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
