@@ -3060,15 +3060,17 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
             parent_cell_nums_local, parent_mesh.layers
         )
-        plex_parent_cell_nums = _plex_parent_cell_nums(
-            parent_mesh, base_parent_cell_nums
-        )
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
+        # numbers.
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+            base_parent_cell_nums, -1
+        ]
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = _plex_parent_cell_nums(
-            parent_mesh, parent_cell_nums_local
-        )
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+            parent_cell_nums_local, -1
+        ]
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
@@ -3345,39 +3347,6 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
     base_parent_cell_nums = parent_cell_nums // (parent_layers - 1)
     extrusion_heights = parent_cell_nums % (parent_layers - 1)
     return base_parent_cell_nums, extrusion_heights
-
-
-def _plex_parent_cell_nums(parent_mesh, parent_cell_nums):
-    """
-    Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) get
-    the corresponding DMPlex cell numbers.
-
-    Parameters
-    ----------
-    parent_mesh : ``Mesh``
-        The parent mesh we are embedding in.
-    parent_cell_nums : ``np.ndarray``
-        Firedrake cell numbers (e.g. from mesh.locate_cell)
-
-    Returns
-    -------
-    plex_parent_cell_nums : ``np.ndarray``
-        The corresponding DMPlex cell numbers.
-
-    Notes
-    -----
-    If the parent mesh coordinates have been modified then we return -1 for
-    the DMPlex cell number. This is because the DMSwarm parent mesh plex
-    numbering is now not guaranteed to match up with DMPlex numbering. DMSwarm
-    functions which rely on the DMPlex numbering,such as DMSwarmMigrate() will
-    not work as expected.
-    """
-    if parent_mesh.coordinates.dat.dat_version > 0:
-        return -np.ones_like(parent_cell_nums)
-    else:
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
-        # numbers.
-        return parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
 
 def _mpi_array_lexicographic_min(x, y, datatype):
