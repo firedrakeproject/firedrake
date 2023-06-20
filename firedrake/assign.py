@@ -194,9 +194,14 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
 
-        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
-        assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
+        # func_halos_valid = all(f.dat.halo_valid for f in self._functions)
+        # assign_to_halos = (
+        #     func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
+        #FIXME PYOP3
+        if self._assignee.dat.comm.size > 1:
+            raise NotImplementedError("TODO pyop3 parallel")
+        func_halos_valid = True
+        assign_to_halos = True
 
         if assign_to_halos:
             subset_indices = self._subset.indices if self._subset else ...

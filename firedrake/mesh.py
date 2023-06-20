@@ -710,7 +710,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             pyop3.TabulatedMap(
                 [("mesh", 0)],  # from (cells)
                 [("mesh", i)],  # to
-                arity=npoints,
+                arity=self.cell_closure_sizes[d],
                 data=map_arrays[d][p],
             )
             for i, d in enumerate(self.depth_strata_order)

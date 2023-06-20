@@ -1,3 +1,4 @@
+import enum
 import numpy
 from functools import partial, singledispatch
 import os
@@ -27,8 +28,19 @@ from firedrake.petsc import PETSc
 __all__ = ("interpolate", "Interpolator")
 
 
+#TODO PYOP3 move elsewhere? we want Firedrake-specific access descriptors because
+# pyop3 has MIN_RW and MIN_WRITE whereas Firedrake will always want the latter
+class Access(enum.Enum):
+    READ = "read"
+    WRITE = "write"
+    RW = "rw"
+    INC = "inc"
+    MIN = "min"
+    MAX = "max"
+
+
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=pyop3.WRITE, ad_block_tag=None):
+def interpolate(expr, V, subset=None, access=Access.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: a UFL expression.
@@ -84,7 +96,10 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=pyop3.WRITE, bcs=None):
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=Access.WRITE, bcs=None):
+        if access not in {Access.WRITE, Access.MIN, Access.MAX}:
+            raise ValueError("Invalid access descriptor for interpolation, must be WRITE, MIN or MAX")
+
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
@@ -169,9 +184,9 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             V = f.function_space()
         else:
             f = firedrake.Function(V)
-            if access in {firedrake.MIN, firedrake.MAX}:
+            if access in {Access.MIN, Access.MAX}:
                 finfo = numpy.finfo(f.dat.dtype)
-                if access == firedrake.MIN:
+                if access == Access.MIN:
                     val = firedrake.Constant(finfo.max)
                 else:
                     val = firedrake.Constant(finfo.min)
@@ -249,9 +264,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     except KeyError:
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
-
-    if access is pyop3.READ:
-        raise ValueError("Can't have READ access for output function")
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
@@ -336,7 +348,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
         tensor = pyop3.Dat(tensor.dataset)
-        if access is not pyop3.WRITE:
+        if access is not Access.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
             copyin = ()
@@ -351,7 +363,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         parloop_args.append(tensor[V.cell_closure_map()])
     else:
         raise NotImplementedError
-        assert access == pyop3.WRITE  # Other access descriptors not done for Matrices.
+        assert access == Access.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_closure_map()
         Vcol = arguments[0].function_space()
         columns_map = Vcol.cell_closure_map()
@@ -411,8 +423,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     for const in extract_firedrake_constants(expr):
         parloop_args.append(const.dat[...])
 
-    #FIXME PYOP3 requires_zeroed_output_arguments is not handled
-    expression_kernel = pyop3.LoopyKernel(kernel.ast, [access] + [pyop3.READ for _ in parloop_args[1:]])
+    # pyop3 has support for in-place min/max but Firedrake does not need this
+    pyop3_access = {
+        Access.WRITE: pyop3.WRITE,
+        Access.MAX: pyop3.MAX_WRITE,
+        Access.MIN: pyop3.MIN_WRITE,
+    }[access]
+    expression_kernel = pyop3.LoopyKernel(kernel.ast, [pyop3_access] + [pyop3.READ for _ in parloop_args[1:]])
     parloop = pyop3.loop(loop_index, expression_kernel(*parloop_args))
     # breakpoint()
     if isinstance(tensor, pyop3.Mat):

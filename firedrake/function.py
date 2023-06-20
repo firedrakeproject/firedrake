@@ -112,8 +112,12 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        #FIXME do this next - I don't think making a dat iterable is the right thing to do
+        # it is obscure since mixed-ness is now somewhat hidden
+        # I should probably index things here with the field, but does the dat have a new space?
+        # yes...right?
         raise NotImplementedError
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+        return tuple(CoordinatelessFunction(fs, dat, name=f"{self.name()}[{i}]")
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
