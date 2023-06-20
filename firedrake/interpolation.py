@@ -414,7 +414,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     #FIXME PYOP3 requires_zeroed_output_arguments is not handled
     expression_kernel = pyop3.LoopyKernel(kernel.ast, [access] + [pyop3.READ for _ in parloop_args[1:]])
     parloop = pyop3.loop(loop_index, expression_kernel(*parloop_args))
-    breakpoint()
+    # breakpoint()
     if isinstance(tensor, pyop3.Mat):
         raise NotImplementedError
         return parloop, tensor.assemble

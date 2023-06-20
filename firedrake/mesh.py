@@ -707,13 +707,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         p = pyop3.IndexTree(pyop3.Index(pyop3.Range(("mesh", 0), self.num_owned_cells), label=self.cell_set.root.label))
 
         mapidxs = [
-                        pyop3.TabulatedMap(
-                            [("mesh", self.dimension)],  # from (cells)
-                            [("mesh", tdim)],  # to
-                            arity=npoints,
-                            data=map_arrays[tdim][p],
-                        )
-                        for tdim, npoints in enumerate(self.cell_closure_sizes)
+            pyop3.TabulatedMap(
+                [("mesh", 0)],  # from (cells)
+                [("mesh", i)],  # to
+                arity=npoints,
+                data=map_arrays[d][p],
+            )
+            for i, d in enumerate(self.depth_strata_order)
         ]
         return self.cell_set.put_node(pyop3.Index(mapidxs), self.cell_set.root)
 
@@ -1110,16 +1110,40 @@ class MeshTopology(AbstractMeshTopology):
                 # facet_numbering = self.create_section(entity_dofs)
                 # self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
+            # axis_components = [None] * (self.dimension + 1)
+            # for d in range(self.dimension + 1):
+            #     axis_components[self.depth_to_axis_index[d]] = self.num_entities(d)
+
+            axis_components = [self.num_entities(d) for d in self.depth_strata_order]
+
+            # we need to invert the permutation here because we want a permutation
+            # (i.e. old index -> new value), not a new numbering (new index -> old value)
             self.axes = pyop3.AxisTree(
                 pyop3.Axis(
-                    [self.num_entities(d) for d in range(tdim+1)],
-                    permutation=self._plex_renumbering.indices,
-                    # permutation=self._plex_renumbering.invertPermutation().indices,
+                    axis_components,
+                    permutation=self._plex_renumbering.invertPermutation().indices,
                     label="mesh",
                 ),
             )
 
         self._callback = callback
+
+    @utils.cached_property
+    def depth_strata_order(self):
+        """Return the ordering of plex entities with respect to their original numbering.
+
+        #FIXME PYOP3
+        The canonical ordering is typically cells -> vertices -> edges -> facets (I think)
+        """
+        return np.argsort([self.plex.getDepthStratum(d)[0] for d in range(self.dimension+1)])
+
+    # @utils.cached_property
+    # def depth_to_axis_index(self):
+    #     # invert the permutation
+    #     indices = np.argsort([self.plex.getDepthStratum(d)[0] for d in range(self.dimension+1)])
+    #     new = np.empty_like(indices)
+    #     new[indices] = np.arange(indices.size)
+    #     return new
 
     @property
     def plex(self):
@@ -1315,7 +1339,7 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError("TODO PYOP3")
         return pyop3.IndexTree(
             pyop3.Index(
-                pyop3.Range(("mesh", self.dimension), self.num_owned_cells),
+                pyop3.Range(("mesh", 0), self.num_owned_cells),
                 label="cells"
             )
         )
@@ -1948,12 +1972,25 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # Finish the initialisation of mesh topology
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.topology.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
-            # ah yes, coordinateless coordinates
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name=_generate_default_mesh_coordinates_name(self.name))
+            # permute the DMPlex coordinates according the permutation of the base mesh
+            # pure PETSc routines are not sufficient because PETSc does not account for
+            # only permuting a base mesh.
+            gdim = self.ufl_coordinate_element().cell().geometric_dimension()
+            plex_coords_sec = self.topology.topology_dm.getCoordinateSection()
+            plex_coords = self.topology.topology_dm.getCoordinatesLocal().array
+            new_coords = np.empty_like(plex_coords)
+
+            for i, v in enumerate(range(*self.topology.topology_dm.getDepthStratum(0))):
+                offset = coordinates_fs.pyop3_space.axes.get_offset([(1, i), 0, 0])
+                for j in range(gdim):
+                    # new_coords[i*gdim+j] = plex_coords[offset+j]
+                    new_coords[offset+j] = plex_coords[i*gdim+j]
+
+            coordinates = function.CoordinatelessFunction(
+                coordinates_fs,
+                val=new_coords,
+                name=_generate_default_mesh_coordinates_name(self.name)
+            )
             self.__init__(coordinates)
         self._callback = callback
 

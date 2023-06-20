@@ -393,8 +393,8 @@ class FunctionSpace:
         for tdim, edofs in self.finat_element.entity_dofs().items():
             dof_counts.append(pyop3.utils.single_valued(map(len, edofs.values())))
         layout = [
-            pyop3.ConstrainedAxis(pyop3.Axis(ndof), within_labels={("mesh", tdim)})
-            for tdim, ndof in enumerate(dof_counts)
+            pyop3.ConstrainedAxis(pyop3.Axis(dof_counts[d]), within_labels={("mesh", i)})
+            for i, d in enumerate(mesh.depth_strata_order)
         ]
 
         # possibly add extra shape axis
@@ -552,12 +552,6 @@ class FunctionSpace:
     def cell_closure_map(self):
         """Return a map from cells to cell closures."""
         return self.mesh().cell_closure_map
-        sdata = self._shared_data
-        return sdata.get_map(self,
-                             self.mesh().cell_set,
-                             "cell_closure",
-                             self.offset,
-                             self.offset_quotient)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
