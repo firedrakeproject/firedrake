@@ -408,8 +408,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         parloop_args.append(coefficient.dat[coeff_index])
 
     #FIXME PYOP3
-    # for const in extract_firedrake_constants(expr):
-    #     parloop_args.append(const.dat(op2.READ))
+    for const in extract_firedrake_constants(expr):
+        parloop_args.append(const.dat[...])
 
     #FIXME PYOP3 requires_zeroed_output_arguments is not handled
     expression_kernel = pyop3.LoopyKernel(kernel.ast, [access] + [pyop3.READ for _ in parloop_args[1:]])

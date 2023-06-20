@@ -4,6 +4,7 @@ import ufl
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+import pyop3
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.utils.counted import counted_init
@@ -16,17 +17,14 @@ from firedrake.adjoint.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _create_dat(op2type, value, comm):
-    if op2type is op2.Global and comm is None:
-        raise ValueError("Attempted to create pyop2 Global with no communicator")
-
+def _create_const(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2type(1, data, comm=comm)
+        dat = pyop3.Const(1, data, comm=comm)
     else:
-        dat = op2type(shape, data, comm=comm)
+        dat = pyop3.Const(shape, data, comm=comm)
     return dat, rank, shape
 
 
@@ -66,7 +64,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
                 "create a Function in the Real space.", FutureWarning
             )
 
-            dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
+            dat, rank, shape = _create_const(value, domain._comm)
 
             domain = ufl.as_domain(domain)
             cell = domain.ufl_cell()
@@ -87,7 +85,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
+        self.dat, rank, self._ufl_shape = _create_const(value, None)
 
         self.uid = utils._new_uid()
         self.name = name or 'constant_%d' % self.uid
