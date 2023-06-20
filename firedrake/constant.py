@@ -99,6 +99,17 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def __repr__(self):
         return f"Constant({self.dat.data_ro}, {self.count()})"
 
+    def _ufl_signature_data_(self, renumbering):
+        # Similar to repr above, but without value of constant
+        # This avoids cache misses
+        return f"Constant({self.count()})"
+
+    def _ufl_compute_hash_(self):
+        return hash(self._ufl_signature_data_())
+
+    def __eq__(self, other):
+        return self._ufl_signature_data_() == other._ufl_signature_data_()
+
     @property
     def ufl_shape(self):
         return self._ufl_shape
