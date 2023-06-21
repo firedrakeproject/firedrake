@@ -102,13 +102,13 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def _ufl_signature_data_(self, renumbering):
         # Similar to repr above, but without value of constant
         # This avoids cache misses
-        return f"Constant({self.count()})"
+        return f"{type(self).__name__}({self.count()})"
 
     def _ufl_compute_hash_(self):
-        return hash(self._ufl_signature_data_())
+        return hash((type(self), self.count()))
 
     def __eq__(self, other):
-        return self._ufl_signature_data_() == other._ufl_signature_data_()
+        return type(self) == type(other) and self.count() == other.count()
 
     @property
     def ufl_shape(self):
