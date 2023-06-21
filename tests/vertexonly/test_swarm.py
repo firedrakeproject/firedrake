@@ -304,14 +304,10 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
 
-    # Check the parent cell indexes match those in the parent mesh unless
-    # parent mesh is shifted, in which case they should all be -1
+    # Check the parent cell indexes match those in the parent mesh
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        if parentmesh.coordinates.dat.dat_version > 0:
-            assert index == -1
-        else:
-            assert np.any(index == cell_indexes)
+        assert np.any(index == cell_indexes)
 
     # since we know all points are in the mesh, we can check that the global
     # indices are correct (i.e. they should be in rank order)
@@ -368,13 +364,13 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # The input indices should be a subset of the indices on the swarm
         assert np.all(np.isin(input_local_coord_indices, input_indices))
         if redundant:
-            assert np.array_equal(np.unique(input_indices), globalindices)
+            assert np.array_equal(np.unique(input_indices), np.sort(globalindices))
 
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
         and not parentmesh.extruded
-        and not parentmesh.coordinates.dat.dat_version > 0
+        and not parentmesh.coordinates.dat.dat_version > 0  # shifted mesh
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
