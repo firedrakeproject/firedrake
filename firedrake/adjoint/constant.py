@@ -80,16 +80,18 @@ class ConstantMixin(OverloadedType):
         return checkpoint
 
     def _ad_mul(self, other):
-        return self._constant_from_values(self.values() * other)
+        return self._constant_from_values(self.dat.data_ro.reshape(-1) * other)
 
     def _ad_add(self, other):
-        return self._constant_from_values(self.values() + other.values())
+        return self._constant_from_values(
+            self.dat.data_ro.reshape(-1) + other.dat.data_ro.reshape(-1)
+        )
 
     def _ad_dot(self, other, options=None):
         if type(other) is AdjFloat:
-            return sum(self.values() * other)
+            return sum(self.dat.data_ro.reshape(-1) * other)
         else:
-            return sum(self.values() * other.values())
+            return sum(self.dat.data_ro.reshape(-1) * other.dat.data_ro.reshape(-1))
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
@@ -100,37 +102,39 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
-        return m.values().tolist()
+        return m.dat.data_ro.reshape(-1).tolist()
 
     def _ad_copy(self):
         return self._constant_from_values()
 
     def _ad_dim(self):
-        return numpy.prod(self.values().shape)
+        return numpy.prod(self.dat.data_ro.cdim)
 
     def _ad_imul(self, other):
-        self.assign(self._constant_from_values(self.values() * other))
+        self.assign(self._constant_from_values(self.dat.data_ro.reshape(-1) * other))
 
     def _ad_iadd(self, other):
-        self.assign(self._constant_from_values(self.values() + other.values()))
+        self.assign(self._constant_from_values(
+            self.dat.data_ro.reshape(-1) + other.dat.data_ro.reshape(-1)
+        ))
 
     def _reduce(self, r, r0):
-        npdata = self.values()
+        npdata = self.dat.data_ro.reshape(-1)
         for i in range(len(npdata)):
             r0 = r(npdata[i], r0)
         return r0
 
     def _applyUnary(self, f):
-        npdata = self.values()
+        npdata = self.dat.data_ro.reshape(-1)
         npdatacopy = npdata.copy()
         for i in range(len(npdata)):
             npdatacopy[i] = f(npdata[i])
         self.assign(self._constant_from_values(npdatacopy))
 
     def _applyBinary(self, f, y):
-        npdata = self.values()
-        npdatacopy = self.values().copy()
-        npdatay = y.values()
+        npdata = self.dat.data_ro.reshape(-1)
+        npdatacopy = self.dat.data_ro.reshape(-1).copy()
+        npdatay = y.dat.data_ro.reshape(-1)
         for i in range(len(npdata)):
             npdatacopy[i] = f(npdata[i], npdatay[i])
         self.assign(self._constant_from_values(npdatacopy))
@@ -139,17 +143,17 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values()
 
     def _constant_from_values(self, values=None):
-        """Returns a new Constant with self.values() while preserving self.ufl_shape.
+        """Returns a new Constant with self.dat.data_ro.reshape(-1) while preserving self.ufl_shape.
 
         If the optional argument `values` is provided, then `values` will be the values of the
         new Constant instead, still preserving the ufl_shape of self.
 
         Args:
-            values (numpy.array): An optional argument to use instead of self.values().
+            values (numpy.array): An optional argument to use instead of ``self.dat.data_ro.reshape(-1)``.
 
         Returns:
             Constant: The created Constant
 
         """
-        values = self.values() if values is None else values
+        values = self.dat.data_ro.reshape(-1) if values is None else values
         return type(self)(numpy.reshape(values, self.ufl_shape), domain=extract_unique_domain(self))

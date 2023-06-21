@@ -11,14 +11,21 @@ Finally we will show how to use mesh refinement features included in Netgen to c
 
 Installing Netgen
 ------------------
-This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation).
+This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation). ::
+
+   from firedrake import *
+   try:
+       import netgen
+   except ImportError:
+       import sys
+       warning("Unable to import NetGen.")
+       sys.exit(0)
 
 Constructive Solid Geometry
 ---------------------------
 Using the Constructive Solid Geometry (CSG) features implemented in Netgen, we can construct a geometry starting from basic sets such as rectangles and disks. Let's have a look at an example.
 First we need to import the Netgen library required in order to construct a `SplineGeometry`::
 
-   from firedrake import *
    from netgen.geom2d import SplineGeometry
    geo = SplineGeometry()
 

@@ -25,16 +25,25 @@ Key Dates
 ---------
 
 * 21/7/2023 Abstract submission
-* 21/7/2023 Registration
-* 13-15/9/2023 Workshop. The workshop will run from the afternoon of 13
-  September until lunchtime on 15 September.
+* 23/7/2023 Registration
+* 13-15/9/2023 Workshop. The workshop will run from midday on 13
+  September until before lunch on 15 September.
+
+Abstracts
+---------
+
+We welcome presentations by anyone working on or using Firedrake. Come and show
+your results, present us with your problems, and show us your plans. Please
+submit your abstract on
+`EasyChair <https://easychair.org/conferences/?conf=firedrake23>`__. The
+deadline is 21 July.
 
 Registration
 ------------
 
 Registration will be £180 for students and £300 for others. This includes two
-nights accommodation and meals for the duration of the workshop. Registration
-will open soon.
+nights accommodation and meals for the duration of the workshop. `Register
+here! <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake/firedrake-workshop-2023>`__
 
 Organising committee
 --------------------

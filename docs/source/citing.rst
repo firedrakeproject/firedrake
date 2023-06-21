@@ -7,7 +7,8 @@
 ==================
 
 If you publish results using Firedrake, we would be grateful if you
-would cite the Firedrake user manual::
+would cite the `Firedrake user manual
+<https://doi.org/10.25561/104839>`_::
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},
@@ -16,6 +17,7 @@ would cite the Firedrake user manual::
     edition      = {First edition},
     year         = {2023},
     month        = {5},
+    doi          = {10.25561/104839},
   }
 
 The simplest way to determine any additional relevant papers to cite is
@@ -35,7 +37,7 @@ obtain the correct `citations for PETSc
 If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
 
-For Firedrake itself, please cite :cite:`Rathgeber2016`.  If you use
+For Firedrake itself, please cite :cite:`FiredrakeUserManual`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`. If you use

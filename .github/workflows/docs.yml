@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     # The docker container to use.
     container:
-      image: firedrakeproject/firedrake-vanilla:latest
+      image: firedrakeproject/firedrake-docdeps:latest
       options: --user root
       volumes:
         - ${{ github.workspace }}:/home/firedrake/output
@@ -28,30 +28,15 @@ jobs:
     # part of the jobs
     steps:
       - uses: actions/checkout@v3
-      - name: System dependencies
-        run: |
-          apt-get update --fix-missing
-          apt-get -y dist-upgrade
-          apt-get -y install inkscape texlive-full
-      - name: Install
+      - name: Install checkedout Firedrake
         run: |
           . /home/firedrake/firedrake/bin/activate
           python -m pip install -e .
-          python -m pip install sphinx
-          python -m pip install sphinxcontrib-bibtex
-          python -m pip install sphinxcontrib-svg2pdfconverter
-          python -m pip install sphinxcontrib-jquery
-          python -m pip install bibtexparser
-          python -m pip install numpydoc
-          python -m pip install pylit
-          python -m pip install git+https://github.com/sphinx-contrib/youtube.git
       - name: Check bibtex
         run: |
           . /home/firedrake/firedrake/bin/activate
           cd docs
-          firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
-          firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
-          firedrake-preprocess-bibtex --validate source/_static/references.bib
+          make validate-bibtex
       - name: Check documentation links
         if: ${{ github.ref == 'refs/heads/master' }}
         run: |

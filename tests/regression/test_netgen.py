@@ -12,7 +12,7 @@ def poisson(h, degree=2):
         from netgen.geom2d import SplineGeometry
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
@@ -57,7 +57,7 @@ def poisson3D(h, degree=2):
         from netgen.csg import CSGeometry, OrthoBrick, Pnt
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
@@ -122,7 +122,7 @@ def test_firedrake_integral_2D_netgen():
         from netgen.geom2d import SplineGeometry
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
@@ -146,7 +146,7 @@ def test_firedrake_integral_3D_netgen():
         from netgen.csg import CSGeometry, OrthoBrick, Pnt
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     # Setting up Netgen geometry and mes
     comm = COMM_WORLD
@@ -176,7 +176,7 @@ def test_firedrake_integral_sphere_netgen():
         from netgen.meshing import MeshingStep
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     # Setting up Netgen geometry and mes
     comm = COMM_WORLD
@@ -201,12 +201,12 @@ def test_firedrake_Adaptivity_netgen():
         from netgen.geom2d import SplineGeometry
         import netgen
     except ImportError:
-        pytest.skip(msg="Netgen unavailable, skipping Netgen test.")
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
 
     try:
         from slepc4py import SLEPc
     except ImportError:
-        pytest.skip(msg="SLEPc unavailable, skipping adaptive test refinement.")
+        pytest.skip(reason="SLEPc unavailable, skipping adaptive test refinement.")
 
     gc.collect()
     comm = COMM_WORLD
