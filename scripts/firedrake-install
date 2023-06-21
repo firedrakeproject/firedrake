@@ -1896,7 +1896,7 @@ if mode == "install":
 
     # numpy requires old setuptools (+wheel)
     log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
-    log.info("Installing numpy==1.24 due to perfromance regression")
+    log.info("Installing numpy==1.24 due to performance regression")
     # https://github.com/inducer/pytential/issues/211
     run_pip_install(["numpy==1.24"])
     log.info("Updating setuptools and wheel to latest versions")
