@@ -12,6 +12,24 @@ lint:
 	@echo "    Linting firedrake scripts"
 	@python -m flake8 scripts --filename=*
 
+actionlint:
+	@echo "    Pull latest actionlint image"
+	@docker pull rhysd/actionlint:latest
+	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
+
+dockerlint:
+	@echo "    Pull latest hadolint image"
+	@docker pull hadolint/hadolint:latest
+	@for DOCKERFILE in docker/Dockerfile.*; \
+		do \
+		echo "    Linting $$DOCKERFILE"; \
+		docker run --rm \
+			-e HADOLINT_IGNORE=DL3005,DL3007,DL3008,DL3015,DL3059 \
+			-i hadolint/hadolint \
+			< $$DOCKERFILE \
+			|| exit 1; \
+	done
+
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
