@@ -82,7 +82,8 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.dof_dset.sizes == g.dof_dset.sizes == vm.cell_set.sizes == (num_cells, num_cells, num_cells + num_cells_halo)
+    assert f.dof_dset.size == g.dof_dset.size == vm.cell_set.size == num_cells
+    assert f.dof_dset.total_size == g.dof_dset.total_size == vm.cell_set.total_size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
@@ -118,10 +119,9 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.dof_dset.sizes == g.dof_dset.sizes == vm.cell_set.sizes == (num_cells, num_cells, num_cells + num_cells_halo)
-    # Empty halos for functions on vertex only mesh
-    assert np.allclose(f.dat.data_ro, f.dat.data_ro_with_halos)
-    assert np.allclose(g.dat.data_ro, g.dat.data_ro_with_halos)
+        # Should have 1 DOF per cell so check DOF DataSet
+    assert f.dof_dset.size == g.dof_dset.size == vm.cell_set.size == num_cells
+    assert f.dof_dset.total_size == g.dof_dset.total_size == vm.cell_set.total_size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     assert np.allclose(f.dat.data_ro, 2*vm.coordinates.dat.data_ro)
@@ -146,3 +146,24 @@ def test_functionspaces(parentmesh, vertexcoords):
 @pytest.mark.parallel
 def test_functionspaces_parallel(parentmesh, vertexcoords):
     test_functionspaces(parentmesh, vertexcoords)
+
+
+@pytest.mark.parallel(nprocs=2)
+def simple_line_test():
+    m = UnitIntervalMesh(4)
+    points = np.asarray([[0.125], [0.375], [0.625]])#, [0.875]])
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    V = FunctionSpace(vm, "DG", 0)
+    f = Function(V)
+    g = Function(V)
+    x = SpatialCoordinate(vm)
+    expr = x**2
+    # Can interpolate and Galerkin project expressions onto functions
+    f.interpolate(expr)
+    g.project(expr)
+
+    assert np.allclose(f.dat.data_ro, vm.coordinates.dat.data_ro**2)
+    # Galerkin Projection of expression is the same as interpolation of
+    # that expression since both exactly point evaluate the expression.
+    assert np.allclose(f.dat.data_ro, g.dat.data_ro)
+

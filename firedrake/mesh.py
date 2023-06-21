@@ -3049,6 +3049,29 @@ def _pic_swarm_in_mesh(
         exclude_halos,
         remove_missing_points=False,
     )
+    if not exclude_halos and parent_mesh.comm.size > 1:
+        # reorder the points so that the halos are at the end of the array
+        # and the owned points are at the start
+        (
+            coords_local,
+            global_idxs_local,
+            reference_coords_local,
+            parent_cell_nums_local,
+            owned_ranks_local,
+            on_ranks_local,
+            input_ranks_local,
+            input_coords_idxs_local,
+        ) = _reorder_halos(
+            parent_mesh.comm,
+            coords_local,
+            global_idxs_local,
+            reference_coords_local,
+            parent_cell_nums_local,
+            owned_ranks_local,
+            on_ranks_local,
+            input_ranks_local,
+            input_coords_idxs_local,
+        )
     visible_idxs = parent_cell_nums_local != -1
     if parent_mesh.extruded:
         # need to store the base parent cell number and the height to be able
@@ -3112,7 +3135,7 @@ def _pic_swarm_in_mesh(
     global_idxs_local_visible = global_idxs_local[visible_idxs]
     global_idxs_local_visible_halo = global_idxs_local_visible[local_halo_idxs]
     global_idxs_allranks = parent_mesh.comm.allgather(global_idxs_local[visible_idxs])  # this is in rank order
-    # move to cython...
+    # TODO move to cython...
     for i, remote_rank in enumerate(remote_ranks):
         remote_idxs[i] = np.where(global_idxs_allranks[remote_rank] == global_idxs_local_visible_halo[i])[0][0]
 
@@ -3151,6 +3174,48 @@ def _pic_swarm_in_mesh(
     original_ordering_swarm.setPointSF(sf)
 
     return swarm, original_ordering_swarm, n_missing_points
+
+
+def _reorder_halos(
+    comm,
+    coords_local,
+    global_idxs_local,
+    reference_coords_local,
+    parent_cell_nums_local,
+    owned_ranks_local,
+    on_ranks_local,
+    input_ranks_local,
+    input_coords_idxs_local,
+):
+    """Reorder the halos so that off rank points are at the end of the local
+    ordering. This is required for dat views to work correctly.
+    """
+    owned_ranks_local_tosort = owned_ranks_local.copy()
+    # set all -1s to comm.size + 1 so they will be at the end of the sort
+    owned_ranks_local_tosort[owned_ranks_local == -1] = comm.size + 1
+    # set all off rank points which aren't equal to comm.size + 1 to comm.size
+    owned_ranks_local_tosort[owned_ranks_local != comm.rank] = comm.size
+    # now a sort by rank will give us the ordering we want
+    idxs = np.argsort(owned_ranks_local_tosort)
+    coords_local = coords_local[idxs]
+    global_idxs_local = global_idxs_local[idxs]
+    reference_coords_local = reference_coords_local[idxs]
+    parent_cell_nums_local = parent_cell_nums_local[idxs]
+    owned_ranks_local = owned_ranks_local[idxs]
+    on_ranks_local = on_ranks_local[idxs]
+    input_ranks_local = input_ranks_local[idxs]
+    input_coords_idxs_local = input_coords_idxs_local[idxs]
+    # TODO: we should probably reorder the memory layout of the coords...
+    return (
+        coords_local,
+        global_idxs_local,
+        reference_coords_local,
+        parent_cell_nums_local,
+        owned_ranks_local,
+        on_ranks_local,
+        input_ranks_local,
+        input_coords_idxs_local,
+    )
 
 
 def _dmswarm_create(
