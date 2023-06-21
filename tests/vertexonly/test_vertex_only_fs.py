@@ -119,7 +119,6 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-        # Should have 1 DOF per cell so check DOF DataSet
     assert f.dof_dset.size == g.dof_dset.size == vm.cell_set.size == num_cells
     assert f.dof_dset.total_size == g.dof_dset.total_size == vm.cell_set.total_size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
@@ -141,6 +140,8 @@ def test_functionspaces(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm)
     vectorfunctionspace_tests(vm)
+    functionspace_tests(vm.input_ordering)
+    vectorfunctionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel
@@ -151,7 +152,7 @@ def test_functionspaces_parallel(parentmesh, vertexcoords):
 @pytest.mark.parallel(nprocs=2)
 def simple_line_test():
     m = UnitIntervalMesh(4)
-    points = np.asarray([[0.125], [0.375], [0.625]])#, [0.875]])
+    points = np.asarray([[0.125], [0.375], [0.625]])
     vm = VertexOnlyMesh(m, points, redundant=True)
     V = FunctionSpace(vm, "DG", 0)
     f = Function(V)
@@ -166,4 +167,3 @@ def simple_line_test():
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)
-

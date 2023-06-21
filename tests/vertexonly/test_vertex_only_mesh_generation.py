@@ -152,7 +152,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.topology._parent_mesh is m.topology
     # Correct generic cell properties
     if not skip_in_bounds_checks:
-        assert vm.cell_closure.shape == (len(inputvertexcoords[in_bounds]), 1)
+        assert vm.cell_closure.shape == (len(vm.coordinates.dat.data_ro_with_halos), 1)
     with pytest.raises(AttributeError):
         vm.exterior_facets()
     with pytest.raises(AttributeError):
@@ -160,7 +160,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     if not skip_in_bounds_checks:
-        assert vm.num_cells() == len(inputvertexcoords[in_bounds]) == vm.cell_set.size
+        assert vm.num_cells() == vm.cell_closure.shape[0] == len(vm.coordinates.dat.data_ro_with_halos) == vm.cell_set.total_size
+        assert vm.cell_set.size == len(inputvertexcoords[in_bounds]) == len(vm.coordinates.dat.data_ro)
     assert vm.num_facets() == 0
     assert vm.num_faces() == vm.num_entities(2) == 0
     assert vm.num_edges() == vm.num_entities(1) == 0
@@ -432,6 +433,7 @@ def test_inside_boundary_behaviour(parentmesh):
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
     assert vm.cell_set.size == 0 or vm.cell_set.size == 1
 
+
 @pytest.mark.parallel(nprocs=2)
 def test_pyop2_labelling():
     m = UnitIntervalMesh(4)
@@ -444,3 +446,6 @@ def test_pyop2_labelling():
     points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
     assert vm.cell_set.total_size == 2*m.cell_set.total_size
+    points = np.asarray([[-5.0]])
+    vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour=None)
+    assert vm.cell_set.total_size == 0

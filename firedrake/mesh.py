@@ -1527,7 +1527,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
+    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=1.0):
         """
         Half-initialise a mesh topology.
 
@@ -1538,6 +1538,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
+        :arg use_cell_dm_marking: whether to inherit vertex markings
+            ("pyop2_core", "pyop2_owned" and "pyop2_ghost") from the cell DM,
+            i.e. the parent mesh DMPlex or DMSwarm. If true, this generally
+            means marking each vertex with the same label as the cell it
+            resides in. For extruded meshes this is the base mesh cell. If
+            false, we let mark_entity_classes do the marking. In such a case
+            we should not let there be any vertices in the halo regions.
         :tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell.
@@ -1576,7 +1583,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
-            dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
+            if use_cell_dm_marking:
+                dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
+            else:
+                dmcommon.mark_entity_classes(self.topology_dm)
 
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
@@ -2796,10 +2806,16 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     name = name if name is not None else mesh.name + "_immersed_vom"
 
-    def initialise(mesh, swarm, tdim, name):
+    def initialise(mesh, swarm, tdim, name, use_cell_dm_marking):
 
         # Topology
-        topology = VertexOnlyMeshTopology(swarm, mesh.topology, name=name, reorder=False)
+        topology = VertexOnlyMeshTopology(
+            swarm,
+            mesh.topology,
+            name=name,
+            use_cell_dm_marking=use_cell_dm_marking,
+            reorder=False,
+        )
 
         # Geometry
         tcell = topology.ufl_cell()
@@ -2840,9 +2856,15 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
         return vmesh
 
-    vmesh_out = initialise(mesh, swarm, tdim, name)
+    vmesh_out = initialise(mesh, swarm, tdim, name, use_cell_dm_marking=True)
     # Make the VOM which uses the original ordering of the points
-    vmesh_out._input_ordering = initialise(vmesh_out, original_swarm, 0, name + "_input_ordering")
+    vmesh_out._input_ordering = initialise(
+        vmesh_out,
+        original_swarm,
+        0,
+        name + "_input_ordering",
+        use_cell_dm_marking=False,
+    )
 
     return vmesh_out
 
@@ -3628,20 +3650,20 @@ def _parent_mesh_embedding(
     # This turns out to be a lexicographic row-wise minimum of the
     # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
     # break ties by minimising the distance.
-    ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
+    owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
 
-    owned_ref_cell_dists_l1 = ref_cell_dists_l1_and_ranks[:, 0]
-    owned_ranks = ref_cell_dists_l1_and_ranks[:, 1]
+    owned_ranks = owned_ref_cell_dists_l1_and_ranks[:, 1]
 
-    # If reference cell l1 distance has changed from what we saw locally (i.e.
-    # what's in ref_cell_dists_l1 as opposed to owned_ref_cell_dists_l1) then
-    # the point has been claimed by a cell that we cannot see. It must,
-    # therefore, not be locally visible and we should update our information
-    # accordingly. This should only happen for points which we've already
-    # marked as being owned by a different rank.
-    extra_missing_points = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+    # Any rows where owned_ref_cell_dists_l1_and_ranks and
+    # ref_cell_dists_l1_and_ranks differ in distance or rank correspond to
+    # points which are claimed by a cell that we cannot see. We should now
+    # update our information accordingly. This should only happen for points
+    # which we've already marked as being owned by a different rank.
+    extra_missing_points = ~np.all(
+        owned_ref_cell_dists_l1_and_ranks == ref_cell_dists_l1_and_ranks, axis=1
+    )
     if any(owned_ranks[extra_missing_points] == parent_mesh.comm.rank):
         raise RuntimeError(
             "Some points have been claimed by a cell that we cannot see, "
