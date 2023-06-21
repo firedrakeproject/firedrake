@@ -617,10 +617,10 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     dofs_per_target_cell = cnm.arity
     base_cells = vmx.cell_parent_base_cell_list
     heights = vmx.cell_parent_extrusion_height_list
-    assert cnm.values.shape[1] == dofs_per_target_cell
+    assert cnm.values_with_halo.shape[1] == dofs_per_target_cell
     assert len(cnm.offset) == dofs_per_target_cell
     target_cell_parent_node_list = [
-        cnm.values[base_cell, :] + height * cnm.offset[:]
+        cnm.values_with_halo[base_cell, :] + height * cnm.offset[:]
         for base_cell, height in zip(base_cells, heights)
     ]
     return op2.Map(
