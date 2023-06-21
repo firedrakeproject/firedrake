@@ -251,14 +251,13 @@ def _assemble_form(form, tensor=None, bcs=None, *,
 
     _check_inputs(form, tensor, bcs, diagonal)
 
-    with PETSc.Log.Event("setup tensor"):
-        if tensor is not None:
-            _zero_tensor(tensor, form, diagonal)
-        else:
-            tensor = _make_tensor(form, bcs, diagonal=diagonal, mat_type=mat_type,
-                                  sub_mat_type=sub_mat_type, appctx=appctx,
-                                  form_compiler_parameters=form_compiler_parameters,
-                                  options_prefix=options_prefix)
+    if tensor is not None:
+        _zero_tensor(tensor, form, diagonal)
+    else:
+        tensor = _make_tensor(form, bcs, diagonal=diagonal, mat_type=mat_type,
+                              sub_mat_type=sub_mat_type, appctx=appctx,
+                              form_compiler_parameters=form_compiler_parameters,
+                              options_prefix=options_prefix)
 
     # It is expensive to construct new assemblers because extracting the data
     # from the form is slow. Since all of the data structures in the assembler
