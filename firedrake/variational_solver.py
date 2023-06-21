@@ -5,7 +5,6 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from itertools import chain
 from contextlib import ExitStack
-import weakref
 
 from firedrake import dmhooks
 from firedrake import slate
@@ -22,31 +21,6 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
-
-@functools.singledispatch
-def weakreffed(arg):
-    raise TypeError
-
-
-@weakreffed.register
-def _(arg: Function):
-    return weakref.proxy(arg)
-
-
-@weakreffed.register
-def _(arg: ufl.Form):
-    result = map_integrand_dags(WeakReffer(), arg, compress=False)
-    breakpoint()
-    return result
-
-
-class WeakReffer(MultiFunction):
-    def coefficient(self, o):
-        # this won't work - breaks hashing
-        breakpoint()
-        return weakref.proxy(o)
-
-    expr = MultiFunction.reuse_if_untouched
 
 def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
@@ -78,8 +52,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False,
-                 weak=False):
+                 is_linear=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -324,7 +297,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False, weak=False):
+                 constant_jacobian=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -354,7 +327,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True, weak=weak)
+                                                       is_linear=True)
         self._constant_jacobian = constant_jacobian
 
 
