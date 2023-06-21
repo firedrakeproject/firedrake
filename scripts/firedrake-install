@@ -999,7 +999,7 @@ def run_pip_install_wrap(reqs, parallel_compiler_env):
             # Downgrade setuptools and wheel for numpy
             run_pip(["install", "-U", "setuptools==59.2.0"])
             run_pip(["install", "-U", "wheel==0.37.0"])
-            run_pip_install([req])
+            run_pip_install(["numpy==1.24"])
             # Upgrade setuptools and wheel for everything else
             run_pip(["install", "-U", "setuptools"])
             run_pip(["install", "-U", "wheel"])
@@ -1896,7 +1896,9 @@ if mode == "install":
 
     # numpy requires old setuptools (+wheel)
     log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
-    run_pip_install(["numpy"])
+    log.info("Installing numpy==1.24 due to performance regression")
+    # https://github.com/inducer/pytential/issues/211
+    run_pip_install(["numpy==1.24"])
     log.info("Updating setuptools and wheel to latest versions")
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "wheel"])
