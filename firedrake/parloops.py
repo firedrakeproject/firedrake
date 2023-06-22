@@ -323,7 +323,21 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
 
 
 def _extract_domains(func):
+    """Extract the domain from `func`.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
     if isinstance(func, (function.Function, cofunction.Cofunction)):
         return [func.function_space().mesh()]
+    elif isinstance(func, constant.Constant):
+        return []
     else:
         raise NotImplementedError
