@@ -29,7 +29,7 @@ def f_mixed(m):
 
 @pytest.fixture
 def const(m):
-    return Constant(1.0, domain=m)
+    return Constant(1.0)
 
 
 @pytest.fixture
