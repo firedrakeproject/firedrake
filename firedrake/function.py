@@ -553,13 +553,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
-        # Immersed not supported
-        tdim = mesh.ufl_cell().topological_dimension()
-        gdim = mesh.ufl_cell().geometric_dimension()
-        if tdim < gdim:
-            raise NotImplementedError("Point is almost certainly not on the manifold.")
 
         # Validate geometric dimension
+        gdim = mesh.ufl_cell().geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -644,6 +640,7 @@ class PointNotInDomainError(Exception):
 
     Attributes: domain, point
     """
+
     def __init__(self, domain, point):
         self.domain = domain
         self.point = point

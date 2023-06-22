@@ -34,6 +34,8 @@ Individuals
 
 Julian Andrej
 
+Kaito Arai
+
 Nicolas Barral................<https://nicolasbarral.fr>
 
 Nicholas Barton
