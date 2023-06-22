@@ -1,7 +1,10 @@
+import numpy
+
 from dolfin_adjoint_common.compat import compat
 from dolfin_adjoint_common import blocks
 from pyadjoint.block import Block
 from pyadjoint import stop_annotating
+from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
 from ufl import replace
 from .checkpointing import maybe_disk_checkpoint, DelegatedFunctionCheckpoint
@@ -258,6 +261,85 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
 
         return dFdm
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+
+        F_form = self._create_F_form()
+
+        dFdu_form = self.adj_F
+        # Take the adjoint to get the original dFdu form since we cache its adjoint.
+        dFdu = firedrake.adjoint(dFdu_form)
+
+        # Replace the form coefficients with checkpointed values.
+        replace_map = self._replace_map(dFdu)
+        replace_map[self.func] = self.get_outputs()[0].saved_output
+        dFdu = replace(dFdu, replace_map)
+
+        return {
+            "form": F_form,
+            "dFdu": dFdu
+        }
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        F_form = prepared["form"]
+        dFdu = prepared["dFdu"]
+        V = self.get_outputs()[idx].output.function_space()
+
+        bcs = []
+        dFdm = 0.
+        for block_variable in self.get_dependencies():
+            tlm_value = block_variable.tlm_value
+            c = block_variable.output
+
+            if isinstance(c, firedrake.Function):
+                trial_function = firedrake.TrialFunction(c.function_space())
+            elif isinstance(c, firedrake.Constant):
+                mesh = self.compat.extract_mesh_from_form(F_form)
+                trial_function = firedrake.TrialFunction(c._ad_function_space(mesh))
+            elif isinstance(c, self.backend.DirichletBC):
+                if tlm_value is None:
+                    bcs.append(self.compat.create_bc(c, homogenize=True))
+                else:
+                    bcs.append(tlm_value)
+                continue
+            elif isinstance(c, self.compat.MeshType):
+                c = self.backend.SpatialCoordinate(c)
+
+            if tlm_value is None:
+                continue
+
+            if c == self.func and not self.linear:
+                continue
+
+            # dFdm_cache works with original variables, not block saved outputs.
+            if c in self._dFdm_cache:
+                dFdm_i = self._dFdm_cache[c]
+            else:
+                dFdm_i = -firedrake.derivative(self.lhs, c, trial_function)
+                dFdm_i = firedrake.adjoint(dFdm_i)
+                # We cache the adjoint to also benefit from derivatives cached
+                # in the adjoint model (in `evaluate_adj_component`).
+                self._dFdm_cache[c] = dFdm_i
+
+            dFdm_i = firedrake.adjoint(dFdm_i)
+            dFdm_i = firedrake.action(dFdm_i, tlm_value)
+
+            # Replace the form coefficients with checkpointed values.
+            replace_map = self._replace_map(dFdm_i)
+            replace_map[self.func] = self.get_outputs()[0].saved_output
+            dFdm_i = replace(dFdm_i, replace_map)
+
+            dFdm += dFdm_i
+
+        if isinstance(dFdm, float):
+            v = dFdu.arguments()[0]
+            dFdm = self.backend.inner(self.backend.Constant(numpy.zeros(v.ufl_shape)), v) * self.backend.dx
+
+        dFdm = expand_derivatives(dFdm)
+        dFdm = self.compat.assemble_adjoint_value(dFdm)
+        dudm = self.backend.Function(V)
+        return self._assemble_and_solve_tlm_eq(
+            self.compat.assemble_adjoint_value(dFdu, bcs=bcs, **self.assemble_kwargs), dFdm, dudm, bcs)
 
 
 class ProjectBlock(SolveVarFormBlock):
