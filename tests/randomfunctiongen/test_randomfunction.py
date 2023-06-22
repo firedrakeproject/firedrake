@@ -120,6 +120,7 @@ def test_randomfunc_parallel_philox():
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
 
 
+@pytest.mark.skip(reason="Require numpy>=1.25.0")
 def test_randomfunc_generator_spawn():
     parent = randomfunctiongen.Generator()
     children = parent.spawn(4)
