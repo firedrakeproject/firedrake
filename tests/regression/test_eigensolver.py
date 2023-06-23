@@ -26,15 +26,18 @@ def evals(n, degree=1, mesh=None):
 
     # boffi solns
     h = pi / n
-    true_values = np.zeros(ncov-2)
-    estimates = np.zeros(ncov-2)
-    for k in range(ncov-2):
+    true_values = np.zeros(ncov-1)
+    estimates = np.zeros(ncov-1)
+    for k in range(ncov-1):
         true_val = 6 / h**2
         # k+1 because we skip the trivial 0 eigenvalue
         true_val *= (1-cos((k+1)*h))/(2+cos((k+1)*h))
         true_values[k] = true_val
 
-        estimates[k] = 1/eigensolver.eigenvalue(k).real
+        estimates[k] = eigensolver.eigenvalue(k).real
+
+    true_values[-1] = eigenprob.bc_shift
+
     # sort in case order of numerical and analytic values differs.
     return sorted(true_values), sorted(estimates)
 

@@ -127,8 +127,10 @@ class LinearEigensolver(OptionsManager):
             The number of Eigenvalues found.
         """
         self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
-        self.M_mat = assemble(self._problem.M, bcs=self._problem.bcs,
-                              weight=self._problem.bc_shift).M.handle
+        self.M_mat = assemble(
+            self._problem.M, bcs=self._problem.bcs,
+            weight=self._problem.bc_shift and 1./self._problem.bc_shift
+        ).M.handle
 
         self.es.setOperators(self.A_mat, self.M_mat)
         # SLEPc recommended params
