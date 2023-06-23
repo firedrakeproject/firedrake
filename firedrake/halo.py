@@ -1,9 +1,11 @@
 from pyop2 import mpi, op2, utils
+from pyop2.datatypes import ScalarType
 from mpi4py import MPI
 import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
+from firedrake.utils import complex_mode
 import firedrake.cython.dmcommon as dmcommon
 
 
@@ -81,6 +83,17 @@ _contig_min_op = MPI.Op.Create(partial(reduction_op, numpy.minimum), commute=Tru
 _contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=True)
 
 
+def reduction_op_complex(op, invec, inoutvec, datatype):
+    dtype = ScalarType
+    invec = numpy.frombuffer(invec, dtype=dtype)
+    inoutvec = numpy.frombuffer(inoutvec, dtype=dtype)
+    inoutvec[:] = op(invec, inoutvec)
+
+
+_contig_min_op_complex = MPI.Op.Create(partial(reduction_op_complex, lambda x1, x2: numpy.where(x1.real <= x2.real, x1, x2)), commute=True)
+_contig_max_op_complex = MPI.Op.Create(partial(reduction_op_complex, lambda x1, x2: numpy.where(x1.real >= x2.real, x1, x2)), commute=True)
+
+
 class Halo(op2.Halo):
     """Build a Halo for a function space.
 
@@ -155,12 +168,13 @@ class Halo(op2.Halo):
         if self.comm.size == 1:
             return
         mtype, builtin = _get_mtype(dat)
+        complex_type = complex_mode and dat.dtype == ScalarType
         op = {(False, op2.INC): MPI.SUM,
               (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+              (False, op2.MIN): _contig_min_op_complex if complex_type else _contig_min_op,
+              (True, op2.MIN): _contig_min_op_complex if complex_type else MPI.MIN,
+              (False, op2.MAX): _contig_max_op_complex if complex_type else _contig_max_op,
+              (True, op2.MAX): _contig_max_op_complex if complex_type else MPI.MAX}[(builtin, insert_mode)]
         self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
     @PETSc.Log.EventDecorator()
@@ -169,10 +183,11 @@ class Halo(op2.Halo):
         if self.comm.size == 1:
             return
         mtype, builtin = _get_mtype(dat)
+        complex_type = complex_mode and dat.dtype == ScalarType
         op = {(False, op2.INC): MPI.SUM,
               (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+              (False, op2.MIN): _contig_min_op_complex if complex_type else _contig_min_op,
+              (True, op2.MIN): _contig_min_op_complex if complex_type else MPI.MIN,
+              (False, op2.MAX): _contig_max_op_complex if complex_type else _contig_max_op,
+              (True, op2.MAX): _contig_max_op_complex if complex_type else MPI.MAX}[(builtin, insert_mode)]
         self.sf.reduceEnd(mtype, dat._data, dat._data, op)

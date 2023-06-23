@@ -7,7 +7,7 @@ import FIAT
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_domains, extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
@@ -159,7 +159,10 @@ class Interpolator(object):
 @PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
-
+    target_mesh = V.ufl_domain()
+    # Set flag indicating whether we are interpolating between (sub)meshes.
+    all_meshes = [target_mesh] + extract_domains(expr)
+    submesh_interp = len({m.topology.submesh_ancesters[-1] for m in all_meshes}) == 1 and len({m.topology for m in all_meshes}) > 1
     arguments = extract_arguments(expr)
     if len(arguments) == 0:
         if isinstance(V, firedrake.Function):
@@ -175,32 +178,72 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     val = firedrake.Constant(finfo.min)
                 f.assign(val)
         tensor = f.dat
+        if submesh_interp:
+            # Interpolation across (sub)meshes is tricky.
+            # if ownership transfer has happened when submeshing.
+            #
+            # A--B--B    Mesh owned by rank A and rank B.
+            # |  |  |
+            # A--B--B
+            #
+            # A--A       Submesh only owned by rank A.
+            # |  |
+            # A--A
+            #
+            # a--a       DoF values of a Function on the submesh to be interpolated (a).
+            # |  |
+            # a--a
+            #
+            # a--0--0    DoF values of the interpolated Function after halo exchange on the parent mesh.
+            # |  |  |    Middle points are owned by rank B, so whatever values (in this case, 0) rank B's
+            # a--0--0    buffer had for those DoFs were respected.
+            #     \
+            #      WRONG
+            #
+            # We hack it in the following.
+            finfo = numpy.finfo(f.dat.dtype)
+            s = slice(target_mesh.cell_set.size) if subset is None else subset.owned_indices
+            if access in {firedrake.MIN}:
+                tensor.data_wo_with_halos[V.cell_node_list[s].reshape(-1)] = finfo.max
+                tensor.local_to_global_begin(op2.MAX)
+                tensor.local_to_global_end(op2.MAX)
+            elif access in {firedrake.MAX, firedrake.WRITE, firedrake.RW}:
+                tensor.data_wo_with_halos[V.cell_node_list[s].reshape(-1)] = finfo.min
+                tensor.local_to_global_begin(op2.MIN)
+                tensor.local_to_global_end(op2.MIN)
+            else:
+                raise NotImplementedError
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = V.ufl_domain()
-        source_mesh = argfs.mesh()
-        argfs_map = argfs.cell_node_map()
-        if target_mesh is not source_mesh:
-            if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            if argfs_map:
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh. NOTE: argfs_map is
-                # allowed to be None when interpolating from a Real space, even
-                # in the trans-mesh case.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
-                else:
-                    argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+        # TODO: Generalise `trans_mesh_entity_map()` methods for `VertexOnlyMeshTopology`.
+        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+            source_mesh = argfs.mesh()
+            argfs_map = argfs.cell_node_map()
+            if target_mesh is not source_mesh:
+                if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+                    raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+                if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+                    raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+                if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+                    raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+                if argfs_map:
+                    # Since the par_loop is over the target mesh cells we need to
+                    # compose a map that takes us from target mesh cells to the
+                    # function space nodes on the source mesh. NOTE: argfs_map is
+                    # allowed to be None when interpolating from a Real space, even
+                    # in the trans-mesh case.
+                    if source_mesh.extruded:
+                        # ExtrudedSet cannot be a map target so we need to build
+                        # this ourselves
+                        argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
+                    else:
+                        argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+        else:
+            argfs_map = argfs.cell_node_map_composed(target_mesh.topology)
+        if submesh_interp:
+            raise NotImplementedError("Need to update op2.Sparsity")
         sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
                                 ((V.cell_node_map(), argfs_map),),
                                 name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -219,12 +262,23 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
         raise RuntimeError('Expression of length %d required, got length %d'
                            % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
-
     if len(V) > 1:
         raise NotImplementedError(
             "UFL expressions for mixed functions are not yet supported.")
     loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
-
+    if submesh_interp:
+        # Interpolation across (sub)meshes is tricky (continued).
+        if access in {firedrake.MIN}:
+            def callable():
+                tensor.local_to_global_begin(op2.MIN)
+                tensor.local_to_global_end(op2.MIN)
+        elif access in {firedrake.MAX, firedrake.WRITE, firedrake.RW}:
+            def callable():
+                tensor.local_to_global_begin(op2.MAX)
+                tensor.local_to_global_end(op2.MAX)
+        else:
+            raise NotImplementedError
+        loops.append(callable)
     if bcs and len(arguments) == 0:
         loops.extend([partial(bc.apply, f) for bc in bcs])
 
@@ -261,29 +315,32 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.ufl_domain()
-    source_mesh = extract_unique_domain(expr) or target_mesh
-
-    if target_mesh is not source_mesh:
-        if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-            raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-        if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-            raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-        if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-            raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-        # For trans-mesh interpolation we use a FInAT QuadratureElement as the
-        # (base) target element with runtime point set expressions as their
-        # quadrature rule point set and weights from their dual basis.
-        # NOTE: This setup is useful for thinking about future design - in the
-        # future this `rebuild` function can be absorbed into FInAT as a
-        # transformer that eats an element and gives you an equivalent (which
-        # may or may not be a QuadratureElement) that lets you do run time
-        # tabulation. Alternatively (and this all depends on future design
-        # decision about FInAT how dual evaluation should work) the
-        # to_element's dual basis (which look rather like quadrature rules) can
-        # have their pointset(s) directly replaced with run-time tabulated
-        # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
-        rt_var_name = 'rt_X'
-        to_element = rebuild(to_element, expr, rt_var_name)
+    # Sould be coord_mesh = target_mesh, but need to fix ufl.apply_mapping.
+    coord_mesh = extract_unique_domain(expr) or target_mesh
+    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        coord_mesh = source_mesh
+        if target_mesh is not source_mesh:
+            if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+            # For trans-mesh interpolation we use a FInAT QuadratureElement as the
+            # (base) target element with runtime point set expressions as their
+            # quadrature rule point set and weights from their dual basis.
+            # NOTE: This setup is useful for thinking about future design - in the
+            # future this `rebuild` function can be absorbed into FInAT as a
+            # transformer that eats an element and gives you an equivalent (which
+            # may or may not be a QuadratureElement) that lets you do run time
+            # tabulation. Alternatively (and this all depends on future design
+            # decision about FInAT how dual evaluation should work) the
+            # to_element's dual basis (which look rather like quadrature rules) can
+            # have their pointset(s) directly replaced with run-time tabulated
+            # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
+            rt_var_name = 'rt_X'
+            to_element = rebuild(to_element, expr, rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -300,7 +357,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
     kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
-                                domain=source_mesh, parameters=parameters,
+                                domain=coord_mesh, parameters=parameters,
                                 log=PETSc.Log.isActive())
     ast = kernel.ast
     oriented = kernel.oriented
@@ -314,27 +371,28 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
     if needs_external_coords:
-        coefficients = [source_mesh.coordinates] + coefficients
+        coefficients = [coord_mesh.coordinates] + coefficients
 
-    if target_mesh is not source_mesh:
-        # NOTE: TSFC will sometimes drop run-time arguments in generated
-        # kernels if they are deemed not-necessary.
-        # FIXME: Checking for argument name in the inner kernel to decide
-        # whether to add an extra coefficient is a stopgap until
-        # compile_expression_dual_evaluation
-        #   (a) outputs a coefficient map to indicate argument ordering in
-        #       parloops as `compile_form` does and
-        #   (b) allows the dual evaluation related coefficients to be supplied to
-        #       them rather than having to be added post-hoc (likely by
-        #       replacing `to_element` with a CoFunction/CoArgument as the
-        #       target `dual` which would contain `dual` related
-        #       coefficient(s))
-        if rt_var_name in [arg.name for arg in kernel.code[name].args]:
-            # Add the coordinates of the target mesh quadrature points in the
-            # source mesh's reference cell as an extra argument for the inner
-            # loop. (With a vertex only mesh this is a single point for each
-            # vertex cell.)
-            coefficients.append(target_mesh.reference_coordinates)
+    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        if target_mesh is not source_mesh:
+            # NOTE: TSFC will sometimes drop run-time arguments in generated
+            # kernels if they are deemed not-necessary.
+            # FIXME: Checking for argument name in the inner kernel to decide
+            # whether to add an extra coefficient is a stopgap until
+            # compile_expression_dual_evaluation
+            #   (a) outputs a coefficient map to indicate argument ordering in
+            #       parloops as `compile_form` does and
+            #   (b) allows the dual evaluation related coefficients to be supplied to
+            #       them rather than having to be added post-hoc (likely by
+            #       replacing `to_element` with a CoFunction/CoArgument as the
+            #       target `dual` which would contain `dual` related
+            #       coefficient(s))
+            if rt_var_name in [arg.name for arg in kernel.code[name].args]:
+                # Add the coordinates of the target mesh quadrature points in the
+                # source mesh's reference cell as an extra argument for the inner
+                # loop. (With a vertex only mesh this is a single point for each
+                # vertex cell.)
+                coefficients.append(target_mesh.reference_coordinates)
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
@@ -355,18 +413,22 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_node_map()
         Vcol = arguments[0].function_space()
-        columns_map = Vcol.cell_node_map()
-        if target_mesh is not source_mesh:
-            # Since the par_loop is over the target mesh cells we need to
-            # compose a map that takes us from target mesh cells to the
-            # function space nodes on the source mesh.
-            if source_mesh.extruded:
-                # ExtrudedSet cannot be a map target so we need to build
-                # this ourselves
-                columns_map = vom_cell_parent_node_map_extruded(target_mesh, columns_map)
-            else:
-                columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
-                                                    columns_map)
+        # TODO: Generalise `trans_mesh_entity_map()` methods for `VertexOnlyMeshTopology`.
+        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+            columns_map = Vcol.cell_node_map()
+            if target_mesh is not source_mesh:
+                # Since the par_loop is over the target mesh cells we need to
+                # compose a map that takes us from target mesh cells to the
+                # function space nodes on the source mesh.
+                if source_mesh.extruded:
+                    # ExtrudedSet cannot be a map target so we need to build
+                    # this ourselves
+                    columns_map = vom_cell_parent_node_map_extruded(target_mesh, columns_map)
+                else:
+                    columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
+                                                        columns_map)
+        else:
+            columns_map = Vcol.cell_node_map_composed(target_mesh.topology)
         lgmaps = None
         if bcs:
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
@@ -380,28 +442,32 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         cs = target_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
-        coeff_mesh = extract_unique_domain(coefficient)
-        if coeff_mesh is target_mesh or not coeff_mesh:
-            # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
-            # a Real space
-            m_ = coefficient.cell_node_map()
-        elif coeff_mesh is source_mesh:
-            if coefficient.cell_node_map():
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
-                else:
-                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
-            else:
-                # m_ is allowed to be None when interpolating from a Real space,
-                # even in the trans-mesh case.
+        # TODO: Generalise `trans_mesh_entity_map()` methods for `VertexOnlyMeshTopology`.
+        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+            coeff_mesh = extract_unique_domain(coefficient)
+            if coeff_mesh is target_mesh or not coeff_mesh:
+                # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
+                # a Real space
                 m_ = coefficient.cell_node_map()
+            elif coeff_mesh is source_mesh:
+                if coefficient.cell_node_map():
+                    # Since the par_loop is over the target mesh cells we need to
+                    # compose a map that takes us from target mesh cells to the
+                    # function space nodes on the source mesh.
+                    if source_mesh.extruded:
+                        # ExtrudedSet cannot be a map target so we need to build
+                        # this ourselves
+                        m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
+                    else:
+                        m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, coefficient.cell_node_map())
+                else:
+                    # m_ is allowed to be None when interpolating from a Real space,
+                    # even in the trans-mesh case.
+                    m_ = coefficient.cell_node_map()
+            else:
+                raise ValueError("Have coefficient with unexpected mesh")
         else:
-            raise ValueError("Have coefficient with unexpected mesh")
+            m_ = coefficient.function_space().cell_node_map_composed(target_mesh.topology)
         parloop_args.append(coefficient.dat(op2.READ, m_))
 
     for const in extract_firedrake_constants(expr):
