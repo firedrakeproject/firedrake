@@ -82,6 +82,12 @@ class LinearEigensolver(OptionsManager):
         The options prefix to use for the eigensolver.
     solver_parameters : dict
         PETSc options for the eigenvalue problem.
+    ncv : int
+        Maximum dimension of the subspace to be used by the solver. See
+        `SLEPc.EPS.setDimensions`.
+    mpd : int
+        Maximum dimension allowed for the projected problem. See
+        `SLEPc.EPS.setDimensions`.
     """
 
     DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None,
@@ -91,11 +97,13 @@ class LinearEigensolver(OptionsManager):
                               "eps_tol": 1e-10}
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
-                 solver_parameters=None):
+                 solver_parameters=None, ncv=None, mpd=None):
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
         self._problem = problem
         self.n_evals = n_evals
+        self.ncv = ncv
+        self.mpd = mpd
         solver_parameters = flatten_parameters(solver_parameters or {})
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
@@ -132,9 +140,8 @@ class LinearEigensolver(OptionsManager):
             weight=self._problem.bc_shift and 1./self._problem.bc_shift
         ).M.handle
 
+        self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        # SLEPc recommended params
-        self.es.setDimensions(nev=self.n_evals, ncv=2*self.n_evals)
         with self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
