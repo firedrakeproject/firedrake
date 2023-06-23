@@ -2191,7 +2191,9 @@ values from f.)"""
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double)]
+                                ctypes.POINTER(ctypes.c_double),
+                                ctypes.POINTER(ctypes.c_int),
+                                ctypes.c_size_t]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
