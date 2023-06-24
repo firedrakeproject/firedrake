@@ -4,7 +4,7 @@ non-finite element operations such as slope limiters."""
 import collections
 
 from ufl.indexed import Indexed
-from ufl.domain import join_domains
+from ufl.domain import join_domains, extract_domains
 
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
@@ -337,7 +337,5 @@ def _extract_domains(func):
     """
     if isinstance(func, (function.Function, cofunction.Cofunction)):
         return [func.function_space().mesh()]
-    elif isinstance(func, constant.Constant):
-        return []
     else:
-        raise NotImplementedError
+        return extract_domains(func)
