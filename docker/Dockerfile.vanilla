@@ -2,9 +2,6 @@
 
 FROM firedrakeproject/firedrake-env:latest
 
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
-
 USER firedrake
 WORKDIR /home/firedrake
 

@@ -2,9 +2,6 @@
 
 FROM firedrakeproject/firedrake-vanilla:latest
 
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
-
 USER root
 WORKDIR /home/firedrake
 RUN apt-get update --fix-missing \
