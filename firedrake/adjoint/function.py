@@ -129,6 +129,15 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
+    def _ad_not_implemented(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if annotate_tape(kwargs):
+                raise NotImplementedError("Automatic differentiation is not supported for this operation.")
+            return func(*args, **kwargs)
+        return wrapper
+
+    @staticmethod
     def _ad_annotate_iadd(__iadd__):
         @wraps(__iadd__)
         def wrapper(self, other, **kwargs):
