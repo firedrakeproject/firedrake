@@ -2,11 +2,20 @@
 
 FROM firedrakeproject/firedrake-vanilla:latest
 
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
-
 USER firedrake
 WORKDIR /home/firedrake
 
+# PETSC_ARCH inherited from firedrakeproject/firedrake-vanilla
+
 # Now install extra Firedrake components.
-RUN bash -c "source firedrake/bin/activate; firedrake-update --documentation-dependencies --tinyasm --slepc --install thetis --install gusto --install icepack --install irksome --install femlium"
+RUN bash -c "source firedrake/bin/activate; \
+    firedrake-update \
+        --documentation-dependencies \
+        --netgen \
+        --slepc \
+        --tinyasm \
+        --install femlium \
+        --install gusto \
+        --install icepack \
+        --install irksome \
+        --install thetis"

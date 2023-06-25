@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish serve scp
+publish publishpdf serve scp
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -45,15 +45,13 @@ TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex
 
 GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
 
-publish: html
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+publishpdf:
+	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
-scp:
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+validate-bibtex:
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/references.bib
 
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
@@ -68,13 +66,13 @@ source/demos: copy_demos
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
-	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
+	for file in source/demos/*.py.rst; do pylit $$file; done
 
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
 
 source/team.rst: source/team2.py
-	cd source; python team2.py; mv AUTHORS.rst ../..
+	cd source; python team2.py; mv AUTHORS.rst CITATION.rst ../..
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations

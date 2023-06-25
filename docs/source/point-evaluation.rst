@@ -77,12 +77,6 @@ When any point is outside the domain of the function,
    f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
 
 
-.. warning::
-
-   Point evaluation on *immersed manifolds* is not supported yet, due
-   to the difficulty of specifying a physical point on the manifold.
-
-
 Evaluation on a moving mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -90,7 +84,7 @@ If you move the mesh, by :doc:`changing the mesh coordinates
 <mesh-coordinates>`, then the bounding box tree that Firedrake
 maintains to ensure fast point evaluation must be rebuilt.  To do
 this, after moving the mesh, call
-``MeshGeometry.clear_spatial_index`` on the mesh you have just
+:meth:`~.MeshGeometry.clear_spatial_index` on the mesh you have just
 moved.
 
 Evaluation with a distributed mesh
