@@ -1,6 +1,7 @@
 from pyop2 import op2
 
 import firedrake
+from firedrake import function, cofunction
 from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
@@ -235,3 +236,22 @@ def inject(fine, coarse):
         fine = next
         Vf = Vc
     return coarse
+
+
+def _extract_unique_domain(func):
+    """Extract the single unique domain `func` is defined on.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return extract_unique_domain(func)
