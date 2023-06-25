@@ -9,6 +9,7 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
+from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -413,6 +414,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
+        elif self.ufl_element().family() == "Real":
+            try:
+                self.dat.data_wo[...] = expr
+                return self
+            except (DataTypeError, DataValueError) as e:
+                raise ValueError(e)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
@@ -514,6 +521,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
+        # Shortcut if function space is the R-space
+        if self.ufl_element().family() == "Real":
+            return self.dat.data_ro
+
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)
@@ -542,13 +553,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
-        # Immersed not supported
-        tdim = mesh.ufl_cell().topological_dimension()
-        gdim = mesh.ufl_cell().geometric_dimension()
-        if tdim < gdim:
-            raise NotImplementedError("Point is almost certainly not on the manifold.")
 
         # Validate geometric dimension
+        gdim = mesh.ufl_cell().geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -633,6 +640,7 @@ class PointNotInDomainError(Exception):
 
     Attributes: domain, point
     """
+
     def __init__(self, domain, point):
         self.domain = domain
         self.point = point

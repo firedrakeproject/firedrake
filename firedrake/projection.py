@@ -282,7 +282,7 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
-        if not isinstance(source, function.Function):
+        if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
         return SupermeshProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
                                   form_compiler_parameters=form_compiler_parameters,

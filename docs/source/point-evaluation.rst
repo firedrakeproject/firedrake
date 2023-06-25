@@ -77,12 +77,6 @@ When any point is outside the domain of the function,
    f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
 
 
-.. warning::
-
-   Point evaluation on *immersed manifolds* is not supported yet, due
-   to the difficulty of specifying a physical point on the manifold.
-
-
 Evaluation on a moving mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

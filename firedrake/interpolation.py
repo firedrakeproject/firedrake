@@ -14,6 +14,7 @@ from pyop2.caching import disk_cached
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
+from tsfc.ufl_utils import extract_firedrake_constants
 
 import gem
 import finat
@@ -402,6 +403,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         else:
             raise ValueError("Have coefficient with unexpected mesh")
         parloop_args.append(coefficient.dat(op2.READ, m_))
+
+    for const in extract_firedrake_constants(expr):
+        parloop_args.append(const.dat(op2.READ))
 
     parloop = op2.ParLoop(*parloop_args)
     parloop_compute_callable = parloop.compute

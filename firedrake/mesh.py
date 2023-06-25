@@ -29,6 +29,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
 from firedrake.adjoint import MeshGeometryMixin
+from pyadjoint import stop_annotating
 
 try:
     import netgen
@@ -2035,13 +2036,23 @@ values from f.)"""
         coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
-        # Push max and min out so we can find points on the boundary within
-        # tolerance. Note that if tolerance is too small it might not actually
-        # change the value!
-        if hasattr(self, "tolerance") and self.tolerance is not None:
-            coords_diff = coords_max - coords_min
-            coords_min -= self.tolerance*coords_diff
-            coords_max += self.tolerance*coords_diff
+        # Change min and max to refer to an n-hypercube, where n is the
+        # geometric dimension of the mesh, centred on the midpoint of the
+        # bounding box. Its side length is the L1 diameter of the bounding box.
+        # This aids point evaluation on immersed manifolds and other cases
+        # where points may be just off the mesh but should be evaluated.
+        # TODO: This is perhaps unnecessary when we aren't in these special
+        # cases.
+
+        # We also push max and min out so we can find points on the boundary
+        # within the mesh tolerance.
+        # NOTE: getattr doesn't work here due to the inheritance games that are
+        # going on in getattr.
+        tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
+        coords_mid = (coords_max + coords_min)/2
+        d = np.max(coords_max - coords_min, axis=1)[:, None]
+        coords_min = coords_mid - (tolerance + 0.5)*d
+        coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
@@ -2180,7 +2191,9 @@ values from f.)"""
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double)]
+                                ctypes.POINTER(ctypes.c_double),
+                                ctypes.POINTER(ctypes.c_int),
+                                ctypes.c_size_t]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
@@ -3153,9 +3166,10 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
     P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
-    visible_ranks = interpolation.interpolate(
-        constant.Constant(parent_mesh.comm.rank), P0DG
-    ).dat.data_ro_with_halos.real
+    with stop_annotating():
+        visible_ranks = interpolation.interpolate(
+            constant.Constant(parent_mesh.comm.rank), P0DG
+        ).dat.data_ro_with_halos.real
 
     locally_visible = np.full(ncoords_global, False)
     # See below for why np.inf is used here.

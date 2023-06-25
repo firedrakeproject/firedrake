@@ -2,12 +2,19 @@
 
 FROM firedrakeproject/firedrake-env:latest
 
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
-
 USER firedrake
 WORKDIR /home/firedrake
 
+ENV PETSC_ARCH default
+
 # Now install Firedrake.
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
-RUN bash -c "PETSC_CONFIGURE_OPTIONS='--download-fftw=1' python3 firedrake-install --no-package-manager --disable-ssh --remove-build-files --torch"
+RUN bash -c "python3 firedrake-install \
+    --no-package-manager \
+    --disable-ssh \
+    --torch \
+    --honour-petsc-dir \
+    --mpicc=$MPICH_DIR/mpicc \
+    --mpicxx=$MPICH_DIR/mpicxx \
+    --mpif90=$MPICH_DIR/mpif90 \
+    --mpiexec=$MPICH_DIR/mpiexec"
