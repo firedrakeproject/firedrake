@@ -58,14 +58,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self,
-                                function_space.ufl_function_space())
+        ufl.Cofunction.__init__(self, V.ufl_function_space())
 
         # User comm
-        self.comm = function_space.comm
+        self.comm = V.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm)
-        self._function_space = function_space
+        self._comm = mpi.internal_comm(V.comm)
+        self._function_space = V
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
