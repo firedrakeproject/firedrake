@@ -161,8 +161,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
         petsc_mat = mat.petscmat
-        # TODO Add Hermitian Transpose to petsc4py and replace transpose
-        petsc_mat.transpose()
+        petsc_mat.hermitianTranspose()
         (row, col) = mat.arguments()
         return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
                                       appctx=appctx,
@@ -171,28 +170,37 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         if (len(args) != 2):
             raise TypeError("Not enough operands for Action")
         lhs, rhs = args
-        if not isinstance(lhs, matrix.MatrixBase):
-            raise TypeError("Incompatible LHS for Action")
-        if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            petsc_mat = lhs.petscmat
-            (row, col) = lhs.arguments()
-            res = firedrake.Cofunction(col.function_space().dual())
+        if isinstance(lhs, matrix.MatrixBase):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                petsc_mat = lhs.petscmat
+                (row, col) = lhs.arguments()
+                res = firedrake.Cofunction(col.function_space().dual())
 
-            with rhs.dat.vec_ro as v_vec:
-                with res.dat.vec as res_vec:
-                    petsc_mat.mult(v_vec, res_vec)
-            return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
-        elif isinstance(rhs, matrix.MatrixBase):
-            petsc_mat = lhs.petscmat
-            (row, col) = lhs.arguments()
-            res = PETSc.Mat().create()
-            # TODO Figure out what goes here
-            res = petsc_mat.matMult(rhs.petscmat)
-            return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
-                                          appctx=appctx,
-                                          options_prefix=options_prefix)
+                with rhs.dat.vec_ro as v_vec:
+                    with res.dat.vec as res_vec:
+                        petsc_mat.mult(v_vec, res_vec)
+                return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
+            elif isinstance(rhs, matrix.MatrixBase):
+                petsc_mat = lhs.petscmat
+                (row, col) = lhs.arguments()
+                res = PETSc.Mat().create()
+                # TODO Figure out what goes here
+                res = petsc_mat.matMult(rhs.petscmat)
+                return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                                              appctx=appctx,
+                                              options_prefix=options_prefix)
+            else:
+                raise TypeError("Incompatible RHS for Action.")
+        elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                # Return scalar value
+                with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
+                    res = x.dot(y)
+                return res
+            else:
+                raise TypeError("Incompatible RHS for Action.")
         else:
-            raise TypeError("Incompatible RHS for Action")
+            raise TypeError("Incompatible LHS for Action")
     elif isinstance(expr, ufl.FormSum):
         if (len(args) != len(expr.weights())):
             raise TypeError("Mismatching weights and operands in FormSum")
