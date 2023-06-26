@@ -22,13 +22,13 @@ class LinearEigenproblem():
     Parameters
     ----------
     A : ufl.Form
-        the bilinear form A(u, v)
+        The bilinear form A(u, v).
     M : ufl.Form
-        the mass form M(u, v),  defaults to u * v * dx.
+        The mass form M(u, v),  defaults to u * v * dx.
     bcs : DirichletBC or list of DirichletBC
-        the boundary conditions
+        The boundary conditions.
     bc_shift: float
-        the value to shift the boundary condition eigenvalues by.
+        The value to shift the boundary condition eigenvalues by.
 
     Notes
     -----
@@ -48,7 +48,7 @@ class LinearEigenproblem():
 
         self.A = A  # LHS
         args = A.arguments()
-        v, u = args[0], args[1]
+        v, u = args
         if M:
             self.M = M
         else:
