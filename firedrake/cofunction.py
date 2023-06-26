@@ -250,6 +250,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
         return NotImplemented
 
+    @FunctionMixin._ad_annotate_imul
+    def __imul__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat *= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat *= expr.dat
+            return self
+        return NotImplemented
+
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
         :class:`Cofunction`"""

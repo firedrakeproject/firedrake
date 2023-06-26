@@ -7,6 +7,7 @@ import collections
 from functools import partial
 
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
 from firedrake.constant import Constant
 from firedrake_citations import Citations
@@ -75,7 +76,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         V = ctx.metadata['V_output']
         # Convert PyTorch gradient to Firedrake
         adj_input = from_torch(grad_output, V)
-        if isinstance(adj_input, Function):
+        if isinstance(adj_input, (Function, Cofunction)):
             adj_input = adj_input.vector()
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
@@ -128,7 +129,7 @@ def _extract_function_space(x):
     firedrake.functionspaceimpl.WithGeometry or None
         Extracted function space.
     """
-    if isinstance(x, Function):
+    if isinstance(x, (Function, Cofunction)):
         return x.function_space()
     elif isinstance(x, Vector):
         return _extract_function_space(x.function)
@@ -160,7 +161,7 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     torch.Tensor
         PyTorch tensor representing the Firedrake object `x`.
     """
-    if isinstance(x, (Function, Vector)):
+    if isinstance(x, (Function, Cofunction, Vector)):
         if gather:
             # Gather data from all processes
             x_P = torch.tensor(x.vector().gather(), **kwargs)
