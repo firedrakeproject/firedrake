@@ -381,6 +381,6 @@ def extract_unique_domain(func):
         Extracted domains.
     """
     if isinstance(func, (function.Function, cofunction.Cofunction)):
-        return [func.function_space().mesh()]
+        return func.function_space().mesh()
     else:
         return ufl.domain.extract_unique_domain(func)
