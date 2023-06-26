@@ -5,7 +5,7 @@ from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
@@ -346,3 +346,41 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+def extract_domains(func):
+    """Extract the domain from `func`.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return ufl.domain.extract_domains(func)
+
+
+def extract_unique_domain(func):
+    """Extract the single unique domain `func` is defined on.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return ufl.domain.extract_unique_domain(func)
