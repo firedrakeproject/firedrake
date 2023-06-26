@@ -478,7 +478,8 @@ def _expression_comparison(expr, ctx):
 
 @_expression.register(gem.LogicalNot)
 def _expression_logicalnot(expr, ctx):
-    return p.LogicalNot(tuple([expression(c, ctx) for c in expr.children]))
+    child, = expr.children
+    return p.LogicalNot(expression(child, ctx))
 
 
 @_expression.register(gem.LogicalAnd)
