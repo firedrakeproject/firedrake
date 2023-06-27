@@ -111,7 +111,7 @@ produces a list of values, cross-mesh interpolation onto
 :func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
-the idea is that the :func:`~.VertexOnlyMesh` is a mesh whose that represents a
+the idea is that the :func:`~.VertexOnlyMesh` is a mesh that represents a
 point cloud domain. Each cell of the mesh is a vertex at a chosen location in
 space. As usual for a mesh, we represent values by creating functions in
 function spaces on it. The only function space that makes sense for a mesh
@@ -138,7 +138,7 @@ at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
 shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
 create disconnected vertices at.
 
-The operator for evaluation at the points specified can be created can be
+The operator for evaluation at the points specified can be
 created by making an :py:class:`~.Interpolator` acting on a
 :py:func:`~.TestFunction`
 
