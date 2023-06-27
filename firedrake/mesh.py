@@ -3218,7 +3218,7 @@ def _reorder_halos(
     # set all off rank points which aren't equal to comm.size + 1 to comm.size
     owned_ranks_local_tosort[owned_ranks_local != comm.rank] = comm.size
     # now a sort by rank will give us the ordering we want
-    idxs = np.argsort(owned_ranks_local_tosort)
+    idxs = np.argsort(owned_ranks_local_tosort, kind='stable')
     coords_local = coords_local[idxs]
     global_idxs_local = global_idxs_local[idxs]
     reference_coords_local = reference_coords_local[idxs]
