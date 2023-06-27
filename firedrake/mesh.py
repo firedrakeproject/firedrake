@@ -2790,8 +2790,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     swarm, original_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
-    # NOTE: If exclude_halos=False, then I need to update the SF to advertise
-    # shared points.
 
     if missing_points_behaviour:
         if n_missing_points:
@@ -2934,7 +2932,7 @@ def _pic_swarm_in_mesh(
     particles may be placed in the wrong cells.
 
     :arg parent_mesh: the :class:`Mesh` within with the DMSwarm should be
-        immersed. See note below for when this is a ``VertexOnlyMesh``.
+        immersed.
     :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
     :kwarg fields: An optional list of named data which can be stored for each
         point in the DMSwarm. The format should be::
@@ -2963,7 +2961,15 @@ def _pic_swarm_in_mesh(
         the mesh halos. If False, it will but the global index of the points
         in the halos will match a global index of a point which is not in the
         halo.
-    :return: the immersed DMSwarm
+    :returns: (swarm, original_swarm, n_missing_points)
+        - swarm: the immersed DMSwarm
+        - original_swarm: a DMSwarm with points in the same order and with the
+            same rank decomposition as the supplied ``coords`` argument. This
+            includes any points which are not found in the parent mesh! Note
+            that if ``redundant=True``, all points in the generated DMSwarm
+            will be found on rank 0 since that was where they were taken from.
+        - n_missing_points: the number of points in the supplied ``coords``
+            argument which were not found in the parent mesh.
 
     .. note::
 
@@ -3028,17 +3034,11 @@ def _pic_swarm_in_mesh(
         #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
 
     .. note::
-        When the supplied ``parent_mesh`` argument is a ``VertexOnlyMesh``
-        the generated DMSwarm will have the same number of points as the
-        supplied ``VertexOnlyMesh`` but the points will be reordered to match
-        the ordering and rank decomposition of the ``coords`` argument used to
-        create the original ``VertexOnlyMesh``. When doing this, we require the
-        input ``coords`` for the creation of the DMSwarm to be empty since all
-        the vertex informaion is contained in the supplied ``VertexOnlyMesh``.
+        All PIC DMSwarm have an associated "Cell DM", if one wishes to interact
+        directly with PETSc's DMSwarm API. For the ``swarm`` output, this is
+        the parent mesh's topology DM (in most cases a DMPlex). For the
+        ``original_swarm`` output, this is the ``swarm`` itself.
 
-        Note that if ``redundant=True`` when the ``VertexOnlyMesh`` was
-        generated, all points on the generated DMSwarm will be found on rank 0
-        since that was where they were taken from.
     """
 
     if tolerance is None:
@@ -3513,13 +3513,13 @@ def _parent_mesh_embedding(
     -------
     coords_embedded : ``np.ndarray``
         The coordinates of the points that were embedded on this rank. If
-        ``remove_missing_points`` if False then this will include points that
+        ``remove_missing_points`` is False then this will include points that
         were specified on this rank but not found in the mesh.
     global_idxs : ``np.ndarray``
         The global indices of the points on this rank.
     reference_coords : ``np.ndarray``
         The reference coordinates of the points that were embedded as given by
-        the local mesh partition. If ``remove_missing_points`` if False then
+        the local mesh partition. If ``remove_missing_points`` is False then
         the missing point reference coordinates will be NaNs.
     parent_cell_nums : ``np.ndarray``
         The parent cell indices (as given by ``locate_cell``) of the global
