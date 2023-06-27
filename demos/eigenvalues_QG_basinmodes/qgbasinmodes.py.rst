@@ -146,19 +146,11 @@ matrices in the form of a generalized eigenvalue problem,
 
 Next we program our eigenvalue solver through the PETSc options system. The
 first is specifying that we have an generalized eigenvalue problem that is
-nonhermitian. The second specifies the spectral transform shift factor to be
-non-zero. The third requires we use a Krylov-Schur method. Then, we ask for
-the eigenvalues with the largest imaginary part. Finally, we specify the
-tolerance.
-
-These options are the defaults used by Firedrake's eigensolver, but they are
-provided here to illustrate the proces of setting parameters::
+nonhermitian. Then, we ask for the eigenvalues with the largest imaginary
+part::
 
   opts = {"eps_gen_non_hermitian": None,
-          "st_pc_factor_shift_type": "NONZERO",
-          "eps_type": "krylovschur",
-          "eps_largest_imaginary": None,
-          "eps_tol": 1e-10}
+          "eps_largest_imaginary": None}
 
 Finally, we build our eigenvalue solver, specifying in this case that we just
 want to see the first eigenvalue, eigenvector pair::

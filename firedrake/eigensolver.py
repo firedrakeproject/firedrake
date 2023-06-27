@@ -13,7 +13,7 @@ __all__ = ["LinearEigenproblem",
 
 
 class LinearEigenproblem():
-    """Linear eigenvalue problem
+    """Generalised linear eigenvalue problem
 
     The problem has the form::
 
@@ -88,12 +88,30 @@ class LinearEigensolver(OptionsManager):
     mpd : int
         Maximum dimension allowed for the projected problem. See
         `SLEPc.EPS.setDimensions`.
+
+    Notes
+    -----
+
+    Users will typically wish to set solver parameters specifying the symmetry
+    of the eigenproblem and which eigenvalues to search for first.
+
+    The former is set using the options available for `EPSSetProblemType
+    <https://slepc.upv.es/documentation/current/docs/manualpages/EPS/EPSSetProblemType.html>`__. 
+
+    For example if the bilinear form is symmetric (Hermitian in complex mode),
+    one would add this entry to `solver_options`::
+
+        "eps_gen_hermitian": None
+
+    As always when specifying PETSc options, `None` indicates that the option
+    in question is a flag and hence doesn't take an argument.
+
+    The eigenvalues to search for first are specified using the options for
+    `EPSSetWhichEigenPairs`. FIXME
     """
 
-    DEFAULT_EPS_PARAMETERS = {"eps_gen_non_hermitian": None,
-                              "st_pc_factor_shift_type": "NONZERO",
+    DEFAULT_EPS_PARAMETERS = {"st_pc_factor_shift_type": "NONZERO",
                               "eps_type": "krylovschur",
-                              "eps_largest_imaginary": None,
                               "eps_tol": 1e-10}
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
