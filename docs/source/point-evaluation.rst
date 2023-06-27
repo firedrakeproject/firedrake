@@ -251,6 +251,16 @@ Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 Interacting with external point data
 ------------------------------------
 
+.. warning::
+
+   The examples given in the following section use an internal Firedrake API
+   ``Function.dat.data`` which could change in the future.
+
+.. warning::
+
+   The examples given in the following section will not work in parallel. A
+   parallel safe way of interacting with external data will be available soon.
+
 Any set of points with associated data in our domain can be expressed as a
 P0DG function on a :func:`~.VertexOnlyMesh`.
 
