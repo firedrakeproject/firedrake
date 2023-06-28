@@ -3071,29 +3071,6 @@ def _pic_swarm_in_mesh(
         exclude_halos,
         remove_missing_points=False,
     )
-    if not exclude_halos and parent_mesh.comm.size > 1:
-        # reorder the points so that the halos are at the end of the array
-        # and the owned points are at the start
-        (
-            coords_local,
-            global_idxs_local,
-            reference_coords_local,
-            parent_cell_nums_local,
-            owned_ranks_local,
-            on_ranks_local,
-            input_ranks_local,
-            input_coords_idxs_local,
-        ) = _reorder_halos(
-            parent_mesh.comm,
-            coords_local,
-            global_idxs_local,
-            reference_coords_local,
-            parent_cell_nums_local,
-            owned_ranks_local,
-            on_ranks_local,
-            input_ranks_local,
-            input_coords_idxs_local,
-        )
     visible_idxs = parent_cell_nums_local != -1
     if parent_mesh.extruded:
         # need to store the base parent cell number and the height to be able
@@ -3200,48 +3177,6 @@ def _pic_swarm_in_mesh(
     original_ordering_swarm.setPointSF(sf)
 
     return swarm, original_ordering_swarm, n_missing_points
-
-
-def _reorder_halos(
-    comm,
-    coords_local,
-    global_idxs_local,
-    reference_coords_local,
-    parent_cell_nums_local,
-    owned_ranks_local,
-    on_ranks_local,
-    input_ranks_local,
-    input_coords_idxs_local,
-):
-    """Reorder the halos so that off rank points are at the end of the local
-    ordering. This is required for dat views to work correctly.
-    """
-    owned_ranks_local_tosort = owned_ranks_local.copy()
-    # seting all off rank points to comm.size will ensure they are at the end
-    # (but before any points that are not found on any rank which will have
-    # been set to comm.size + 1 in _parent_mesh_embedding)
-    owned_ranks_local_tosort[owned_ranks_local != comm.rank] = comm.size
-    # now a sort by rank will give us the ordering we want
-    idxs = np.argsort(owned_ranks_local_tosort, kind='stable')
-    coords_local = coords_local[idxs]
-    global_idxs_local = global_idxs_local[idxs]
-    reference_coords_local = reference_coords_local[idxs]
-    parent_cell_nums_local = parent_cell_nums_local[idxs]
-    owned_ranks_local = owned_ranks_local[idxs]
-    on_ranks_local = on_ranks_local[idxs]
-    input_ranks_local = input_ranks_local[idxs]
-    input_coords_idxs_local = input_coords_idxs_local[idxs]
-    # TODO: we should probably reorder the memory layout of the coords...
-    return (
-        coords_local,
-        global_idxs_local,
-        reference_coords_local,
-        parent_cell_nums_local,
-        owned_ranks_local,
-        on_ranks_local,
-        input_ranks_local,
-        input_coords_idxs_local,
-    )
 
 
 def _dmswarm_create(
@@ -3549,6 +3484,14 @@ def _parent_mesh_embedding(
     missing_global_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
         embedded on any rank.
+
+    .. note::
+        Where we have ``exclude_halos == True`` and ``remove_missing_points ==
+        False``, and we run in parallel, the points are ordered such that the
+        halo points follow the owned points. Any missing points will be at the
+        end of the array. This is to ensure that dat views work as expected -
+        in general it is always assumed that halo points follow owned points.
+
     """
 
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
@@ -3696,17 +3639,43 @@ def _parent_mesh_embedding(
         )[0]
         locally_visible[off_rank_coords_idxs] = False
 
+    coords_embedded = np.compress(locally_visible, coords_global, axis=0)
+    global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
+    reference_coords = np.compress(locally_visible, reference_coords, axis=0)
+    parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
+    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
+    input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
+    input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
+
+    if not exclude_halos and parent_mesh.comm.size > 1:
+        # Reorder the halos so that off rank points are at the end of the local
+        # ordering. This is required for dat views to work correctly.
+        owned_ranks_tosort = owned_ranks.copy()
+        # seting all off rank points to comm.size will ensure they are at the
+        # end when we sort by rank (but before any points that are not found on
+        # any rank which will have been set to comm.size + 1)
+        owned_ranks_tosort[owned_ranks != parent_mesh.comm.rank] = parent_mesh.comm.size
+        # now a sort by rank will give us the ordering we want
+        idxs = np.argsort(owned_ranks_tosort, kind='stable')
+        coords_embedded = coords_embedded[idxs]
+        global_idxs = global_idxs[idxs]
+        reference_coords = reference_coords[idxs]
+        parent_cell_nums = parent_cell_nums[idxs]
+        owned_ranks = owned_ranks[idxs]
+        input_ranks = input_ranks[idxs]
+        input_coords_idxs = input_coords_idxs[idxs]
+
     on_ranks = np.full(owned_ranks.shape, parent_mesh.comm.rank)
 
     return (
-        np.compress(locally_visible, coords_global, axis=0),
-        np.compress(locally_visible, global_idxs_global, axis=0),
-        np.compress(locally_visible, reference_coords, axis=0),
-        np.compress(locally_visible, parent_cell_nums, axis=0),
-        np.compress(locally_visible, owned_ranks, axis=0).astype(int),
-        np.compress(locally_visible, on_ranks, axis=0),
-        np.compress(locally_visible, input_ranks_global, axis=0),
-        np.compress(locally_visible, input_coords_idxs_global, axis=0),
+        coords_embedded,
+        global_idxs,
+        reference_coords,
+        parent_cell_nums,
+        owned_ranks,
+        on_ranks,
+        input_ranks,
+        input_coords_idxs,
         missing_global_idxs,
     )
 
