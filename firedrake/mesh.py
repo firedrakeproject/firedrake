@@ -3217,9 +3217,9 @@ def _reorder_halos(
     ordering. This is required for dat views to work correctly.
     """
     owned_ranks_local_tosort = owned_ranks_local.copy()
-    # set all -1s to comm.size + 1 so they will be at the end of the sort
-    owned_ranks_local_tosort[owned_ranks_local == -1] = comm.size + 1
-    # set all off rank points which aren't equal to comm.size + 1 to comm.size
+    # seting all off rank points to comm.size will ensure they are at the end
+    # (but before any points that are not found on any rank which will have
+    # been set to comm.size + 1 in _parent_mesh_embedding)
     owned_ranks_local_tosort[owned_ranks_local != comm.rank] = comm.size
     # now a sort by rank will give us the ordering we want
     idxs = np.argsort(owned_ranks_local_tosort, kind='stable')
@@ -3533,7 +3533,8 @@ def _parent_mesh_embedding(
     owned_ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of each point.
         By "owns" we mean the mesh partition where the parent cell is not in
-        the halo. If a point is not found in the mesh then the rank is -1.
+        the halo. If a point is not found in the mesh then the rank is
+        ``parent_mesh.comm.size + 1``.
     on_ranks : ``np.ndarray``
         The MPI rank of the process on which the point can be found. When we
         include halos, this can be different from the rank that owns the point.
@@ -3686,11 +3687,12 @@ def _parent_mesh_embedding(
         locally_visible[missing_coords_idxs_on_rank] = True
         parent_cell_nums[missing_coords_idxs_on_rank] = -1
         reference_coords[missing_coords_idxs_on_rank, :] = np.nan
-        owned_ranks[missing_coords_idxs_on_rank] = -1
+        owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
 
     if exclude_halos:
         off_rank_coords_idxs = np.where(
-            (owned_ranks != parent_mesh.comm.rank) & (owned_ranks != -1)
+            (owned_ranks != parent_mesh.comm.rank)
+            & (owned_ranks != parent_mesh.comm.size + 1)
         )[0]
         locally_visible[off_rank_coords_idxs] = False
 
