@@ -98,6 +98,61 @@ def functionspace_tests(vm):
     # num_vertices (globally) times
     f.interpolate(Constant(2, domain=vm))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
+    if "input_ordering" in vm.name:
+        with pytest.raises(AttributeError):
+            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        return
+    # Can interpolate onto the input ordering VOM and we retain values from the
+    # expresson on the main VOM
+    W = FunctionSpace(vm.input_ordering, "DG", 0)
+    h = Function(W)
+    h.dat.data_wo_with_halos[:] = -1
+    h.interpolate(g)
+    # Exclude points which we know are missing - these should all be equal to -1
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    vm.input_ordering.topology_dm.restoreField("parentcellnum")
+    idxs_to_include = input_ordering_parent_cell_nums != -1
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # check we can interpolate expressions
+    h2 = Function(W)
+    h2.interpolate(2*g*Constant(1, domain=vm))
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    # Check that the opposite works
+    g.dat.data_wo_with_halos[:] = -1
+    g.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+    # Can equivalently create interpolators and use them. NOTE the
+    # transpose interpolator is equivilent to the inverse here because the
+    # inner product matrix in the reisz representer is the identity. TODO: when
+    # we introduce cofunctions, this will need to be rewritten.
+    I_io = Interpolator(TestFunction(V), W)
+    h = I_io.interpolate(g)
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
+    h2 = I2_io.interpolate(g)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    g = I_io.interpolate(h, transpose=True)
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+    with pytest.raises(NotImplementedError):
+        # Can't use transpose on interpolators with expressions yet
+        g2 = I2_io.interpolate(h, transpose=True)
+        assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+
+    I_io_transpose = Interpolator(TestFunction(W), V)
+    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
+    h = I_io_transpose.interpolate(g, transpose=True)
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    with pytest.raises(NotImplementedError):
+        # Can't use transpose on interpolators with expressions yet
+        h2 = I2_io_transpose.interpolate(g, transpose=True)
+        assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    g = I_io_transpose.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+    g2 = I2_io_transpose.interpolate(h)
+    assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
 def vectorfunctionspace_tests(vm):
@@ -134,6 +189,61 @@ def vectorfunctionspace_tests(vm):
     # dimension too.
     f.interpolate(Constant([1] * gdim, domain=vm))
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
+    if "input_ordering" in vm.name:
+        with pytest.raises(AttributeError):
+            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        return
+    # Can interpolate onto the input ordering VOM and we retain values from the
+    # expresson on the main VOM
+    W = VectorFunctionSpace(vm.input_ordering, "DG", 0)
+    h = Function(W)
+    h.dat.data_wo_with_halos[:] = -1
+    h.interpolate(g)
+    # Exclude points which we know are missing - these should all be equal to -1
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    vm.input_ordering.topology_dm.restoreField("parentcellnum")
+    idxs_to_include = input_ordering_parent_cell_nums != -1
+    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # check we can interpolate expressions
+    h2 = Function(W)
+    h2.interpolate(2*g*Constant(1, domain=vm))
+    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    # Check that the opposite works
+    g.dat.data_wo_with_halos[:] = -1
+    g.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
+    # Can equivalently create interpolators and use them. NOTE the
+    # transpose interpolator is equivilent to the inverse here because the
+    # inner product matrix in the reisz representer is the identity. TODO: when
+    # we introduce cofunctions, this will need to be rewritten.
+    I_io = Interpolator(TestFunction(V), W)
+    h = I_io.interpolate(g)
+    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
+    h2 = I2_io.interpolate(g)
+    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    g = I_io.interpolate(h, transpose=True)
+    assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
+    with pytest.raises(NotImplementedError):
+        # Can't use transpose on interpolators with expressions yet
+        g2 = I2_io.interpolate(h, transpose=True)
+        assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+
+    I_io_transpose = Interpolator(TestFunction(W), V)
+    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
+    h = I_io_transpose.interpolate(g, transpose=True)
+    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    with pytest.raises(NotImplementedError):
+        # Can't use transpose on interpolators with expressions yet
+        h2 = I2_io_transpose.interpolate(g, transpose=True)
+        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    g = I_io_transpose.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
+    g2 = I2_io_transpose.interpolate(h)
+    assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
 def test_functionspaces(parentmesh, vertexcoords):

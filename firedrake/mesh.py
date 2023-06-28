@@ -1806,6 +1806,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if not isinstance(topology, VertexOnlyMeshTopology):
             try:
                 del self.input_ordering
+                del self.input_ordering_sf
             except AttributeError:
                 pass
 
@@ -2324,6 +2325,36 @@ values from f.)"""
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
         return self._input_ordering
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def input_ordering_sf(self):
+        """
+        Return a PETSc SF which has VertexOnlyMesh input ordering vertices as
+        roots and this mesh's vertices as leaves.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        sf = PETSc.SF().create(comm=self.comm)
+        nroots = self.input_ordering.num_cells()
+        input_ranks = self.topology_dm.getField("inputrank")
+        self.topology_dm.restoreField("inputrank")
+        parent_cell_nums = self.topology_dm.getField("parentcellnum")
+        self.topology_dm.restoreField("parentcellnum")
+        input_index = self.topology_dm.getField("inputindex")
+        self.topology_dm.restoreField("inputindex")
+        # only include leaves where points were successfully embedded in the
+        # original VOM (i.e. where they were given a parent cell number)
+        idxs_to_include = parent_cell_nums != -1
+        input_ranks = input_ranks[idxs_to_include]
+        input_indices = input_index[idxs_to_include]
+        nleaves = len(input_ranks)
+        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        # local looks like the below, which means we can just pass in None
+        # local = numpy.arange(nleaves, dtype=IntType)
+        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        return sf
 
 
 @PETSc.Log.EventDecorator()
@@ -3152,7 +3183,7 @@ def _pic_swarm_in_mesh(
     remote_ranks_and_idxs[0::2] = remote_ranks
     remote_ranks_and_idxs[1::2] = remote_idxs
     sf = swarm.getPointSF()
-    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs) # Note, could pass None for local_halo_idxs since we know the halo indices are contiguous.
+    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs)
     swarm.setPointSF(sf)
 
     # Note when getting original ordering for extruded meshes we recalculate
