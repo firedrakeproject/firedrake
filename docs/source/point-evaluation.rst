@@ -325,8 +325,10 @@ dictates the point loss behaviour close to cell edges. So the mesh
 ``UnitSquareMesh(5, 5, quadrilateral = True)`` will include the point
 :math:`(1.1, 1.0)` by default.
 
-If a mesh tolerance changes where we already have an immersed vertex-only mesh,
-such that the new tolerance ought to cause points to disappear, they will not.
+Changing mesh tolerance only affects point location after it has been changed.
+To apply the new tolerance to a vertex-only mesh, a new vertex-only mesh must 
+be created. Any existing immersed vertex-only mesh will have been created 
+using the previous tolerance and will be unaffected by the change.
 
 
 UFL API

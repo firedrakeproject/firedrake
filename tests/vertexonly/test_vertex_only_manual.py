@@ -37,13 +37,13 @@ def test_vom_manual_points_outside_domain():
         # This will raise a ValueError
         vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='error')
 
-        # This will generate a warning and the point will be lost
-        vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='warn')
+    # This will generate a warning and the point will be lost
+    vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='warn')
 
-        # This will cause the point to be silently lost
-        vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour=None)
+    # This will cause the point to be silently lost
+    vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour=None)
 
-        assert vom  # Just here to shut up flake8 unused variable warning.
+    assert vom  # Just here to shut up flake8 unused variable warning.
 
 
 def test_vom_manual_keyword_arguments():
