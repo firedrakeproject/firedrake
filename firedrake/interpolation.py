@@ -644,4 +644,7 @@ def hash_expr(expr):
     """
     domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
     coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
-    return compute_expression_signature(expr, {**domain_numbering, **coefficient_numbering})
+    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
+    return compute_expression_signature(
+        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
+    )
