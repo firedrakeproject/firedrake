@@ -79,7 +79,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch loopy connorjward/upstream-update-290623 \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
