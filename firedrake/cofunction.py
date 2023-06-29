@@ -5,7 +5,7 @@ from pyop2 import op2, mpi
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake.logging import warning
-from firedrake import utils, vector
+from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -100,6 +100,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return type(self)(self.function_space(),
                           val=val, name=self.name(),
                           dtype=self.dat.dtype)
+
+    def _analyze_form_arguments(self):
+        # Cofunctions have one argument in primal space as they map from V to R.
+        self._arguments = (ufl_expr.Argument(self.function_space().dual(), 0),)
 
     @utils.cached_property
     @FunctionMixin._ad_annotate_subfunctions

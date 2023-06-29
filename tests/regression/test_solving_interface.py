@@ -219,3 +219,22 @@ def test_constant_jacobian_lvs():
     lvs.solve()
 
     assert not (norm(assemble(out*5 - f)) < 2e-7)
+
+
+def test_solve_cofunction_rhs():
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
+
+    L = Cofunction(V.dual())
+    L.vector()[:] = 1.
+
+    w = Function(V)
+    solve(a == L, w)
+
+    Aw = assemble(action(a, w))
+    assert isinstance(Aw, Cofunction)
+    assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)
