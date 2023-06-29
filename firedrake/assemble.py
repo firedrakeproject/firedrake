@@ -133,7 +133,19 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                                                     appctx, options_prefix,
                                                     zero_bc_nodes,
                                                     *(visited[arg] for arg in operands))
+    if tensor:
+        update_tensor(visited[expr], tensor)
     return visited[expr]
+
+
+def update_tensor(assembled_base_form, tensor):
+    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
+        assembled_base_form.dat.copy(tensor.dat)
+    elif isinstance(tensor, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+        assembled_base_form.petscmat.copy(tensor.petscmat)
+    else:
+        raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
 
 def base_form_operands(expr):
@@ -156,8 +168,9 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                               options_prefix=options_prefix,
                               form_compiler_parameters=form_compiler_parameters,
                               zero_bc_nodes=zero_bc_nodes)
+
     elif isinstance(expr, ufl.Adjoint):
-        if (len(args) != 1):
+        if len(args) != 1:
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
         petsc_mat = mat.petscmat
@@ -202,7 +215,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         else:
             raise TypeError("Incompatible LHS for Action")
     elif isinstance(expr, ufl.FormSum):
-        if (len(args) != len(expr.weights())):
+        if len(args) != len(expr.weights()):
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
