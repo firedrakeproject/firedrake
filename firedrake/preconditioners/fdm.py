@@ -9,6 +9,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
@@ -1819,7 +1820,7 @@ def extrude_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    if isinstance(V, Function):
+    if isinstance(V, (Function, Cofunction)):
         V = V.function_space()
     mesh = V.mesh()
     intfacets = mesh.interior_facets
