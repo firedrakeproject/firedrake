@@ -174,3 +174,12 @@ def test_fresh_constant_hashes_different():
     d = Constant(1)
 
     assert hash(c) != hash(d)
+
+
+def test_constants_are_renumbered_in_form_signature():
+    mesh = UnitSquareMesh(1, 1)
+    c = Constant(1)
+    d = Constant(1)
+
+    assert c.count() != d.count()
+    assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
