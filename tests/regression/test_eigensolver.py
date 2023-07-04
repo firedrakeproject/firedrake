@@ -18,10 +18,10 @@ def evals(n, degree=1, mesh=None):
 
     # Create eigenproblem with boundary conditions
     bc = DirichletBC(V, 0.0, "on_boundary")
-    eigenprob = LinearEigenproblem(a, bcs=bc)
+    eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-666.)
 
     # Create corresponding eigensolver, looking for n eigenvalues
-    eigensolver = LinearEigensolver(eigenprob, n)
+    eigensolver = LinearEigensolver(eigenprob, n, solver_parameters={"eps_largest_real": None})
     ncov = eigensolver.solve()
 
     # boffi solns
