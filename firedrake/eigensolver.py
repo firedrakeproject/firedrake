@@ -96,7 +96,7 @@ class LinearEigensolver(OptionsManager):
     of the eigenproblem and which eigenvalues to search for first.
 
     The former is set using the options available for `EPSSetProblemType
-    <https://slepc.upv.es/documentation/current/docs/manualpages/EPS/EPSSetProblemType.html>`__. 
+    <https://slepc.upv.es/documentation/current/docs/manualpages/EPS/EPSSetProblemType.html>`__.
 
     For example if the bilinear form is symmetric (Hermitian in complex mode),
     one would add this entry to `solver_options`::
