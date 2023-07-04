@@ -219,8 +219,12 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, value, options=None):
-        from firedrake import Function, TrialFunction, TestFunction, assemble
+    def _ad_convert_riesz(self, vector_value, options=None):
+        from firedrake import Function, Vector, Cofunction, TrialFunction, TestFunction
+
+        value = vector_value.function
+        if not isinstance(vector_value, Vector) and not isinstance(value, Cofunction):
+            raise TypeError("Expected a Vector whose underlying function is a Cofunction")
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
@@ -234,17 +238,17 @@ class FunctionMixin(FloatingType):
             ret = Function(V)
             u = TrialFunction(V)
             v = TestFunction(V)
-            M = assemble(firedrake.inner(u, v)*firedrake.dx)
-            firedrake.solve(M, ret, value, **solver_options)
+            a = firedrake.inner(u, v)*firedrake.dx
+            firedrake.solve(a == value, ret, **solver_options)
             return ret
 
         elif riesz_representation == "H1":
             ret = Function(V)
             u = TrialFunction(V)
             v = TestFunction(V)
-            M = assemble(firedrake.inner(u, v)*firedrake.dx
-                         + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx)
-            firedrake.solve(M, ret, value, **solver_options)
+            a = firedrake.inner(u, v)*firedrake.dx \
+                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+            firedrake.solve(a == value, ret, **solver_options)
             return ret
 
         elif callable(riesz_representation):
