@@ -112,7 +112,7 @@ class LinearEigensolver(OptionsManager):
     For example, to look for the eigenvalues with largest real part, one
     would add this entry to `solver_options`::
 
-        "eps_largest_magnitude": None
+        "eps_largest_real": None
     """
 
     DEFAULT_EPS_PARAMETERS = {"st_pc_factor_shift_type": "NONZERO",
