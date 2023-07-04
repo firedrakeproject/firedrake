@@ -21,7 +21,9 @@ def evals(n, degree=1, mesh=None):
     eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-666.)
 
     # Create corresponding eigensolver, looking for n eigenvalues
-    eigensolver = LinearEigensolver(eigenprob, n, solver_parameters={"eps_largest_real": None})
+    eigensolver = LinearEigensolver(
+        eigenprob, n, solver_parameters={"eps_largest_real": None}
+    )
     ncov = eigensolver.solve()
 
     # boffi solns

@@ -13,18 +13,18 @@ __all__ = ["LinearEigenproblem",
 
 
 class LinearEigenproblem():
-    """Generalised linear eigenvalue problem
+    """Generalised linear eigenvalue problem.
 
-    The problem has the form::
+    The problem has the form, find `u`, `λ` such that::
 
-        A(u, v) = λ * M(u, v)
+        A(u, v) = λM(u, v)    ∀ v ∈ V
 
     Parameters
     ----------
     A : ufl.Form
         The bilinear form A(u, v).
     M : ufl.Form
-        The mass form M(u, v),  defaults to u * v * dx.
+        The mass form M(u, v),  defaults to inner(u, v) * dx.
     bcs : DirichletBC or list of DirichletBC
         The boundary conditions.
     bc_shift: float
@@ -107,7 +107,12 @@ class LinearEigensolver(OptionsManager):
     in question is a flag and hence doesn't take an argument.
 
     The eigenvalues to search for first are specified using the options for
-    `EPSSetWhichEigenPairs`. FIXME
+    `EPSSetWhichEigenPairs <https://slepc.upv.es/documentation/current/docs/manualpages/EPS/EPSSetWhichEigenpairs.html>`__.
+
+    For example, to look for the eigenvalues with largest real part, one
+    would add this entry to `solver_options`::
+
+        "eps_largest_magnitude": None
     """
 
     DEFAULT_EPS_PARAMETERS = {"st_pc_factor_shift_type": "NONZERO",
