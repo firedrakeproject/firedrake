@@ -39,7 +39,7 @@ class LinearEigenproblem():
     amount. It is the user's responsibility to ensure that the shift is not
     close to an actual eigenvalue of the system.
     """
-    def __init__(self, A, M=None, bcs=None, bc_shift=666.0):
+    def __init__(self, A, M=None, bcs=None, bc_shift=0.0):
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
@@ -64,7 +64,7 @@ class LinearEigenproblem():
             yield from bc.dirichlet_bcs()
 
     @utils.cached_property
-    def dm(self):  # cargo cult
+    def dm(self):
         r"""Return the dm associated with the output space."""
         return self.output_space.dm
 
@@ -117,7 +117,8 @@ class LinearEigensolver(OptionsManager):
 
     DEFAULT_EPS_PARAMETERS = {"st_pc_factor_shift_type": "NONZERO",
                               "eps_type": "krylovschur",
-                              "eps_tol": 1e-10}
+                              "eps_tol": 1e-10,
+                              "eps_target": 0.0}
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
                  solver_parameters=None, ncv=None, mpd=None):
@@ -131,6 +132,8 @@ class LinearEigensolver(OptionsManager):
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
+        if self._problem.bcs:
+            solver_parameters.setdefault("st_type", "sinvert")
         super().__init__(solver_parameters, options_prefix)
         self.set_from_options(self.es)
 

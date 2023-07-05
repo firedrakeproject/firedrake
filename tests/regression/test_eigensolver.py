@@ -18,7 +18,7 @@ def evals(n, degree=1, mesh=None):
 
     # Create eigenproblem with boundary conditions
     bc = DirichletBC(V, 0.0, "on_boundary")
-    eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-666.)
+    eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-6666.)
 
     # Create corresponding eigensolver, looking for n eigenvalues
     eigensolver = LinearEigensolver(
