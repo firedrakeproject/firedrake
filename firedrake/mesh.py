@@ -3129,14 +3129,28 @@ def _pic_swarm_in_mesh(
     local_halo_idxs = np.where(is_halo)[0].astype(IntType)  # what we pass as 'local' to the SF
     remote_ranks = owned_ranks_local_visible[local_halo_idxs]
 
-    # Finding the remote indices is a bit of a faff...
+    # Remote index is the offset in memory of the point on the other rank.
+    # Finding them is a bit of a faff...
     remote_idxs = np.empty(npts_halo, dtype=IntType)
+    # global indices are unique particle identifiers - where they turn up on
+    # other ranks, they refer to the same particle.
     global_idxs_local_visible = global_idxs_local[visible_idxs]
     global_idxs_local_visible_halo = global_idxs_local_visible[local_halo_idxs]
-    global_idxs_allranks = parent_mesh.comm.allgather(global_idxs_local[visible_idxs])  # this is in rank order
-    # TODO move to cython...
-    for i, remote_rank in enumerate(remote_ranks):
-        remote_idxs[i] = np.where(global_idxs_allranks[remote_rank] == global_idxs_local_visible_halo[i])[0][0]
+    global_idxs_local_visible_owned = global_idxs_local_visible[is_owned]
+    global_idxs_local_visible_owned_allranks = parent_mesh.comm.allgather(
+        global_idxs_local_visible_owned
+    )
+    # global_idxs_local_visible_owned_allranks is in rank order, so we can
+    # index into it with rank number (as long as our ranks start from zero!).
+    # We can now search for global index matches on each remote rank.
+    unique_remote_ranks = np.unique(remote_ranks)  # Don't need one for each halo point!
+    for unique_remote_rank in unique_remote_ranks:
+        remote_idxs[remote_ranks == unique_remote_rank] = np.where(
+            np.in1d(
+                global_idxs_local_visible_owned_allranks[unique_remote_rank],
+                global_idxs_local_visible_halo,
+            )
+        )[0]
 
     # Interleave each rank and index into (rank, index) pairs for use as remote
     # in the SF
