@@ -152,7 +152,8 @@ part. Finally we set the spectral transform to shift with no target::
   opts = {"eps_gen_non_hermitian": None,
           "eps_largest_imaginary": None,
           "st_type": "shift",
-          "eps_target": None}
+          "eps_target": None,
+          "st_pc_factor_shift_type": "NONZERO"}
 
 Finally, we build our eigenvalue solver, specifying in this case that we just
 want to see the first eigenvalue, eigenvector pair::
