@@ -147,10 +147,12 @@ matrices in the form of a generalized eigenvalue problem,
 Next we program our eigenvalue solver through the PETSc options system. The
 first is specifying that we have an generalized eigenvalue problem that is
 nonhermitian. Then, we ask for the eigenvalues with the largest imaginary
-part::
+part. Finally we set the spectral transform to shift with no target::
 
   opts = {"eps_gen_non_hermitian": None,
-          "eps_largest_imaginary": None}
+          "eps_largest_imaginary": None,
+          "st_type": "shift",
+          "eps_target": None}
 
 Finally, we build our eigenvalue solver, specifying in this case that we just
 want to see the first eigenvalue, eigenvector pair::

@@ -117,7 +117,7 @@ class LinearEigensolver(OptionsManager):
 
     DEFAULT_EPS_PARAMETERS = {"st_pc_factor_shift_type": "NONZERO",
                               "eps_type": "krylovschur",
-                              "eps_tol": 1e-10,
+                              "eps_tol": 1e-10, 
                               "eps_target": 0.0}
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
