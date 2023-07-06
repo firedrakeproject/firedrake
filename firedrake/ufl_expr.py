@@ -239,7 +239,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-    elif isinstance(uc, firedrake.Function):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
         if uc.ufl_shape != ():
