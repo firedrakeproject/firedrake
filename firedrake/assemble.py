@@ -112,7 +112,8 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                        form_compiler_parameters=None,
                        appctx=None,
                        options_prefix=None,
-                       zero_bc_nodes=False):
+                       zero_bc_nodes=False,
+                       weight=1.0):
     stack = [expr]
     visited = {}
     while stack:
@@ -132,6 +133,7 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
                                                     zero_bc_nodes,
+                                                    weight=1.0,
                                                     *(visited[arg] for arg in operands))
     if tensor:
         update_tensor(visited[expr], tensor)
@@ -158,7 +160,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                form_compiler_parameters,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
-                               zero_bc_nodes, *args):
+                               zero_bc_nodes, weight, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return _assemble_form(expr, tensor=tensor, bcs=bcs,
                               diagonal=diagonal,
@@ -167,7 +169,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                               appctx=appctx,
                               options_prefix=options_prefix,
                               form_compiler_parameters=form_compiler_parameters,
-                              zero_bc_nodes=zero_bc_nodes)
+                              zero_bc_nodes=zero_bc_nodes, weight=weight)
 
     elif isinstance(expr, ufl.Adjoint):
         if len(args) != 1:
