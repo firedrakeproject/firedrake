@@ -219,7 +219,9 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
-        if all([isinstance(op, firedrake.Cofunction) for op in args]):
+        if all([isinstance(op, float) for op in args]):
+            return sum(args)
+        elif all([isinstance(op, firedrake.Cofunction) for op in args]):
             # TODO check all are in same function space
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
