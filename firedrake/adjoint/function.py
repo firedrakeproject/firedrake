@@ -219,12 +219,15 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, vector_value, options=None):
+    def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Vector, Cofunction, TrialFunction, TestFunction
 
-        value = vector_value.function
-        if not isinstance(vector_value, Vector) and not isinstance(value, Cofunction):
-            raise TypeError("Expected a Vector whose underlying function is a Cofunction")
+        if isinstance(value, Vector):
+            value = value.function
+            if not isinstance(value, Cofunction):
+                raise TypeError("Expected a Vector whose underlying function is a Cofunction")
+        elif not isinstance(value, float):
+            raise TypeError("Expected a Vector or float")
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
@@ -232,7 +235,8 @@ class FunctionMixin(FloatingType):
         V = options.get("function_space", self.function_space())
 
         if riesz_representation == "l2":
-            return Function(V, val=value.vector())
+            value = value.vector() if isinstance(value, Cofunction) else value
+            return Function(V, val=value)
 
         elif riesz_representation == "L2":
             ret = Function(V)

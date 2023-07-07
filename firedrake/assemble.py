@@ -132,8 +132,7 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                                                     form_compiler_parameters,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
-                                                    zero_bc_nodes,
-                                                    weight=1.0,
+                                                    zero_bc_nodes, weight,
                                                     *(visited[arg] for arg in operands))
     if tensor:
         update_tensor(visited[expr], tensor)
