@@ -122,9 +122,7 @@ class FunctionMixin(FloatingType):
                 block.add_output(block_var)
 
                 if (isinstance(other, type(self))):
-                    other_mesh = other.function_space().mesh()
-                    self_mesh = self.function_space().mesh()
-                    if other_mesh == self_mesh:
+                    if other.function_space().mesh() == self.function_space().mesh():
                         block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
