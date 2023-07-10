@@ -8,7 +8,6 @@ import sys
 
 cwd = abspath(dirname(__file__))
 demo_dir = join(cwd, "..", "..", "demos")
-pylit = join(cwd, "..", "..", "pylit", "pylit.py")
 
 
 # Discover the demo files by globbing the demo directory
@@ -28,8 +27,10 @@ def env():
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
 
-    if basename(rst_file) == 'qg_1layer_wave.py.rst':
+    if basename(rst_file) == "qg_1layer_wave.py.rst":
         pytest.skip("This test occasionally fails due to presumed build hardware issues")
+    if basename(rst_file) == "netgen_mesh.py.rst":
+        pytest.xfail(reason="Upstream issue with Netgen")
 
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
@@ -52,7 +53,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
     name = splitext(basename(rst_file))[0]
     output = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call([pylit, rst_file, output])
+    subprocess.check_call(["pylit", rst_file, output])
     return output
 
 

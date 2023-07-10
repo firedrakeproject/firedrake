@@ -65,7 +65,7 @@ del pyadjoint
 
 from firedrake_citations import Citations    # noqa: F401
 # Always get the firedrake paper.
-Citations().register("Rathgeber2016")
+Citations().register("FiredrakeUserManual")
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 

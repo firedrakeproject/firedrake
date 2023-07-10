@@ -2,6 +2,7 @@ from os import path
 import numpy
 import sympy
 from sympy.printing.c import ccode
+import loopy as lp
 
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
@@ -16,10 +17,8 @@ import gem
 import gem.impero_utils as impero_utils
 
 import tsfc
-import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
-
-from coffee.base import ArrayInit
 
 
 def make_args(function):
@@ -66,7 +65,7 @@ def inside_check(fiat_cell, eps, X="X"):
 
     Parameters
     ----------
-    fiat_cell : FIAT Cell
+    fiat_cell : FIAT.finite_element.FiniteElement
         The FIAT cell with same geometric dimension as the coordinate X.
 
     eps : float
@@ -94,12 +93,12 @@ def inside_check(fiat_cell, eps, X="X"):
 
 def celldist_l1_c_expr(fiat_cell, X="X"):
     """Generate a C expression of type `PetscReal` to compute the L1 distance
-    (aka 'manhatten', 'taxicab' or rectilinear distance) to a FIAT reference
+    (aka 'manhattan', 'taxicab' or rectilinear distance) to a FIAT reference
     cell.
 
     Parameters
     ----------
-    fiat_cell : FIAT cell
+    fiat_cell : FIAT.finite_element.FiniteElement
         The FIAT cell with same geometric dimension as the coordinate X.
 
     X : str
@@ -121,13 +120,11 @@ def celldist_l1_c_expr(fiat_cell, X="X"):
 def init_X(fiat_cell, parameters):
     vertices = numpy.array(fiat_cell.get_vertices())
     X = numpy.average(vertices, axis=0)
-
-    formatter = ArrayInit(X, precision=numpy.finfo(parameters["scalar_type"]).resolution)._formatter
-    return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
+    return "\n".join(f"X[{i}] = {v};" for i, v in enumerate(X))
 
 
 @PETSc.Log.EventDecorator()
-def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
+def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype="double", dX_dtype=ScalarType):
     # Set up UFL form
     cell = ufl_coordinate_element.cell()
     domain = ufl.Mesh(ufl_coordinate_element)
@@ -142,13 +139,23 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
     expr = ufl_utils.preprocess_expression(expr, complex_mode=complex_mode)
     expr = ufl_utils.simplify_abs(expr, complex_mode)
 
-    builder = firedrake_interface.KernelBuilderBase(ScalarType_c)
+    builder = firedrake_interface.KernelBuilderBase(ScalarType)
     builder.domain_coordinate[domain] = C
-    builder._coefficient(C, "C")
-    builder._coefficient(x0, "x0")
+
+    Cexpr = builder._coefficient(C, "C")
+    x0_expr = builder._coefficient(x0, "x0")
+    loopy_args = [
+        lp.GlobalArg(
+            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)
+        ),
+        lp.GlobalArg(
+            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),)
+        ),
+    ]
 
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
+    loopy_args.append(lp.GlobalArg("X", dtype=ScalarType, shape=(dim,)))
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
@@ -169,16 +176,17 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters):
             return index.extent <= max_extent
         ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
 
-    # Translate to COFFEE
+    # Translate to loopy
     ir = impero_utils.preprocess_gem(ir)
     return_variable = gem.Variable('dX', (dim,))
+    loopy_args.append(lp.GlobalArg("dX", dtype=dX_dtype, shape=(dim,)))
     assignments = [(gem.Indexed(return_variable, (i,)), e)
                    for i, e in enumerate(ir)]
     impero_c = impero_utils.compile_gem(assignments, ())
-    body = tsfc.coffee.generate(impero_c, {}, ScalarType)
-    body.open_scope = False
-
-    return body
+    kernel, _ = tsfc.loopy.generate(
+        impero_c, loopy_args, ScalarType,
+        kernel_name="to_reference_coords_newton_step")
+    return lp.generate_code_v2(kernel).device_code()
 
 
 @PETSc.Log.EventDecorator()
@@ -226,6 +234,8 @@ struct ReferenceCoords {
 
 static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
+%(to_reference_coords_newton_step)s
+
 static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
@@ -240,7 +250,7 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords_newton_step)s
+        to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;

@@ -41,6 +41,9 @@ r"""The prefix attached to the name of the Firedrake objects when saving them wi
 PREFIX_EXTRUDED = "_".join([PREFIX, "extruded"])
 r"""The prefix attached to the attributes associated with extruded meshes."""
 
+PREFIX_IMMERSED = "_".join([PREFIX, "immersed"])
+r"""The prefix attached to the attributes associated with immersed meshes."""
+
 PREFIX_EMBEDDED = "_".join([PREFIX, "embedded"])
 r"""The prefix attached to the DG function resulting from projecting the original function to the embedding DG space."""
 
@@ -83,7 +86,7 @@ class DumbCheckpoint(object):
 
     .. warning::
 
-       DumbCheckpoint class will be deprecated after 01/01/2023.
+       DumbCheckpoint class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -92,7 +95,7 @@ class DumbCheckpoint(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
@@ -362,7 +365,7 @@ class HDF5File(object):
 
     .. warning::
 
-       HDF5File class will be deprecated after 01/01/2023.
+       HDF5File class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -370,7 +373,7 @@ class HDF5File(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("HDF5File class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
@@ -624,6 +627,29 @@ class CheckpointFile(object):
                 with self.opts.inserted_options():
                     tmesh.topology_dm.coordinatesView(viewer=self.viewer)
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
+                # Save cell_orientations for immersed meshes.
+                if hasattr(mesh, "_cell_orientations"):
+                    path = self._path_to_mesh_immersed(tmesh.name, mesh.name)
+                    self.require_group(path)
+                    self.set_attr(path, PREFIX_IMMERSED + "_cell_orientations", mesh._cell_orientations.name())
+                    cell_orientations_tV = mesh._cell_orientations.function_space()
+                    self._save_function_space_topology(cell_orientations_tV)
+                    # Compute "canonical" cell_orientations array.
+                    # This is the mesh._cell_orientations array (for manifold orientation) that the mesh would
+                    # have if all cell orientations of the reference-physical cell mappings were "0" (matching
+                    # plex cone ordering).
+                    # This can be done by flipping values (0 <-> 1) for cells for which "reflection" have been
+                    # introduced relative to orientation 0.
+                    canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cell_set.size])
+                    o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
+                    reflected = o_r_map[tmesh.entity_orientations[:tmesh.cell_set.size, -1]]
+                    reflected_indices = (reflected == 1)
+                    canonical_cell_orientations[reflected_indices] = 1 - canonical_cell_orientations[reflected_indices]
+                    cell_orientations_iset = PETSc.IS().createGeneral(canonical_cell_orientations, comm=tmesh._comm)
+                    cell_orientations_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
+                    self.viewer.pushGroup(path)
+                    cell_orientations_iset.view(self.viewer)
+                    self.viewer.popGroup()
 
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
@@ -786,9 +812,9 @@ class CheckpointFile(object):
             tf = f.topological
             tV = tf.function_space()
             tmesh = tV.mesh()
-            element = tV.ufl_element()
             self._update_function_name_function_space_name_map(tmesh.name, mesh.name, {f.name(): V_name})
             # Embed if necessary
+            element = V.ufl_element()
             _element = get_embedding_element_for_checkpointing(element)
             if _element != element:
                 path = self._path_to_function_embedded(tmesh.name, mesh.name, V_name, f.name())
@@ -925,6 +951,37 @@ class CheckpointFile(object):
             mesh = make_mesh_from_coordinates(coordinates, name)
             # Load plex coordinates for a complete representation of plex.
             tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
+            # Load cell_orientations for immersed meshes.
+            path = self._path_to_mesh_immersed(tmesh.name, name)
+            if path in self.h5pyfile:
+                cell = tmesh.ufl_cell()
+                element = ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
+                cell_orientations_tV = self._load_function_space_topology(tmesh, element)
+                tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
+                                                               tmesh._distribution_name,
+                                                               tmesh._permutation_name)
+                sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
+                _, _, lsf = self._function_load_utils[tmesh_key + sd_key]
+                nroots, _, _ = lsf.getGraph()
+                cell_orientations_a = np.empty(nroots, dtype=utils.IntType)
+                cell_orientations_a_iset = PETSc.IS().createGeneral(cell_orientations_a, comm=self._comm)
+                cell_orientations_a_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
+                self.viewer.pushGroup(path)
+                cell_orientations_a_iset.load(self.viewer)
+                self.viewer.popGroup()
+                cell_orientations_a = cell_orientations_a_iset.getIndices()
+                cell_orientations = np.empty((tmesh.cell_set.total_size, ), dtype=utils.IntType)
+                unit = MPI._typedict[np.dtype(utils.IntType).char]
+                lsf.bcastBegin(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
+                lsf.bcastEnd(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
+                # Convert the loaded ("canonical") cell_orientations array for use on the loaded mesh
+                # by flipping the values (0 <-> 1) for cells that are mapped "reflected" relative to orientation 0.
+                o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
+                reflected = o_r_map[tmesh.entity_orientations[:, -1]]
+                reflected_indices = (reflected == 1)
+                cell_orientations[reflected_indices] = 1 - cell_orientations[reflected_indices]
+                cell_orientations_name = self.get_attr(path, PREFIX_IMMERSED + "_cell_orientations")
+                mesh._cell_orientations = CoordinatelessFunction(cell_orientations_tV, val=cell_orientations, name=cell_orientations_name, dtype=np.int32)
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
@@ -1274,6 +1331,9 @@ class CheckpointFile(object):
 
     def _path_to_mesh(self, tmesh_name, mesh_name):
         return os.path.join(self._path_to_meshes(tmesh_name), mesh_name)
+
+    def _path_to_mesh_immersed(self, tmesh_name, mesh_name):
+        return os.path.join(self._path_to_mesh(tmesh_name, mesh_name), PREFIX_IMMERSED)
 
     def _path_to_function_spaces(self, tmesh_name, mesh_name):
         return os.path.join(self._path_to_mesh(tmesh_name, mesh_name), PREFIX + "_function_spaces")

@@ -88,7 +88,7 @@ Location
 
 The workshop will be held in room E102 of the Christopherson building
 in the `Department of Computer Science
-<https://www.durham.ac.uk/computer.science>`_ at Durham University.
+<https://www.durham.ac.uk/departments/academic/computer-science/>`_ at Durham University.
 
 Registration
 ------------

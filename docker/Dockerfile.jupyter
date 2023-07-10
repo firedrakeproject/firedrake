@@ -1,13 +1,12 @@
 # DockerFile for a firedrake + jupyter container
 
-FROM firedrakeproject/firedrake
-
-# This DockerFile is looked after by
-MAINTAINER David Ham <david.ham@imperial.ac.uk>
+FROM firedrakeproject/firedrake:latest
 
 USER firedrake
-
 WORKDIR /home/firedrake
+
+# PETSC_ARCH inherited from firedrakeproject/firedrake
+
 # Install an iPython kernel for firedrake
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install jupyterhub ipykernel notebook ipywidgets mpltools nbformat nbconvert"
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbextension enable --py widgetsnbextension --sys-prefix"
@@ -26,8 +25,7 @@ RUN bash -c "rm thetis/*.py"
 RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in thetis/*.ipynb; do jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; done'
 
 # Environment required for Azure deployments.
-ENV OMPI_MCA_btl=tcp,self
-ENV PATH=/home/firedrake/firedrake/bin:$PATH
-ENV OMP_NUM_THREADS=1
+ENV OMPI_MCA_btl tcp,self
+ENV PATH /home/firedrake/firedrake/bin:$PATH
 
-CMD /home/firedrake/firedrake/bin/jupyter notebook --ip 0.0.0.0 --no-browser --allow-root
+CMD ["/home/firedrake/firedrake/bin/jupyter", "notebook", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
