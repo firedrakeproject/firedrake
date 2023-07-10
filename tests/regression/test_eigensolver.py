@@ -52,3 +52,31 @@ def evals(n, degree=1, mesh=None):
 def test_evals_1d(n, degree, tolerance):
     true_values, estimates = evals(n, degree=degree)
     assert np.allclose(true_values, estimates, rtol=tolerance)
+
+
+def poisson_eigenvalue_2d(i):
+    mesh = RectangleMesh(10*2**i, 10*2**i, pi, pi)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    bc = DirichletBC(V, 0.0, "on_boundary")
+
+    ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
+                            bcs=bc, bc_shift=666.0)
+
+    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None,
+                                                     "eps_largest_real": None})
+
+    es.solve()
+    return es.eigenvalue(0)-2.0
+
+
+def test_evals_2d():
+    """2D Eigenvalue convergence test. As with Boffi, we observe that the
+    convergence rate convergest to 2 from above."""
+    errors = np.array([poisson_eigenvalue_2d(i) for i in range(5)])
+
+    convergence = np.log(errors[:-1]/errors[1:])/np.log(2.0)
+
+    assert all(convergence > 2.0)
