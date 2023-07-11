@@ -772,8 +772,8 @@ preconditioner setups for mixed problems.
 
 .. _singular_systems:
 
-Solving singular systems
-------------------------
+Solving singular systems and solving on subspaces
+-------------------------------------------------
 
 Some systems of PDEs, for example the Poisson equation with pure
 Neumann boundary conditions, have an operator which is singular.  That
@@ -837,6 +837,66 @@ in the transpose nullspace by providing a
 :class:`~firedrake.nullspace.VectorSpaceBasis` with the
 ``transpose_nullspace`` keyword argument to :func:`~.solve`.
 
+Achieving exact mean zero on nonuniform meshes
+----------------------------------------------
+
+Trying the above example on a nonuniform mesh with variable cell areas
+will give a solution that does not have zero spatial mean. This is
+because PETSc uses the usual :math:`\mathbb{R}^M` inner product on the
+vectors containing the basis coefficients. In general the correct
+thing to do is to specify a basis for :math:`U \subspace V'`, a
+subspace to the dual space to :math:`V`. Then the subspace we wish to
+solve the system on is :math:`\hat{V} = U^0`, the "polar space" of
+:math:`U` in :math:`V`, defined by
+
+.. math::
+
+   U^0 = \{v \in V: F[v]=0, \, \forall F \in U\}.
+
+For example, if we want to use the zero mean subspace of $V$, we
+take the basis :math:`\{F_0\}`, where
+
+.. math::
+
+   F_0[v] = \int_\Omega v dx, \, \forall v \in V.
+
+To implement this, we provide a basis to PETSc consisting all of the
+assembled linear forms in the basis for :math:`U`. These are vectors
+where the i-th entry is equal to :math:`F_0[\phi_i]` where :math:`\phi_i`
+is the i-th basis vector of :math:`V``. For example, if we want to use
+:math:`F_0` above, we just use
+
+ ..  code-block:: python3
+
+     v = TestFunction(V)
+     F0 = assemble(v*dx)
+     cobasis = VectorSpaceBasis([F0])
+     ...
+     solve(a == L, u, nullspace=cobasis)
+
+This works because PETSc will ensure that the solution basis
+coefficient vector :math:`x` satisfies :math:`v^Tx=0` for each
+provided basis vector `x`. However,
+
+.. math::
+
+   v^Tx = \sum_i x_iv_i = \sum_i x_iF(\phi_i) = F(\sum_ix_i\phi_i)\\
+   = F(u), \, u=\sum_ix_i\phi_i,
+
+hence this ensures that :math:`F(u)=0` for the finite element solution
+:math:`u`. In the case of zero mean projections, we have
+
+.. math::
+
+   v^Tx = \sum_i x_iv_i = \sum_i x_iF_0(\phi_i) = \sum_i\int_\Omega x_i\phi_i dx\\
+   = \int_\Omega u dx.
+
+This demonstrates that the "nullspace" provided to PETSc should really
+be thought of as a cospace. In particular, the pure Neumann problem
+discussed above is well-posed for any choice of one dimensional cospace,
+not just the nullspace of the operator.
+
+      
 Singular operators in mixed spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
