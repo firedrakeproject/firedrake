@@ -666,6 +666,7 @@ def test_assign_diff_mesh():
     c2.assign(c1)
     J = assemble(c2*dx(domain=mesh0))
     rf = ReducedFunctional(J, Control(c1))
+    rf(Constant(1.0, domain=mesh))
     assert np.isclose(rf(-1.0), -1.0)
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
