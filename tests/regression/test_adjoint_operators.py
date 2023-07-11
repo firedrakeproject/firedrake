@@ -656,6 +656,7 @@ def test_init_constant():
     rf = ReducedFunctional(J, Control(c1))
     assert np.isclose(rf(-1.0), -1.0)
 
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_assign_diff_mesh():
     from firedrake_adjoint import ReducedFunctional, Control
@@ -668,6 +669,7 @@ def test_assign_diff_mesh():
     rf = ReducedFunctional(J, Control(c1))
     rf(Constant(1.0, domain=mesh))
     assert np.isclose(rf(-1.0), -1.0)
+
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_copy_function():
