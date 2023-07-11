@@ -838,13 +838,13 @@ in the transpose nullspace by providing a
 ``transpose_nullspace`` keyword argument to :func:`~.solve`.
 
 Achieving exact mean zero on nonuniform meshes
-----------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Trying the above example on a nonuniform mesh with variable cell areas
 will give a solution that does not have zero spatial mean. This is
 because PETSc uses the usual :math:`\mathbb{R}^M` inner product on the
 vectors containing the basis coefficients. In general the correct
-thing to do is to specify a basis for :math:`U \subspace V'`, a
+thing to do is to specify a basis for :math:`U \subset V'`, a
 subspace to the dual space to :math:`V`. Then the subspace we wish to
 solve the system on is :math:`\hat{V} = U^0`, the "polar space" of
 :math:`U` in :math:`V`, defined by
@@ -853,7 +853,7 @@ solve the system on is :math:`\hat{V} = U^0`, the "polar space" of
 
    U^0 = \{v \in V: F[v]=0, \, \forall F \in U\}.
 
-For example, if we want to use the zero mean subspace of $V$, we
+For example, if we want to use the zero mean subspace of :math:`V`, we
 take the basis :math:`\{F_0\}`, where
 
 .. math::
@@ -897,8 +897,8 @@ discussed above is well-posed for any choice of one dimensional cospace,
 not just the nullspace of the operator.
 
       
-Singular operators in mixed spaces
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Specifying nullspace in mixed spaces
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you have an operator in a mixed space, you may well precondition
 the system using a :ref:`Schur complement <mixed-preconditioning>`.  If
