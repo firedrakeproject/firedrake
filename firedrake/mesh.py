@@ -2314,6 +2314,8 @@ values from f.)"""
         whilst preserving other information, such as the global indices and
         parent mesh cell information.
 
+        Only available for vertex-only meshes.
+
         Notes
         -----
         If ``redundant=True`` at mesh creation, all the vertices will
@@ -2331,6 +2333,8 @@ values from f.)"""
         """
         Return a PETSc SF which has VertexOnlyMesh input ordering vertices as
         roots and this mesh's vertices as leaves.
+
+        Only available for vertex-only meshes.
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")

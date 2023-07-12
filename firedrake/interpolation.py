@@ -49,7 +49,8 @@ __all__ = ("interpolate", "Interpolator")
 #     https://github.com/firedrakeproject/firedrake/issues/3017
 # - B = Interpolator(expr_1_argument, V)
 #   - creates the linear interpolation operator B : W -> V where the UFL
-#     Argument is linear in the expression and is in W.
+#     Argument is linear in the expression and is in W. The UFL Argument must
+#     be number 0 (i.e. TestFunction(W) rather than TrialFunction(W)).
 #   - The rest of the expression, including any functions (UFL
 #     Coefficients), are already interpolated into V and are encorporated
 #     in the operator.
@@ -61,7 +62,7 @@ __all__ = ("interpolate", "Interpolator")
 #   - w is a function in W.
 #   - Maths: v = Bw
 # - v_star = B.interpolate(w_star, transpose = True)
-#   - w_star us a cofunction in W^* (such as an assembled 1-form).
+#   - w_star is a cofunction in W^* (such as an assembled 1-form).
 #   - v_star is a cofunction in V^*.
 #   - Maths: v^* = B^* w^*
 
