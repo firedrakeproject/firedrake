@@ -150,7 +150,7 @@ def test_functionspaces_parallel(parentmesh, vertexcoords):
 
 
 @pytest.mark.parallel(nprocs=2)
-def simple_line_test():
+def test_simple_line():
     m = UnitIntervalMesh(4)
     points = np.asarray([[0.125], [0.375], [0.625]])
     vm = VertexOnlyMesh(m, points, redundant=True)
@@ -167,3 +167,43 @@ def simple_line_test():
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_input_ordering_missing_point():
+    m = UnitIntervalMesh(4)
+    points = np.asarray([[0.125], [0.375], [0.625], [5.0]])
+    data = np.asarray([1.0, 2.0, 3.0, 4.0])
+    vm = VertexOnlyMesh(m, points, missing_points_behaviour=None, redundant=True)
+
+    # put data on the input ordering
+    P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
+    data_input_ordering = Function(P0DG_input_ordering)
+    if vm.comm.rank == 0:
+        data_input_ordering.dat.data_wo[:] = data
+    else:
+        data_input_ordering.dat.data_wo[:] = []
+        assert not len(data_input_ordering.dat.data_ro)
+
+    # shouldn't have any halos
+    assert np.array_equal(data_input_ordering.dat.data_ro_with_halos, data_input_ordering.dat.data_ro)
+
+    # Interpolate it onto the immersed vertex-only mesh
+    P0DG = FunctionSpace(vm, "DG", 0)
+    data_on_vm = Function(P0DG).interpolate(data_input_ordering)
+
+    # Check that the data is correct
+    for data_at_point, point in zip(data_on_vm.dat.data_ro_with_halos, vm.coordinates.dat.data_ro_with_halos):
+        assert data_at_point == data[points.flatten() == point]
+
+    # change the data on the immersed vertex-only mesh
+    data_on_vm.assign(2*data_on_vm)
+
+    # interpolate it back onto the input ordering and make sure we get what we
+    # expect and that the point which was missing still has it's original value
+    data_input_ordering.interpolate(data_on_vm)
+    if vm.comm.rank == 0:
+        assert np.allclose(data_input_ordering.dat.data_ro[0:3], 2*data[0:3])
+        assert np.allclose(data_input_ordering.dat.data_ro[3], data[3])
+    else:
+        assert not len(data_input_ordering.dat.data_ro)
