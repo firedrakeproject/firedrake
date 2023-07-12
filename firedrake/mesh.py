@@ -3008,10 +3008,6 @@ def _pic_swarm_in_mesh(
            and rank 3's points will be numbered 30-34. Note that this ought to
            be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
            cannot be set.
-        #, ``onrank`` which contains the MPI rank on which the DMSwarm point
-           is located. This differs from ``DMSwarm_rank``, which contains the
-           MPI rank which owns the DMSwarm point, when ``exclude_halos=False``
-           since halos allow the same point to exist on multiple ranks.
         #. ``inputrank`` which contains the MPI rank at which the ``coords``
            argument was specified. For ``redundant=True`` this is always 0.
         #. ``inputindex`` which contains the index of the point in the
@@ -3059,7 +3055,6 @@ def _pic_swarm_in_mesh(
         reference_coords_local,
         parent_cell_nums_local,
         owned_ranks_local,
-        on_ranks_local,
         input_ranks_local,
         input_coords_idxs_local,
         missing_global_idxs,
@@ -3108,7 +3103,6 @@ def _pic_swarm_in_mesh(
         reference_coords_local[visible_idxs],
         parent_cell_nums_local[visible_idxs],
         owned_ranks_local[visible_idxs],
-        on_ranks_local[visible_idxs],
         input_ranks_local[visible_idxs],
         input_coords_idxs_local[visible_idxs],
         base_parent_cell_nums_visible,
@@ -3177,7 +3171,6 @@ def _pic_swarm_in_mesh(
         reference_coords_local,
         parent_cell_nums_local,
         owned_ranks_local,
-        on_ranks_local,
         input_ranks_local,  # This is just an array of 0s for redundant, and comm.rank otherwise. But I need to pass it in to get the correct ordering
         input_coords_idxs_local,
         parent_mesh.extruded,
@@ -3203,7 +3196,6 @@ def _dmswarm_create(
     reference_coords,
     parent_cell_nums,
     ranks,
-    on_ranks,
     input_ranks,
     input_coords_idxs,
     base_parent_cell_nums,
@@ -3226,7 +3218,6 @@ def _dmswarm_create(
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
         ("inputindex", 1, IntType),
-        ("onrank", 1, IntType),
     ]
 
     if extruded:
@@ -3307,7 +3298,6 @@ def _dmswarm_create(
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
-    field_on_rank = swarm.getField("onrank")
     field_input_rank = swarm.getField("inputrank")
     field_input_index = swarm.getField("inputindex")
 
@@ -3317,14 +3307,12 @@ def _dmswarm_create(
     field_reference_coords[...] = reference_coords
     field_global_index[...] = coords_idxs
     field_rank[...] = ranks
-    field_on_rank[...] = on_ranks
     field_input_rank[...] = input_ranks
     field_input_index[...] = input_coords_idxs
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("inputindex")
     swarm.restoreField("inputrank")
-    swarm.restoreField("onrank")
     swarm.restoreField("DMSwarm_rank")
     swarm.restoreField("globalindex")
     swarm.restoreField("refcoord")
@@ -3484,11 +3472,6 @@ def _parent_mesh_embedding(
         By "owns" we mean the mesh partition where the parent cell is not in
         the halo. If a point is not found in the mesh then the rank is
         ``parent_mesh.comm.size + 1``.
-    on_ranks : ``np.ndarray``
-        The MPI rank of the process on which the point can be found. When we
-        include halos, this can be different from the rank that owns the point.
-        If ``remove_missing_points`` is False then this will be the rank upon
-        which the point was originally specified.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords``.
     input_coords_idx : ``np.ndarray``
@@ -3679,15 +3662,12 @@ def _parent_mesh_embedding(
         input_ranks = input_ranks[idxs]
         input_coords_idxs = input_coords_idxs[idxs]
 
-    on_ranks = np.full(owned_ranks.shape, parent_mesh.comm.rank)
-
     return (
         coords_embedded,
         global_idxs,
         reference_coords,
         parent_cell_nums,
         owned_ranks,
-        on_ranks,
         input_ranks,
         input_coords_idxs,
         missing_global_idxs,
@@ -3703,7 +3683,6 @@ def _swarm_original_ordering_preserve(
     reference_coords_local,
     parent_cell_nums_local,
     ranks_local,
-    on_ranks_local,
     input_ranks_local,
     input_idxs_local,
     extruded,
@@ -3755,9 +3734,6 @@ def _swarm_original_ordering_preserve(
     ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
     comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
 
-    on_ranks_global = np.empty(ncoords_global, dtype=on_ranks_local.dtype)
-    comm.Allgatherv(on_ranks_local, (on_ranks_global, ncoords_local_allranks))
-
     input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
     comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
 
@@ -3776,7 +3752,6 @@ def _swarm_original_ordering_preserve(
     ]
     sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
     sorted_ranks_global = ranks_global[global_idxs_global_order]
-    sorted_on_ranks_global = on_ranks_global[global_idxs_global_order]
     sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
     sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
     # Check order is correct - we can probably remove this eventually since it's
@@ -3794,7 +3769,6 @@ def _swarm_original_ordering_preserve(
     ]
     unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
     unique_ranks_global = sorted_ranks_global[unique_idxs]
-    unique_on_ranks_global = sorted_on_ranks_global[unique_idxs]
     unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
     unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
 
@@ -3807,7 +3781,6 @@ def _swarm_original_ordering_preserve(
     ]
     output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
     output_ranks = unique_ranks_global[input_ranks_match]
-    output_on_ranks = unique_on_ranks_global[input_ranks_match]
     output_input_ranks = unique_input_ranks_global[input_ranks_match]
     output_input_idxs = unique_input_idxs_global[input_ranks_match]
     if extruded:
@@ -3845,10 +3818,6 @@ def _swarm_original_ordering_preserve(
         raise ValueError(
             "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
         )
-    if len(output_on_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local on rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
     if len(output_input_ranks) != len(original_ordering_coords_local):
         raise ValueError(
             "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
@@ -3877,7 +3846,6 @@ def _swarm_original_ordering_preserve(
         output_reference_coords,
         output_parent_cell_nums,
         output_ranks,
-        output_on_ranks,
         output_input_ranks,
         output_input_idxs,
         output_base_parent_cell_nums,
