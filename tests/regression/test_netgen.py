@@ -101,7 +101,6 @@ def poisson3D(h, degree=2):
     return S
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 def test_firedrake_Poisson_netgen():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
@@ -110,7 +109,6 @@ def test_firedrake_Poisson_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 def test_firedrake_Poisson3D_netgen():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
     print("l2 error norms:", diff)
@@ -119,7 +117,6 @@ def test_firedrake_Poisson3D_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 def test_firedrake_integral_2D_netgen():
     try:
         from netgen.geom2d import SplineGeometry
@@ -144,7 +141,6 @@ def test_firedrake_integral_2D_netgen():
     assert abs(assemble(f * dx) - (5/6)) < 1.e-10
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 def test_firedrake_integral_3D_netgen():
     try:
         from netgen.csg import CSGeometry, OrthoBrick, Pnt
@@ -173,7 +169,6 @@ def test_firedrake_integral_3D_netgen():
     assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 def test_firedrake_integral_sphere_netgen():
     try:
         from netgen.csg import CSGeometry, Pnt, Sphere
@@ -200,7 +195,6 @@ def test_firedrake_integral_sphere_netgen():
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
-@pytest.mark.xfail(reason="Upstream issue with Netgen")
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
     try:
