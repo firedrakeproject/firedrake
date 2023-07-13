@@ -75,7 +75,8 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         F = ctx.metadata['F']
         V = ctx.metadata['V_output']
         # Convert PyTorch gradient to Firedrake
-        adj_input = from_torch(grad_output, V)
+        V_adj = V.dual() if V else V
+        adj_input = from_torch(grad_output, V_adj)
         if isinstance(adj_input, (Function, Cofunction)):
             adj_input = adj_input.vector()
 
