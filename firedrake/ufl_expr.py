@@ -112,6 +112,7 @@ class Coargument(ufl.argument.Coargument):
     def _analyze_form_arguments(self):
         # Returns the argument found in the Coargument object
         self._arguments = (self,)
+        self._coefficients = ()
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
