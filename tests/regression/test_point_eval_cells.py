@@ -46,7 +46,7 @@ def circle_mesh():
 @pytest.fixture(params=['triangle', 'quadrilateral'])
 def sphere_mesh(request):
     if request.param == 'triangle':
-        return UnitIcosahedralSphereMesh(5)
+        return UnitIcosahedralSphereMesh(3)
     elif request.param == 'quadrilateral':
         return UnitCubedSphereMesh(4)
 
@@ -98,11 +98,13 @@ def test_3d(func3d):
 
 def test_circle(circle_mesh):
     f = circle_mesh.coordinates
-    point = [0.70710678118, +0.70710678118]
-    assert np.allclose(f(point), point)
+    with pytest.raises(NotImplementedError):
+        # Manifold point location not implemented
+        f([0.70710678118, +0.70710678118])
 
 
 def test_sphere(sphere_mesh):
     f = sphere_mesh.coordinates
-    point = [+0.57735026919, 0.57735026919, +0.57735026919]
-    assert np.allclose(f(point), point, rtol=1.e-3)
+    with pytest.raises(NotImplementedError):
+        # Manifold point location not implemented
+        f([+0.57735026919, 0.57735026919, +0.57735026919])

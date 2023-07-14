@@ -213,12 +213,12 @@ def checkpointable_mesh(mesh):
 
     Parameters
     ----------
-    mesh : firedrake.mesh.MeshGeometry
+    mesh : firedrake.Mesh
         The mesh to be checkpointed.
 
     Returns
     -------
-    firedrake.mesh.MeshGeometry
+    firedrake.Mesh
         The checkpointed mesh to be used in the rest of the computation.
     """
     from firedrake.checkpointing import CheckpointFile
@@ -303,20 +303,3 @@ class CheckpointFunction(CheckpointBase):
 def maybe_disk_checkpoint(function):
     """Checkpoint a Function to disk if disk checkpointing is active."""
     return CheckpointFunction(function) if disk_checkpointing() else function
-
-
-class DelegatedFunctionCheckpoint(CheckpointBase):
-    """A wrapper which delegates the checkpoint of this Function to another Function.
-
-    This enables us to avoid checkpointing a Function twice when it is copied.
-
-    Parameters
-    ----------
-    other: BlockVariable
-        The block variable to which we delegate checkpointing.
-    """
-    def __init__(self, other):
-        self.other = other
-
-    def restore(self):
-        return self.other.saved_output

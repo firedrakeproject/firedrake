@@ -35,61 +35,8 @@ def cell_midpoints(m):
     return midpoints, local_midpoints
 
 
-def cell_ownership(m):
-    """Determine the MPI rank that the local partition thinks "owns" each cell
-    in the mesh.
-
-    :param m: The mesh to generate cell ownership for.
-
-    :returns: A numpy array of MPI ranksl, indexed by cell number as given by
-    m.locate_cell(point).
-
-    """
-    m.init()
-    # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
-    # a Function whose dat contains rank ownership information in an ordering
-    # that is accessible using Firedrake's cell numbering. This is because, on
-    # each rank, parent_mesh.comm.rank creates a Constant with the local rank
-    # number, and halo exchange ensures that this information is visible, as
-    # nessesary, to other processes.
-    P0DG = FunctionSpace(m, "DG", 0)
-    return interpolate(Constant(m.comm.rank), P0DG).dat.data_ro_with_halos
-
-
-def point_ownership(m, points, localpoints):
-    """Determine the MPI rank that the local partition thinks "owns" the given
-    points array.
-
-    If the points are not in the local mesh partition or the halo, then the
-    returned rank will be -1.
-
-    :param m: The mesh to generate point ownership for.
-    :param points: A numpy array of all points across all MPI ranks.
-    :param localpoints: A numpy array of points that are known to be rank-local.
-
-    :returns: A numpy array of MPI ranks, indexed by point number as given by
-    m.locate_cell(point).
-
-    """
-    out_of_mesh_point = np.full((1, m.geometric_dimension()), np.inf)
-    cell_numbers = np.empty(len(localpoints), dtype=int)
-    i = 0
-    for point in points:
-        if any(np.array_equal(point, localpoint) for localpoint in localpoints):
-            cell_numbers[i] = m.locate_cell(point)
-            i += 1
-        else:
-            # need to still call locate_cell since it's collective
-            m.locate_cell(out_of_mesh_point)
-    # shouldn't find any Nones: all points should be in the local mesh partition
-    assert all(cell_numbers != None)  # noqa: E711
-    ownership = cell_ownership(m)
-    return ownership[cell_numbers]
-
-
 @pytest.fixture(params=["interval",
                         "square",
-                        "squarequads",
                         "extruded",
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
@@ -102,8 +49,6 @@ def parentmesh(request):
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
-    elif request.param == "squarequads":
-        return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
     elif request.param == "extrudedvariablelayers":
@@ -137,30 +82,31 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     swarm is created in plex."""
 
     # Setup
-
     parentmesh.init()
+    # The coords dat version is > 0 for a shifted mesh. We need to save the it
+    # here because a bug somewhere in the kernel generation of
+    # MeshGeometry.locate_cell_and_reference_coordinate changes its value.
+    # Accessing the coordinates ought to be a read only operation but, for some
+    # reason, it increments the dat version.
+    coords_dat_version = parentmesh.coordinates.dat.dat_version
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
-    inputcoordindices = np.arange(len(inputpointcoords))
-    inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
     fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
 
     if redundant:
-        if MPI.COMM_WORLD.size == 1:
-            pytest.skip("Testing redundant in serial isn't worth the time")
         # check redundant argument broadcasts from rank 0 by only supplying the
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
         else:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
+            swarm = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
+        swarm = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
 
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
@@ -176,15 +122,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     localparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
     swarm.restoreField("DMSwarm_cellid")
 
-    # also get the global coordinate numbering
-    globalindices = np.copy(swarm.getField("globalindex"))
-    swarm.restoreField("globalindex")
-
     # Tests
-
-    # Since we have specified points at cell midpoints, we should have no
-    # missing points
-    assert n_missing_coords == 0
 
     # get custom fields on swarm - will fail if didn't get created
     for name, size, dtype in fields:
@@ -225,39 +163,22 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     # parent mesh is shifted, in which case they should all be -1
     cell_indexes = parentmesh.cell_closure[:, -1]
     for index in localparentcellindices:
-        if parentmesh.coordinates.dat.dat_version > 0:
+        if coords_dat_version > 0:
             assert index == -1
         else:
             assert np.any(index == cell_indexes)
-
-    # since we know all points are in the mesh, we can check that the global
-    # indices are correct (i.e. they should be in rank order)
-    assert np.array_equal(
-        inputcoordindices, np.concatenate(parentmesh.comm.allgather(globalindices))
-    )
-
-    # Check that the rank numbering is correct. Since we know all points are at
-    # the midpoints of cells, there should be no disagreement about cell
-    # ownership and the voting algorithm should have no effect.
-    ranks = np.copy(swarm.getField("DMSwarm_rank"))
-    swarm.restoreField("DMSwarm_rank")
-    assert np.array_equal(ranks, inputlocalpointcoordranks)
 
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
         and not parentmesh.extruded
-        and not parentmesh.coordinates.dat.dat_version > 0
+        and not coords_dat_version > 0
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
         petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
         swarm.restoreField("DMSwarm_cellid")
         assert np.all(petsclocalparentcellindices == localparentcellindices)
-
-    # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
-    # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
-    # assert n_missing_coords == 2
 
 
 @pytest.mark.parallel
@@ -274,4 +195,4 @@ def test_pic_swarm_in_mesh_2d_2procs():
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
 def test_pic_swarm_in_mesh_2d_3procs():
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)

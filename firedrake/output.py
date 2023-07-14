@@ -3,7 +3,6 @@ import itertools
 import numpy
 import os
 import ufl
-from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
 from pyop2.utils import as_tuple
@@ -463,16 +462,16 @@ class File(object):
         # Build appropriate space for output function.
         shape = function.ufl_shape
         if len(shape) == 0:
-            V = FunctionSpace(extract_unique_domain(function), max_elem)
+            V = FunctionSpace(function.ufl_domain(), max_elem)
         elif len(shape) == 1:
             if numpy.prod(shape) > 3:
                 raise ValueError("Can't write vectors with more than 3 components")
-            V = VectorFunctionSpace(extract_unique_domain(function), max_elem,
+            V = VectorFunctionSpace(function.ufl_domain(), max_elem,
                                     dim=shape[0])
         elif len(shape) == 2:
             if numpy.prod(shape) > 9:
                 raise ValueError("Can't write tensors with more than 9 components")
-            V = TensorFunctionSpace(extract_unique_domain(function), max_elem,
+            V = TensorFunctionSpace(function.ufl_domain(), max_elem,
                                     shape=shape)
         else:
             raise ValueError("Unsupported shape %s" % (shape, ))
@@ -497,7 +496,7 @@ class File(object):
         for f in functions:
             if not isinstance(f, Function):
                 raise ValueError("Can only output Functions or a single mesh, not %r" % type(f))
-        meshes = tuple(extract_unique_domain(f) for f in functions)
+        meshes = tuple(f.ufl_domain() for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
 

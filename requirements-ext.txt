@@ -7,7 +7,6 @@ packaging
 pkgconfig
 progress
 pylint
-pylit
 pytest
 pytest-xdist
 requests

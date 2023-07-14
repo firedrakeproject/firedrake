@@ -1,6 +1,5 @@
 import abc
 import ufl
-from ufl.domain import extract_unique_domain
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -33,8 +32,8 @@ def create_output(V, name=None):
 
 
 def check_meshes(source, target):
-    source_mesh = extract_unique_domain(source)
-    target_mesh = extract_unique_domain(target)
+    source_mesh = source.ufl_domain()
+    target_mesh = target.ufl_domain()
     if source_mesh is None:
         source_mesh = target_mesh
     if target_mesh is None:
@@ -282,7 +281,7 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
-        if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
+        if not isinstance(source, function.Function):
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
         return SupermeshProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
                                   form_compiler_parameters=form_compiler_parameters,

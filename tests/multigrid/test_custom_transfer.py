@@ -129,7 +129,7 @@ def test_multiple_custom_transfer_split():
 
 
 @pytest.mark.skipcomplexnoslate
-def test_multiple_custom_transfer_monolithic():
+def test_multiple_custom_transfer_monolithc():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
     mesh = mh[-1]

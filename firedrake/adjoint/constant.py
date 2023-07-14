@@ -7,8 +7,6 @@ from pyadjoint.reduced_functional_numpy import gather
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint.blocks import ConstantAssignBlock
 
-from ufl.domain import extract_unique_domain
-
 import numpy
 
 
@@ -82,18 +80,16 @@ class ConstantMixin(OverloadedType):
         return checkpoint
 
     def _ad_mul(self, other):
-        return self._constant_from_values(self.dat.data_ro.reshape(-1) * other)
+        return self._constant_from_values(self.values() * other)
 
     def _ad_add(self, other):
-        return self._constant_from_values(
-            self.dat.data_ro.reshape(-1) + other.dat.data_ro.reshape(-1)
-        )
+        return self._constant_from_values(self.values() + other.values())
 
     def _ad_dot(self, other, options=None):
         if type(other) is AdjFloat:
-            return sum(self.dat.data_ro.reshape(-1) * other)
+            return sum(self.values() * other)
         else:
-            return sum(self.dat.data_ro.reshape(-1) * other.dat.data_ro.reshape(-1))
+            return sum(self.values() * other.values())
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
@@ -104,39 +100,37 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
-        return m.dat.data_ro.reshape(-1).tolist()
+        return m.values().tolist()
 
     def _ad_copy(self):
         return self._constant_from_values()
 
     def _ad_dim(self):
-        return numpy.prod(self.dat.data_ro.cdim)
+        return numpy.prod(self.values().shape)
 
     def _ad_imul(self, other):
-        self.assign(self._constant_from_values(self.dat.data_ro.reshape(-1) * other))
+        self.assign(self._constant_from_values(self.values() * other))
 
     def _ad_iadd(self, other):
-        self.assign(self._constant_from_values(
-            self.dat.data_ro.reshape(-1) + other.dat.data_ro.reshape(-1)
-        ))
+        self.assign(self._constant_from_values(self.values() + other.values()))
 
     def _reduce(self, r, r0):
-        npdata = self.dat.data_ro.reshape(-1)
+        npdata = self.values()
         for i in range(len(npdata)):
             r0 = r(npdata[i], r0)
         return r0
 
     def _applyUnary(self, f):
-        npdata = self.dat.data_ro.reshape(-1)
+        npdata = self.values()
         npdatacopy = npdata.copy()
         for i in range(len(npdata)):
             npdatacopy[i] = f(npdata[i])
         self.assign(self._constant_from_values(npdatacopy))
 
     def _applyBinary(self, f, y):
-        npdata = self.dat.data_ro.reshape(-1)
-        npdatacopy = self.dat.data_ro.reshape(-1).copy()
-        npdatay = y.dat.data_ro.reshape(-1)
+        npdata = self.values()
+        npdatacopy = self.values().copy()
+        npdatay = y.values()
         for i in range(len(npdata)):
             npdatacopy[i] = f(npdata[i], npdatay[i])
         self.assign(self._constant_from_values(npdatacopy))
@@ -145,17 +139,17 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values()
 
     def _constant_from_values(self, values=None):
-        """Returns a new Constant with self.dat.data_ro.reshape(-1) while preserving self.ufl_shape.
+        """Returns a new Constant with self.values() while preserving self.ufl_shape.
 
         If the optional argument `values` is provided, then `values` will be the values of the
         new Constant instead, still preserving the ufl_shape of self.
 
         Args:
-            values (numpy.array): An optional argument to use instead of ``self.dat.data_ro.reshape(-1)``.
+            values (numpy.array): An optional argument to use instead of self.values().
 
         Returns:
             Constant: The created Constant
 
         """
-        values = self.dat.data_ro.reshape(-1) if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape), domain=extract_unique_domain(self))
+        values = self.values() if values is None else values
+        return type(self)(numpy.reshape(values, self.ufl_shape), domain=self.ufl_domain())

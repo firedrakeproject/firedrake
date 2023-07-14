@@ -4,7 +4,6 @@ import firedrake
 from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
-from ufl.domain import extract_unique_domain
 
 
 __all__ = ["prolong", "restrict", "inject"]
@@ -45,8 +44,8 @@ def prolong(coarse, fine):
             src.copy(dest)
         return fine
 
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
-    _, fine_level = utils.get_level(extract_unique_domain(fine))
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    _, fine_level = utils.get_level(fine.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
@@ -106,8 +105,8 @@ def restrict(fine_dual, coarse_dual):
             src.copy(dest)
         return coarse_dual
 
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse_dual))
-    _, fine_level = utils.get_level(extract_unique_domain(fine_dual))
+    hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
+    _, fine_level = utils.get_level(fine_dual.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
@@ -180,10 +179,10 @@ def inject(fine, coarse):
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-    _, fine_level = utils.get_level(extract_unique_domain(fine))
+    _, fine_level = utils.get_level(fine.ufl_domain())
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level

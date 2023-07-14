@@ -2,7 +2,6 @@ import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
-from ufl.domain import extract_unique_domain
 
 from functools import singledispatch, partial
 import firedrake
@@ -39,14 +38,14 @@ class CoarsenIntegrand(MultiFunction):
         return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
 
     def geometric_quantity(self, o):
-        return type(o)(self.coarsen(extract_unique_domain(o), self.coarsen))
+        return type(o)(self.coarsen(o.ufl_domain(), self.coarsen))
 
     def circumradius(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.coarsen(o.ufl_domain(), self.coarsen)
         return firedrake.Circumradius(mesh)
 
     def facet_normal(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.coarsen(o.ufl_domain(), self.coarsen)
         return firedrake.FacetNormal(mesh)
 
 
@@ -180,7 +179,7 @@ def coarsen_constant(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        mesh = self(extract_unique_domain(expr), self)
+        mesh = self(expr.ufl_domain(), self)
         new = firedrake.Constant(numpy.zeros(expr.ufl_shape,
                                              dtype=expr.dat.dtype),
                                  domain=mesh)

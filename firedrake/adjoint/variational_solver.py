@@ -1,4 +1,5 @@
 import copy
+from firedrake.constant import Constant
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
@@ -103,7 +104,7 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import Function, NonlinearVariationalProblem
+        from firedrake import NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 
@@ -114,7 +115,7 @@ class NonlinearVariationalSolverMixin:
         for block_variable in dependencies:
             coeff = block_variable.output
             if coeff in F_coefficients and coeff not in F_replace_map:
-                if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
+                if isinstance(coeff, Constant):
                     F_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     F_replace_map[coeff] = coeff.copy(deepcopy=True)
@@ -123,7 +124,7 @@ class NonlinearVariationalSolverMixin:
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:
                     J_replace_map[coeff] = F_replace_map[coeff]
-                elif isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
+                elif isinstance(coeff, Constant):
                     J_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     J_replace_map[coeff] = coeff.copy()

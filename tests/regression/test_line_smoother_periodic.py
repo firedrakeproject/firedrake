@@ -29,7 +29,8 @@ def periodise(m):
              {"new_coords": (new_coordinates, WRITE),
               "old_coords": (old_coordinates, READ),
               "Lx": (cLx, READ),
-              "Ly": (cLy, READ)})
+              "Ly": (cLy, READ)},
+             is_loopy_kernel=True)
     return Mesh(new_coordinates)
 
 
