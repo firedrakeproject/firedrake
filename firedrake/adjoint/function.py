@@ -285,7 +285,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        r.assign(self * other)
+        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        r.assign(other * self)
         return r
 
     @no_annotations
