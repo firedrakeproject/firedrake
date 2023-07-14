@@ -2693,8 +2693,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         will redistribute to the mesh partition where they are located. This
         means that if rank A has ``vertexcoords`` {X} that are not found in the
         mesh cells owned by rank A but are found in the mesh cells owned by
-        rank B, **and rank B has not been supplied with those**, then they will
-        be moved to rank B.
+        rank B, then they will be moved to rank B.
 
     .. note::
         If the same coordinates are supplied more than once, they are always
