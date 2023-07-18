@@ -1739,6 +1739,9 @@ run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel==0.37.0"])
 
+# Pin Cython because it's causing multiple packages to fail to build
+run_pip(["install", "-U", "Cython==0.29.36"])
+
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
     slepc_dir, _ = get_slepc_dir()
@@ -1895,7 +1898,7 @@ if mode == "install":
         run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
+    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
     log.info("Installing numpy==1.24 due to performance regression")
     # https://github.com/inducer/pytential/issues/211
     run_pip_install(["numpy==1.24"])
