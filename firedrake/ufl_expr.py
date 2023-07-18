@@ -111,7 +111,9 @@ class Coargument(ufl.argument.Coargument):
 
     def _analyze_form_arguments(self):
         # Returns the argument found in the Coargument object
-        self._arguments = (self,)
+        # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
+        # So they have one argument in the primal space and one in the dual space.
+        self._arguments = (Argument(self.function_space().dual(), 0), self)
         self._coefficients = ()
 
     def reconstruct(self, function_space=None,
