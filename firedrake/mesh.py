@@ -2194,6 +2194,9 @@ values from f.)"""
             statics in pointquery_utils.py */
             struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
+            /* to_reference_coords and to_reference_coords_xtr are defined in
+            pointquery_utils.py. If they contain python calls, this loop will
+            not run at c-loop speed. */
             cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
 
             for (int k = 0; k < %(geometric_dimension)d; k++) {
