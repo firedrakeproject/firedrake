@@ -999,10 +999,12 @@ def run_pip_install_wrap(reqs, parallel_compiler_env):
             # Downgrade setuptools and wheel for numpy
             run_pip(["install", "-U", "setuptools==59.2.0"])
             run_pip(["install", "-U", "wheel==0.37.0"])
+            run_pip(["install", "-U", "Cython==0.29.36"])
             run_pip_install(["numpy==1.24"])
             # Upgrade setuptools and wheel for everything else
             run_pip(["install", "-U", "setuptools"])
             run_pip(["install", "-U", "wheel"])
+            run_pip(["install", "-U", "Cython"])
         else:
             run_pip_install([req])
 
@@ -1734,10 +1736,12 @@ if mode == "install":
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
 # numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
+# numpy also requires Cython 29.36 too, numpy please fix your build procedure!
 run_pip(["install", "-U", "setuptools==59.2.0"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel==0.37.0"])
+run_pip(["install", "-U", "Cython==0.29.36"])
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1894,14 +1898,15 @@ if mode == "install":
     with environment(**compiler_env, **link_env):
         run_pip_install(["--no-cache-dir", "mpi4py"])
 
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0")
+    # numpy requires old setuptools (+wheel) (+Cython)
+    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
     log.info("Installing numpy==1.24 due to performance regression")
     # https://github.com/inducer/pytential/issues/211
     run_pip_install(["numpy==1.24"])
     log.info("Updating setuptools and wheel to latest versions")
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "wheel"])
+    run_pip(["install", "-U", "Cython"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
