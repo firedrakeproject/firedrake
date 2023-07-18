@@ -3240,6 +3240,65 @@ def _dmswarm_create(
     gdim,
 ):
 
+    """
+    Create a PIC DMSwarm (or DMSwarm that looks like it's a PIC DMSwarm) using
+    the given data.
+
+    Parameters
+    ----------
+
+    fields : list of tuples
+        List of tuples of the form (name, number of components, type) for any
+        additional fields to be added to the DMSwarm. The default fields are
+        automatically added and do not need to be specified here. Can be an
+        empty list if no additional fields are required.
+    comm : MPI communicator
+        The MPI communicator to use when creating the DMSwarm.
+    plex : PETSc DM
+        The DM to set as the "CellDM" of the DMSwarm - i.e. the DMPlex or
+        DMSwarm of the parent mesh.
+    coords : numpy array of RealType with shape (npoints, gdim)
+        The coordinates of the particles in the DMSwarm.
+    plex_parent_cell_nums : numpy array of IntType with shape (npoints,)
+        Array to be used as the "parentcellnum" field of the DMSwarm.
+    coords_idxs : numpy array of IntType with shape (npoints,)
+        Array to be used as the "globalindex" field of the DMSwarm.
+    reference_coords : numpy array of RealType with shape (npoints, tdim)
+        Array to be used as the "refcoord" field of the DMSwarm.
+    parent_cell_nums : numpy array of IntType with shape (npoints,)
+        Array to be used as the "parentcellnum" field of the DMSwarm.
+    ranks : numpy array of IntType with shape (npoints,)
+        Array to be used as the "DMSwarm_rank" field of the DMSwarm.
+    input_ranks : numpy array of IntType with shape (npoints,)
+        Array to be used as the "inputrank" field of the DMSwarm.
+    input_coords_idxs : numpy array of IntType with shape (npoints,)
+        Array to be used as the "inputindex" field of the DMSwarm.
+    base_parent_cell_nums : numpy array of IntType with shape (npoints,) (or None)
+        Optional array to be used as the "parentcellbasenum" field of the
+        DMSwarm. Must be provided if extruded=True.
+    extrusion_heights : numpy array of IntType with shape (npoints,) (or None)
+        Optional array to be used as the "parentcellextrusionheight" field of
+        the DMSwarm. Must be provided if extruded=True.
+    extruded : bool
+        Whether the parent mesh is extruded.
+    tdim : int
+        The topological dimension of the parent mesh.
+    gdim : int
+        The geometric dimension of the parent mesh.
+
+    Returns
+    -------
+    swarm : PETSc DMSwarm
+        The created DMSwarm.
+
+    Notes
+    -----
+    When the `plex` is a DMSwarm, the created DMSwarm isn't actually a PIC
+    DMSwarm, but it has all the associated fields of a PIC DMSwarm. This is
+    because PIC DMSwarms cannot have their "CellDM" set to a DMSwarm, so we
+    fake it!
+    """
+
     # These are created by default for a PIC DMSwarm
     default_fields = [
         ("DMSwarmPIC_coor", gdim, RealType),
