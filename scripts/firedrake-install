@@ -1241,17 +1241,9 @@ def build_and_install_h5py():
 
 def build_and_install_libsupermesh():
     log.info("Installing libsupermesh")
-    url = "git+https://bitbucket.org/libsupermesh/libsupermesh.git"
+    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
-        log.info("Updating the git repository for libsupermesh")
-        with directory("libsupermesh"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            changed = git_sha != git_sha_new
-            if changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
+        changed = git_update("libsupermesh", url)
     else:
         git_clone(url)
         changed = True
