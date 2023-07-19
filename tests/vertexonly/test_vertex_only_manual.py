@@ -40,7 +40,7 @@ def test_vertex_only_mesh_manual_example():
     f_at_input_points.dat.data_wo[:] = np.nan
     f_at_input_points.interpolate(f_at_points)
 
-    print(f_at_input_points.dat.data_ro)  # any points not found will be nan
+    print(f_at_input_points.dat.data_ro)  # any points not found will be NaN
 
 
 def test_vom_manual_points_outside_domain():
