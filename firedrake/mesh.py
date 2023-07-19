@@ -2313,9 +2313,9 @@ values from f.)"""
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering(self):
         """
-        Return the input ordering of the mesh vertices as a VertexOnlyMesh
-        whilst preserving other information, such as the global indices and
-        parent mesh cell information.
+        Return the input ordering of the mesh vertices as a
+        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
+        the global indices and parent mesh cell information.
 
         Only available for vertex-only meshes.
 
@@ -2334,8 +2334,8 @@ values from f.)"""
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
         """
-        Return a PETSc SF which has VertexOnlyMesh input ordering vertices as
-        roots and this mesh's vertices as leaves.
+        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        vertices as roots and this mesh's vertices as leaves.
 
         Only available for vertex-only meshes.
         """

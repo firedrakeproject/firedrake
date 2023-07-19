@@ -739,17 +739,17 @@ class VomOntoVomCallable(object):
 
     Parameters
     ----------
-    V : :class:`.FunctionSpace`
+    V : `.FunctionSpace`
         The P0DG function space (which may be vector or tensor valued) on the
-        source ``VertexOnlyMesh``.
-    source_vom : :class:`.VertexOnlyMesh`
-        The ``VertexOnlyMesh`` we interpolate from.
-    target_vom : :class:`.VertexOnlyMesh`
-        The ``VertexOnlyMesh`` we interpolate to.
-    expr : :class:`ufl.Expr`
+        source vertex-only mesh.
+    source_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate from.
+    target_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate to.
+    expr : `ufl.Expr`
         The expression to interpolate. If ``arguments`` is not empty, those
         arguments must be present within it.
-    arguments : list of :class:`ufl.Argument`
+    arguments : list of `ufl.Argument`
         The arguments in the expression. These are not extracted from expr here
         since, where we use this, we already have them.
     """
@@ -787,9 +787,9 @@ class VomOntoVomCallable(object):
 
         Parameters
         ----------
-        target_dat : :class:`pyop2.Dat`
+        target_dat : `pyop2.Dat`
             The target dat to interpolate into.
-        source_dat : :class:`pyop2.Dat`, optional
+        source_dat : `pyop2.Dat`, optional
             The source dat to interpolate from if the expression contained
             an argument. Set to ``None`` if the expression contained no
             arguments.
