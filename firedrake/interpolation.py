@@ -126,7 +126,7 @@ class Interpolator(object):
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
         try:
-            self.callable, arguments, self.vom_onto_other_vom = make_interpolator(expr, V, subset, access, bcs=bcs)
+            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
@@ -172,25 +172,16 @@ class Interpolator(object):
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
-            if not self.vom_onto_other_vom:
-                if transpose:
-                    mul = assembled_interpolator.handle.multTranspose
-                    V = self.arguments[0].function_space()
-                else:
-                    mul = assembled_interpolator.handle.mult
-                    V = self.V
-                result = output or firedrake.Function(V)
-                with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                    mul(x, out)
-                return result
+            if transpose:
+                mul = assembled_interpolator.handle.multTranspose
+                V = self.arguments[0].function_space()
             else:
-                if transpose:
-                    V = self.arguments[0].function_space()
-                else:
-                    V = self.V
-                result = output or firedrake.Function(V)
-                assembled_interpolator(result.dat, function.dat, transpose)
-                return result
+                mul = assembled_interpolator.handle.mult
+                V = self.V
+            result = output or firedrake.Function(V)
+            with function.dat.vec_ro as x, result.dat.vec_wo as out:
+                mul(x, out)
+            return result
 
         else:
             if output:
@@ -279,20 +270,35 @@ def make_interpolator(expr, V, subset, access, bcs=None):
 
     if vom_onto_other_vom:
         # To interpolate between vertex-only meshes we use a PETSc SF
+        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments)
+        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+        # data, including the correct data size and dimensional information
+        # (so for vector function spaces in 2 dimensions we might need a
+        # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         if tensor is not None:
+            # Callable will do interpolation into tensor (which is a Dat) when
+            # it is called.
+            wrapper.mpi_type, _ = get_dat_mpi_type(tensor)
             assert not len(arguments)
-            # Do interpolation into tensor (which is a Dat) now.
-            callable = partial(VomOntoVomCallable(V, source_mesh, target_mesh, expr, arguments), tensor)
+            callable = partial(wrapper.forward_operation, tensor)
         else:
             assert len(arguments) == 1
-            # Leave operator as a callable that takes source and target dats.
+            assert tensor is None
+            # we know we will be outputting either a function or a cofunction,
+            # both of which will use a dat as a data carrier. At present, the
+            # data type does not depend on function space dimension, so we can
+            # safely use the argument function space. NOTE: If this changes
+            # after cofunctions are fully implemented, this will need to be
+            # reconsidered.
+            temp_source_func = firedrake.Function(argfs)
+            wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
 
+            # Leave wrapper inside a callable so we can access the handle
+            # property (which is pretending to be a petsc mat)
             def callable():
-                # need to wrap this in a callable to work as expected with
-                # Interpolator.interpolate()
-                return VomOntoVomCallable(V, source_mesh, target_mesh, expr, arguments)
+                return wrapper
 
-        return callable, arguments, vom_onto_other_vom
+        return callable, arguments
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
@@ -316,7 +322,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 l()
             return f
 
-        return partial(callable, loops, f), arguments, vom_onto_other_vom
+        return partial(callable, loops, f), arguments
 
 
 @utils.known_pyop2_safe
@@ -733,9 +739,9 @@ def hash_expr(expr):
     )
 
 
-class VomOntoVomCallable(object):
-    """Callable that maps from one ``VertexOnlyMesh`` to it's intput ordering
-    ``VertexOnlyMesh``, or vice versa.
+class VomOntoVomWrapper(object):
+    """Utility class for interpolating from one ``VertexOnlyMesh`` to it's
+    intput ordering ``VertexOnlyMesh``, or vice versa.
 
     Parameters
     ----------
@@ -755,7 +761,6 @@ class VomOntoVomCallable(object):
     """
 
     def __init__(self, V, source_vom, target_vom, expr, arguments):
-        source_vom = source_vom
         reduce = False
         broadcast = False
         try:
@@ -774,118 +779,169 @@ class VomOntoVomCallable(object):
             raise ValueError(
                 "The target vom and source vom must be linked by input ordering!"
             )
-        self.arguments = arguments
         self.V = V
         self.source_vom = source_vom
-        self.original_vom = original_vom
         self.expr = expr
+        self.arguments = arguments
         self.reduce = reduce
+        # note that interpolation doesn't include halo cells
+        self.handle = VomOntoVomDummyMat(
+            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
+        )
 
-    def __call__(self, target_dat, source_dat=None, transpose=False):
+    @property
+    def mpi_type(self):
         """
-        Perform the interpolation.
+        The MPI type to use for the PETSc SF.
 
-        Parameters
-        ----------
-        target_dat : `pyop2.Dat`
-            The target dat to interpolate into.
-        source_dat : `pyop2.Dat`, optional
-            The source dat to interpolate from if the expression contained
-            an argument. Set to ``None`` if the expression contained no
-            arguments.
-        transpose : bool
-            If ``True``, the adjoint interpolation operator is applied. The
-            expression must contain an argument and the source dat must
-            correspond to a cofunction.
-
-        Returns
-        -------
-        None
+        Should correspond to the underlying data type of the PETSc Vec.
         """
-        if not isinstance(target_dat, op2.Dat):
-            raise ValueError("The target dat is not a pyop2 Dat!")
-        if source_dat is not None and not isinstance(source_dat, op2.Dat):
-            raise ValueError("If the source dat is specified, it must be a pyop2 Dat!")
-        if transpose and source_dat is None:
-            raise ValueError(
-                "If the transpose is True, the source dat must be specified!"
-            )
+        return self.handle.mpi_type
 
+    @mpi_type.setter
+    def mpi_type(self, val):
+        self.handle.mpi_type = val
+
+    def forward_operation(self, target_dat):
+        coeff = self.handle.expr_as_coeff()
+        with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
+            self.handle.mult(coeff_vec, target_vec)
+
+
+class VomOntoVomDummyMat(object):
+    """Dummy object to stand in for a PETSc ``Mat`` when we are interpolating
+    between vertex-only meshes.
+
+    Parameters
+    ----------
+    sf: PETSc.sf
+        The PETSc Star Forest (SF) to use for the operation
+    forward_reduce : bool
+        If ``True``, the action of the operator (accessed via the `mult`
+        method) is to perform a SF reduce from the source vec to the target
+        vec, whilst the adjoint action (accessed via the `multTranspose`
+        method) is to perform a SF broadcast from the source vec to the target
+        vec. If ``False``, the opposite is true.
+    V : `.FunctionSpace`
+        The P0DG function space (which may be vector or tensor valued) on the
+        source vertex-only mesh.
+    source_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate from.
+    expr : `ufl.Expr`
+        The expression to interpolate. If ``arguments`` is not empty, those
+        arguments must be present within it.
+    arguments : list of `ufl.Argument`
+        The arguments in the expression.
+    """
+
+    def __init__(self, sf, forward_reduce, V, source_vom, expr, arguments):
+        self.sf = sf
+        self.forward_reduce = forward_reduce
+        self.V = V
+        self.source_vom = source_vom
+        self.expr = expr
+        self.arguments = arguments
+
+    @property
+    def mpi_type(self):
+        """
+        The MPI type to use for the PETSc SF.
+
+        Should correspond to the underlying data type of the PETSc Vec.
+        """
+        return self._mpi_type
+
+    @mpi_type.setter
+    def mpi_type(self, val):
+        self._mpi_type = val
+
+    def expr_as_coeff(self, source_vec=None):
+        """
+        Return a coefficient that corresponds to the expression used at
+        construction, where the expression has been interpolated into the P0DG
+        function space on the source vertex-only mesh.
+
+        Will fail if there are no arguments.
+        """
         # Since we always output a coefficient when we don't have arguments in
-        # the expression, I should evaluate the expression on the source mesh
+        # the expression, we should evaluate the expression on the source mesh
         # so its dat can be sent to the target mesh.
-        if not transpose:
-            with stop_annotating():
-                element = self.V.ufl_element()  # Could be vector/tensor valued
-                P0DG = firedrake.FunctionSpace(self.source_vom, element)
-                # if we have any arguments in the expression we need to replace
-                # them with equivalent coefficients now
-                coeff_expr = self.expr
-                if len(self.arguments):
-                    if len(self.arguments) > 1:
-                        raise NotImplementedError(
-                            "Can only interpolate expressions with one argument!"
-                        )
-                    if source_dat is None:
-                        raise ValueError(
-                            "Need to provide a source dat for the argument!"
-                        )
-                    arg = self.arguments[0]
-                    arg_coeff = firedrake.Function(arg.function_space())
-                    arg_coeff.dat.data_wo_with_halos[:] = source_dat.data_ro_with_halos
-                    coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
-                coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
-                coeff_dat = coeff.dat
-                reduce = self.reduce
+        with stop_annotating():
+            element = self.V.ufl_element()  # Could be vector/tensor valued
+            P0DG = firedrake.FunctionSpace(self.source_vom, element)
+            # if we have any arguments in the expression we need to replace
+            # them with equivalent coefficients now
+            coeff_expr = self.expr
+            if len(self.arguments):
+                if len(self.arguments) > 1:
+                    raise NotImplementedError(
+                        "Can only interpolate expressions with one argument!"
+                    )
+                if source_vec is None:
+                    raise ValueError("Need to provide a source dat for the argument!")
+                arg = self.arguments[0]
+                arg_coeff = firedrake.Function(arg.function_space())
+                arg_coeff.dat.data_wo[:] = source_vec.getArray().reshape(
+                    arg_coeff.dat.data_wo.shape
+                )
+                coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
+            coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
+        return coeff
+
+    def reduce(self, source_vec, target_vec):
+        source_arr = source_vec.getArray()
+        target_arr = target_vec.getArray()
+        self.sf.reduceBegin(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+        self.sf.reduceEnd(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+
+    def broadcast(self, source_vec, target_vec):
+        source_arr = source_vec.getArray()
+        target_arr = target_vec.getArray()
+        self.sf.bcastBegin(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+        self.sf.bcastEnd(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+
+    def mult(self, source_vec, target_vec):
+        # need to evaluate expression before doing mult
+        coeff = self.expr_as_coeff(source_vec)
+        with coeff.dat.vec_ro as coeff_vec:
+            if self.forward_reduce:
+                self.reduce(coeff_vec, target_vec)
+            else:
+                self.broadcast(coeff_vec, target_vec)
+
+    def multTranspose(self, source_vec, target_vec):
+        # can only do transpose if our expression exclusively contains a
+        # single argument, making the application of the adjoint operator
+        # straightforward (haven't worked out how to do this otherwise!)
+        if not len(self.arguments) == 1:
+            raise NotImplementedError(
+                "Can only apply transpose to expressions with one argument!"
+            )
+        if self.arguments[0] is not self.expr:
+            raise NotImplementedError(
+                "Can only apply transpose to expressions consisting of a single argument at the moment."
+            )
+        if self.forward_reduce:
+            self.broadcast(source_vec, target_vec)
         else:
-            # can only do transpose if our expression exclusively contains a
-            # single argument, making the application of the adjoint operator
-            # straightforward (haven't worked out how to do this otherwise!)
-            if not len(self.arguments) == 1:
-                raise NotImplementedError(
-                    "Can only apply transpose to expressions with one argument!"
-                )
-            if self.arguments[0] is not self.expr:
-                raise NotImplementedError(
-                    "Can only apply transpose to expressions consisting of a single argument at the moment."
-                )
-            coeff_dat = source_dat
-            reduce = not self.reduce
-
-        sf = self.original_vom.input_ordering_sf
-        # Functions on input ordering VOM are roots of the SF
-        # Functions on original VOM are leaves of the SF
-        # Reduce therefore sends data from original VOM to input ordering VOM
-        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
-        # data, including the correct data size and dimensional information
-        # (so for vector function spaces in 2 dimensions we might need a
-        # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-        mpi_type, _ = get_dat_mpi_type(target_dat)
-        if reduce:
-            sf.reduceBegin(
-                mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
-                MPI.REPLACE,
-            )
-            sf.reduceEnd(
-                mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
-                MPI.REPLACE,
-            )
-        else:  # broadcast
-            sf.bcastBegin(
-                mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
-                MPI.REPLACE,
-            )
-            sf.bcastEnd(
-                mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
-                MPI.REPLACE,
-            )
-
-        return
+            self.reduce(source_vec, target_vec)
