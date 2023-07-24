@@ -51,7 +51,8 @@ class InstallError(Exception):
 
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
-    configuration information."""
+    configuration information.
+"""
     def __init__(self, args=None):
         super(FiredrakeConfiguration, self).__init__()
 
