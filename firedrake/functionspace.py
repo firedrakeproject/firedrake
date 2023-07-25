@@ -7,15 +7,16 @@ backwards-compatibility, argument checking, and dispatch.
 import ufl
 
 from pyop2.utils import flatten
-from pyop2.profiling import timed_function
 
 from firedrake import functionspaceimpl as impl
+from firedrake.petsc import PETSc
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
 
 
+@PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     """Build a scalar :class:`ufl.FiniteElement`.
 
@@ -77,8 +78,7 @@ def check_element(element, top=True):
     :raises ValueError: if the element is illegal.
 
     """
-    if type(element) in (ufl.BrokenElement, ufl.FacetElement,
-                         ufl.InteriorElement, ufl.RestrictedElement,
+    if type(element) in (ufl.BrokenElement, ufl.RestrictedElement,
                          ufl.HDivElement, ufl.HCurlElement):
         inner = (element._element, )
     elif type(element) is ufl.EnrichedElement:
@@ -96,7 +96,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-@timed_function("CreateFunctionSpace")
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -119,16 +119,9 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     # Support FunctionSpace(mesh, MixedElement)
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
-
-    # Support foo x Real tensorproduct elements
-    real_tensorproduct = False
-    scalar_element = element
-    if isinstance(element, (ufl.VectorElement, ufl.TensorElement)):
-        scalar_element = element.sub_elements()[0]
-    if isinstance(scalar_element, ufl.TensorProductElement):
-        a, b = scalar_element.sub_elements()
-        real_tensorproduct = b.family() == 'Real'
-
+    if mesh.ufl_cell().cellname() == "hexahedron" and \
+       element.family() not in ["Q", "DQ"]:
+        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
 
@@ -137,13 +130,14 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     if element.family() == "Real":
         new = impl.RealFunctionSpace(topology, element, name=name)
     else:
-        new = impl.FunctionSpace(topology, element, name=name, real_tensorproduct=real_tensorproduct)
+        new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
-        return impl.WithGeometry(new, mesh)
+        return impl.WithGeometry.create(new, mesh)
     else:
         return new
 
 
+@PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.
@@ -180,6 +174,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
                         vdegree=None):
@@ -217,6 +212,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     return FunctionSpace(mesh, element, name=name)
 
 
+@PETSc.Log.EventDecorator()
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 
@@ -264,5 +260,5 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     new = impl.MixedFunctionSpace(spaces, name=name)
     if mesh is not mesh.topology:
-        return impl.WithGeometry(new, mesh)
+        return impl.WithGeometry.create(new, mesh)
     return new

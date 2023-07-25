@@ -1,17 +1,17 @@
-from ufl import MixedElement, VectorElement, TensorElement
-from firedrake.preconditioners.pmg import PMGPC
+from firedrake.preconditioners.pmg import PMGPC, PMGSNES
 
-__all__ = ("P1PC", )
+__all__ = ("P1PC", "P1SNES")
 
 
 class P1PC(PMGPC):
-    @staticmethod
-    def coarsen_element(ele):
-        if isinstance(ele, MixedElement) and not isinstance(ele, (VectorElement, TensorElement)):
-            raise NotImplementedError("Implement this method yourself")
-
-        p = ele.degree()
-        if p == 1:
+    def coarsen_element(self, ele):
+        if super().max_degree(ele) <= self.coarse_degree:
             raise ValueError
-        else:
-            return ele.reconstruct(degree=1)
+        return super().reconstruct_degree(ele, self.coarse_degree)
+
+
+class P1SNES(PMGSNES):
+    def coarsen_element(self, ele):
+        if super().max_degree(ele) <= self.coarse_degree:
+            raise ValueError
+        return super().reconstruct_degree(ele, self.coarse_degree)

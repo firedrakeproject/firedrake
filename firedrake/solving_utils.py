@@ -1,6 +1,6 @@
-import numpy
-
 from itertools import chain
+
+import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
@@ -55,9 +55,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults
         ksp_defaults = ksp_defaults.copy()
         skip = set()
         if "pc_type" in keys:
-            skip.update({"pc_factor_mat_solver_type", "mat_mumps_icntl_14",
-                         # Might reasonably expect to get petsc default
-                         "ksp_type"})
+            # Might reasonably expect to get petsc defaults
+            skip.update({"pc_factor_mat_solver_type", "ksp_type"})
         if parameters.get("mat_type") in {"matfree", "nest"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
@@ -173,12 +172,14 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, problem, mat_type, pmat_type, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import OneFormAssembler
+
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -231,10 +232,10 @@ class _SNESContext(object):
         self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
-        self._assemble_residual = create_assembly_callable(self.F,
-                                                           tensor=self._F,
-                                                           bcs=self.bcs_F,
-                                                           form_compiler_parameters=self.fcp)
+
+        self._assemble_residual = OneFormAssembler(self.F, self._F, self.bcs_F,
+                                                   form_compiler_parameters=self.fcp,
+                                                   zero_bc_nodes=True).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -310,6 +311,7 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose, near=near)
 
+    @PETSc.Log.EventDecorator()
     def split(self, fields):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
@@ -325,7 +327,7 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.split()
+            us = problem.u.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
@@ -379,7 +381,7 @@ class _SNESContext(object):
             bcs = []
             for bc in problem.bcs:
                 if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method)
+                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
                     bc_temp = bc.reconstruct(field, V, subu, u)
                 if bc_temp is not None:
@@ -508,12 +510,9 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.J,
-                                        tensor=self._jac,
-                                        bcs=self.bcs_J,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.mat_type)
+        from firedrake.assemble import TwoFormAssembler
+        return TwoFormAssembler(self.J, self._jac, bcs=self.bcs_J,
+                                form_compiler_parameters=self.fcp).assemble
 
     @cached_property
     def is_mixed(self):
@@ -534,12 +533,9 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.Jp,
-                                        tensor=self._pjac,
-                                        bcs=self.bcs_Jp,
-                                        form_compiler_parameters=self.fcp,
-                                        mat_type=self.pmat_type)
+        from firedrake.assemble import TwoFormAssembler
+        return TwoFormAssembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
+                                form_compiler_parameters=self.fcp).assemble
 
     @cached_property
     def _F(self):

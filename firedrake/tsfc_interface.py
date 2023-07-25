@@ -21,13 +21,13 @@ from .ufl_expr import TestFunction
 from tsfc import compile_form as tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 
+from pyop2 import op2
 from pyop2.caching import Cached
-from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, MPI
 
 from firedrake.formmanipulation import split_form
-
 from firedrake.parameters import parameters as default_parameters
+from firedrake.petsc import PETSc
 from firedrake import utils
 
 # Set TSFC default scalar type at load time
@@ -44,7 +44,9 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "coefficient_map",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
-                                     "needs_cell_sizes"])
+                                     "needs_cell_sizes",
+                                     "arguments",
+                                     "events"])
 
 
 class TSFCKernel(Cached):
@@ -86,7 +88,7 @@ class TSFCKernel(Cached):
             val = comm.bcast(None, root=0)
 
         if val is None:
-            raise KeyError("Object with key %s not found" % key)
+            raise KeyError(f"Object with key {key} not found")
         return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
 
     @classmethod
@@ -108,39 +110,37 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
-        # FIXME Making the COFFEE parameters part of the cache key causes
-        # unnecessary repeated calls to TSFC when actually only the kernel code
-        # needs to be regenerated
+    def _cache_key(cls, form, name, parameters, number_map, interface, diagonal=False):
         return md5((form.signature() + name
-                    + str(sorted(default_parameters["coffee"].items()))
                     + str(sorted(parameters.items()))
                     + str(number_map)
                     + str(type(interface))
-                    + str(coffee)
                     + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
-    def __init__(self, form, name, parameters, number_map, interface, coffee=False, diagonal=False):
+    def __init__(self, form, name, parameters, number_map, interface, diagonal=False):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
+        :arg number_map: a map from local coefficient numbers to the global coefficient numbers.
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         """
         if self._initialized:
             return
-        tree = tsfc_compile_form(form, prefix=name, parameters=parameters, interface=interface, coffee=coffee, diagonal=diagonal)
+        tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
+                                 interface=interface,
+                                 diagonal=diagonal, log=PETSc.Log.isActive())
         kernels = []
         for kernel in tree:
-            # Set optimization options
-            opts = default_parameters["coffee"]
-            ast = kernel.ast
             # Unwind coefficient numbering
-            numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts,
-                                                    requires_zeroed_output_arguments=True),
+            numbers = tuple((number_map[number], indices) for number, indices in kernel.coefficient_numbers)
+            events = (kernel.event,)
+            pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
+                                                 len(kernel.arguments),
+                                                 flop_count=kernel.flop_count,
+                                                 events=events)
+            kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -148,7 +148,9 @@ class TSFCKernel(Cached):
                                       coefficient_map=numbers,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
-                                      needs_cell_sizes=kernel.needs_cell_sizes))
+                                      needs_cell_sizes=kernel.needs_cell_sizes,
+                                      arguments=kernel.arguments,
+                                      events=events))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -157,7 +159,8 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices",
                                                      "kinfo"])
 
 
-def compile_form(form, name, parameters=None, split=True, interface=None, coffee=False, diagonal=False):
+@PETSc.Log.EventDecorator()
+def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 
     :arg form: the :class:`~ufl.classes.Form` to compile.
@@ -167,10 +170,9 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
          ``form_compiler`` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
     :arg split: If ``False``, then don't split mixed forms.
-    :arg coffee: compile coffee kernel instead of loopy kernel
 
     Returns a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
+    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
 
     ``needs_orientations`` indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
@@ -197,19 +199,14 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
     # if we assemble the same form again with the same optimisations
     cache = form._cache.setdefault("firedrake_kernels", {})
 
-    def tuplify(params):
-        return tuple((k, params[k]) for k in sorted(params))
-
-    key = (tuplify(default_parameters["coffee"]), name, tuplify(parameters), split, diagonal)
+    key = (name, utils.tuplify(parameters), split, diagonal)
     try:
         return cache[key]
     except KeyError:
         pass
 
     kernels = []
-    # A map from all form coefficients to their number.
-    coefficient_numbers = dict((c, n)
-                               for (n, c) in enumerate(form.coefficients()))
+    coefficient_numbers = form.coefficient_numbering()
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -220,13 +217,17 @@ def compile_form(form, name, parameters=None, split=True, interface=None, coffee
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
+        if not f.integrals():
+            # If we're assembling the R space component of a mixed argument,
+            # and that component doesn't actually appear in the form then we
+            # have an empty form, which we should not attempt to assemble.
+            continue
         # Map local coefficient numbers (as seen inside the
         # compiler) to the global coefficient numbers
-        number_map = dict((n, coefficient_numbers[c])
-                          for (n, c) in enumerate(f.coefficients()))
+        number_map = tuple(coefficient_numbers[c] for c in f.coefficients())
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
-                            number_map, interface, coffee, diagonal).kernels
+                            number_map, interface, diagonal).kernels
         for kinfo in kinfos:
             kernels.append(SplitKernel(idx, kinfo))
 
@@ -265,3 +266,52 @@ def _ensure_cachedir(comm=None):
     comm = comm or COMM_WORLD
     if comm.rank == 0:
         makedirs(TSFCKernel._cachedir, exist_ok=True)
+
+
+def gather_integer_subdomain_ids(knls):
+    """Gather a dict of all integer subdomain IDs per integral type.
+
+    This is needed to correctly interpret the ``"otherwise"`` subdomain ID.
+
+    :arg knls: Iterable of :class:`SplitKernel` objects.
+    """
+    all_integer_subdomain_ids = collections.defaultdict(list)
+    for _, kinfo in knls:
+        if kinfo.subdomain_id != "otherwise":
+            all_integer_subdomain_ids[kinfo.integral_type].append(kinfo.subdomain_id)
+
+    for k, v in all_integer_subdomain_ids.items():
+        all_integer_subdomain_ids[k] = tuple(sorted(v))
+    return all_integer_subdomain_ids
+
+
+def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
+    """Convert a loopy kernel to a PyOP2 ``pyop2.LocalKernel``.
+
+    :arg ast: The kernel code. This could be, for example, a loopy kernel.
+    :arg name: The kernel name.
+    :arg nargs: The number of arguments expected by the kernel.
+    :arg access: Access descriptor for the first kernel argument.
+    """
+    # all but the first argument to the kernel are read-only
+    accesses = tuple([access] + [op2.READ]*(nargs-1))
+    return op2.Kernel(ast, name, accesses=accesses,
+                      requires_zeroed_output_arguments=True, **kwargs)
+
+
+def extract_numbered_coefficients(expr, numbers):
+    """Return expression coefficients specified by a numbering.
+
+    :arg expr: A UFL expression.
+    :arg numbers: Iterable of indices used for selecting the correct coefficients
+        from ``expr``.
+    :returns: A list of UFL coefficients.
+    """
+    orig_coefficients = ufl.algorithms.extract_coefficients(expr)
+    coefficients = []
+    for coeff in (orig_coefficients[i] for i in numbers):
+        if type(coeff.ufl_element()) == ufl.MixedElement:
+            coefficients.extend(coeff.subfunctions)
+        else:
+            coefficients.append(coeff)
+    return coefficients

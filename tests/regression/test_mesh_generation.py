@@ -45,8 +45,18 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_tensor_rectangle():
+    xcoords = [0.0, 0.2, 0.8, 1.2]
+    ycoords = [1.0, 1.4, 2.0]
+    assert abs(integrate_one(TensorRectangleMesh(xcoords, ycoords)) - 1.2) < 1e-3
+
+
 def test_unit_disk():
     assert abs(integrate_one(UnitDiskMesh(5)) - np.pi) < 1e-3
+
+
+def test_unit_ball():
+    assert abs(integrate_one(UnitBallMesh(5)) - 4 * np.pi / 3) < 1e-2
 
 
 def test_rectangle():
@@ -93,7 +103,7 @@ def run_one_element_advection():
                                        })
     t = 0.
     T = 1.0
-    while(t < (T-Dt/2)):
+    while t < (T-Dt/2):
         q1.assign(q0)
         q_solver.solve()
         q1.assign(dq1)
@@ -102,7 +112,7 @@ def run_one_element_advection():
         q_solver.solve()
         q0.assign(q0/3 + 2*dq1/3)
         t += Dt
-    assert(assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005)
+    assert assemble(inner(q0-q_init, q0-q_init)*dx)**0.5 < 0.005
 
 
 def test_one_element_advection():
@@ -127,20 +137,20 @@ def run_one_element_mesh():
     # then check if projecting to CG returns the same DG function.
     r.interpolate(sin(2*pi*x[0]))
     u.project(r)
-    assert(assemble(inner(u-r, u-r)*dx) < 1.0e-4)
+    assert assemble(inner(u-r, u-r)*dx) < 1.0e-4
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[1])
     u.project(r)
-    assert(assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4)
+    assert assemble(inner(u-0.5, u-0.5)*dx) < 1.0e-4
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(x[0])
     u.project(r)
     err = assemble(inner(u-r, u-r)*dx)
-    assert(err > 1.0e-3)
+    assert err > 1.0e-3
 
 
 def test_one_element_mesh():
@@ -200,6 +210,13 @@ def test_periodic_interval_parallel():
 @pytest.mark.parallel
 def test_unit_square_parallel():
     assert abs(integrate_one(UnitSquareMesh(5, 5)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_tensor_rectangle_parallel():
+    xcoords = [0.5, 0.9, 1.0, 1.1, 2.5]
+    ycoords = [1.0, 1.1, 1.4, 2.0]
+    assert abs(integrate_one(TensorRectangleMesh(xcoords, ycoords)) - 2.0) < 1e-3
 
 
 @pytest.mark.parallel
@@ -442,3 +459,27 @@ def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
     m.init()
     assert m.num_cells() == num_cells
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_split_comm_dm_mesh():
+    nspace = 2
+    rank = COMM_WORLD.rank
+
+    # split global comm into 2 comms of size 2
+    comm = COMM_WORLD.Split(color=(rank // nspace), key=rank)
+
+    mesh = UnitIntervalMesh(4, comm=comm)
+    dm = mesh.topology_dm
+
+    # dm.comm is same as user comm
+    mesh0 = Mesh(dm, comm=comm)  # noqa: F841
+
+    # no user comm given (defaults to comm world)
+    with pytest.raises(ValueError):
+        mesh1 = Mesh(dm)  # noqa: F841
+
+    # wrong user comm given
+    bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
+    with pytest.raises(ValueError):
+        mesh2 = Mesh(dm, comm=bad_comm)  # noqa: F841

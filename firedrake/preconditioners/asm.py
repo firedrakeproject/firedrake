@@ -1,9 +1,10 @@
 import abc
 
-from pyop2.mpi import COMM_SELF
+from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
+from firedrake.logging import warning
 import numpy
 
 try:
@@ -13,7 +14,7 @@ except ImportError:
     have_tinyasm = False
 
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC")
+__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
 
 
 class ASMPatchPC(PCBase):
@@ -39,6 +40,9 @@ class ASMPatchPC(PCBase):
 
         # Obtain patches from user defined funtion
         ises = self.get_patches(V)
+        # PCASM expects at least one patch, so we define an empty one on idle processes
+        if len(ises) == 0:
+            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
@@ -59,6 +63,12 @@ class ASMPatchPC(PCBase):
                 opts["sub_pc_type"] = "lu"
             if "sub_pc_factor_shift_type" not in opts:
                 opts["sub_pc_factor_shift_type"] = "NONE"
+
+            # If an ordering type is provided, PCASM should not sort patch indices, otherwise it can.
+            sentinel = object()
+            ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default=sentinel)
+            asmpc.setASMSortIndices(ordering is sentinel)
+
             lgmap = V.dof_dset.lgmap
             # Translate to global numbers
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
@@ -108,6 +118,10 @@ class ASMPatchPC(PCBase):
     def applyTranspose(self, pc, x, y):
         self.asmpc.applyTranspose(x, y)
 
+    def destroy(self, pc):
+        if hasattr(self, "asmpc"):
+            self.asmpc.destroy()
+
 
 class ASMStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
@@ -123,10 +137,13 @@ class ASMStarPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
+        if mesh.cell_set._extruded:
+            warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
+                                             default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -143,6 +160,7 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
 
             # Get DoF indices for patch
             indices = []
@@ -154,9 +172,9 @@ class ASMStarPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
         return ises
@@ -176,6 +194,8 @@ class ASMVankaPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
+        if mesh.layers:
+            warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
@@ -183,6 +203,7 @@ class ASMVankaPC(ASMPatchPC):
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -205,9 +226,10 @@ class ASMVankaPC(ASMPatchPC):
             star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
             pt_array = set()
             for pt in star.tolist():
-                closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
+                closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
                 pt_array.update(closure.tolist())
 
+            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
@@ -218,9 +240,9 @@ class ASMVankaPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = numpy.arange(off*W.value_size, W.value_size * (off + dof), dtype='int32')
+                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
         return ises
@@ -267,8 +289,155 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype='int32')
-                iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype=IntType)
+                iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
+        return ises
+
+
+def order_points(mesh_dm, points, ordering_type, prefix):
+    '''Order a the points (topological entities) of a patch based
+    on the adjacency graph of the mesh.
+
+    :arg mesh_dm: the `mesh.topology_dm`
+    :arg points: array with point indices forming the patch
+    :arg ordering_type: a `PETSc.Mat.OrderingType`
+    :arg prefix: the prefix associated with additional ordering options
+
+    :returns: the permuted array of points
+    '''
+    if ordering_type == "natural":
+        return points
+    subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
+    ia = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
+    ja = numpy.concatenate(subgraph).astype(PETSc.IntType)
+    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(ia, ja, numpy.ones(ja.shape, PETSc.RealType)), comm=PETSc.COMM_SELF)
+    A.setOptionsPrefix(prefix)
+    rperm, _ = A.getOrdering(ordering_type)
+    A.destroy()
+    return points[rperm.getIndices()]
+
+
+def get_basemesh_nodes(W):
+    pstart, pend = W.mesh().topology_dm.getChart()
+    section = W.dm.getDefaultSection()
+    # location of first dof on an entity
+    basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
+    # number of dofs on this entity
+    basemeshdof = numpy.empty(pend - pstart, dtype=IntType)
+    # number of dofs stacked on this entity in each cell
+    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=IntType)
+
+    # For every base mesh entity, what's the layer offset?
+    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
+    layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
+    nlayers = W.mesh().layers
+
+    for p in range(pstart, pend):
+        dof = section.getDof(p)
+        off = section.getOffset(p)
+        if dof == 0:
+            dof_per_layer = 0
+            layer_offset = 0
+        else:
+            layer_offset = layer_offsets[off]
+            assert layer_offset >= 0
+            dof_per_layer = dof - (nlayers - 1) * layer_offset
+
+        basemeshoff[p - pstart] = off
+        basemeshdof[p - pstart] = dof_per_layer
+        basemeshlayeroffset[p - pstart] = layer_offset
+
+    return basemeshoff, basemeshdof, basemeshlayeroffset
+
+
+class ASMExtrudedStarPC(ASMStarPC):
+    '''Patch-based PC using Star of mesh entities implmented as an
+    :class:`ASMPatchPC`.
+
+    ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
+    consists of all DoFs on the topological star of the mesh entity
+    specified by `pc_star_construct_dim`.
+    '''
+
+    _prefix = 'pc_star_'
+
+    def get_patches(self, V):
+        mesh = V.mesh()
+        mesh_dm = mesh.topology_dm
+        nlayers = mesh.layers
+        if not mesh.cell_set._extruded:
+            return super(ASMExtrudedStarPC, self).get_patches(V)
+
+        # Obtain the topological entities to use to construct the stars
+        depth = PETSc.Options().getInt(self.prefix+"construct_dim",
+                                       default=0)
+        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
+                                             default="natural")
+
+        # Accessing .indices causes the allocation of a global array,
+        # so we need to cache these for efficiency
+        V_ises = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        basemeshoff = []
+        basemeshdof = []
+        basemeshlayeroffsets = []
+        for (i, W) in enumerate(V):
+            boff, bdof, blayer_offsets = get_basemesh_nodes(W)
+            basemeshoff.append(boff)
+            basemeshdof.append(bdof)
+            basemeshlayeroffsets.append(blayer_offsets)
+
+        # Build index sets for the patches
+        ises = []
+        start, end = mesh_dm.getDepthStratum(depth)
+        pstart, _ = mesh_dm.getChart()
+        for seed in range(start, end):
+            # Only build patches over owned DoFs
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+
+            # Create point list from mesh DM
+            points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+            points = order_points(mesh_dm, points, ordering, self.prefix)
+            points -= pstart  # offset by chart start
+            for k in range(nlayers):
+                if k == 0:
+                    planes = [1, 0]
+                elif k == nlayers - 1:
+                    planes = [-1, 0]
+                else:
+                    planes = [-1, 1, 0]
+
+                indices = []
+                # Get DoF indices for patch
+                for i, W in enumerate(V):
+                    iset = V_ises[i]
+                    for plane in planes:
+                        for p in points:
+                            # How to walk up one layer
+                            blayer_offset = basemeshlayeroffsets[i][p]
+                            if blayer_offset <= 0:
+                                # In this case we don't have any dofs on
+                                # this entity.
+                                continue
+                            # Offset in the global array for the bottom of
+                            # the column
+                            off = basemeshoff[i][p]
+                            # Number of dofs in the interior of the
+                            # vertical interval cell on top of this base
+                            # entity
+                            dof = basemeshdof[i][p]
+                            # Hard-code taking the star
+                            if plane == 0:
+                                begin = off + k * blayer_offset
+                                end = off + k * blayer_offset + dof
+                            else:
+                                begin = off + min(k, k+plane) * blayer_offset + dof
+                                end = off + max(k, k+plane) * blayer_offset
+                            zlice = slice(W.value_size * begin, W.value_size * end)
+                            indices.extend(iset[zlice])
+
+                iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+                ises.append(iset)
         return ises

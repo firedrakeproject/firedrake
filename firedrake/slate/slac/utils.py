@@ -1,12 +1,9 @@
-from coffee import base as ast
-from coffee.visitor import Visitor
-
 from collections import OrderedDict
 
 from ufl.algorithms.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 Solve, Inverse, Variable, view)
+                 Solve, Inverse, Variable, view, Delta, Index, Division)
 from gem import indices as make_indices
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
@@ -14,9 +11,11 @@ from gem.node import pre_traversal as traverse_dags
 from functools import singledispatch
 import firedrake.slate.slate as sl
 import loopy as lp
-from loopy.program import make_program
-from loopy.transform.callable import register_callable_kernel
-import itertools
+from loopy.transform.callable import merge
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from firedrake.parameters import target
+from tsfc.loopy import profile_insns
+from petsc4py import PETSc
 
 
 class RemoveRestrictions(MultiFunction):
@@ -29,135 +28,15 @@ class RemoveRestrictions(MultiFunction):
         return self(o.ufl_operands[0])
 
 
-class SymbolWithFuncallIndexing(ast.Symbol):
-    """A functionally equivalent representation of a `coffee.Symbol`,
-    with modified output for rank calls. This is syntactically necessary
-    when referring to symbols of Eigen::MatrixBase objects.
-    """
-
-    def _genpoints(self):
-        """Parenthesize indices during loop assignment"""
-        pt = lambda p: "%s" % p
-        pt_ofs = lambda p, o: "%s*%s+%s" % (p, o[0], o[1])
-        pt_ofs_stride = lambda p, o: "%s+%s" % (p, o)
-        result = []
-
-        if not self.offset:
-            for p in self.rank:
-                result.append(pt(p))
-        else:
-            for p, ofs in zip(self.rank, self.offset):
-                if ofs == (1, 0):
-                    result.append(pt(p))
-                elif ofs[0] == 1:
-                    result.append(pt_ofs_stride(p, ofs[1]))
-                else:
-                    result.append(pt_ofs(p, ofs))
-        result = ', '.join(i for i in result)
-
-        return "(%s)" % result
-
-
-class Transformer(Visitor):
-    """Replaces all out-put tensor references with a specified
-    name of :type: `Eigen::Matrix` with appropriate shape. This
-    class is primarily for COFFEE acrobatics, jumping through
-    nodes and redefining where appropriate.
-
-    The default name of :data:`"A"` is assigned, otherwise a
-    specified name may be passed as the :data:`name` keyword
-    argument when calling the visitor.
-    """
-
-    def visit_object(self, o, *args, **kwargs):
-        """Visits an object and returns it.
-
-        e.g. string ---> string
-        """
-        return o
-
-    def visit_list(self, o, *args, **kwargs):
-        """Visits an input of COFFEE objects and returns
-        the complete list of said objects.
-        """
-        newlist = [self.visit(e, *args, **kwargs) for e in o]
-        if all(newo is e for newo, e in zip(newlist, o)):
-            return o
-
-        return newlist
-
-    visit_Node = Visitor.maybe_reconstruct
-
-    def visit_FunDecl(self, o, *args, **kwargs):
-        """Visits a COFFEE FunDecl object and reconstructs
-        the FunDecl body and header to generate
-        ``Eigen::MatrixBase`` C++ template functions.
-
-        Creates a template function for each subkernel form.
-
-        .. code-block:: c++
-
-            template <typename Derived>
-            static inline void foo(Eigen::MatrixBase<Derived> const & A, ...)
-            {
-              [Body...]
-            }
-        """
-        name = kwargs.get("name", "A")
-        new = self.visit_Node(o, *args, **kwargs)
-        ops, okwargs = new.operands()
-        if all(new is old for new, old in zip(ops, o.operands()[0])):
-            return o
-
-        ret, kernel_name, kernel_args, body, pred, headers, template = ops
-
-        body_statements, _ = body.operands()
-        decl_init = "const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % name
-        new_dec = ast.Decl(typ="Eigen::MatrixBase<Derived> &", sym=name,
-                           init=decl_init)
-        new_body = [new_dec] + body_statements
-        eigen_template = "template <typename Derived>"
-
-        new_ops = (ret, kernel_name, kernel_args,
-                   new_body, pred, headers, eigen_template)
-
-        return o.reconstruct(*new_ops, **okwargs)
-
-    def visit_Decl(self, o, *args, **kwargs):
-        """Visits a declared tensor and changes its type to
-        :template: result `Eigen::MatrixBase<Derived>`.
-
-        i.e. double A[n][m] ---> const Eigen::MatrixBase<Derived> &A_
-        """
-        name = kwargs.get("name", "A")
-        if o.sym.symbol != name:
-            return o
-        newtype = "const Eigen::MatrixBase<Derived> &"
-
-        return o.reconstruct(newtype, ast.Symbol("%s_" % name))
-
-    def visit_Symbol(self, o, *args, **kwargs):
-        """Visits a COFFEE symbol and redefines it as a Symbol with
-        FunCall indexing.
-
-        i.e. A[j][k] ---> A(j, k)
-        """
-        name = kwargs.get("name", "A")
-        if o.symbol != name:
-            return o
-
-        return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
-
-
-def slate_to_gem(expression):
+def slate_to_gem(expression, options):
     """Convert a slate expression to gem.
 
-        :arg expression: A slate expression.
-        :returns: A singleton list of gem expressions and
-        a mapping from gem variables to UFL "terminal" forms.
+    :arg expression: A slate expression.
+    :returns: A singleton list of gem expressions and a mapping from
+        gem variables to UFL "terminal" forms.
     """
 
-    mapper, var2terminal = slate2gem(expression)
+    mapper, var2terminal = slate2gem(expression, options)
     return mapper, var2terminal
 
 
@@ -168,6 +47,7 @@ def _slate2gem(expr, self):
 
 @_slate2gem.register(sl.Tensor)
 @_slate2gem.register(sl.AssembledVector)
+@_slate2gem.register(sl.BlockAssembledVector)
 def _slate2gem_tensor(expr, self):
     shape = expr.shape if not len(expr.shape) == 0 else (1, )
     name = f"T{len(self.var2terminal)}"
@@ -186,9 +66,37 @@ def _slate2gem_block(expr, self):
     return view(child, *(slice(idx, idx+extent) for idx, extent in zip(offsets, expr.shape)))
 
 
+@_slate2gem.register(sl.DiagonalTensor)
+def _slate2gem_diagonal(expr, self):
+    if not self.matfree:
+        A, = map(self, expr.children)
+        assert A.shape[0] == A.shape[1]
+        i, j = (Index(extent=s) for s in A.shape)
+        return ComponentTensor(Product(Indexed(A, (i, i)), Delta(i, j)), (i, j))
+    else:
+        raise NotImplementedError("Diagonals on Slate expressions are \
+                                   not implemented in a matrix-free manner yet.")
+
+
 @_slate2gem.register(sl.Inverse)
 def _slate2gem_inverse(expr, self):
-    return Inverse(*map(self, expr.children))
+    tensor, = expr.children
+    if expr.diagonal:
+        # optimise inverse on diagonal tensor by translating to
+        # matrix which contains the reciprocal values of the diagonal tensor
+        A, = map(self, expr.children)
+        i, j = (Index(extent=s) for s in A.shape)
+        return ComponentTensor(Product(Division(Literal(1), Indexed(A, (i, i))),
+                                       Delta(i, j)), (i, j))
+    else:
+        return Inverse(self(tensor))
+
+
+@_slate2gem.register(sl.Reciprocal)
+def _slate2gem_reciprocal(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Division(Literal(1.), Indexed(child, indices)), indices)
 
 
 @_slate2gem.register(sl.Solve)
@@ -237,9 +145,10 @@ def _slate2gem_factorization(expr, self):
     return A
 
 
-def slate2gem(expression):
+def slate2gem(expression, options):
     mapper = Memoizer(_slate2gem)
     mapper.var2terminal = OrderedDict()
+    mapper.matfree = options["replace_mul"]
     return mapper(expression), mapper.var2terminal
 
 
@@ -282,37 +191,71 @@ def topological_sort(exprs):
     return schedule
 
 
-def merge_loopy(slate_loopy, output_arg, builder, var2terminal):
+def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs)
+    constants = builder.collect_constants()
+    builder.bag = SlateWrapperBag(coeffs, constants)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
     inits, tensor2temp = builder.initialise_terminals(var2terminal, builder.bag.coefficients)
-    terminal_tensors = list(filter(lambda x: isinstance(x, sl.Tensor), var2terminal.values()))
-    tsfc_calls, tsfc_kernels = zip(*itertools.chain.from_iterable(
-                                   (builder.generate_tsfc_calls(terminal, tensor2temp[terminal])
-                                    for terminal in terminal_tensors)))
+    terminal_tensors = list(filter(lambda x: (x.terminal and not x.assembled), var2terminal.values()))
+    calls_and_kernels_and_events = tuple((c, k, e) for terminal in terminal_tensors
+                                         for c, k, e in builder.generate_tsfc_calls(terminal, tensor2temp[terminal]))
+    if calls_and_kernels_and_events:  # tsfc may not give a kernel back
+        tsfc_calls, tsfc_kernels, tsfc_events = zip(*calls_and_kernels_and_events)
+    else:
+        tsfc_calls = ()
+        tsfc_kernels = ()
 
-    # Construct args
-    args = [output_arg] + builder.generate_wrapper_kernel_args(tensor2temp, tsfc_kernels)
+    args, tmp_args = builder.generate_wrapper_kernel_args(tensor2temp)
+    kernel_args = [output_arg] + args
+    loopy_args = [output_arg.loopy_arg] + [a.loopy_arg for a in args] + tmp_args
+
+    # Add profiling for inits
+    inits, slate_init_event, preamble_init = profile_insns("inits_"+name, inits, PETSc.Log.isActive())
+
     # Munge instructions
     insns = inits
     insns.extend(tsfc_calls)
     insns.append(builder.slate_call(slate_loopy, tensor2temp.values()))
 
+    # Add profiling for the whole kernel
+    insns, slate_wrapper_event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
+
+    # Add a no-op touching all kernel arguments to make sure they are not
+    # silently dropped
+    noop = lp.CInstruction(
+        (), "", read_variables=frozenset({a.name for a in loopy_args}),
+        within_inames=frozenset(), within_inames_is_final=True)
+    insns.append(noop)
+
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains
 
     # Generates the loopy wrapper kernel
-    slate_wrapper = lp.make_function(domains, insns, args, name="slate_wrapper",
-                                     seq_dependencies=True, target=lp.CTarget())
+    preamble = preamble_init+preamble if preamble else []
+    slate_wrapper = lp.make_function(domains, insns, loopy_args, name=name,
+                                     seq_dependencies=True, target=target,
+                                     lang_version=(2018, 2), preambles=preamble)
 
     # Generate program from kernel, so that one can register kernels
-    prg = make_program(slate_wrapper)
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+    from loopy.kernel.function_interface import CallableKernel
+
     for tsfc_loopy in tsfc_kernels:
-        prg = register_callable_kernel(prg, tsfc_loopy)
-    prg = register_callable_kernel(prg, slate_loopy)
-    return prg
+        slate_wrapper = merge([slate_wrapper, tsfc_loopy])
+        names = tsfc_loopy.callables_table
+        for name in names:
+            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+    slate_wrapper = merge([slate_wrapper, slate_loopy])
+    names = slate_loopy.callables_table
+    for name in names:
+        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+
+    events = tsfc_events + (slate_wrapper_event, slate_init_event) if PETSc.Log.isActive() else ()
+    return slate_wrapper, tuple(kernel_args), events

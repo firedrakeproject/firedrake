@@ -189,7 +189,7 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 
     solve(a == L, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
 
     f.interpolate(cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
     g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
@@ -227,7 +227,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
             for mesh_num in [8, 16]:
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
-    assert(abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01)
+    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01
 
 
 @pytest.mark.parametrize("with_bbc", [False, True])
@@ -262,7 +262,7 @@ def test_EquationBC_poisson_matfree(with_bbc):
             for mesh_num in [8, 16]:
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
-    assert(abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01)
+    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01
 
 
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
@@ -285,7 +285,7 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
         for i, mesh_num in enumerate([8, 16]):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert(abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03)
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03
 
 
 def test_EquationBC_mixedpoisson_matrix_fieldsplit():
@@ -316,7 +316,7 @@ def test_EquationBC_mixedpoisson_matrix_fieldsplit():
         for i, mesh_num in enumerate([8, 16]):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert(abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03)
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03
 
 
 def test_EquationBC_mixedpoisson_matfree_fieldsplit():
@@ -349,4 +349,4 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
         for i, mesh_num in enumerate([8, 16]):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert(abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03)
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03

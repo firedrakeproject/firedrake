@@ -35,7 +35,7 @@ def function_space(request, mesh):
 def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(function_space.mesh())
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -56,7 +56,7 @@ def f(function_space):
 def g(function_space):
     """Generates a Firedrake function given a particular function space."""
     g = Function(function_space)
-    g_split = g.split()
+    g_split = g.subfunctions
     x = SpatialCoordinate(function_space.mesh())
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -79,6 +79,19 @@ def mass(function_space):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
     return inner(u, v) * dx
+
+
+@pytest.fixture
+def matrix_mixed_nofacet():
+    mesh = UnitSquareMesh(2, 2)
+    U = FunctionSpace(mesh, "RT", 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    W = U * V * T
+    u, p, lambdar = TrialFunctions(W)
+    w, q, gammar = TestFunctions(W)
+
+    return (inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx)
 
 
 @pytest.fixture
@@ -156,7 +169,7 @@ def test_mixed_coefficient_scalar(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     W = V * V
     f = Function(W)
-    g, h = f.split()
+    g, h = f.subfunctions
     f.assign(1)
     assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
 
@@ -270,3 +283,56 @@ def test_matrix_subblocks(mesh):
     for tensor, form in items:
         ref = assemble(form).M.values
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
+
+
+def test_diagonal(mass, matrix_mixed_nofacet):
+    n, _ = Tensor(mass).shape
+
+    # test vector built from diagonal
+    res = assemble(Tensor(mass, diagonal=True)).dat.data
+    ref = assemble(mass, diagonal=True).dat.data
+    for r, d in zip(ref, res):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal
+    res = assemble(DiagonalTensor(Tensor(mass))).M.values
+    ref = assemble(mass, diagonal=True).dat.data
+    ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # vectorspace
+    ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # tensorspace
+    for r, d in zip(ref, np.diag(res)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal for non mass matrix
+    res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
+    ref2 = np.concatenate(assemble(matrix_mixed_nofacet, diagonal=True).dat.data)
+    for r, d in zip(res2, np.diag(ref2)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test matrix built from diagonal
+    # for a Slate expression on a non mass matrix
+    A = Tensor(matrix_mixed_nofacet)
+    res3 = assemble(DiagonalTensor(A+A)).M.values
+    ref3 = np.concatenate(assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data)
+    for r, d in zip(res3, np.diag(ref3)):
+        assert np.allclose(r, d, rtol=1e-14)
+
+
+@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
+def test_reciprocal(function_space):
+    # test reciprocal of vector built from diagonal
+    # note: reciprocal does not commute with addition so one can only test DG
+    u = TrialFunction(function_space)
+    v = TestFunction(function_space)
+    mass = inner(u, v) * dx
+    res = assemble(Reciprocal(Tensor(mass, diagonal=True))).dat.data
+    ref = assemble(mass, diagonal=True).dat.data
+    for r, d in zip([1./d for d in ref], res):
+        assert np.allclose(r, d, rtol=1e-14)
+
+    # test inverse of matrix built from diagonal
+    # for a Slate expression on a mass matrix
+    A = Tensor(mass)
+    res = assemble(DiagonalTensor(A+A).inv).M.values
+    ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
+    for r, d in zip(res, np.diag(ref)):
+        assert np.allclose(r, d, rtol=1e-14)

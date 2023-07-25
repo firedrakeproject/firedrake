@@ -10,13 +10,13 @@ BUILDDIR      = build
 # Internal variables.
 PAPEROPT_a4     = -D latex_paper_size=a4
 PAPEROPT_letter = -D latex_paper_size=letter
-ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
+ALLSPHINXOPTS   = -W -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 # the i18n builder cannot share the environment and doctrees with the others
 I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish serve scp
+publish publishpdf serve scp
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -43,20 +43,18 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/teaminactive.rst source/demos source/element_list.csv
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
 
-publish: html
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'o3ce6600@146.255.44.1:html/'
+publishpdf:
+	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
-scp:
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'o3ce6600@146.255.44.1:html/'
+validate-bibtex:
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
+	../scripts/firedrake-preprocess-bibtex --validate source/_static/references.bib
 
-livehtml: html
-	python server.py
+livehtml:
+	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 serve: html
 	cd $(BUILDDIR)/html; python -m SimpleHTTPServer $(PORT)
@@ -68,19 +66,21 @@ source/demos: copy_demos
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
-	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
+	for file in source/demos/*.py.rst; do pylit $$file; done
 
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
 
-source/teamgrid.rst: source/team.py
-	cd source; python team.py teamgrid.rst
+source/team.rst: source/team2.py
+	cd source; python team2.py; mv AUTHORS.rst CITATION.rst ../..
 
-source/teaminactive.rst: source/team.py
-	cd source; python team.py teaminactive.rst
+source/firedrake_citations.rst:
+	sphinx-apidoc -f -T -o source/ ../firedrake_citations
+	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
+	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc ../firedrake -o source/ -f -T
+	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*

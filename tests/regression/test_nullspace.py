@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import PETSc
 import pytest
 import numpy as np
 
@@ -116,12 +117,16 @@ def test_nullspace_mixed():
     # Null space is constant functions in DG and empty in BDM.
     nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
 
-    solve(a == L, w, bcs=bcs, nullspace=nullspace)
+    solve(a == L, w, bcs=bcs, nullspace=nullspace,
+          solver_parameters={
+              'ksp_type': 'minres',
+              'ksp_converged_reason': None,
+              'pc_type': 'none'})
 
     exact = Function(DG)
     exact.interpolate(x[1] - 0.5)
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 1e-7
 
     # Now using a Schur complement
@@ -136,7 +141,7 @@ def test_nullspace_mixed():
                              'fieldsplit_1_ksp_type': 'cg',
                              'fieldsplit_1_pc_type': 'none'})
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
@@ -280,3 +285,92 @@ def test_nullspace_mixed_multiple_components():
     schur_ksp = solver.snes.ksp.pc.getFieldSplitSubKSP()[1]
     assert schur_ksp.getConvergedReason() > 0
     assert schur_ksp.getIterationNumber() < 6
+
+
+def test_near_nullspace_mixed():
+    # test nullspace and nearnullspace for a mixed Stokes system
+    # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
+    PETSc.Sys.popErrorHandler()
+    n = 64
+    mesh = UnitSquareMesh(n, n)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    P = FunctionSpace(mesh, "CG", 1)
+    W = V*P
+
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    x, y = SpatialCoordinate(mesh)
+    inside_box = And(abs(x-0.5) < 0.2, abs(y-0.75) < 0.2)
+    mu = conditional(inside_box, 1e8, 1)
+
+    a = inner(mu*2*sym(grad(u)), grad(v))*dx
+    a += -inner(p, div(v))*dx + inner(div(u), q)*dx
+
+    f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
+    L = inner(f, v)*dx
+
+    bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
+
+    rotW = Function(W)
+    rotV, _ = rotW.subfunctions
+    rotV.interpolate(as_vector((-y, x)))
+
+    c0 = Function(W)
+    c0V, _ = c0.subfunctions
+    c1 = Function(W)
+    c1V, _ = c1.subfunctions
+    c0V.interpolate(Constant([1., 0.]))
+    c1V.interpolate(Constant([0., 1.]))
+
+    near_nullmodes = VectorSpaceBasis([c0V, c1V, rotV])
+    near_nullmodes.orthonormalize()
+    near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
+
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+
+    w = Function(W)
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'pc_type': 'fieldsplit',
+        'ksp_type': 'preonly',
+        'pc_fieldsplit_type': 'schur',
+        'fieldsplit_schur_fact_type': 'full',
+        'fieldsplit_0': {
+            'ksp_type': 'cg',
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.AssembledPC',
+            'assembled_pc_type': 'gamg',
+            'assembled_mg_levels_pc_type': 'sor',
+            'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,  # See https://gitlab.com/petsc/petsc/-/issues/1221
+            'ksp_rtol': 1e-7,
+            'ksp_converged_reason': None,
+        },
+        'fieldsplit_1': {
+            'ksp_type': 'fgmres',
+            'ksp_converged_reason': None,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.MassInvPC',
+            'Mp_ksp_type': 'cg',
+            'Mp_pc_type': 'sor',
+            'ksp_rtol': '1e-5',
+            'ksp_monitor': None,
+        }
+    }
+
+    problem = LinearVariationalProblem(a, L, w, bcs=bcs)
+    solver = LinearVariationalSolver(
+        problem, appctx={'mu': mu},
+        nullspace=pressure_nullspace,
+        transpose_nullspace=pressure_nullspace,
+        near_nullspace=near_nullmodes_W,
+        solver_parameters=solver_parameters)
+    solver.solve()
+
+    assert solver.snes.getConvergedReason() > 0
+    ksp_inner, _ = solver.snes.ksp.pc.getFieldSplitSubKSP()
+    assert ksp_inner.getConvergedReason() > 0
+    A, P = ksp_inner.getOperators()
+    assert A.getNearNullSpace().handle
+    # currently ~64 vs. >110-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 75

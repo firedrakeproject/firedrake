@@ -9,11 +9,6 @@
          <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="5"></div>
          <script type="text/javascript" src="_static/jquery.latest-commit.js"></script>
 
-.. only:: latex
-
-   Introduction
-   ------------
- 
 Firedrake is an automated system for the solution of partial
 differential equations using the finite element method
 (FEM). Firedrake uses sophisticated code generation to provide
@@ -41,14 +36,7 @@ Features:
 
   .. container:: youtube
 
-    .. youtube:: xhxvM1N8mDQ?modestbranding=1;controls=0;rel=0
-       :width: 400px
+    .. youtube:: K6ggbbfVWpc?modestbranding=1;controls=0;rel=0
+       :width: 450px
 
-.. only:: latex
-
-  .. toctree::
- 
-     documentation
-     firedrake
-     funding
-     team
+    River plume simulated with the Firedrake-based `Thetis ocean model <https://thetisproject.org>`_.

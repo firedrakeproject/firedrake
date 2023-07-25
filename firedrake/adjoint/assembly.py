@@ -13,26 +13,28 @@ def annotate_assemble(assemble):
         to *attach the form to the assembled object*. This lets the automatic annotation work,
         even when the user calls the lower-level :py:data:`solve(A, x, b)`.
         """
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         with stop_annotating():
             output = assemble(*args, **kwargs)
 
+        from firedrake.function import Function
         form = args[0]
-        if isinstance(output, numbers.Complex):
+        if isinstance(output, (numbers.Complex, Function)):
             if not annotate:
                 return output
 
-            if not isinstance(output, float):
+            if not isinstance(output, (float, Function)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
             output = create_overloaded_object(output)
-            block = AssembleBlock(form)
+            block = AssembleBlock(form, ad_block_tag=ad_block_tag)
 
             tape = get_working_tape()
             tape.add_block(block)
 
             block.add_output(output.block_variable)
         else:
-            # Assembled a vector or matrix
+            # Assembled a matrix
             output.form = form
 
         return output

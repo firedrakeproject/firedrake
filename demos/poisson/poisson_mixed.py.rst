@@ -133,11 +133,12 @@ to hold the solution on the mixed space. ::
   w = Function(W)
 
 Then we solve the linear variational problem ``a == L`` for ``w`` under the
-given boundary conditions ``bc0`` and ``bc1``. Afterwards we extract the
-components ``sigma`` and ``u`` on each of the subspaces with ``split``. ::
+given boundary conditions ``bc0`` and ``bc1`` using Firedrake's default
+solver parameters. Afterwards we extract the components ``sigma`` and ``u``
+on each of the subspaces with ``split``. ::
 
   solve(a == L, w, bcs=[bc0, bc1])
-  sigma, u = w.split()
+  sigma, u = w.subfunctions
 
 Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a
@@ -170,4 +171,4 @@ Don't forget to show the image::
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
 <http://fenicsproject.org/olddocs/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
-and can be found as a script in `poisson_mixed.py <poisson_mixed.py>`__.
+and can be found as a script in :demo:`poisson_mixed.py <poisson_mixed.py>`.

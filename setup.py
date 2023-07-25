@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup, find_packages
 from glob import glob
 from os import environ as env, path
 from Cython.Distutils import build_ext
@@ -16,7 +16,7 @@ try:
     complex_mode = config['options'].get('complex', False)
 except ImportError:
     # No Cython Extension means no complex mode!
-    from distutils.extension import Extension
+    from setuptools import Extension
     complex_mode = False
 
 
@@ -57,9 +57,10 @@ cythonfiles = [("dmcommon", ["petsc"]),
 
 
 petsc_dirs = get_petsc_dir()
+if os.environ.get("HDF5_DIR"):
+    petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
 include_dirs = [np.get_include(), petsc4py.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
-
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
 
@@ -76,17 +77,14 @@ if 'CC' not in env:
 setup(name='firedrake',
       version=versioneer.get_version(),
       cmdclass=cmdclass,
-      description="""Firedrake is an automated system for the portable solution
-          of partial differential equations using the finite element method
-          (FEM)""",
+      description="An automated finite element system.",
+      long_description="""Firedrake is an automated system for the portable
+          solution of partial differential equations using the finite element
+          method (FEM)""",
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
-                "firedrake.matrix_free", "firedrake.preconditioners",
-                "firedrake.cython",
-                "firedrake.slate", "firedrake.slate.slac", "firedrake.slate.static_condensation",
-                "firedrake_configuration", "firedrake_citations"],
+      packages=find_packages(),
       package_data={"firedrake": ["evaluate.h",
                                   "locate.c",
                                   "icons/*.png"]},

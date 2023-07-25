@@ -42,7 +42,21 @@ class BlockMatrix(object):
             self.mat.mult(xi, yi)
             y.array[start::stride] = yi.array_r
 
+    def multTranspose(self, mat, x, y):
+        sizes = self.mat.getSizes()
+        for i in range(self.dimension):
+            start = i
+            stride = self.dimension
 
+            xa = x.array_r[start::stride]
+            ya = y.array_r[start::stride]
+            xi = PETSc.Vec().createWithArray(xa, size=sizes[0], comm=x.comm)
+            yi = PETSc.Vec().createWithArray(ya, size=sizes[1], comm=y.comm)
+            self.mat.multTranspose(xi, yi)
+            y.array[start::stride] = yi.array_r
+
+
+@PETSc.Log.EventDecorator()
 def assemble_mixed_mass_matrix(V_A, V_B):
     """
     Construct the mixed mass matrix of two function spaces,
@@ -111,7 +125,7 @@ each supermesh cell.
     assert V_A.value_size == 1
     assert V_B.value_size == 1
 
-    preallocator = PETSc.Mat().create(comm=mesh_A.comm)
+    preallocator = PETSc.Mat().create(comm=mesh_A._comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
     rset = V_B.dof_dset
@@ -147,7 +161,7 @@ each supermesh cell.
     #
     # Preallocate M_AB.
     #
-    mat = PETSc.Mat().create(comm=mesh_A.comm)
+    mat = PETSc.Mat().create(comm=mesh_A._comm)
     mat.setType(PETSc.Mat.Type.AIJ)
     rsizes = tuple(n * rdim for n in nrows)
     csizes = tuple(c * cdim for c in ncols)

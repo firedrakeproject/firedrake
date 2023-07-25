@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Firedrake '18
 
 .. image:: images/imperial_night.jpg
@@ -52,7 +54,7 @@ Location
 ~~~~~~~~
 
 The workshop will be held in the `Centre for Doctoral Training in
-Mathematics of Planet Earth <http://mpecdt.org>`_ on Imperial College London's South
+Mathematics of Planet Earth <https://mpecdt.ac.uk>`__ on Imperial College London's South
 Kensington Campus.
 
 Registration

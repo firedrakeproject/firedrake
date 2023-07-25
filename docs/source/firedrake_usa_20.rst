@@ -1,3 +1,5 @@
+:orphan: true
+
 .. title:: Firedrake USA
 
 .. image:: images/rainier-vista.jpg
@@ -5,7 +7,7 @@
    :alt: Rainier Vista
    :align: right
    :target: https://uwartsci.files.wordpress.com/2011/04/rainier-vista.jpg
- 
+
 Firedrake USA '20
 -----------------
 
@@ -80,8 +82,7 @@ Early registration is now open. Registration will rise to $40 for students and $
 Organising Committee
 --------------------
 
-* `Daniel Shapero
-  <https://escience.washington.edu/people/daniel-shapero/>`_,
+* Daniel Shapero,
   University of Washington.
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`_, Imperial
   College London.
@@ -94,4 +95,4 @@ Further details
 ---------------
 
 For any queries, please contact  `Daniel Shapero
-<mailto:shapero@uw.edu>`_.
+<mailto:shapero@uw.edu>`__.

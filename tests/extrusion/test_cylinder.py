@@ -4,20 +4,22 @@ import numpy as np
 import pytest
 
 
-def test_area():
-    len = 7
+@pytest.mark.parametrize("degree", [1, 2])
+def test_area(degree):
+    expected_conv = degree * 2
+    len = 6
     errors = np.zeros(len)
-    for i in range(2, 2+len):
-        m = CircleManifoldMesh(2**i)
+    for i in range(len):
+        m = CircleManifoldMesh(2**(i+3), degree=degree)
         mesh = ExtrudedMesh(m, layers=2**i, layer_height=1.0/(2**i))
         fs = FunctionSpace(mesh, "DG", 0)
         f = Function(fs).assign(1)
         # surface area is 2*pi*r*h = 2*pi
-        errors[i-2] = np.abs(assemble(f*dx) - 2*np.pi)
+        errors[i] = np.abs(assemble(f*dx) - 2*np.pi)
 
     # area converges quadratically to 2*pi
     for i in range(len-1):
-        assert ln(errors[i]/errors[i+1])/ln(2) > 1.95
+        assert ln(errors[i]/errors[i+1])/ln(2) > 0.98 * expected_conv
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -48,13 +50,13 @@ def test_betti0_cylinder(horiz_complex, vert_complex):
     L = assemble(inner(grad(u), grad(v))*dx)
     uvecs, s, vvecs = np.linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
     bcs = [DirichletBC(W0, 0., x) for x in ["top", "bottom"]]
     L = assemble(inner(grad(u), grad(v))*dx, bcs=bcs)
     uvecs, s, vvecs = np.linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 0)
+    assert nharmonic == 0
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -111,7 +113,7 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     uvecs, s, vvecs = np.linalg.svd(A)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
     bc0 = [DirichletBC(W.sub(0), 0., x) for x in ["top", "bottom"]]
     bc1 = [DirichletBC(W.sub(1), as_vector((0.0, 0.0, 0.0)), x)
@@ -128,7 +130,7 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     u, s, v = np.linalg.svd(A0)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -186,7 +188,7 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     u, s, v = np.linalg.svd(A)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 0)
+    assert nharmonic == 0
 
     A0 = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
     A0[:dW1, :dW1] = L0.M[0, 0].values
@@ -197,4 +199,4 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     u, s, v = np.linalg.svd(A0)
 
     nharmonic = sum(s < 1.0e-5)
-    assert(nharmonic == 1)
+    assert nharmonic == 1

@@ -7,7 +7,7 @@ from firedrake import slate
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
@@ -42,6 +42,7 @@ def is_form_consistent(is_linear, bcs):
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalProblemMixin._ad_annotate_init
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
@@ -104,6 +105,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
     DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
     def __init__(self, problem, *, solver_parameters=None,
                  options_prefix=None,
@@ -176,6 +178,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         assert isinstance(problem, NonlinearVariationalProblem)
 
+        solver_parameters = flatten_parameters(solver_parameters or {})
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
@@ -237,6 +240,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         self._ctx.transfer_manager = manager
 
+    @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     def solve(self, bounds=None):
         r"""Solve the variational problem.
@@ -250,6 +254,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
            If bounds are provided the ``snes_type`` must be set to
            ``vinewtonssls`` or ``vinewtonrsls``.
         """
+        # Make sure the DM has this solver's callback functions
+        self._ctx.set_function(self.snes)
+        self._ctx.set_jacobian(self.snes)
+
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         for dbc in self._problem.dirichlet_bcs():
@@ -273,10 +281,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._setup = True
         solving_utils.check_snes_convergence(self.snes)
 
+        # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
+        comm = self._problem.u.function_space().mesh()._comm
+        PETSc.garbage_cleanup(comm=comm)
+
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
                  constant_jacobian=False):
@@ -298,7 +311,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if L is 0:  # noqa: F632
+        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)) and L == 0:
             F = ufl_expr.action(J, u)
         else:
             if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):

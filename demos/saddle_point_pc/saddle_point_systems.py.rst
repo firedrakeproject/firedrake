@@ -22,21 +22,25 @@ domain :math:`\Omega` satisfying
 
 .. math::
 
+   \begin{aligned}
    \sigma - \nabla u &= 0 \quad &\textrm{on}\ \Omega\\
    \nabla \cdot \sigma &= -f \quad &\textrm{on}\ \Omega\\
    u &= u_0 \quad &\textrm{on}\ \Gamma_D\\
    \sigma \cdot n &= g \quad &\textrm{on}\ \Gamma_N
+   \end{aligned}
 
 for some specified function :math:`f`.  We now seek :math:`(u, \sigma)
 \in V \times \Sigma` such that
 
 .. math::
 
+   \begin{aligned}
    \int_\Omega \sigma \cdot \tau + (\nabla \cdot \tau)\, u\,\mathrm{d}x
    &= \int_\Gamma (\tau \cdot n)\,u\,\mathrm{d}s &\quad \forall\ \tau
    \in \Sigma, \\
    \int_\Omega (\nabla \cdot \sigma)\,v\,\mathrm{d}x
    &= -\int_\Omega f\,v\,\mathrm{d}x &\quad \forall\ v \in V.
+   \end{aligned}
 
 A stable choice of discrete spaces for this problem is to pick
 :math:`\Sigma_h \subset \Sigma` to be the lowest order Raviart-Thomas
@@ -57,7 +61,7 @@ As ever, we begin by importing the Firedrake module::
     from firedrake import *
 
 Building the problem
--------------------
+--------------------
 
 Rather than defining a mesh and function spaces straight away, since
 we wish to consider the effect that mesh refinement has on the
@@ -82,10 +86,10 @@ problem.  We will need some trial and test functions for the spaces::
     #
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
- 
+
 along with a function to hold the forcing term, living in the
 discontinuous space. ::
-    
+
     #
         f = Function(V)
 
@@ -125,7 +129,7 @@ a :class:`~.LinearSolver` object from this function, so we preassemble
 the operators to build it.  It is here that we must specify whether we
 want a monolithic matrix or not, by setting the matrix type
 parameter to :func:`~.assemble`.  ::
-  
+
     #
         if block_matrix:
             mat_type = 'nest'
@@ -170,12 +174,12 @@ GMRES with a restart length of 100, ::
         "ksp_gmres_restart": 100,
 
 solve to a relative tolerance of 1e-8, ::
-     
-    #    
+
+    #
         "ksp_rtol": 1e-8,
 
 and precondition with ILU(0). ::
- 
+
     #
         "pc_type": "ilu",
         }
@@ -217,7 +221,7 @@ Schur complement approaches
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A better approach is to use a Schur complement preconditioner,
-described in :ref:`mixed_preconditioning`.  The system we are trying
+described in :ref:`mixed-preconditioning`.  The system we are trying
 to solve is conceptually a :math:`2\times 2` block matrix.
 
 .. math::
@@ -278,7 +282,7 @@ the preconditioned operator will have at most three distinct
 eigenvalues :cite:`Murphy:2000` and hence GMRES should converge in at
 most three iterations.  To try this, we start out by exactly
 inverting :math:`A` and :math:`S` to check the convergence. ::
-       
+
         "fieldsplit_0_ksp_type": "cg",
         "fieldsplit_0_pc_type": "ilu",
         "fieldsplit_0_ksp_rtol": 1e-12,
@@ -480,7 +484,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
                 + (gamma/h)*inner(u, v)*ds)
             bcs = None
             return (a_dg, bcs)
-  
+
     parameters = {
         "ksp_type": "gmres",
         "ksp_rtol": 1e-8,
@@ -494,7 +498,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
         "fieldsplit_1_pc_python_type": __name__+ ".DGLaplacian",
         "fieldsplit_1_aux_pc_type": "hypre"
     }
-    
+
     print("DG approximation for S_p")
     for n in range(8):
         solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
@@ -538,7 +542,7 @@ providing a function that constructs this operator to our
     def riesz(W):
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
-    
+
         return (dot(sigma, tau) + div(sigma)*div(tau) + u*v)*dx
 
 Now we set up the solver parameters.  We will still use a
@@ -559,9 +563,8 @@ inverted exactly using a single application of zero-fill ILU. ::
         "fieldsplit_1_ksp_type": "preonly",
         "fieldsplit_1_pc_type": "ilu",
 
-The :math:`H(\text{div})` inner product is the tricky part.  In fact,
-we currently do not have a good way of inverting this in Firedrake.
-For now we will invert it with a direct solver.  This is a reasonable
+The :math:`H(\text{div})` inner product is the tricky part. For a
+first attempt, we will invert it with a direct solver.  This is a reasonable
 option up to a few tens of thousands of degrees of freedom. ::
 
     #
@@ -599,27 +602,26 @@ Let's see what the iteration count looks like now. ::
    32768              5
 ============== ==================
 
-Providing access to scalable preconditioners for these kinds of
-problems is currently a wishlist item for Firedrake.  There are two
-options, either geometric multigrid with strong,
-Schwarz-based, smoothers :cite:`Arnold:2000`.  Or else algebraic
-multigrid approaches using the auxiliary-space preconditioning method
-of :cite:`Hiptmair:2007`.  Support for the algebraic approach is
-available in hypre_ (the AMS and AMR preconditioners), and an
-interface exists in PETSc_.  If you're interested in adding the
-missing pieces to support this in Firedrake, we would :doc:`love to
-hear from you </contact>`.
 
-A runnable python script version of this demo is available `here
-<saddle_point_systems.py>`__.
+Firedrake provides some facility to solve the :math:`H(\mathrm{div})`
+Riesz map in a scalable way. In particular either by employing a
+geometric multigrid method with overlapping Schwarz smoothers (using
+:class:`.PatchPC`), or using the algebraic approach of
+:cite:`Hiptmair:2007` provided by `Hypre's
+<https://hypre.readthedocs.io/en/latest/>`__ "auxiliary space"
+preconditioners ``AMS`` and ``ADS``. See the separate manual page on
+:doc:`../preconditioning`.
+
+A runnable python script version of this demo is available :demo:`here
+<saddle_point_systems.py>`.
 
 .. rubric:: References
 
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
 
-.. _PETSc: http://www.mcs.anl.gov/petsc/
-.. _hypre: http://computation.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods/software
-.. _PyOP2: http://github.com/OP2/PyOP2/
-.. _numpy: http://www.numpy.org
-.. _MUMPS: http://mumps.enseeiht.fr
+.. _PETSc: https://petsc.org/
+.. _hypre: https://hypre.readthedocs.io/en/latest/
+.. _PyOP2: https://github.com/OP2/PyOP2/
+.. _numpy: https://www.numpy.org
+.. _MUMPS: https://mumps-solver.org/index.php

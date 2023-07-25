@@ -1,4 +1,3 @@
-
 Scalar wave equation with higher-order mass lumping
 ===================================================
 
@@ -37,7 +36,7 @@ The weak formulation is finding :math:`u \in V` such that:
 
     <\partial_t(\rho \partial_t u), v> + a(u,v) = (f,w)
 
-where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptic operator given by:
+where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow \mathbb{R}` is the elliptic operator given by:
 
 .. math::
 
@@ -83,7 +82,7 @@ Now we set the time-stepping variables performing a simulation for 1 second with
     t = 0
     step = 0
 
-Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :mathf_\text{peak}.
+Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :math:`\text{peak}`.
 
 Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant::
 
@@ -115,7 +114,7 @@ space, along with the degree of the element and construct the quadrature rule::
 
 Then we make a new Measure object that uses this rule::
 
-    dxlump=dx(rule=quad_rule)
+    dxlump=dx(scheme=quad_rule)
 
 To discretize :math:`\partial_{t}^2 u` we use a central scheme
 

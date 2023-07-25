@@ -7,15 +7,17 @@ Point evaluation
 
 Firedrake can evaluate :py:class:`~.Function`\s at arbitrary physical
 points.  This feature can be useful for the evaluation of the result
-of a simulation.  Two APIs are offered to this feature: a
-Firedrake-specific one, and one from UFL.
+of a simulation, or for creating expressions which contain point evaluations.
+Three APIs are offered to this feature: two Firedrake-specific ones, and one
+from UFL.
 
 
-Firedrake API
--------------
+Firedrake convenience function
+------------------------------
 
-Firedrake offers a convenient API for evaluating functions at
-arbitrary points via :meth:`~.Function.at`:
+Firedrake's first API for evaluating functions at arbitrary points,
+:meth:`~.Function.at`, is designed for simple interrogation of a function with
+a few points.
 
 .. code-block:: python3
 
@@ -77,12 +79,6 @@ When any point is outside the domain of the function,
    f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
 
 
-.. warning::
-
-   Point evaluation on *immersed manifolds* is not supported yet, due
-   to the difficulty of specifying a physical point on the manifold.
-
-
 Evaluation on a moving mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -102,6 +98,237 @@ in parallel. There is no special API, but there are some restrictions:
 * Point evaluation is a *collective* operation.
 * Each process must ask for the same list of points.
 * Each process will get the same values.
+
+
+Primary API: Interpolation onto a vertex-only mesh
+--------------------------------------------------
+
+Firedrake's principal API for evaluating functions at arbitrary points,
+interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
+function at many points, or repeatedly, and for creating expressions which
+contain point evaluations. It is parallel-safe. Whilst :meth:`~.Function.at`
+produces a list of values, cross-mesh interpolation onto
+:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
+
+This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
+the idea is that the :func:`~.VertexOnlyMesh` is a mesh that represents a
+point cloud domain. Each cell of the mesh is a vertex at a chosen location in
+space. As usual for a mesh, we represent values by creating functions in
+function spaces on it. The only function space that makes sense for a mesh
+whose cells are vertices is the space of piecewise constant functions, also
+known as the Polynomial degree 0 Discontinuous Galerkin (P0DG) space.
+
+Our vertex-only meshes are immersed in some 'parent' mesh. We perform point
+evaluation of a function :math:`f` defined in a function space
+:math:`V` on the parent mesh by interpolating into the P0DG space on the
+:func:`~.VertexOnlyMesh`. For example:
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 7-26
+
+will print ``[0.02, 0.08, 0.18]``, the values of :math:`x^2 + y^2` at the
+points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and :math:`(0.3, 0.3)`.
+
+Note that ``f_at_points`` is a :py:class:`~.Function` which takes
+on *all* the values of ``f`` evaluated at ``points``. The cell ordering of a
+:func:`~.VertexOnlyMesh` follows the ordering of the list of points it is given
+at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
+shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
+create disconnected vertices at.
+
+The operator for evaluation at the points specified can be
+created by making an :py:class:`~.Interpolator` acting on a
+:py:func:`~.TestFunction`
+
+.. code-block:: python3
+
+   u = TestFunction(V)
+   Interpolator(u, P0DG)
+
+For more on :py:class:`~.Interpolator`\s and interpolation see the
+:doc:`interpolation <interpolation>` section.
+
+
+Vector and tensor valued function spaces
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When interpolating from vector or tensor valued function spaces, the P0DG
+function space on the vertex-only mesh must be a
+:py:func:`~.VectorFunctionSpace` or :py:func:`~.TensorFunctionSpace`
+respectively. For example:
+
+.. code-block:: python3
+
+   V = VectorFunctionSpace(parent_mesh, "CG", 2)
+
+or
+
+.. code-block:: python3
+
+   V = FunctionSpace(parent_mesh, "N1curl", 2)
+
+each require
+
+.. code-block:: python3
+
+   vom = VertexOnlyMesh(parent_mesh, points)
+   P0DG_vec = VectorFunctionSpace(vom, "DG", 0)
+
+for successful interpolation.
+
+
+Parallel behaviour
+~~~~~~~~~~~~~~~~~~
+
+In parallel the ``points`` given to :func:`~.VertexOnlyMesh` are assumed to be
+the same on each MPI process and are taken from rank 0. To let different ranks
+provide different points to the vertex-only mesh set the keyword argument
+``redundant = False``
+
+.. code-block:: python3
+
+   # Default behaviour
+   vom = VertexOnlyMesh(parent_mesh, points, redundant = True)
+
+   # Different points on each MPI rank to add to the vertex-only mesh
+   vom = VertexOnlyMesh(parent_mesh, points, redundant = False)
+
+In this case, ``points`` will redistribute to the mesh partition where they are
+located. This means that if rank A has ``points`` :math:`\{X\}` that are not
+found in the mesh cells owned by rank A but are found in the mesh cells owned
+by rank B then they will be moved to rank B.
+
+If the same coordinates are supplied more than once, they are always assumed to
+be a new vertex: this is true for both ``redundant = True`` and
+``redunant = False``. So if we have the same set of points on all MPI processes
+and switch from ``redundant = True`` to ``redundant = False`` we will get point
+duplication.
+
+
+Points outside the domain
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Be default points outside the domain  by more than the :ref:`specified
+tolerance <tolerance>` will generate a ``ValueError``. This can be switched
+to a warning or switched off entirely:
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 31-35,37-44
+
+
+Expressions with point evaluations
+----------------------------------
+
+Integrating over a vertex-only mesh is equivalent to summing over
+it. So if we have a vertex-only mesh :math:`\Omega_v` with :math:`N` vertices
+at points :math:`\{x_i\}_{i=0}^{N-1}` and we have interpolated a function
+:math:`f` onto it giving a new function :math:`f_v` then
+
+.. math::
+
+   \int_{\Omega_v} f_v \, dx = \sum_{i=0}^{N-1} f(x_i).
+
+These equivalent expressions for point evaluation
+
+.. math::
+
+   \sum_{i=0}^{N-1} f(x_i) = \sum_{i=0}^{N-1} \int_\Omega f(x) \delta(x - x_i) \, dx
+
+where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
+:math:`\Omega` is a 'parent' mesh, :math:`f` is a function on that mesh,
+:math:`\delta` is a dirac delta distribition can therefore be written in
+Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 50-64
+
+Interacting with external point data
+------------------------------------
+
+.. warning::
+
+   The examples given in the following section use an internal Firedrake API
+   ``Function.dat.data`` which could change in the future.
+
+.. warning::
+
+   The examples given in the following section will not work in parallel. A
+   parallel safe way of interacting with external data will be available soon.
+
+Any set of points with associated data in our domain can be expressed as a
+P0DG function on a :func:`~.VertexOnlyMesh`.
+
+.. code-block:: python3
+
+   vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere)
+   P0DG = FunctionSpace(vom, "DG", 0)
+   y_pts = Function(P0DG).dat.data[:] = point_data_values_from_elsewhere
+
+We can use :func:`~.interpolate` to interact with this data to, for example,
+compare a PDE solution with the point data. The :math:`l_2` error norm
+(euclidean norm) of a function :math:`f` (which may be a PDE solution)
+evaluated against a set of point data :math:`\{y_i\}_{i=0}^{N-1}` at points
+:math:`\{x_i\}_{i=0}^{N-1}` is defined as
+
+.. math::
+
+   \sqrt{ \sum_{i=0}^{N-1} (f(x_i) - y_i)^2 }.
+
+We can express this in Firedrake as
+
+.. code-block:: python3
+
+   error = sqrt(assemble((interpolate(f, P0DG) - y_pts)**2*dx))
+
+   # or equivalently
+   error = errornorm(interpolate(f, P0DG), y_pts)
+
+.. _tolerance:
+
+Mesh tolerance
+--------------
+
+If points are outside the mesh domain but ought to still be found a
+``tolerance`` parameter can be set. The tolerance is relative to the size of
+the mesh cells and is a property of the mesh itself
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 70-90
+
+Keyword arguments
+~~~~~~~~~~~~~~~~~
+
+Alternatively we can modify the tolerance by providing it as an argument to the
+vertex-only mesh. This will modify the tolerance property of the parent mesh.
+
+.. warning::
+
+   To avoid confusion, it is recommended that the tolerance be set for a mesh
+   before any point evaluations are performed, rather than making use of these
+   keyword arguments.
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 100-117
+
+Note that since our tolerance is relative, the number of cells in a mesh
+dictates the point loss behaviour close to cell edges. So the mesh
+``UnitSquareMesh(5, 5, quadrilateral = True)`` will include the point
+:math:`(1.1, 1.0)` by default.
+
+Changing mesh tolerance only affects point location after it has been changed.
+To apply the new tolerance to a vertex-only mesh, a new vertex-only mesh must 
+be created. Any existing immersed vertex-only mesh will have been created 
+using the previous tolerance and will be unaffected by the change.
 
 
 UFL API
@@ -128,5 +355,5 @@ will evaluate :math:`f \cdot \sin(f)` at :math:`(0.2, 0.4)`.
 
    The expression itself is not translated into C code.  While the
    evaluation of a function uses the same infrastructure as the
-   Firedrake API, which uses generated C code, the expression tree is
+   Firedrake APIs, which use generated C code, the expression tree is
    evaluated by UFL in Python.

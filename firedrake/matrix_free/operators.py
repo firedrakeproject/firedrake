@@ -1,11 +1,13 @@
 from collections import OrderedDict
+import itertools
+
 from mpi4py import MPI
 import numpy
-import itertools
+
+from pyop2.mpi import internal_comm, decref, temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
-
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 
@@ -13,12 +15,14 @@ from firedrake.utils import cached_property
 __all__ = ("ImplicitMatrixContext", )
 
 
-def find_sub_block(iset, ises):
+@PETSc.Log.EventDecorator()
+def find_sub_block(iset, ises, comm):
     """Determine if iset comes from a concatenation of some subset of
     ises.
 
     :arg iset: a PETSc IS to find in ``ises``.
     :arg ises: An iterable of PETSc ISes.
+    :arg comm: User comm used to construct function space
 
     :returns: The indices into ``ises`` that when concatenated
         together produces ``iset``.
@@ -27,33 +31,32 @@ def find_sub_block(iset, ises):
         ``ises``.
     """
     found = []
-    comm = iset.comm
     target_indices = iset.indices
-    comm = iset.comm.tompi4py()
     candidates = OrderedDict(enumerate(ises))
-    while True:
-        match = False
-        for i, candidate in list(candidates.items()):
-            candidate_indices = candidate.indices
-            candidate_size, = candidate_indices.shape
-            target_size, = target_indices.shape
-            # Does the local part of the candidate IS match a prefix
-            # of the target indices?
-            lmatch = (candidate_size <= target_size
-                      and numpy.array_equal(target_indices[:candidate_size], candidate_indices))
-            if comm.allreduce(lmatch, op=MPI.LAND):
-                # Yes, this candidate matched, so remove it from the
-                # target indices, and list of candidate
-                target_indices = target_indices[candidate_size:]
-                found.append(i)
-                candidates.pop(i)
-                # And keep looking for the remainder in the remaining candidates.
-                match = True
-        if not match:
-            break
-    if comm.allreduce(len(target_indices), op=MPI.SUM) > 0:
-        # We didn't manage to hoover up all the target indices, not a match
-        raise LookupError("Unable to find %s in %s" % (iset, ises))
+    with temp_internal_comm(comm) as icomm:
+        while True:
+            match = False
+            for i, candidate in list(candidates.items()):
+                candidate_indices = candidate.indices
+                candidate_size, = candidate_indices.shape
+                target_size, = target_indices.shape
+                # Does the local part of the candidate IS match a prefix
+                # of the target indices?
+                lmatch = (candidate_size <= target_size
+                          and numpy.array_equal(target_indices[:candidate_size], candidate_indices))
+                if icomm.allreduce(lmatch, op=MPI.LAND):
+                    # Yes, this candidate matched, so remove it from the
+                    # target indices, and list of candidate
+                    target_indices = target_indices[candidate_size:]
+                    found.append(i)
+                    candidates.pop(i)
+                    # And keep looking for the remainder in the remaining candidates.
+                    match = True
+            if not match:
+                break
+        if icomm.allreduce(len(target_indices), op=MPI.SUM) > 0:
+            # We didn't manage to hoover up all the target indices, not a match
+            raise LookupError("Unable to find %s in %s" % (iset, ises))
     return found
 
 
@@ -81,10 +84,15 @@ class ImplicitMatrixContext(object):
        preconditioners and the like.
 
     """
+    @PETSc.Log.EventDecorator()
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
+        from firedrake.assemble import OneFormAssembler
+
         self.a = a
         self.aT = adjoint(a)
+        self.comm = a.arguments()[0].function_space().comm
+        self._comm = internal_comm(self.comm)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -125,8 +133,6 @@ class ImplicitMatrixContext(object):
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
 
-        from firedrake.assemble import create_assembly_callable
-
         # For assembling action(f, self._x)
         self.bcs_action = []
         for bc in self.bcs:
@@ -135,8 +141,10 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = create_assembly_callable(self.action, tensor=self._y, bcs=self.bcs_action,
-                                                         form_compiler_parameters=self.fc_params)
+        self._assemble_action = OneFormAssembler(self.action, tensor=self._y,
+                                                 bcs=self.bcs_action,
+                                                 form_compiler_parameters=self.fc_params,
+                                                 zero_bc_nodes=True).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -149,15 +157,18 @@ class ImplicitMatrixContext(object):
         # Deepest EquationBCs first
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
-                self._assemble_actionT.append(create_assembly_callable(action(adjoint(ebc.f), self._y),
-                                              tensor=self._xbc,
-                                              bcs=None,
-                                              form_compiler_parameters=self.fc_params))
+                self._assemble_actionT.append(
+                    OneFormAssembler(action(adjoint(ebc.f), self._y), tensor=self._xbc,
+                                     form_compiler_parameters=self.fc_params).assemble)
         # Domain last
-        self._assemble_actionT.append(create_assembly_callable(self.actionT,
-                                                               tensor=self._x if len(self.bcs) == 0 else self._xbc,
-                                                               bcs=None,
-                                                               form_compiler_parameters=self.fc_params))
+        self._assemble_actionT.append(
+            OneFormAssembler(self.actionT,
+                             tensor=self._x if len(self.bcs) == 0 else self._xbc,
+                             form_compiler_parameters=self.fc_params).assemble)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @cached_property
     def _diagonal(self):
@@ -167,11 +178,10 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake.assemble import create_assembly_callable
-        return create_assembly_callable(self.a,
-                                        tensor=self._diagonal,
-                                        form_compiler_parameters=self.fc_params,
-                                        diagonal=True)
+        from firedrake.assemble import OneFormAssembler
+        return OneFormAssembler(self.a, tensor=self._diagonal,
+                                form_compiler_parameters=self.fc_params,
+                                diagonal=True).assemble
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()
@@ -184,6 +194,7 @@ class ImplicitMatrixContext(object):
     def missingDiagonal(self, mat):
         return (False, -1)
 
+    @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)
@@ -217,6 +228,7 @@ class ImplicitMatrixContext(object):
         with self._y.dat.vec_ro as v:
             v.copy(Y)
 
+    @PETSc.Log.EventDecorator()
     def multTranspose(self, mat, Y, X):
         """
         EquationBC makes multTranspose different from mult.
@@ -226,29 +238,61 @@ class ImplicitMatrixContext(object):
         edge, and vertice equations (if exist) and add up their
         contributions.
 
-                           Domain
-            a a a a 0 a a    |
-            a a a a 0 a a    |
-            a a a a 0 a a    |   EBC1
-        M = b b b b b b b    |    |   EBC2 DBC1
-            0 0 0 0 1 0 0    |    |    |    |
-            c c c c 0 c c    |         |
-            c c c c 0 c c    |         |
-                                                     To avoid copys, use same _y, and update it
-                                                     from left (deepest ebc) to right (least deep ebc or domain)
-        Multiplication algorithm:                       _y         update ->     _y        update ->   _y
+        .. code-block:: text
 
-                 a a a b 0 c c   _y0     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y0          0
-                 a a a b 0 c c   _y1     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y1          0
-                 a a a b 0 c c   _y2     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y2          0
-        M^T _y = a a a b 0 c c   _y3  =  0 0 0 0 c c c   *    + 0 0 0 b b 0 0   _y3  + a a a a a a a    0      +    0
-                 0 0 0 0 1 0 0   _y4     0 0 0 0 c c c   0      0 0 0 b b 0 0    0     a a a a a a a    0          _y4 (replace at the end)
-                 a a a b 0 c c   _y5     0 0 0 0 c c c   _y5    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                 a a a b 0 c c   _y6     0 0 0 0 c c c   _y6    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                                             (uniform on           (uniform          (uniform on domain)
-                                              on facet2)            on facet1)
+                                   Domain
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |   EBC1
+            M = ( b b b b b b b )    |    |   EBC2 DBC1
+                ( 0 0 0 0 1 0 0 )    |    |    |    |
+                ( c c c c 0 c c )    |         |
+                ( c c c c 0 c c )    |         |
 
-        * = can be any number
+            Multiplication algorithm:
+            To avoid copys, use same y, and update it from left
+            (deepest ebc) to right (least deep ebc or domain).
+             * below can be any number
+
+                    ( a a a b 0 c c )  ( y0 )
+                    ( a a a b 0 c c )  ( y1 )
+                    ( a a a b 0 c c )  ( y2 )
+            M^T y = ( a a a b 0 c c )  ( y3 )
+                    ( 0 0 0 0 1 0 0 )  ( y4 )
+                    ( a a a b 0 c c )  ( y5 )
+                    ( a a a b 0 c c )  ( y6 )
+
+                    ( 0 0 0 0 c c c )  ( *  )  Matrix is uniform
+                    ( 0 0 0 0 c c c )  ( *  )  on facet2 (EBC2)
+                    ( 0 0 0 0 c c c )  ( *  )
+                  = ( 0 0 0 0 c c c )  ( *  )  Initial y
+                    ( 0 0 0 0 c c c )  ( 0  )
+                    ( 0 0 0 0 c c c )  ( y5 )
+                    ( 0 0 0 0 c c c )  ( y6 )
+
+                       ( 0 0 0 b b 0 0 )  ( *  ) Matrix is uniform
+                       ( 0 0 0 b b 0 0 )  ( *  ) on facet1 (EBC1)
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                     + ( 0 0 0 b b 0 0 )  ( y3 ) Update y
+                       ( 0 0 0 b b 0 0 )  ( 0  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+
+                       ( a a a a a a a )  ( y0 ) Matrix is uniform
+                       ( a a a a a a a )  ( y1 ) on domain
+                       ( a a a a a a a )  ( y2 )
+                     + ( a a a a a a a )  ( 0  ) Update y
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+
+                       ( 0  )
+                       ( 0  ) Update y replace at the end (DBC1)
+                       ( 0  )
+                     + ( 0  )
+                       ( y4 )
+                       ( 0  )
+                       ( 0  )
 
         """
         with self._y.dat.vec_wo as v:
@@ -295,7 +339,6 @@ class ImplicitMatrixContext(object):
                            type(self).__name__)
 
     def getInfo(self, mat, info=None):
-        from mpi4py import MPI
         memory = self._x.dat.nbytes + self._y.dat.nbytes
         if hasattr(self, "_xbc"):
             memory += self._xbc.dat.nbytes
@@ -306,10 +349,10 @@ class ImplicitMatrixContext(object):
         if info == PETSc.Mat.InfoType.LOCAL:
             return {"memory": memory}
         elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
-            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.SUM)
+            gmem = self._comm.allreduce(memory, op=MPI.SUM)
             return {"memory": gmem}
         elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
-            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.MAX)
+            gmem = self._comm.allreduce(memory, op=MPI.MAX)
             return {"memory": gmem}
         else:
             raise ValueError("Unknown info type %s" % info)
@@ -318,6 +361,7 @@ class ImplicitMatrixContext(object):
     # extraction for our custom matrix type.  Note that we are splitting UFL
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
+    @PETSc.Log.EventDecorator()
     def createSubMatrix(self, mat, row_is, col_is, target=None):
         if target is not None:
             # Repeat call, just return the matrix, since we don't
@@ -330,11 +374,11 @@ class ImplicitMatrixContext(object):
         row_ises = self._y.function_space().dof_dset.field_ises
         col_ises = self._x.function_space().dof_dset.field_ises
 
-        row_inds = find_sub_block(row_is, row_ises)
+        row_inds = find_sub_block(row_is, row_ises, comm=self.comm)
         if row_is == col_is and row_ises == col_ises:
             col_inds = row_inds
         else:
-            col_inds = find_sub_block(col_is, col_ises)
+            col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
 
         splitter = ExtractSubBlock()
         asub = splitter.split(self.a,
@@ -347,7 +391,7 @@ class ImplicitMatrixContext(object):
 
         for bc in self.bcs:
             if isinstance(bc, DirichletBC):
-                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+                bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
             elif isinstance(bc, EquationBCSplit):
                 bc_temp = bc.reconstruct(field=row_inds, V=Wrow, row_field=row_inds, col_field=col_inds, use_split=True)
             if bc_temp is not None:
@@ -358,7 +402,7 @@ class ImplicitMatrixContext(object):
         else:
             for bc in self.bcs_col:
                 if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, g=bc.function_arg, sub_domain=bc.sub_domain, method=bc.method, use_split=True)
+                    bc_temp = bc.reconstruct(field=col_inds, V=Wcol, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
                 elif isinstance(bc, EquationBCSplit):
                     bc_temp = bc.reconstruct(field=col_inds, V=Wcol, row_field=row_inds, col_field=col_inds, use_split=True)
                 if bc_temp is not None:
@@ -370,7 +414,7 @@ class ImplicitMatrixContext(object):
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
-        submat = PETSc.Mat().create(comm=mat.comm)
+        submat = PETSc.Mat().create(comm=self._comm)
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes),
                         bsize=submat_ctx.block_size)
@@ -379,6 +423,7 @@ class ImplicitMatrixContext(object):
 
         return submat
 
+    @PETSc.Log.EventDecorator()
     def duplicate(self, mat, copy):
 
         if copy == 0:
@@ -388,7 +433,7 @@ class ImplicitMatrixContext(object):
                                            col_bcs=self.bcs_col,
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
-        newmat = PETSc.Mat().create(comm=mat.comm)
+        newmat = PETSc.Mat().create(comm=self._comm)
         newmat.setType("python")
         newmat.setSizes((newmat_ctx.row_sizes, newmat_ctx.col_sizes),
                         bsize=newmat_ctx.block_size)

@@ -1,7 +1,7 @@
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
-from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock
+from firedrake.adjoint.blocks import SolveVarFormBlock, SolveLinearSystemBlock, GenericSolveBlock, ProjectBlock
 import ufl
 
 
@@ -10,7 +10,7 @@ def annotate_solve(solve):
     recording what solves occur and what forms are involved, so that the adjoint and tangent linear models may be
     constructed automatically by pyadjoint.
 
-    To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+    To disable the annotation, just pass ``annotate=False`` to this routine, and it acts exactly like the
     Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
     for the purposes of the adjoint computation (such as projecting fields to other function spaces
     for the purposes of visualisation).
@@ -19,20 +19,27 @@ def annotate_solve(solve):
     All of the callback functions follow the same signature, taking a single argument of type Function.
 
     Keyword Args:
-        adj_cb (function, optional): callback function supplying the adjoint solution in the interior.
-            The boundary values are zero.
-        adj_bdy_cb (function, optional): callback function supplying the adjoint solution on the boundary.
+        adj_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the adjoint solution in the interior. The boundary values are zero.
+        adj_bdy_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the adjoint solution on the boundary.
             The interior values are not guaranteed to be zero.
-        adj2_cb (function, optional): callback function supplying the second-order adjoint solution in the interior.
+        adj2_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the second-order adjoint solution in the interior.
             The boundary values are zero.
-        adj2_bdy_cb (function, optional): callback function supplying the second-order adjoint solution on
+        adj2_bdy_cb (:obj:`firedrake.function`, optional):
+            callback function supplying the second-order adjoint solution on
             the boundary. The interior values are not guaranteed to be zero.
+        ad_block_tag (:obj:`string`, optional):
+            tag used to label the resulting block on the Pyadjoint tape. This
+            is useful for identifying which block is associated with which equation in the forward model.
 
     """
 
     @wraps(solve)
     def wrapper(*args, **kwargs):
 
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
 
         if annotate:
@@ -43,7 +50,7 @@ def annotate_solve(solve):
 
             sb_kwargs = solve_block_type.pop_kwargs(kwargs)
             sb_kwargs.update(kwargs)
-            block = solve_block_type(*args, **sb_kwargs)
+            block = solve_block_type(*args, ad_block_tag=ad_block_tag, **sb_kwargs)
             tape.add_block(block)
 
         with stop_annotating():
@@ -59,3 +66,17 @@ def annotate_solve(solve):
         return output
 
     return wrapper
+
+
+def get_solve_blocks():
+    """
+    Extract all blocks of the tape which correspond
+    to PDE solves, except for those which correspond
+    to calls of the ``project`` operator.
+    """
+    return [
+        block
+        for block in get_working_tape().get_blocks()
+        if issubclass(type(block), GenericSolveBlock)
+        and not issubclass(type(block), ProjectBlock)
+    ]

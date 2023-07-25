@@ -4,22 +4,19 @@ non-finite element operations such as slope limiters."""
 import collections
 
 from ufl.indexed import Indexed
-from ufl.domain import join_domains
+from ufl.domain import join_domains, extract_domains
 
-from pyop2 import READ, WRITE, RW, INC, MIN, MAX
-import pyop2
+from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
-import coffee.base as ast
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from firedrake.parameters import target
 
-from firedrake.logging import warning
 from firedrake import constant
-from firedrake.utils import ScalarType_c
-try:
-    from cachetools import LRUCache
-    kernel_cache = LRUCache(maxsize=128)
-except ImportError:
-    warning("cachetools not available, firedrake.par_loop calls will be slowed down")
-    kernel_cache = None
+from firedrake.petsc import PETSc
+from cachetools import LRUCache
+
+
+kernel_cache = LRUCache(maxsize=128)
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
@@ -75,13 +72,15 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
     kargs = []
 
     for var, (func, intent) in args.items():
+        is_input = intent in [INC, READ, RW, MAX, MIN]
+        is_output = intent in [INC, RW, WRITE, MAX, MIN]
         if isinstance(func, constant.Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+            kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
@@ -93,7 +92,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim()  # == 1
-                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,)))
+                    kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
                     continue
                 else:
                     if len(func.function_space()) > 1:
@@ -104,75 +103,38 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
-            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim)))
+            kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), is_input=is_input, is_output=is_output))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
     try:
         key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
-        if kernel_cache is not None:
-            return kernel_cache[key]
-        else:
-            raise KeyError("No cache")
+        # Add shape, dtype and intent to the cache key
+        for func, intent in args.values():
+            if isinstance(func, Indexed):
+                for dat in func.ufl_operands[0].dat.split:
+                    key += (dat.shape, dat.dtype, intent)
+            else:
+                key += (func.dat.shape, func.dat.dtype, intent)
+        return kernel_cache[key]
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, seq_dependencies=True,
-                                  name="par_loop_kernel", silenced_warnings=["summing_if_branches_ops"], target=loopy.CTarget())
-        knl = pyop2.Kernel(knl, "par_loop_kernel", **kwargs)
-        if kernel_cache is not None:
-            return kernel_cache.setdefault(key, knl)
-        else:
-            return knl
+        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
+                                  seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+        knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
+        return kernel_cache.setdefault(key, knl)
 
 
-def _form_string_kernel(body, measure, args, **kwargs):
-    kargs = []
-    if body.find("][") >= 0:
-        warning("""Your kernel body contains a double indirection.\n"""
-                """You should update it to single indirections.\n"""
-                """\n"""
-                """Mail firedrake@imperial.ac.uk for advice.\n""")
-    for var, (func, intent) in args.items():
-        if isinstance(func, constant.Constant):
-            if intent is not READ:
-                raise RuntimeError("Only READ access is allowed to Constant")
-            # Constants modelled as Globals, so no need for double
-            # indirection
-            ndof = func.dat.cdim
-            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, )),
-                                  qualifiers=["const"]))
-        else:
-            # Do we have a component of a mixed function?
-            if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                ndof = c.function_space()[idx].finat_element.space_dimension()
-            else:
-                if len(func.function_space()) > 1:
-                    raise NotImplementedError("Must index mixed function in par_loop.")
-                ndof = func.function_space().finat_element.space_dimension()
-            if measure.integral_type() == 'interior_facet':
-                ndof *= 2
-            kargs.append(ast.Decl(ScalarType_c, ast.Symbol(var, (ndof, ))))
-        body = body.replace(var+".dofs", str(ndof))
-
-    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs,
-                                    ast.FlatBlock(body),
-                                    pred=["static"]),
-                        "par_loop_kernel", **kwargs)
-
-
-def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, **kwargs):
+@PETSc.Log.EventDecorator()
+def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel: a string containing the C code to be executed. Or a
-        2-tuple of (domains, instructions) to create a loopy kernel
-        (must also set ``is_loopy_kernel=True``). If loopy syntax is
-        used, the domains and instructions should be specified in
-        loopy kernel syntax. See the `loopy tutorial
+    :arg kernel: A 2-tuple of (domains, instructions) to create
+        a loopy kernel . The domains and instructions should be specified
+        in loopy kernel syntax. See the `loopy tutorial
         <https://documen.tician.de/loopy/tutorial.html>`_ for details.
 
     :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
@@ -182,12 +144,12 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
     :arg kernel_kwargs: keyword arguments to be passed to the
-        :class:`~pyop2.op2.Kernel` constructor
+        ``pyop2.Kernel`` constructor
     :arg kwargs: additional keyword arguments are passed to the underlying
-        :class:`~pyop2.par_loop`
+        ``pyop2.par_loop``
 
     :kwarg iterate: Optionally specify which region of an
-                    :class:`ExtrudedSet` to iterate over.
+                    :class:`pyop2.types.set.ExtrudedSet` to iterate over.
                     Valid values are the following objects from pyop2:
 
                     - ``ON_BOTTOM``: iterate over the bottom layer of cells.
@@ -205,18 +167,13 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++) A[i] = fmax(A[i], B[0]);', dx,
-          {'A' : (A, RW), 'B': (B, READ)})
-
-    The equivalent using loopy kernel syntax is::
-
       domain = '{[i]: 0 <= i < A.dofs}'
       instructions = '''
       for i
           A[i] = max(A[i], B[0])
       end
       '''
-      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)}, is_loopy_kernel=True)
+      par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
@@ -278,16 +235,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
 
     **The kernel code**
 
-    The kernel code is plain C in which the variables specified in the
-    `args` dictionary are available to be read or written in according
-    to the argument intent specified. Most basic C operations are
-    permitted. However there are some restrictions:
-
-    * Only functions from `math.h
-      <http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/math.h.html>`_
-      may be called.
-    * Pointer operations other than dereferencing arrays are prohibited.
-
     Indirect free variables referencing :class:`.Function`\s are all
     of type `double*`. For spaces with rank greater than zero (Vector
     or TensorElement), the data are laid out XYZ... XYZ... XYZ....
@@ -306,6 +253,19 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     indirect and direct :func:`par_loop` calls.
 
     """
+    # catch deprecated C-string parloops
+    if isinstance(kernel, str):
+        raise TypeError("C-string kernels are no longer supported by Firedrake parloops")
+    if "is_loopy_kernel" in kwargs:
+        if kwargs.pop("is_loopy_kernel"):
+            import warnings
+            warnings.warn(
+                "is_loopy_kernel does not need to be specified", FutureWarning)
+        else:
+            raise ValueError(
+                "Support for C-string kernels has been dropped, firedrake.parloop "
+                "will only work with loopy parloops.")
+
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
@@ -339,17 +299,14 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
     else:
         domains = []
         for func, _ in args.values():
-            domains.extend(func.ufl_domains())
+            domains.extend(extract_domains(func))
         domains = join_domains(domains)
         # Assume only one domain
         domain, = domains
         mesh = domain
 
-    if is_loopy_kernel:
-        kernel_domains, instructions = kernel
-        op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
-    else:
-        op2args = [_form_string_kernel(kernel, measure, args, **kernel_kwargs)]
+    kernel_domains, instructions = kernel
+    op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
@@ -362,4 +319,4 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, is_loopy_kernel=False, *
         return f.dat(intent, _map['nodes'](f))
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
-    return pyop2.par_loop(*op2args, **kwargs)
+    return op2.parloop(*op2args, **kwargs)

@@ -4,6 +4,7 @@ from functools import reduce
 from enum import IntEnum
 from operator import and_
 from firedrake.petsc import PETSc
+from firedrake.embedding import get_embedding_dg_element
 
 
 __all__ = ("TransferManager", )
@@ -24,23 +25,7 @@ class TransferManager(object):
 
         :arg element: The element to use for the caching."""
         def __init__(self, element):
-            cell = element.cell()
-            degree = element.degree()
-            family = lambda c: "DG" if c.is_simplex() else "DQ"
-            if isinstance(cell, ufl.TensorProductCell):
-                scalar_element = ufl.TensorProductElement(*(ufl.FiniteElement(family(c), cell=c, degree=d)
-                                                            for (c, d) in zip(cell.sub_cells(), degree)))
-            else:
-                scalar_element = ufl.FiniteElement(family(cell), cell=cell, degree=degree)
-            shape = element.value_shape()
-            if len(shape) == 0:
-                DG = scalar_element
-            elif len(shape) == 1:
-                shape, = shape
-                DG = ufl.VectorElement(scalar_element, dim=shape)
-            else:
-                DG = ufl.TensorElement(scalar_element, shape=shape)
-            self.embedding_element = DG
+            self.embedding_element = get_embedding_dg_element(element)
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
             self._V_approx_inv_mass = {}
@@ -107,8 +92,7 @@ class TransferManager(object):
             firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.value_size,
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
-                               {"A": (f, firedrake.INC)},
-                               is_loopy_kernel=True)
+                               {"A": (f, firedrake.INC)})
             with f.dat.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
 
@@ -175,7 +159,7 @@ class TransferManager(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V.comm)
+            ksp = PETSc.KSP().create(comm=V._comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")
@@ -209,6 +193,7 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
+    @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
@@ -225,7 +210,7 @@ class TransferManager(object):
             return self._native_transfer(source_element, transfer_op)(source, target)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
-            for source_, target_ in zip(source.split(), target.split()):
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
             return target
         # Get some work vectors
@@ -287,7 +272,7 @@ class TransferManager(object):
             return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
         if type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
-            for source_, target_ in zip(gf.split(), gc.split()):
+            for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
             return gc
         dgf = self.DG_work(Vf)

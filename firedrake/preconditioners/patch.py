@@ -14,13 +14,15 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
+from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2 import base as pyop2
-from pyop2 import sequential as seq
+import pyop2.types
+import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -56,12 +58,27 @@ class LocalMatPack(LocalPack, MatPack):
                        True: "MatSetValues"}
 
 
-class LocalMat(pyop2.Mat):
+class LocalMatKernelArg(op2.MatKernelArg):
+
     pack = LocalMatPack
+
+
+class LocalMatLegacyArg(op2.MatLegacyArg):
+
+    @property
+    def global_kernel_arg(self):
+        map_args = [m._global_kernel_arg for m in self.maps]
+        return LocalMatKernelArg(self.data.dims, map_args)
+
+
+class LocalMat(pyop2.types.AbstractMat):
 
     def __init__(self, dset):
         self._sparsity = DenseSparsity(dset, dset)
         self.dtype = numpy.dtype(PETSc.ScalarType)
+
+    def __call__(self, access, maps):
+        return LocalMatLegacyArg(self, maps, access)
 
 
 class LocalDatPack(LocalPack, DatPack):
@@ -76,7 +93,27 @@ class LocalDatPack(LocalPack, DatPack):
             return None
 
 
-class LocalDat(pyop2.Dat):
+class LocalDatKernelArg(op2.DatKernelArg):
+
+    def __init__(self, *args, needs_mask, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.needs_mask = needs_mask
+
+    @property
+    def pack(self):
+        return partial(LocalDatPack, self.needs_mask)
+
+
+class LocalDatLegacyArg(op2.DatLegacyArg):
+
+    @property
+    def global_kernel_arg(self):
+        map_arg = self.map_._global_kernel_arg if self.map_ is not None else None
+        return LocalDatKernelArg(self.data.dataset.dim, map_arg,
+                                 needs_mask=self.data.needs_mask)
+
+
+class LocalDat(pyop2.types.AbstractDat):
     def __init__(self, dset, needs_mask=False):
         self._dataset = dset
         self.dtype = numpy.dtype(PETSc.ScalarType)
@@ -87,9 +124,8 @@ class LocalDat(pyop2.Dat):
     def _wrapper_cache_key_(self):
         return super()._wrapper_cache_key_ + (self.needs_mask, )
 
-    @property
-    def pack(self):
-        return partial(LocalDatPack, self.needs_mask)
+    def __call__(self, access, map_=None):
+        return LocalDatLegacyArg(self, map_, access)
 
 
 register_petsc_function("MatSetValues")
@@ -145,7 +181,6 @@ def matrix_funptr(form, state):
         mat = LocalMat(dofset)
 
         arg = mat(op2.INC, (entity_node_map, entity_node_map))
-        arg.position = 0
         args.append(arg)
         statedat = LocalDat(dofset)
         state_entity_node_map = op2.Map(iterset,
@@ -155,37 +190,39 @@ def matrix_funptr(form, state):
 
         mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        arg.position = 1
         args.append(arg)
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         if kinfo.needs_cell_sizes:
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
-        for n in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
-                statearg.position = len(args)
+                if indices != (0, ):
+                    raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
                 args.append(statearg)
                 continue
-            for (i, c_) in enumerate(c.split()):
+            for ind in indices:
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
-                arg.position = len(args)
                 args.append(arg)
+
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
-            arg.position = len(args)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
-        kernels.append(CompiledKernel(mod._fun, kinfo))
+        iterset = op2.Subset(iterset, [])
+
+        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
+        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -241,43 +278,44 @@ def residual_funptr(form, state):
         statearg = statedat(op2.READ, state_entity_node_map)
 
         arg = dat(op2.INC, entity_node_map)
-        arg.position = 0
         args.append(arg)
 
         mesh = form.ufl_domains()[kinfo.domain_number]
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        arg.position = 1
         args.append(arg)
 
         if kinfo.oriented:
             c = form.ufl_domain().cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
         if kinfo.needs_cell_sizes:
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
-            arg.position = len(args)
             args.append(arg)
-        for n in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_map:
             c = form.coefficients()[n]
             if c is state:
-                statearg.position = len(args)
+                if indices != (0, ):
+                    raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
                 args.append(statearg)
                 continue
-            for (i, c_) in enumerate(c.split()):
+            for ind in indices:
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
-                arg.position = len(args)
                 args.append(arg)
 
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
+
         if kinfo.integral_type == "interior_facet":
-            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
-            arg.position = len(args)
+            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
-        iterset = op2.Subset(iterset, [0])
-        mod = seq.JITModule(kinfo.kernel, iterset, *args)
-        kernels.append(CompiledKernel(mod._fun, kinfo))
+        iterset = op2.Subset(iterset, [])
+
+        wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
+        mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
+        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -479,8 +517,14 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(form.ufl_domain().cell_sizes)
-    for n in kernel.kinfo.coefficient_map:
-        coeffs.append(form.coefficients()[n])
+    for n, indices in kernel.kinfo.coefficient_map:
+        c = form.coefficients()[n]
+        if c is state:
+            if indices != (0, ):
+                raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
+            coeffs.append(c)
+        else:
+            coeffs.extend([c.subfunctions[ind] for ind in indices])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
     data_args = []
@@ -498,6 +542,10 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 if k not in seen:
                     map_args.append(k)
                     seen.add(k)
+
+    for constant in extract_firedrake_constants(form):
+        data_args.extend(constant.dat._kernel_args_)
+
     if require_facet_number:
         data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
@@ -579,15 +627,20 @@ class PlaneSmoother(object):
 
         gdim = data.shape[1]
         bary = numpy.zeros(gdim)
+        ndof = 0
         for p_ in closure_of_p:
             (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
-            bary += data[offset:offset+dof].reshape(gdim)
-        bary /= len(closure_of_p)
+            bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
+            ndof += dof
+        bary /= ndof
         return bary
 
-    def sort_entities(self, dm, axis, dir, ndiv):
+    def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+
+        if ndiv is None and divisions is None:
+            raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
 
         mesh = dm.getAttr("__firedrake_mesh__")
         ele = mesh.coordinates.function_space().ufl_element()
@@ -610,18 +663,32 @@ class PlaneSmoother(object):
         entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
-        minx = min(entities, key=lambda z: z[1][axis])[1][axis]
-        maxx = max(entities, key=lambda z: z[1][axis])[1][axis]
+        if isinstance(axis, int):
+            minx = min(entities, key=lambda z: z[1][axis])[1][axis]
+            maxx = max(entities, key=lambda z: z[1][axis])[1][axis]
 
-        def keyfunc(z):
-            coords = tuple(z[1])
-            return (coords[axis], ) + tuple(coords[:axis] + coords[axis+1:])
+            def keyfunc(z):
+                coords = tuple(z[1])
+                return (coords[axis], ) + tuple(coords[:axis] + coords[axis+1:])
+        else:
+            minx = axis(min(entities, key=lambda z: axis(z[1]))[1])
+            maxx = axis(max(entities, key=lambda z: axis(z[1]))[1])
+
+            def keyfunc(z):
+                coords = tuple(z[1])
+                return (axis(coords), ) + coords
 
         s = sorted(entities, key=keyfunc, reverse=(dir == -1))
-
-        divisions = numpy.linspace(minx, maxx, ndiv+1)
         (entities, coords) = zip(*s)
-        coords = [c[axis] for c in coords]
+        if isinstance(axis, int):
+            coords = [c[axis] for c in coords]
+        else:
+            coords = [axis(c) for c in coords]
+
+        if divisions is None:
+            divisions = numpy.linspace(minx, maxx, ndiv+1)
+        if ndiv is None:
+            ndiv = numpy.size(divisions)-1
         indices = numpy.searchsorted(coords[::dir], divisions)
 
         out = []
@@ -635,6 +702,7 @@ class PlaneSmoother(object):
         if complex_mode:
             raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
+        context = dm.getAttr("__firedrake_ctx__")
         prefix = pc.getOptionsPrefix()
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
@@ -642,15 +710,35 @@ class PlaneSmoother(object):
             raise ValueError("Must set %spc_patch_construct_ps_sweeps" % prefix)
 
         patches = []
+        import re
         for sweep in sweeps.split(':'):
-            axis = int(sweep[0])
-            dir = {'+': +1, '-': -1}[sweep[1]]
-            ndiv = int(sweep[2:])
+            sweep_split = re.split(r'([+-])', sweep)
+            try:
+                axis = int(sweep_split[0])
+            except ValueError:
+                try:
+                    axis = context.appctx[sweep_split[0]]
+                except KeyError:
+                    raise KeyError("PlaneSmoother axis key %s not provided" % sweep_split[0])
 
-            entities = self.sort_entities(dm, axis, dir, ndiv)
+            dir = {'+': +1, '-': -1}[sweep_split[1]]
+            # Either use equispaced bins for relaxation or get from appctx
+            try:
+                ndiv = int(sweep_split[2])
+                entities = self.sort_entities(dm, axis, dir, ndiv=ndiv)
+            except ValueError:
+                try:
+                    divisions = context.appctx[sweep_split[2]]
+                    entities = self.sort_entities(dm, axis, dir, divisions=divisions)
+                except KeyError:
+                    raise KeyError("PlaneSmoother division key %s not provided" % sweep_split[2:])
+
             for patch in entities:
-                iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
-                patches.append(iset)
+                if not patch:
+                    continue
+                else:
+                    iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
+                    patches.append(iset)
 
         iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=PETSc.COMM_SELF)
         return (patches, iterationSet)
@@ -671,14 +759,14 @@ class PatchBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         if P.getType() == "python":
             ictx = P.getPythonContext()
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ictx)
+                raise ValueError("Don't know how to get form from %r" % ictx)
             J = ictx.a
             bcs = ictx.row_bcs
             if bcs != ictx.col_bcs:
@@ -689,12 +777,13 @@ class PatchBase(PCSNESBase):
 
         mesh = J.ufl_domain()
         self.plex = mesh.topology_dm
-        # We need to attach the mesh to the plex, so that
+        # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
         # constructors) can use firedrake's opinion of what
         # the coordinates are, rather than plex's.
         self.plex.setAttr("__firedrake_mesh__", weakref.proxy(mesh))
         self.ctx = ctx
+        self.plex.setAttr("__firedrake_ctx__", weakref.proxy(ctx))
 
         if mesh.cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
@@ -778,7 +867,7 @@ class PatchBase(PCSNESBase):
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
                 facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
-                point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+                point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
                                                  point2facet=point2facet)
@@ -820,12 +909,24 @@ class PatchBase(PCSNESBase):
         self.patch = patch
 
     def destroy(self, obj):
-        # In this destructor we clean up the __firedrake_mesh__ we set on the plex.
-        d = self.plex.getDict()
-        try:
-            del d["__firedrake_mesh__"]
-        except KeyError:
-            pass
+        # In this destructor we clean up the __firedrake_mesh__ we set
+        # on the plex and the context we set on the patch object.
+        # We have to check if these attributes are available because
+        # the destroy function will be called by petsc4py when
+        # PCPythonSetContext is called (which occurs before
+        # initialize).
+        if hasattr(self, "plex"):
+            d = self.plex.getDict()
+            try:
+                del d["__firedrake_mesh__"]
+            except KeyError:
+                pass
+        if hasattr(self, "patch"):
+            try:
+                del self.patch.getDict()["ctx"]
+            except KeyError:
+                pass
+            self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix()

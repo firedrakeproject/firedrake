@@ -1,3 +1,8 @@
+.. raw:: latex
+
+   \clearpage
+
+================
 Getting in touch
 ================
 
@@ -5,41 +10,33 @@ Should you wish to get in touch with the Firedrake development team,
 for help, feature requests, bugs, or just to say hello, you can do so
 in a number of different ways.
 
-Mailing list
-------------
+GitHub discussions
+------------------
 
-You can contact the entire development team on the Firedrake mailing
-list: firedrake@imperial.ac.uk.  Note that you must be subscribed to
-this list to post to it.  To do so, visit `this page
-<mailing_list_>`_.
+The go to place for asking for help is `GitHub discussions
+<https://github.com/firedrakeproject/firedrake/discussions>`__. For support,
+please ask a question under the `Firedrake support category
+<https://github.com/firedrakeproject/firedrake/discussions/categories/firedrake-support>`__.
+We're also always very happy to accept third-party contributions to Firedrake.
 
-Issues and feature requests
----------------------------
-
-The best place to submit bug reports or feature requests is on the
-`github project page <github_>`_.  We're happy to accept third-party
-contributions to Firedrake.
-
-Slack |slack-badge|
--------------------
-
-.. |slack-badge| raw:: html
-
-   <script async defer src="https://firedrakeproject.herokuapp.com/slackin.js"></script>
+Slack
+-----
 
 Much of the day to day development discussion for Firedrake takes
 place on our `slack channel <https://firedrakeproject.slack.com>`__.
-This is open to all, but you must request an invite to join the
-channel, which you can do by `visiting this page
-<https://firedrakeproject.herokuapp.com/>`__ (or clicking the slack
-badge above).  Should this not work for whatever reason, please get in
-touch via the mailing list.
-
-The `slack IRC gateway
-<https://get.slack.help/hc/en-us/articles/201727913-Connecting-to-Slack-over-IRC-and-XMPP>`__
-is enabled for this channel, so you can connect via IRC if you wish
-after signing up.
+This is open to all, but you must `request an invite to join
+<https://join.slack.com/t/firedrakeproject/shared_invite/zt-1l5285niq-19X6q91WcU16vuod~EOj8w>`__
+the channel. Should this not work for whatever reason, please get in
+touch via `GitHub discussions
+<https://github.com/firedrakeproject/firedrake/discussions>`__.
 
 
-.. _github: https://github.com/firedrakeproject/firedrake
+Mailing list
+------------
+
+Please join the Firedrake mailing list: firedrake@imperial.ac.uk.  This is a
+very low traffic list but it does carry important announcements, for example
+when we change a user-facing interface. Join the list on `this page
+<mailing_list_>`_.
+
 .. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake

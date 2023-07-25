@@ -1,5 +1,4 @@
 import copy
-from firedrake.constant import Constant
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
@@ -12,11 +11,21 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            from firedrake import derivative, adjoint, TrialFunction
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+            try:
+                # Some forms (e.g. SLATE tensors) are not currently
+                # differentiable.
+                dFdu = derivative(self.F,
+                                  self.u,
+                                  TrialFunction(self.u.function_space()))
+                self._ad_adj_F = adjoint(dFdu)
+            except TypeError:
+                self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper
@@ -31,11 +40,13 @@ class NonlinearVariationalSolverMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, problem, *args, **kwargs):
+            self.ad_block_tag = kwargs.pop("ad_block_tag", None)
             init(self, problem, *args, **kwargs)
             self._ad_problem = problem
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
+            self._ad_dFdm_cache = {}
 
         return wrapper
 
@@ -58,15 +69,18 @@ class NonlinearVariationalSolverMixin:
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
+                                                       problem._ad_adj_F,
+                                                       dFdm_cache=self._ad_dFdm_cache,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
+                                                       ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
                 if not self._ad_nlvs:
-                    from firedrake import NonlinearVariationalSolver
-                    self._ad_nlvs = NonlinearVariationalSolver(self._ad_problem_clone(self._ad_problem,
-                                                                                      block.get_dependencies()),
-                                                               **self._ad_kwargs)
+                    self._ad_nlvs = type(self)(
+                        self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
+                        **self._ad_kwargs
+                    )
 
                 block._ad_nlvs = self._ad_nlvs
                 tape.add_block(block)
@@ -89,7 +103,7 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import NonlinearVariationalProblem
+        from firedrake import Function, NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 
@@ -100,7 +114,7 @@ class NonlinearVariationalSolverMixin:
         for block_variable in dependencies:
             coeff = block_variable.output
             if coeff in F_coefficients and coeff not in F_replace_map:
-                if isinstance(coeff, Constant):
+                if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
                     F_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     F_replace_map[coeff] = coeff.copy(deepcopy=True)
@@ -109,7 +123,7 @@ class NonlinearVariationalSolverMixin:
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:
                     J_replace_map[coeff] = F_replace_map[coeff]
-                elif isinstance(coeff, Constant):
+                elif isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
                     J_replace_map[coeff] = copy.deepcopy(coeff)
                 else:
                     J_replace_map[coeff] = coeff.copy()

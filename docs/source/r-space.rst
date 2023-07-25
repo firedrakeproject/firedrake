@@ -61,8 +61,29 @@ The corresponding Python code is:
   exact = Function(V)
   x, y = SpatialCoordinate(m)
   exact.interpolate(y - 0.5)
-  print sqrt(assemble((u - exact)*(u - exact)*dx))
+  print(sqrt(assemble((u - exact)*(u - exact)*dx)))
 
+Setting and retrieving the value of a function in `R`
+-----------------------------------------------------
+
+Functions in the space `R` are equivalent to a single floating point value. The
+value can be set using the :meth:`.Assigner.assign` method of Firedrake functions, and
+the value can be accessed simply by casting it to :class:`float`:
+
+.. code-block:: python3
+
+  from firedrake import *
+
+  m = UnitSquareMesh(25, 25)
+  R = FunctionSpace(m, 'R', 0)
+
+  f = Function(V)
+  f.assign(2.0)
+  print(float(f))
+
+.. note::
+
+  The `R` space is not currently supported in complex mode.
 
 Representing matrices involving `R`
 -----------------------------------

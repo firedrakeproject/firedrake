@@ -6,20 +6,27 @@ from mpi4py import MPI
 
 # Utility Functions
 
-@pytest.fixture(params=[pytest.param("interval", marks=pytest.mark.xfail(reason="swarm not implemented in 1d")),
+@pytest.fixture(params=["interval",
                         "square",
-                        pytest.param("extruded", marks=pytest.mark.xfail(reason="extruded meshes not supported")),
+                        "squarequads",
+                        "extruded",
+                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
-                        pytest.param("periodicrectangle", marks=pytest.mark.xfail(reason="meshes made from coordinate fields are not supported"))])
+                        "periodicrectangle",
+                        "shiftedmesh"])
 def parentmesh(request):
     if request.param == "interval":
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
+    elif request.param == "squarequads":
+        return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
-        return ExtrudedMesh(UnitSquareMesh(1, 1), 1)
+        return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
+    elif request.param == "extrudedvariablelayers":
+        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -28,6 +35,10 @@ def parentmesh(request):
         return UnitIcosahedralSphereMesh()
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
+    elif request.param == "shiftedmesh":
+        m = UnitSquareMesh(10, 10)
+        m.coordinates.dat.data[:] -= 0.5
+        return m
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
@@ -76,14 +87,17 @@ def functionspace_tests(vm):
     assert np.allclose(g.dat.data_ro, g.dat.data_ro_with_halos)
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
-    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro, axis=1))
+    # Reshaping because for all meshes, we want (-1, gdim) but
+    # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
+    # () and shape (1,).
+    assert np.allclose(f.dat.data_ro, np.prod(vm.coordinates.dat.data_ro.reshape(-1, vm.geometric_dimension()), axis=1))
     # Galerkin Projection of expression is the same as interpolation of
     # that expression since both exactly point evaluate the expression.
     assert np.allclose(f.dat.data_ro, g.dat.data_ro)
     # Assembly works as expected - global assembly (integration) of a
     # constant on a vertex only mesh is evaluation of that constant
     # num_vertices (globally) times
-    f.interpolate(Constant(2))
+    f.interpolate(Constant(2, domain=vm))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
 
 
@@ -120,12 +134,12 @@ def vectorfunctionspace_tests(vm):
     # num_vertices (globally) times. Note that we get a vertex cell for
     # each geometric dimension so we have to sum over geometric
     # dimension too.
-    f.interpolate(Constant([1] * gdim))
+    f.interpolate(Constant([1] * gdim, domain=vm))
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
 
 
 def test_functionspaces(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm)
     vectorfunctionspace_tests(vm)
 

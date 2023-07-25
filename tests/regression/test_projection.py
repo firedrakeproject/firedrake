@@ -193,7 +193,8 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
-def test_projector():
+@pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
+def test_projector(mat_type):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
     xs = SpatialCoordinate(m)
@@ -204,18 +205,52 @@ def test_projector():
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo)
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
     P.project()
 
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+
+@pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
+def test_mixed_projector(mat_type):
+    m = UnitSquareMesh(2, 2)
+    Vc1 = FunctionSpace(m, "CG", 1)
+    Vc2 = FunctionSpace(m, "CG", 2)
+    Vc = Vc1 * Vc2
+    xs = SpatialCoordinate(m)
+
+    v = Function(Vc)
+    v0, v1 = v.subfunctions
+    v0.interpolate(xs[0]*xs[1] + cos(xs[0]+xs[1]))
+    v1.interpolate(xs[0]*xs[1] + sin(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    Vd1 = FunctionSpace(m, "DG", 1)
+    Vd2 = FunctionSpace(m, "DG", 2)
+    Vd = Vd1 * Vd2
+    vo = Function(Vd)
+
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
+    P.project()
+
+    mass2 = assemble(sum(split(vo))*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
+
+    v0.interpolate(xs[1] + exp(xs[0]+xs[1]))
+    v1.interpolate(xs[0] + exp(xs[0]+xs[1]))
+    mass1 = assemble(sum(split(v))*dx)
+
+    P.project()
+    mass2 = assemble(sum(split(vo))*dx)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
 
 def test_trivial_projector():
@@ -232,14 +267,14 @@ def test_trivial_projector():
     P.project()
 
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
     v.interpolate(xs[1] + exp(xs[0]+xs[1]))
     mass1 = assemble(v*dx)
 
     P.project()
     mass2 = assemble(vo*dx)
-    assert(np.abs(mass1-mass2) < 1.0e-10)
+    assert np.abs(mass1-mass2) < 1.0e-10
 
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
@@ -294,3 +329,56 @@ def test_projector_bcs(tensor, same_fspace):
                                                    "pc_type": "lu"})
 
     assert errornorm(ret, ref) < 1.0e-10
+
+
+@pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
+    (0, 'DGT', 0.8),
+    (1, 'DGT', 1.8),
+    (2, 'DGT', 2.8)])
+def test_DGT_convergence(degree, family, expected_convergence):
+    l2_diff = np.array([run_trace_projection(x, degree, family) for x in range(2, 5)])
+    conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    assert (conv > expected_convergence).all()
+
+    # I decreased the mesh param x here because it is a 3D problem and x=5 was running quite long
+    l2_diff = np.array([run_extr_trace_projection(x, degree, family) for x in range(1, 4)])
+    conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    assert (conv > expected_convergence).all()
+
+
+def run_trace_projection(x, degree=1, family='DGT'):
+    m = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=False)
+    x = SpatialCoordinate(m)
+    f = x[0]*(2-x[0])*x[1]*(2-x[1])
+
+    V_ho = FunctionSpace(m, 'CG', 6)
+    ref = Function(V_ho).interpolate(f)
+
+    T = FunctionSpace(m, family, degree)
+    w = Function(T)
+    w.project(f, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    area = FacetArea(m)
+    return sqrt(assemble(area * inner((w - ref), (w - ref)) * ds
+                         + area * inner((w('+') - ref('+')), (w('+') - ref('+'))) * dS))
+
+
+def run_extr_trace_projection(x, degree=1, family='DGT'):
+    base = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=False)
+    m = ExtrudedMesh(base, 2 ** x)
+    x = SpatialCoordinate(m)
+    f = x[0]*(2-x[0])*x[1]*(2-x[1])*x[2]*(2-x[2])
+
+    V_ho = FunctionSpace(m, 'CG', 6)
+    ref = Function(V_ho).interpolate(f)
+
+    T = FunctionSpace(m, family, degree=degree)
+    w = Function(T)
+    w.project(f, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    area = FacetArea(m)
+    return sqrt(assemble(area * (w - ref) * (w - ref) * ds_v
+                         + area * (w - ref) * (w - ref) * ds_t
+                         + area * (w - ref) * (w - ref) * ds_b
+                         + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_h
+                         + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_v))

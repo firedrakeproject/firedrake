@@ -1,5 +1,7 @@
 from firedrake import *
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
+from firedrake.solving_utils import DEFAULT_KSP_PARAMETERS
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -231,10 +233,11 @@ def test_matrix_free_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        solve(inner(u, v)*dx == inner(Constant((1, 0)), v)*dx, f,
+        const = Constant((1, 0), domain=m)
+        solve(inner(u, v)*dx == inner(const, v)*dx, f,
               solver_parameters={"mat_type": "matfree"})
 
-        expect = Function(V).interpolate(Constant((1, 0)))
+        expect = Function(V).interpolate(const)
         assert np.allclose(expect.dat.data, f.dat.data)
 
 
@@ -307,3 +310,53 @@ def test_duplicate(a, bcs):
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
     assert np.allclose(rhs.vector().array(), solution2.vector().array())
+
+
+def test_matrix_free_fieldsplit_with_real():
+    mesh = RectangleMesh(10, 10, 1, 1)
+
+    U = VectorFunctionSpace(mesh, 'CG', 2)
+    Q = FunctionSpace(mesh, 'CG', 1)
+    R = FunctionSpace(mesh, 'R', 0)
+    V = MixedFunctionSpace([U, Q, R])
+
+    eps = 1e-8
+
+    w_, p_, l_water_ = TrialFunctions(V)
+    v_, q_, m_water_ = TestFunctions(V)
+
+    f = as_vector([0, -9.8])
+
+    A = 2 * inner(sym(grad(w_)), sym(grad(v_))) * dx \
+        - inner(p_, div(v_)) * dx \
+        + inner(div(w_), q_) * dx \
+        + eps * inner(p_, q_) * dx
+    A += inner(dot(w_, f), m_water_) * dx - inner(l_water_, v_[1]) * dx
+    L = inner(f, v_) * dx(domain=mesh)
+
+    u_bdy = Function(U)
+    bc = DirichletBC(V.sub(0), u_bdy, 'on_boundary')
+
+    sol = Function(V)
+    stokes_problem = LinearVariationalProblem(A, L, sol, bcs=bc)
+    # Full Schur complement eliminating onto Real blocks.
+    # The following is currently automatically set by `solving_utils.set_defaults()`.
+    opts = {"mat_type": "matfree",
+            "ksp_type": "fgmres",
+            "pc_type": "fieldsplit",
+            "pc_fieldsplit_type": "schur",
+            "pc_fieldsplit_schur_fact_type": "full",
+            "pc_fieldsplit_0_fields": '0,1',
+            "pc_fieldsplit_1_fields": '2',
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                "assembled": DEFAULT_KSP_PARAMETERS,
+            },
+            "fieldsplit_1": {
+                "ksp_type": "gmres",
+                "pc_type": "none",
+            }}
+    stokes_solver = LinearVariationalSolver(stokes_problem, solver_parameters=opts)
+    stokes_solver.solve()

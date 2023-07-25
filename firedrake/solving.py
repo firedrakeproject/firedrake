@@ -23,14 +23,14 @@ import ufl
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
-from firedrake import solving_utils
-from firedrake import dmhooks
+from firedrake import dmhooks, function, solving_utils, vector
 import firedrake
 from firedrake.adjoint import annotate_solve
-
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 
 
+@PETSc.Log.EventDecorator()
 @annotate_solve
 def solve(*args, **kwargs):
     r"""Solve linear system Ax = b or variational problem a == L or F == 0.
@@ -93,7 +93,7 @@ def solve(*args, **kwargs):
 
     The nonlinear solver uses a PETSc SNES object under the hood. To
     pass options to it, use the same options names as you would for
-    pure PETSc code.  See :class:`NonlinearVariationalSolver` for more
+    pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
     details.
 
     .. code-block:: python3
@@ -122,8 +122,7 @@ def solve(*args, **kwargs):
     ``near_nullspace`` keyword argument.
     """
 
-    assert(len(args) > 0)
-
+    assert len(args) > 0
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
         _solve_varproblem(*args, **kwargs)
@@ -140,6 +139,10 @@ def _solve_varproblem(*args, **kwargs):
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
+
+    # Check whether solution is valid
+    if not isinstance(u, (function.Function, vector.Vector)):
+        raise TypeError(f"Provided solution is a '{type(u).__name__}', not a Function")
 
     if form_compiler_parameters is None:
         form_compiler_parameters = {}
@@ -217,6 +220,10 @@ def _la_solve(A, x, b, **kwargs):
 
     bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
+
+    # Check whether solution is valid
+    if not isinstance(x, (function.Function, vector.Vector)):
+        raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")

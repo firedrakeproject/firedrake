@@ -1,18 +1,19 @@
-import ufl
 import numbers
-import numpy as np
-import firedrake.dmhooks as dmhooks
 
+import numpy as np
+import ufl
+
+import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.profiling import timed_region, timed_function
 from pyop2.utils import as_tuple
+from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
+from firedrake.ufl_expr import adjoint
 
-
-__all__ = ['HybridizationPC']
+__all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
 
 class HybridizationPC(SCBase):
@@ -28,7 +29,7 @@ class HybridizationPC(SCBase):
     are performed element-local using the Slate language.
     """
 
-    @timed_function("HybridInit")
+    @PETSc.Log.EventDecorator("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -39,9 +40,7 @@ class HybridizationPC(SCBase):
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
-        from firedrake.assemble import (allocate_matrix,
-                                        create_assembly_callable)
-        from firedrake.formmanipulation import split_form
+        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -108,8 +107,7 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)})
 
         instructions = """
         for i, j
@@ -198,29 +196,27 @@ class HybridizationPC(SCBase):
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
+        KT = Tensor(adjoint(Kform))
+
+        # Build schur complement operator and right hand side
+        self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, KT, pc, self.vidx, self.pidx)
+        schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-        self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * AssembledVector(self.broken_residual),
-            tensor=self.schur_rhs,
-            form_compiler_parameters=self.ctx.fc_params)
+        self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
+                                               form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-
-        schur_comp = K * Atilde.inv * K.T
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.ctx.fc_params,
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
-        self._assemble_S = create_assembly_callable(schur_comp,
-                                                    tensor=self.S,
-                                                    bcs=trace_bcs,
-                                                    form_compiler_parameters=self.ctx.fc_params,
-                                                    mat_type=mat_type)
+        self._assemble_S = TwoFormAssembler(schur_comp, tensor=self.S, bcs=trace_bcs,
+                                            form_compiler_parameters=self.ctx.fc_params).assemble
 
-        with timed_region("HybridOperatorAssembly"):
+        with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S()
 
         Smat = self.S.petscmat
@@ -228,7 +224,7 @@ class HybridizationPC(SCBase):
         nullspace = self.ctx.appctx.get("trace_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(TraceSpace)
-            Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
+            Smat.setNullSpace(nsp.nullspace())
 
         # Create a SNESContext for the DM associated with the trace problem
         self._ctx_ref = self.new_snes_ctx(pc,
@@ -264,22 +260,14 @@ class HybridizationPC(SCBase):
                                save=False):
             trace_ksp.setFromOptions()
 
-        split_mixed_op = dict(split_form(Atilde.form))
-        split_trace_op = dict(split_form(K.form))
-
         # Generate reconstruction calls
-        self._reconstruction_calls(split_mixed_op, split_trace_op)
+        self._reconstruction_calls()
 
-    def _reconstruction_calls(self, split_mixed_op, split_trace_op):
+    def _reconstruction_calls(self):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
-
-        :arg split_mixed_op: a ``dict`` of split forms that make up the broken
-                             mixed operator from the original problem.
-        :arg split_trace_op: a ``dict`` of split forms that make up the trace
-                             contribution in the hybridized mixed system.
         """
-        from firedrake.assemble import create_assembly_callable
+        from firedrake.assemble import OneFormAssembler
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -287,37 +275,42 @@ class HybridizationPC(SCBase):
         # TODO: When PyOP2 is able to write into mixed dats,
         # the reconstruction expressions can simplify into
         # one clean expression.
-        A = Tensor(split_mixed_op[(id0, id0)])
-        B = Tensor(split_mixed_op[(id0, id1)])
-        C = Tensor(split_mixed_op[(id1, id0)])
-        D = Tensor(split_mixed_op[(id1, id1)])
-        K_0 = Tensor(split_trace_op[(0, id0)])
-        K_1 = Tensor(split_trace_op[(0, id1)])
+
+        # reuse work from trace operator build
+        A, B, C, _ = self.schur_builder.list_split_mixed_ops
+        K_0, K_1 = self.schur_builder.list_split_trace_ops
+        Ahat = self.schur_builder.A00_inv_hat
+        S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
-        split_residual = self.broken_residual.split()
-        split_sol = self.broken_solution.split()
+        split_residual = self.broken_residual.subfunctions
+        split_sol = self.broken_solution.subfunctions
         g = AssembledVector(split_residual[id0])
         f = AssembledVector(split_residual[id1])
         sigma = split_sol[id0]
         u = split_sol[id1]
         lambdar = AssembledVector(self.trace_solution)
 
-        M = D - C * A.inv * B
-        R = K_1.T - C * A.inv * K_0.T
-        u_rec = M.solve(f - C * A.inv * g - R * lambdar,
-                        decomposition="PartialPivLU")
-        self._sub_unknown = create_assembly_callable(u_rec,
-                                                     tensor=u,
-                                                     form_compiler_parameters=self.ctx.fc_params)
+        R = K_1.T - C * Ahat * K_0.T
+        rhs = f - C * Ahat * g - R * lambdar
+        if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
+            Shat = self.schur_builder.inner_S_approx_inv_hat
+            if self.schur_builder.preonly_S:
+                S = Shat
+            else:
+                S = Shat * S
+                rhs = Shat * rhs
+
+        u_rec = S.solve(rhs, decomposition="PartialPivLU")
+        self._sub_unknown = OneFormAssembler(u_rec, tensor=u,
+                                             form_compiler_parameters=self.ctx.fc_params).assemble
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = create_assembly_callable(sigma_rec,
-                                                      tensor=sigma,
-                                                      form_compiler_parameters=self.ctx.fc_params)
+        self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
+                                              form_compiler_parameters=self.ctx.fc_params).assemble
 
-    @timed_function("HybridUpdate")
+    @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
@@ -333,15 +326,15 @@ class HybridizationPC(SCBase):
         :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
-        with timed_region("HybridBreak"):
+        with PETSc.Log.Event("HybridBreak"):
             with self.unbroken_residual.dat.vec_wo as v:
                 x.copy(v)
 
             # Transfer unbroken_rhs into broken_rhs
             # NOTE: Scalar space is already "broken" so no need for
             # any projections
-            unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
-            broken_scalar_data = self.broken_residual.split()[self.pidx]
+            unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
+            broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
             # Assemble the new "broken" hdiv residual
@@ -350,16 +343,15 @@ class HybridizationPC(SCBase):
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-            unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
-            broken_res_hdiv = self.broken_residual.split()[self.vidx]
+            unbroken_res_hdiv = self.unbroken_residual.subfunctions[self.vidx]
+            broken_res_hdiv = self.broken_residual.subfunctions[self.vidx]
             broken_res_hdiv.assign(0)
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (broken_res_hdiv, INC)})
 
-        with timed_region("HybridRHS"):
+        with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
             self._assemble_Srhs()
 
@@ -392,26 +384,26 @@ class HybridizationPC(SCBase):
 
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
-        self._sub_unknown()
+        with PETSc.Log.Event("RecoverFirstElim"):
+            self._sub_unknown()
         # Recover the eliminated unknown
         self._elim_unknown()
 
-        with timed_region("HybridProject"):
+        with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
-            broken_pressure = self.broken_solution.split()[self.pidx]
-            unbroken_pressure = self.unbroken_solution.split()[self.pidx]
+            broken_pressure = self.broken_solution.subfunctions[self.pidx]
+            unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
             broken_pressure.dat.copy(unbroken_pressure.dat)
 
             # Compute the hdiv projection of the broken hdiv solution
-            broken_hdiv = self.broken_solution.split()[self.vidx]
-            unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
+            broken_hdiv = self.broken_solution.subfunctions[self.vidx]
+            unbroken_hdiv = self.unbroken_solution.subfunctions[self.vidx]
             unbroken_hdiv.assign(0)
 
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (unbroken_hdiv, INC)})
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
@@ -426,3 +418,6 @@ class HybridizationPC(SCBase):
             self.trace_ksp.view(viewer)
             viewer.printfASCII("Locally reconstructing solutions.\n")
             viewer.printfASCII("Projecting broken flux into HDiv space.\n")
+
+    def getSchurComplementBuilder(self):
+        return self.schur_builder

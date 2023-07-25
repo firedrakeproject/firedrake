@@ -1,33 +1,36 @@
 import numpy as np
 import ufl
 
+from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
+from ufl.utils.counted import counted_init
+
 
 import firedrake.utils as utils
 from firedrake.adjoint.constant import ConstantMixin
 
+
 __all__ = ['Constant']
 
 
-def _globalify(value):
+def _create_dat(op2type, value, comm):
+    if op2type is op2.Global and comm is None:
+        raise ValueError("Attempted to create pyop2 Global with no communicator")
+
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data)
-    elif rank == 1:
-        dat = op2.Global(shape, data)
-    elif rank == 2:
-        dat = op2.Global(shape, data)
+        dat = op2type(1, data, comm=comm)
     else:
-        raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
+        dat = op2type(shape, data, comm=comm)
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient, ConstantMixin):
-
+class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin):
     """A "constant" coefficient
 
     A :class:`Constant` takes one value over the whole
@@ -50,28 +53,60 @@ class Constant(ufl.Coefficient, ConstantMixin):
        :class:`~ufl.form.Form` on its own you need to pass a
        :func:`~.Mesh` as the domain argument.
     """
+    _globalcount = 0
 
-    @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None):
-        # Init also called in mesh constructor, but constant can be built without mesh
-        utils._init()
-        self.dat, rank, shape = _globalify(value)
+    def __new__(cls, value, domain=None):
+        if domain:
+            # Avoid circular import
+            from firedrake.function import Function
+            from firedrake.functionspace import FunctionSpace
+            import warnings
+            warnings.warn(
+                "Giving Constants a domain is no longer supported. Instead please "
+                "create a Function in the Real space.", FutureWarning
+            )
 
-        cell = None
-        if domain is not None:
+            dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
+
             domain = ufl.as_domain(domain)
             cell = domain.ufl_cell()
-        if rank == 0:
-            e = ufl.FiniteElement("Real", cell, 0)
-        elif rank == 1:
-            e = ufl.VectorElement("Real", cell, 0, shape[0])
-        elif rank == 2:
-            e = ufl.TensorElement("Real", cell, 0, shape=shape)
+            if rank == 0:
+                element = ufl.FiniteElement("R", cell, 0)
+            elif rank == 1:
+                element = ufl.VectorElement("R", cell, 0, shape[0])
+            else:
+                element = ufl.TensorElement("R", cell, 0, shape=shape)
 
-        fs = ufl.FunctionSpace(domain, e)
-        super(Constant, self).__init__(fs)
-        self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
+            R = FunctionSpace(domain, element, name="firedrake.Constant")
+            return Function(R, val=dat).assign(value)
+        else:
+            return object.__new__(cls)
 
+    @ConstantMixin._ad_annotate_init
+    def __init__(self, value, domain=None, name=None):
+        # Init also called in mesh constructor, but constant can be built without mesh
+        utils._init()
+
+        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
+
+        self.uid = utils._new_uid()
+        self.name = name or 'constant_%d' % self.uid
+
+        super().__init__()
+        counted_init(self, None, self.__class__)
+        self._hash = None
+
+    def __repr__(self):
+        return f"Constant({self.dat.data_ro}, {self.count()})"
+
+    @property
+    def ufl_shape(self):
+        return self._ufl_shape
+
+    def count(self):
+        return self._count
+
+    @PETSc.Log.EventDecorator()
     def evaluate(self, x, mapping, component, index_values):
         """Return the evaluation of this :class:`Constant`.
 
@@ -95,8 +130,14 @@ class Constant(ufl.Coefficient, ConstantMixin):
         """Return a null function space."""
         return None
 
-    def split(self):
+    @utils.cached_property
+    def subfunctions(self):
         return (self,)
+
+    def split(self):
+        import warnings
+        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
+        return self.subfunctions
 
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
@@ -116,6 +157,7 @@ class Constant(ufl.Coefficient, ConstantMixin):
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
+    @PETSc.Log.EventDecorator()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
@@ -138,3 +180,6 @@ class Constant(ufl.Coefficient, ConstantMixin):
 
     def __idiv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __str__(self):
+        return str(self.dat.data_ro)

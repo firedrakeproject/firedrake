@@ -7,7 +7,6 @@ from pyop2.datatypes import IntType
 import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
-from firedrake.cython.dmcommon import CELL_SETS_LABEL, FACE_SETS_LABEL
 from .utils import set_level
 
 
@@ -56,6 +55,13 @@ class HierarchyBase(object):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
 
+    @cached_property
+    def _comm(self):
+        _comm = self[0]._comm
+        if not all(m._comm == _comm for m in self):
+            raise NotImplementedError("All meshes in hierarchy must be on same communicator")
+        return _comm
+
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
         for m in self.meshes:
@@ -94,7 +100,7 @@ def MeshHierarchy(mesh, refinement_levels,
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
-    :arg mesh_builder: Function to turn a DM into a :class:`~.Mesh`. Used by pyadjoint.
+    :arg mesh_builder: Function to turn a DM into a ``Mesh``. Used by pyadjoint.
     """
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
@@ -122,20 +128,6 @@ def MeshHierarchy(mesh, refinement_levels,
         rdm = cdm.refine()
         if i % refinements_per_level == 0:
             after(rdm, i)
-        # Remove interior facet label (re-construct from
-        # complement of exterior facets).  Necessary because the
-        # refinement just marks points "underneath" the refined
-        # facet with the appropriate label.  This works for
-        # exterior, but not marked interior facets
-        rdm.removeLabel("interior_facets")
-        # Remove vertex (and edge) points from labels on exterior
-        # facets.  Interior facets will be relabeled in Mesh
-        # construction below.
-        impl.filter_labels(rdm, rdm.getHeightStratum(1),
-                           "exterior_facets", "boundary_faces",
-                           FACE_SETS_LABEL)
-        impl.filter_labels(rdm, rdm.getHeightStratum(0),
-                           CELL_SETS_LABEL)
         rdm.removeLabel("pyop2_core")
         rdm.removeLabel("pyop2_owned")
         rdm.removeLabel("pyop2_ghost")
@@ -154,7 +146,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
     meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
                                     distribution_parameters=distribution_parameters,
-                                    reorder=reorder)
+                                    reorder=reorder, comm=mesh.comm)
                        for dm in dms]
 
     lgmaps = []
@@ -202,7 +194,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+    :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
@@ -255,7 +247,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
        in the extruded hierarchy. This option cannot be combined with base_layer
        and refinement_ratio. Note that the ratio of successive entries in this
        iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a :class:`~.Mesh` into an
+    :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
     See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.

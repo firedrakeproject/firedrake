@@ -1,3 +1,5 @@
+:orphan: true
+
 .. image:: images/david_talking.jpg
    :width: 50%
    :alt: David Ham explaining Firedrake
@@ -6,10 +8,52 @@
 Firedrake events
 ----------------
 
+Firedrake '23
+~~~~~~~~~~~~~
+
+The seventh Firedrake user and developer workshop will be held
+between 13-15 September 2023 at Missenden Abbey. For more
+information see :doc:`the workshop page <firedrake_23>`.
+
+PETSc4py documentation sprint
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Firedrakers and collaborators will be meeting to finally document PETSc4py in
+Faversham, Kent from 27-31 March 2023. Stay tuned for updates.
+
+Firedrake '22
+~~~~~~~~~~~~~
+
+The slightly inaccurately named Firedrake '22 was held from 4-6 January
+2023 at Dartington Hall near Totnes. For more information see :doc:`the
+workshop page <firedrake_22>`.
+
+Firedrake tutorial at Imperial College London May 30 2022
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We held a hands-on 'Introduction to Firedrake' tutorial at the
+Royal School of Mines on 30 May 2022. For more information see
+:doc:`the tutorial page <tutorial_may_22>`.
+
+G-Adopt Firedrake workshop April 28-29 2022
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The `G-ADOPT <https://g-adopt.github.io/index.html>`__ programme held a
+`workshop on automating finite element methods for geodynamics via firedrake
+<https://g-adopt.github.io/workshop.html>`__ at the Australian National
+University in Canberra.
+
+Firedrake '21
+~~~~~~~~~~~~~
+
+The fifth Firedrake user and developer workshop was held
+online between 15-17 September 2021. For more information see
+:doc:`the workshop page <firedrake_21>`.
+
 Firedrake USA '20
 ~~~~~~~~~~~~~~~~~
 
-We'll be holding a Firedrake user and developer workshop for the first
+We held a Firedrake user and developer workshop for the first
 time in North America at the University of Washingon on 10 and 11
 February 2020. For more information, see the
 :doc:`the workshop page <firedrake_usa_20>`.
@@ -28,7 +72,7 @@ Firedrake tutorial at RWTH Aachen University Jun 18 2019
 There was a hands-on Firedrake tutorial at the Aachen Institute
 for Advanced Study in Computational Engineering Science (AICES) on 18
 June 2019. For more details see `their website <https://www.aices.rwth-aachen.de/en/media-and-seminars/events>`_.
- 
+
 
 Firedrake tutorial at CSE 19
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -76,7 +120,7 @@ Firedrake tutorial at CNRS
 
 The Firedrake team presented a Firedrake tutorial at CNRS in
 Paris. See `this web page
-<http://calcul.math.cnrs.fr/spip.php?article274>`_.  The tutorial
+<https://calcul.math.cnrs.fr/spip.php?article274>`_.  The tutorial
 materials are accessible as part of the :doc:`firedrake documentation
 <documentation>`.
 

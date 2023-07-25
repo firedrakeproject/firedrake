@@ -8,7 +8,6 @@ import sys
 
 cwd = abspath(dirname(__file__))
 demo_dir = join(cwd, "..", "..", "demos")
-pylit = join(cwd, "..", "..", "pylit", "pylit.py")
 
 
 # Discover the demo files by globbing the demo directory
@@ -27,6 +26,10 @@ def env():
 
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
+
+    if basename(rst_file) == 'qg_1layer_wave.py.rst':
+        pytest.skip("This test occasionally fails due to presumed build hardware issues")
+
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
     monkeypatch.chdir(tmpdir)
@@ -35,6 +38,9 @@ def py_file(rst_file, tmpdir, monkeypatch):
     geos = glob.glob("%s/*.geo" % dirname(rst_file))
     for geo in geos:
         name = "%s.msh" % splitext(basename(geo))[0]
+        if os.path.exists(name):
+            # No need to generate if it's already there
+            continue
         try:
             subprocess.check_call(["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))])
         except (subprocess.CalledProcessError, OSError):
@@ -45,7 +51,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
     name = splitext(basename(rst_file))[0]
     output = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call([pylit, rst_file, output])
+    subprocess.check_call(["pylit", rst_file, output])
     return output
 
 

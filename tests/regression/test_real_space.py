@@ -117,6 +117,19 @@ def test_real_mixed_monolithic_two_form_assembly():
 
 
 @pytest.mark.skipcomplex
+def test_real_mixed_empty_component_assembly():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, 'CG', 1)
+    R = FunctionSpace(mesh, 'R', 0)
+    W = V * R
+    w = Function(W)
+    v, _ = split(w)
+    # This assembly has an empty block since the R component doesn't appear.
+    # The test passes if the empty block doesn't cause the assembly to fail.
+    assemble(derivative(inner(grad(v), grad(v)) * dx, w))
+
+
+@pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
     mesh = ExtrudedMesh(m, 10)
@@ -161,7 +174,7 @@ def test_real_mixed_solve():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.split()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -194,7 +207,7 @@ def test_real_mixed_solve_split_comms():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.split()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -230,7 +243,7 @@ def test_real_space_mixed_assign():
 
     f = Function(W)
 
-    q, v = f.split()
+    q, v = f.subfunctions
 
     q.assign(2)
     g = Function(V)
@@ -238,9 +251,23 @@ def test_real_space_mixed_assign():
     g.dat.data[:] = 1
     v.assign(g)
 
-    assert np.allclose(g.dat.data_ro, 1.0)
-    assert np.allclose(g.dat.data_ro, v.dat.data_ro)
+    assert np.allclose(float(g), 1.0)
+    assert np.allclose(float(g), float(v))
     assert np.allclose(q.dat.data_ro, 2.0)
+
+    a = Function(W)
+    b = Function(W).assign(2)
+
+    with pytest.raises(ValueError):
+        a.assign(b, subset="not None")
+
+    a.assign(2*b)  # a = 2*2
+    b += 3*a  # b = 2 + 3*4
+
+    assert np.allclose(a.dat.split[0].data_ro, 4.0)
+    assert np.allclose(a.dat.split[1].data_ro, 4.0)
+    assert np.allclose(b.dat.split[0].data_ro, 14.0)
+    assert np.allclose(b.dat.split[1].data_ro, 14.0)
 
 
 @pytest.mark.skipcomplex
@@ -258,9 +285,12 @@ def test_real_space_assign():
     f = Function(V)
     f.assign(2)
     g = Function(V)
-    g.assign(2*f + f**3)
-    assert np.allclose(f.dat.data_ro, 2.0)
-    assert np.allclose(g.dat.data_ro, 12.0)
+    g.assign(2*f)
+    h = Function(V)
+    h.assign(0.0)
+    assert np.allclose(float(f), 2.0)
+    assert np.allclose(float(g), 4.0)
+    assert np.allclose(float(h), 0.0)
 
 
 @pytest.mark.skipcomplex
@@ -269,7 +299,7 @@ def test_real_interpolate():
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
     a_int = interpolate(Constant(1.0), R)
-    assert np.allclose(a_int.dat.data_ro, 1.0)
+    assert np.allclose(float(a_int), 1.0)
 
 
 @pytest.mark.skipcomplex
@@ -278,9 +308,9 @@ def test_real_interpolate_minmaxinc():
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
     x, = SpatialCoordinate(mesh)
-    min_x, = interpolate(x, R, access=MIN).dat.data_ro
-    max_x, = interpolate(x, R, access=MAX).dat.data_ro
-    sum_x, = interpolate(x, R, access=INC).dat.data_ro
+    min_x = float(interpolate(x, R, access=MIN))
+    max_x = float(interpolate(x, R, access=MAX))
+    sum_x = float(interpolate(x, R, access=INC))
 
     # Midpoint evaluation in each cell.
     expect = np.linspace(0 + 1/(2*N), 1 - 1/(2*N), N)
@@ -290,8 +320,8 @@ def test_real_interpolate_minmaxinc():
     assert np.isclose(sum_x, expect.sum())
     min_x = Function(R).assign(-1)
     max_x = Function(R).assign(2)
-    min_x, = interpolate(x, min_x, access=MIN).dat.data_ro
-    max_x, = interpolate(x, max_x, access=MAX).dat.data_ro
+    min_x = float(interpolate(x, min_x, access=MIN))
+    max_x = float(interpolate(x, max_x, access=MAX))
 
     assert np.isclose(min_x, -1)
     assert np.isclose(max_x, 2)

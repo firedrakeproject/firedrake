@@ -1,3 +1,8 @@
+.. raw:: latex
+
+   \clearpage
+
+===================
 Obtaining Firedrake
 ===================
 
@@ -43,6 +48,7 @@ virtual environment.  This has implications for the performance of the
 resulting library when run in parallel.  Instructions on how best to
 configure MPI for the installation process are `found here
 <https://www.firedrakeproject.org/parallelism.html>`_.
+
 
 Testing the installation
 ------------------------
@@ -98,9 +104,11 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.6.x to 3.8.x (many externally managed
-dependencies such as VTK have yet to create binary wheels for 3.9.x).
-The installation script is tested on Ubuntu and MacOS X. On Ubuntu 18.04
+Firedrake requires Python 3.8.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
+to 3.11.x is required. Many externally managed dependencies such as VTK
+have yet to create binary wheels for 3.11.x, but we have generated these
+for the major supported platforms.
+The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
 or later, the system installed Python 3 is supported and tested. On
 MacOS, the homebrew_ installed Python 3 is supported and tested::
 
@@ -118,7 +126,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.8.x-3.6.x
+* Python version 3.8.x-3.11.x (3.9.x-3.11.x on MacOS Arm)
 * The Python headers
 * autoconf, automake, libtool
 * CMake
@@ -126,8 +134,8 @@ they have the system dependencies:
 * flex, bison
 
 Firedrake has been successfully installed on Windows 10 using the
-Windows Subsystem for Linux. There are more detailed
-`instructions here <https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux>`_.
+Windows Subsystem for Linux. There are more detailed instructions for
+WSL_ on the Firedrake wiki.
 Installation on previous versions of Windows is unlikely to work.
 
 System anti-requirements
@@ -187,10 +195,9 @@ If not, feel free to ask for more help in our
 
 .. graphviz:: install-debug.dot
 
-If you don't see the issue you're experiencing in this chart, please
-ask us on Slack or report a bug by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__. To help us
-diagnose what's going wrong, **please include the following log files**:
+If you don't see the issue you're experiencing in this chart, please ask
+us on Slack or create a post on github discussions_.
+To help us diagnose what's going wrong, **please include the following log files**:
 
 * ``firedrake-install.log`` from Firedrake, which you can find in the
   directory where you invoked ``firedrake-install`` from
@@ -260,3 +267,6 @@ packages for which these are also dependencies.
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _PETSc: https://www.mcs.anl.gov/petsc/
+.. _discussions: https://github.com/firedrakeproject/firedrake/discussions
+.. _issue: https://github.com/firedrakeproject/firedrake/issues
+.. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
