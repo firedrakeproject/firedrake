@@ -1166,9 +1166,9 @@ def build_and_install_petsc():
 
 def build_and_install_x4py(package="petsc4py"):
     if package == "petsc4py":
-        get_x4py_dir = get_petsc4py_dir
+        x4py_dir = get_petsc4py_dir()
     elif package == "slepc4py":
-        get_x4py_dir = get_slepc4py_dir
+        x4py_dir = get_slepc4py_dir()
     else:
         raise ValueError("build_and_install_x4py() should be called with 'petsc4py' or 'slepc4py' only")
     with environment(**blas):
@@ -1176,7 +1176,7 @@ def build_and_install_x4py(package="petsc4py"):
             log.info("Copying {} to virtualenv to install".format(package))
             x4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', package)
             if not os.path.exists(x4py_copy):
-                shutil.copytree(get_x4py_dir(), x4py_copy, dirs_exist_ok=True)
+                shutil.copytree(x4py_dir, x4py_copy, dirs_exist_ok=True)
             pipargs = ["-vvv", "--ignore-installed", x4py_copy]
             try:
                 check_output(pipinstall + pipargs)
@@ -1189,7 +1189,7 @@ def build_and_install_x4py(package="petsc4py"):
             else:
                 shutil.rmtree(x4py_copy)
         else:
-            pipargs = ["-vvv", "--ignore-installed", get_x4py_dir()]
+            pipargs = ["-vvv", "--ignore-installed", x4py_dir]
             check_output(pipinstall + pipargs)
 
 
