@@ -1823,7 +1823,7 @@ if mode == "install":
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install_wrap(package.split())
+            run_pip_install_wrap(package.split(), {})
 
     # "Temporary" workaround for missing VTK wheel on Python 3.11
     if sys.version_info[:2] == (3, 11):
