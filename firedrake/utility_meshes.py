@@ -1881,8 +1881,8 @@ def PeriodicUnitCubeMesh(
 @PETSc.Log.EventDecorator()
 def IcosahedralSphereMesh(
     radius,
-    num_cells_per_edge_of_panel=1,
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -1902,10 +1902,10 @@ def IcosahedralSphereMesh(
 
              a = \\frac{R}{\\sin(2 \\pi / 5)}
 
-    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
-        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -1933,7 +1933,6 @@ def IcosahedralSphereMesh(
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
-    from math import sqrt
 
     big_N = num_cells_per_edge_of_panel*2**refinement_level
 
@@ -1959,8 +1958,8 @@ def IcosahedralSphereMesh(
     #        icosahedral panels. Then start at the lowest indexed vertex and
     #        move parallel to lowest indexed edge.
 
-    from math import sqrt
-    phi = (1 + sqrt(5)) / 2
+    import math
+    phi = (1 + math.sqrt(5)) / 2
     # vertices of an icosahedron with an edge length of 2
     base_vertices = np.array([[-1, phi, 0],
                               [1, phi, 0],
@@ -2330,8 +2329,8 @@ def IcosahedralSphereMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(
-    num_cells_per_edge_of_panel=1,
     refinement_level=None,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2342,10 +2341,10 @@ def UnitIcosahedralSphereMesh(
 ):
     """Generate an icosahedral approximation to the unit sphere.
 
-    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
-        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2366,8 +2365,8 @@ def UnitIcosahedralSphereMesh(
     """
     return IcosahedralSphereMesh(
         1.0,
-        num_cells_per_edge_of_panel=num_cells_per_edge_of_panel,
         refinement_level=refinement_level,
+        num_cells_per_edge_of_panel=num_cells_per_edge_of_panel,
         degree=degree,
         reorder=reorder,
         comm=comm,
@@ -2594,9 +2593,9 @@ def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
     # to map to each panel of the cubed sphere under the gnonomic
     # transformation
     dtheta = 2*np.arctan(1.0) / cells_per_cube_edge
-    a = 3.0**(-0.5)*radius
-    theta = np.arange(np.arctan(-1.0), np.arctan(1.0)+dtheta, dtheta, dtype=np.double)
-    x = a*np.tan(theta)
+    a = 3.0 ** (-0.5) * radius
+    theta = np.arange(np.arctan(-1.0), np.arctan(1.0) + dtheta, dtheta, dtype=np.double)
+    x = a * np.tan(theta)
     Nx = x.size
 
     # Compute panel numberings for each panel
@@ -2614,39 +2613,44 @@ def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
 
     # Numbering for panel 0
     panel_numbering[0, :, :] = np.arange(Nx**2, dtype=np.int32).reshape(Nx, Nx)
-    count = panel_numbering.max()+1
+    count = panel_numbering.max() + 1
 
     # Numbering for panel 5
-    panel_numbering[5, :, :] = count + np.arange(Nx**2, dtype=np.int32).reshape(Nx, Nx)
-    count = panel_numbering.max()+1
+    panel_numbering[5, :, :] = count + np.arange(Nx**2, dtype=np.int32).reshape(
+        Nx, Nx
+    )
+    count = panel_numbering.max() + 1
 
     # Numbering for panel 4 - shares top edge with 0 and bottom edge
     #                         with 5
     # interior numbering
-    panel_numbering[4, 1:-1, :] = count + np.arange(Nx*(Nx-2),
-                                                    dtype=np.int32).reshape(Nx-2, Nx)
+    panel_numbering[4, 1:-1, :] = count + np.arange(
+        Nx * (Nx - 2), dtype=np.int32
+    ).reshape(Nx - 2, Nx)
 
     # bottom edge
     panel_numbering[4, 0, :] = panel_numbering[5, -1, :]
     # top edge
     panel_numbering[4, -1, :] = panel_numbering[0, 0, :]
-    count = panel_numbering.max()+1
+    count = panel_numbering.max() + 1
 
     # Numbering for panel 3 - shares top edge with 5 and bottom edge
     #                         with 0
     # interior numbering
-    panel_numbering[3, 1:-1, :] = count + np.arange(Nx*(Nx-2),
-                                                    dtype=np.int32).reshape(Nx-2, Nx)
+    panel_numbering[3, 1:-1, :] = count + np.arange(
+        Nx * (Nx - 2), dtype=np.int32
+    ).reshape(Nx - 2, Nx)
     # bottom edge
     panel_numbering[3, 0, :] = panel_numbering[0, -1, :]
     # top edge
     panel_numbering[3, -1, :] = panel_numbering[5, 0, :]
-    count = panel_numbering.max()+1
+    count = panel_numbering.max() + 1
 
     # Numbering for panel 1
     # interior numbering
-    panel_numbering[1, 1:-1, 1:-1] = count + np.arange((Nx-2)**2,
-                                                       dtype=np.int32).reshape(Nx-2, Nx-2)
+    panel_numbering[1, 1:-1, 1:-1] = count + np.arange(
+        (Nx - 2) ** 2, dtype=np.int32
+    ).reshape(Nx - 2, Nx - 2)
     # left edge of 1 is left edge of 5 (inverted)
     panel_numbering[1, :, 0] = panel_numbering[5, ::-1, 0]
     # right edge of 1 is left edge of 0
@@ -2655,12 +2659,13 @@ def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
     panel_numbering[1, -1, 1:-1] = panel_numbering[3, -2:0:-1, 0]
     # bottom edge (excluding vertices) of 1 is left edge of 4
     panel_numbering[1, 0, 1:-1] = panel_numbering[4, 1:-1, 0]
-    count = panel_numbering.max()+1
+    count = panel_numbering.max() + 1
 
     # Numbering for panel 2
     # interior numbering
-    panel_numbering[2, 1:-1, 1:-1] = count + np.arange((Nx-2)**2,
-                                                       dtype=np.int32).reshape(Nx-2, Nx-2)
+    panel_numbering[2, 1:-1, 1:-1] = count + np.arange(
+        (Nx - 2) ** 2, dtype=np.int32
+    ).reshape(Nx - 2, Nx - 2)
     # left edge of 2 is right edge of 0
     panel_numbering[2, :, 0] = panel_numbering[0, :, -1]
     # right edge of 2 is right edge of 5 (inverted)
@@ -2669,17 +2674,17 @@ def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
     panel_numbering[2, 0, 1:-1] = panel_numbering[4, -2:0:-1, -1]
     # top edge (excluding vertices) of 2 is right edge of 3
     panel_numbering[2, -1, 1:-1] = panel_numbering[3, 1:-1, -1]
-    count = panel_numbering.max()+1
+    count = panel_numbering.max() + 1
 
     # That's the numbering done.
 
     # Set up an array for all of the mesh coordinates
-    Npoints = panel_numbering.max()+1
+    Npoints = panel_numbering.max() + 1
     coords = np.zeros((Npoints, 3), dtype=np.double)
     lX, lY = np.meshgrid(x, x)
     lX.shape = (Nx**2,)
     lY.shape = (Nx**2,)
-    r = (a**2 + lX**2 + lY**2)**0.5
+    r = (a**2 + lX**2 + lY**2) ** 0.5
 
     # Now we need to compute the gnonomic transformation
     # for each of the panels
@@ -2714,8 +2719,8 @@ def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
 @PETSc.Log.EventDecorator()
 def CubedSphereMesh(
     radius,
-    num_cells_per_edge_of_panel=1,
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2728,9 +2733,9 @@ def CubedSphereMesh(
     sphere.
 
     :arg radius: The radius of the sphere to approximate.
+    :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
         the 6 panels of the cubed sphere (1 gives a cube).
-    :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2796,8 +2801,8 @@ def CubedSphereMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(
-    num_cells_per_edge_of_panel=1,
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2808,9 +2813,9 @@ def UnitCubedSphereMesh(
 ):
     """Generate a cubed approximation to the unit sphere.
 
+    :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
         the 6 panels of the cubed sphere (1 gives a cube).
-    :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?

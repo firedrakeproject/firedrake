@@ -18,7 +18,7 @@ def test_build_mesh(mesh_type, num):
     sphere_area = 4*pi*radius**2
 
     if mesh_type == "icosahedral":
-        mesh = IcosahedralSphereMesh(radius, num, degree=2)
+        mesh = IcosahedralSphereMesh(radius, num_cells_per_edge_of_panel=num, degree=2)
         ncells = 20*num**2
         nedges = 30*num + 20*3*(num-1)*num/2
         if num > 1:
@@ -26,7 +26,7 @@ def test_build_mesh(mesh_type, num):
         else:
             nvertices = 12
     elif mesh_type == "cubed_sphere":
-        mesh = CubedSphereMesh(radius, num, degree=2)
+        mesh = CubedSphereMesh(radius, num_cells_per_edge_of_panel=num, degree=2)
         ncells = 6*num**2
         nedges = 12*num + 6*2*num*(num-1)
         if num > 1:
