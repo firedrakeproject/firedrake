@@ -2329,7 +2329,7 @@ def IcosahedralSphereMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(
-    refinement_level=None,
+    refinement_level=0,
     num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
