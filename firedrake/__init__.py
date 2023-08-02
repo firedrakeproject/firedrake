@@ -74,7 +74,6 @@ from firedrake.bcs import *
 from firedrake.checkpointing import *
 from firedrake.constant import *
 from firedrake.exceptions import *
-from firedrake.fml import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
@@ -105,6 +104,7 @@ from firedrake.version import __version__ as ver, __version_info__, check  # noq
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
+from firedrake.fml import *
 
 from firedrake.logging import *
 # Set default log level

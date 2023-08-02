@@ -2,8 +2,8 @@
 Tests FML's LabelledForm label_map routine.
 """
 
-from firedrake import IntervalMesh, FunctionSpace, Function, TestFunction, dx
-from gusto.fml import Label, Term, identity, drop, all_terms
+from firedrake import (IntervalMesh, FunctionSpace, Function, TestFunction, dx,
+                       Label, Term, identity, drop, all_terms)
 
 
 def test_label_map():

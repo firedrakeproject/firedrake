@@ -80,7 +80,9 @@ class Term(object):
         Returns:
             :class:`LabelledForm`: a labelled form containing the terms.
         """
-        if other is None:
+        if self is NullTerm:
+            return other
+        if other is None or other is NullTerm:
             return self
         elif isinstance(other, Term):
             return LabelledForm(self, other)
@@ -118,10 +120,6 @@ class Term(object):
         Returns:
             :class:`Term`: the product of the term with the quantity.
         """
-        if type(other) in (float, int):
-            other = Constant(other)
-        elif type(other) not in [Constant, ufl.algebra.Product]:
-            return NotImplemented
         return Term(other*self.form, self.labels)
 
     __rmul__ = __mul__
@@ -139,11 +137,7 @@ class Term(object):
         Returns:
             :class:`Term`: the quotient of the term divided by the quantity.
         """
-        if type(other) in (float, int, Constant, ufl.algebra.Product):
-            other = Constant(1.0 / other)
-            return self * other
-        else:
-            return NotImplemented
+        return self * (Constant(1.0) / other)
 
 
 # This is necessary to be the initialiser for functools.reduce
@@ -218,12 +212,11 @@ class LabelledForm(object):
             return LabelledForm(*self, Constant(-1.)*other)
         elif type(other) is LabelledForm:
             return LabelledForm(*self, *[Constant(-1.)*t for t in other])
-        elif type(other) is ufl.algebra.Product:
-            return LabelledForm(*self, Term(Constant(-1.)*other))
         elif other is None:
             return self
         else:
-            return NotImplemented
+            # Make new Term for other and subtract it
+            return LabelledForm(*self, Term(Constant(-1.)*other))
 
     def __mul__(self, other):
         """
@@ -231,20 +224,12 @@ class LabelledForm(object):
 
         Args:
             other (float, :class:`Constant` or :class:`ufl.algebra.Product`):
-                the quantity to multiply this labelled form by. If it is a float
-                or int then it is converted to a :class:`Constant` before the
-                multiplication. All terms in the form are multiplied.
+                the quantity to multiply this labelled form by. All terms in
+                the form are multiplied.
 
         Returns:
             :class:`LabelledForm`: the product of all terms with the quantity.
         """
-        if type(other) in (float, int):
-            other = Constant(other)
-        # UFL can cancel constants to a Zero type which needs treating separately
-        elif type(other) is ufl.constantvalue.Zero:
-            other = Constant(0.0)
-        elif type(other) not in [Constant, ufl.algebra.Product]:
-            return NotImplemented
         return self.label_map(all_terms, lambda t: Term(other*t.form, t.labels))
 
     def __truediv__(self, other):
@@ -253,18 +238,13 @@ class LabelledForm(object):
 
         Args:
             other (float, :class:`Constant` or :class:`ufl.algebra.Product`):
-                the quantity to divide this labelled form by. If it is a float
-                or int then it is converted to a :class:`Constant` before the
-                division. All terms in the form are divided.
+                the quantity to divide this labelled form by. All terms in the
+                form are divided.
 
         Returns:
             :class:`LabelledForm`: the quotient of all terms with the quantity.
         """
-        if type(other) in (float, int, Constant, ufl.algebra.Product):
-            other = Constant(1.0 / other)
-            return self * other
-        else:
-            return NotImplemented
+        return self * (Constant(1.0) / other)
 
     __rmul__ = __mul__
 
@@ -297,10 +277,11 @@ class LabelledForm(object):
                              filter(lambda t: t is not None,
                                     (map_if_true(t) if term_filter(t) else
                                      map_if_false(t) for t in self.terms)),
-                             # TODO: Not clear what the initialiser should be!
-                             # No initialiser means label_map can't work if everything is false
-                             # None is a problem as cannot be added to Term
-                             # NullTerm works but will need dropping ...
+                             # Need to set an initialiser, otherwise the label_map
+                             # won't work if the term_filter is False for everything
+                             # None does not work, as then we add Terms to None
+                             # and the addition operation is defined from None
+                             # rather than the Term. NullTerm solves this.
                              NullTerm))
 
         # Drop the NullTerm

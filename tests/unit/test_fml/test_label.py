@@ -2,9 +2,8 @@
 Tests FML's Label objects.
 """
 
-from firedrake import IntervalMesh, FunctionSpace, Function, TestFunction, dx
-from gusto.configuration import TransportEquationType
-from gusto.fml import Label, LabelledForm, Term
+from firedrake import (IntervalMesh, FunctionSpace, Function, TestFunction, dx,
+                       Label, LabelledForm, Term)
 from ufl import Form
 import pytest
 
@@ -27,12 +26,6 @@ def label_and_values(label_type):
         good_value = 5
         bad_value = 10
         new_value = 7
-
-    elif label_type == "other":
-        # A label whose value is some other type
-        this_label = Label("foo", validator=lambda value: type(value) == TransportEquationType)
-        good_value = TransportEquationType.advective
-        new_value = TransportEquationType.conservative
 
     elif label_type == "function":
         # A label whose value is an Function
@@ -80,8 +73,7 @@ def object_to_label(object_type):
             raise ValueError(f'object_type {object_type} not implemented')
 
 
-@pytest.mark.parametrize("label_type", ["boolean", "integer",
-                                        "other", "function"])
+@pytest.mark.parametrize("label_type", ["boolean", "integer", "function"])
 @pytest.mark.parametrize("object_type", [LabelledForm, Term, Form, int])
 def test_label(label_type, object_type, label_and_values, object_to_label):
 
