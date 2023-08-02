@@ -1527,7 +1527,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0):
+    def __init__(self, swarm, parentmesh, name, reorder, tolerance=1.0, missing_points_behaviour=None):
         """
         Half-initialise a mesh topology.
 
@@ -1538,9 +1538,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
-        :tolerance: The relative tolerance (i.e. as defined on the
+        :kwarg tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell.
+        :kwarg missing_points_behaviour: optional string argument for what to do
+            when vertices which are outside of the mesh are discarded. If
+            ``'warn'``, will print a warning. If ``'error'`` will raise a
+            ValueError.
         """
 
         super().__init__(name, tolerance=tolerance)
@@ -1556,6 +1560,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._parent_mesh = parentmesh
         self.topology_dm = swarm
         r"The PETSc DM representation of the mesh topology."
+
+        self._missing_points_behaviour = missing_points_behaviour
 
         # Set up the comms the same as the parent mesh
         self.user_comm = parentmesh.comm
@@ -1662,6 +1668,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
+        import pdb; pdb.set_trace()
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
@@ -1734,6 +1741,91 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
+    @property
+    def missing_points_behaviour(self):
+        """Optional string argument for what to do when VertexOnlyMehs vertices
+        which are outside of the mesh are discarded. If ``'warn'``, will print
+        a warning. If ``'error'`` will raise a ValueError."""
+        return self._missing_points_behaviour
+
+    @missing_points_behaviour.setter
+    def missing_points_behaviour(self, value):
+        if value not in [None, "warn", "error"]:
+            raise ValueError("Invalid value for missing_points_behaviour: {}".format(value))
+        self._missing_points_behaviour = value
+
+    # def move_cells_by_global_index(self, global_index, new_coords, redundant=True):
+    #     """Move cells by global index.
+
+    #     :arg cell_global_index: numpy array of cell global indices to move.
+    #     :arg new_coords: numpy array of new coordinates for the cells of shape
+    #         (num_cells, gdim).
+    #     :arg redundant: boolean to indicate whether the cell_global_index and
+    #         new_coords are the same on all MPI ranks. The rank 0 values are
+    #         used when this is True.
+    #     """
+    #     global_index = np.asarray(global_index)
+    #     new_coords = np.asarray(new_coords)
+    #     if len(global_index) != len(new_coords):
+    #         raise ValueError("Number of global indices and coordinates must match")
+    #     if new_coords.shape[1] != self.geometric_dimension():
+    #         raise ValueError("New coordinates do not have the geometric dimension of mesh")
+    #     # get all the local fields, move the necessary ones, then update the
+    #     # parent mesh embedding for those cells (i.e. do the locate cell
+    #     # business) for them using _parent_mesh_embedding
+    #     existing_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+    #     existing_plex_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    #     existing_parent_cell_nums = swarm.getField("parentcellnum")
+    #     existing_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+    #     existing_coords_idxs = swarm.getField("globalindex")
+    #     existing_ranks = swarm.getField("DMSwarm_rank")
+    #     # have to restore fields once accessed to allow access again
+    #     swarm.restoreField("DMSwarm_rank")
+    #     swarm.restoreField("globalindex")
+    #     swarm.restoreField("refcoord")
+    #     swarm.restoreField("parentcellnum")
+    #     swarm.restoreField("DMSwarmPIC_coor")
+    #     swarm.restoreField("DMSwarm_cellid")
+
+    #     # find global indices of cells to move
+    #     if redundant:
+    #         existing_coords_allranks = np.concatenate(self.comm.allgather(existing_coords), axis=0)
+    #         existing_plex_parent_cell_nums_allranks = np.concatenate(self.comm.allgather(existing_plex_parent_cell_nums), axis=0)
+    #         existing_parent_cell_nums_allranks = np.concatenate(self.comm.allgather(existing_parent_cell_nums), axis=0)
+    #         existing_reference_coords_allranks = np.concatenate(self.comm.allgather(existing_reference_coords), axis=0)
+    #         existing_coords_idxs_allranks = np.concatenate(self.comm.allgather(existing_coords_idxs), axis=0)
+    #         existing_ranks_allranks = np.concatenate(self.comm.allgather(existing_ranks), axis=0)
+
+    #         # Find the cells to move
+    #         cells_to_move = np.where(np.in1d(existing_coords_idxs_allranks, global_index))[0]
+    #         # Set the new coordinates
+    #         existing_coords_allranks[cells_to_move] = new_coords
+
+    #         # Update the parent mesh embedding for the cells to move
+
+    #     # need to be able to pass the global indices into _parent_mesh_embedding
+    #     # to avoid finding them again!
+
+    #     if len(global_index) != len(new_coords):
+    #         raise ValueError("Number of global indices and coordinates must match")
+    #     global_index = np.asarray(global_index)
+    #     new_coords = np.asarray(new_coords)
+    #     if new_coords.shape[1] != self.geometric_dimension():
+    #         raise ValueError("New coordinates do not have the geometric dimension of mesh")
+    #     # get on rank coordinates
+    #     coords = np.copy(self.topology_dm.getField("globalindex"))
+    #     # Gather the coordinates of all the cells on all ranks
+    #     coords_allranks = np.concatenate(self.comm.allgather(self.coordinates.dat.data_ro_with_halos), axis=0)
+    #     # Gather the global indices of all the cells on all ranks
+    #     global_indices_allranks = np.concatenate(parentmesh.comm.allgather(self.cell_global_index))
+    #     # Check that the given global indices are valid
+    #     if not np.all(np.in1d(global_index, global_indices_allranks)):
+    #         raise ValueError("Invalid global indices given")
+    #     # Update the coordinates of the cells
+
+    #     # Where we have repeated indices, only one of them will be owned by a
+    #     # rank.
+
 
 class MeshGeometryCargo:
     """Helper class carrying data for a :class:`MeshGeometry`.
@@ -1790,6 +1882,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
+
+        # Save the coords dat version so we know if we have moved the mesh
+        self._coords_dat_version = coordinates.dat.dat_version
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -1899,7 +1994,107 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
-        return self._coordinates_function
+        coords_func = self._coordinates_function
+        if type(self.topology) is VertexOnlyMeshTopology:
+            if coords_func.dat.dat_version > self._coords_dat_version:
+                new_coords = coords_func.dat.data_ro.reshape(-1, self.geometric_dimension())
+                coords_func = self._update_embedding(new_coords)
+                # Update the dat version to ensure we don't enter this branch
+                # again unless the coordinates have changed
+                self._coords_dat_version = coords_func.dat.dat_version
+
+        return coords_func
+
+    def _update_embedding(self, new_coords):
+        """Update the embedding of the vertex only mesh in the parent mesh.
+
+        Parameters
+        ----------
+        new_coords : np.ndarray
+            The new coordinates of the vertices of the vertex only mesh of
+            shape (npoints, gdim).
+
+        Notes
+        -----
+        If points are lost, this method will either do nothing, warn or raise
+        an error depending on the value of the ``missing_points_behaviour``
+        attribute.
+        """
+        if type(self.topology) is not VertexOnlyMeshTopology:
+            raise RuntimeError("Cannot update embedding of a non-vertex-only mesh")
+        # We have moved the mesh, so we need to update the embedding
+        swarm = self.topology_dm
+        coords_lost = _update_pic_swarm_in_mesh(swarm, self._parent_mesh, new_coords)
+        if coords_lost and self.missing_points_behaviour == "warn":
+            from warnings import warn
+            warn("Some vertices have moved outside the mesh. They have been discarded.")
+        elif coords_lost and self.missing_points_behaviour == "error":
+            raise ValueError("Some vertices have moved outside the mesh.")
+
+        # delete cached properties that are marked as requiring recalculation
+        # if the mesh moves
+        for attr in ["cell_closure", "exterior_facets", "interior_facets", "cell_set", "cell_parent_cell_list", "cell_parent_cell_map", "cell_parent_base_cell_list", "cell_parent_base_cell_map", "cell_parent_extrusion_height_list", "cell_parent_extrusion_height_map", "cell_global_index"]:
+            try:
+                del self.__dict__[attr]
+            except KeyError:
+                pass
+
+
+        # Repeat some setup from the VertexOnlyMesh constructor
+        import firedrake.functionspace as functionspace
+        import firedrake.function as function
+        gdim = self.geometric_dimension()
+        tdim = self.topology_dm.getDimension()
+
+        # Create a new mesh topology and save it over the old one
+        topology = VertexOnlyMeshTopology(swarm, self._parent_mesh.topology, name="swarmmesh", reorder=False, missing_points_behaviour=self.missing_points_behaviour)
+        topology.init()
+        self._topology = topology
+
+        # # From VertexOnlyMeshTopology constructor...
+        # dmcommon.validate_mesh(swarm)
+        # swarm.setFromOptions()
+
+        # # Mark OP2 entities and derive the resulting Swarm numbering
+        # with PETSc.Log.Event("Mesh: re-numbering after movement"):
+        #     dmcommon.mark_entity_classes(swarm)
+        #     self.topology._entity_classes = dmcommon.get_entity_classes(swarm).astype(int)
+
+        #     # Derive a cell numbering from the Swarm numbering
+        #     entity_dofs = np.zeros(tdim+1, dtype=IntType)
+        #     entity_dofs[-1] = 1
+
+        #     self.topology._cell_numbering = self.topology.create_section(entity_dofs)
+        #     entity_dofs[:] = 0
+        #     entity_dofs[0] = 1
+        #     self.topology._vertex_numbering = self.topology.create_section(entity_dofs)
+
+        # Initialise mesh geometry
+        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "DG", 0,
+                                                           dim=gdim)
+
+        coordinates_data = dmcommon.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
+                                                     (self.num_vertices(), gdim))
+
+        coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                      val=coordinates_data,
+                                                      name="Coordinates")
+
+        # From MeshGeometry constructor...
+        topology = coordinates.function_space().mesh()
+        self.extruded = isinstance(topology, ExtrudedMeshTopology)
+        self.variable_layers = self.extruded and topology.variable_layers
+        self.ufl_cargo().init(coordinates)
+        coordinates._as_mesh_geometry = weakref.ref(self)
+
+
+        # Re-save vertex reference coordinate (within reference cell) in function
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(self, "DG", 0, dim=tdim)
+        self.reference_coordinates = \
+            dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+
+        import pdb; pdb.set_trace()
+        return coordinates
 
     @coordinates.setter
     def coordinates(self, value):
@@ -2722,7 +2917,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         raise ValueError("Point coordinates must have zero imaginary part")
 
     if gdim != tdim:
-        raise NotImplementedError("Immersed manifold meshes are not supported")
+        if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("Immersed manifold meshes are not supported")
 
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
@@ -2759,7 +2955,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     # Topology
-    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
+    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False, missing_points_behaviour=missing_points_behaviour)
 
     # Geometry
     tcell = topology.ufl_cell()
@@ -2787,11 +2983,69 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     vmesh.__init__(coordinates)
 
     # Save vertex reference coordinate (within reference cell) in function
-    reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=tdim)
-    vmesh.reference_coordinates = \
-        dmcommon.fill_reference_coordinates_function(function.Function(reference_coordinates_fs))
+    if tdim > 0:
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(
+            vmesh, "DG", 0, dim=tdim
+        )
+        vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(
+            function.Function(reference_coordinates_fs)
+        )
+    else:
+        # We can't do this in 0D so leave it undefined.
+        vmesh.reference_coordinates = None
 
     return vmesh
+
+
+class FiredrakeDMSwarm(PETSc.DMSwarm):
+    """A DMSwarm with a saved list of added fields"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._fields = None
+        self._default_fields = None
+        self._default_extra_fields = None
+        self._other_fields = None
+
+    @property
+    def fields(self):
+        return self._fields
+
+    @fields.setter
+    def fields(self, fields):
+        if self._fields:
+            raise ValueError("Fields have already been set")
+        self._fields = fields
+
+    @property
+    def default_fields(self):
+        return self._default_fields
+
+    @default_fields.setter
+    def default_fields(self, fields):
+        if self._default_fields:
+            raise ValueError("Default fields have already been set")
+        self._default_fields = fields
+
+    @property
+    def default_extra_fields(self):
+        return self._default_extra_fields
+
+    @default_extra_fields.setter
+    def default_extra_fields(self, fields):
+        if self._default_extra_fields:
+            raise ValueError("Default extra fields have already been set")
+        self._default_extra_fields = fields
+
+    @property
+    def other_fields(self):
+        return self._other_fields
+
+    @other_fields.setter
+    def other_fields(self, fields):
+        if self._other_fields:
+            raise ValueError("Other fields have already been set")
+        self._other_fields = fields
 
 
 def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redundant=True):
@@ -2865,6 +3119,19 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
            and rank 3's points will be numbered 30-34. Note that this ought to
            be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
            cannot be set.
+        #. ``inputrank`` which contains the MPI rank at which the ``coords``
+           argument was specified. For ``redundant=True`` this is always 0.
+        #. ``inputindex`` which contains the index of the point in the
+           originally supplied ``coords`` array after it has been redistributed
+           to the correct rank. For ``redundant=True`` this is always the same
+           as ``globalindex`` since we only use the points on rank 0.
+
+        If the parent mesh is extruded, two more fields are created:
+
+        #. ``parentcellbasenum`` which contains the firedrake cell number of the
+            base cell of the immersed vertex and
+        #. ``parentcellextrusionheight`` which contains the extrusion height of
+            the immersed vertex in the parent mesh cell.
 
         Another three are required for proper functioning of the DMSwarm:
 
@@ -2886,9 +3153,24 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     tdim = parent_mesh.topological_dimension()
     gdim = parent_mesh.geometric_dimension()
 
-    if fields is None:
-        fields = []
-    fields += [("parentcellnum", 1, IntType), ("refcoord", tdim, RealType), ("globalindex", 1, IntType)]
+    # These are created by default for a PIC DMSwarm
+    default_fields = [
+        ("DMSwarmPIC_coor", parent_mesh.geometric_dimension(), RealType),
+        ("DMSwarm_cellid", 1, IntType),
+        ("DMSwarm_rank", 1, IntType),
+    ]
+
+    default_extra_fields = [
+        ("parentcellnum", 1, IntType),
+        ("refcoord", parent_mesh.topological_dimension(), RealType),
+        ("globalindex", 1, IntType),
+        ("inputrank", 1, IntType),
+        ("inputindex", 1, IntType),
+    ]
+
+    other_fields = fields
+    if other_fields is None:
+        other_fields = []
 
     (
         coords,
@@ -2896,6 +3178,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         reference_coords,
         parent_cell_nums,
         ranks,
+        input_ranks,
+        input_coords_ixs,
         missing_coords_idxs,
     ) = _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos=True)
 
@@ -2906,42 +3190,22 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         # to map point coordinates back to the parent mesh
         if parent_mesh.variable_layers:
             raise NotImplementedError("Cannot create a DMSwarm in an ExtrudedMesh with variable layers.")
-        # Extruded mesh parent_cell_nums goes from bottom to top. So for
-        # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
-        # mx.layers = 4
-        # and
-        #  -------------------layer 4-------------------
-        # | parent_cell_num =  2 | parent_cell_num =  5 |
-        # | extrusion_height = 2 | extrusion_height = 2 |
-        #  -------------------layer 3-------------------
-        # | parent_cell_num =  1 | parent_cell_num =  4 |
-        # | extrusion_height = 1 | extrusion_height = 1 |
-        #  -------------------layer 2-------------------
-        # | parent_cell_num =  0 | parent_cell_num =  3 |
-        # | extrusion_height = 0 | extrusion_height = 0 |
-        #  -------------------layer 1-------------------
-        #   base_cell_num = 0         base_cell_num = 1
-        # The base_cell_num is the cell number in the base mesh which, in this
-        # case, is a UnitIntervalMesh with two cells.
-        fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
-        base_parent_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
-        extrusion_heights = parent_cell_nums % (parent_mesh.layers - 1)
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[base_parent_cell_nums, -1]
-    elif parent_mesh.coordinates.dat.dat_version > 0:
-        # The parent mesh coordinates have been modified. The DMSwarm parent
-        # mesh plex numbering is now not guaranteed to match up with DMPlex
-        # numbering so are set to -1. DMSwarm functions which rely on the
-        # DMPlex numbering,such as DMSwarmMigrate() will not work as expected.
-        plex_parent_cell_nums = -np.ones_like(parent_cell_nums)
+        default_extra_fields += [("parentcellbasenum", 1, IntType), ("parentcellextrusionheight", 1, IntType)]
+        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(parent_cell_nums, parent_mesh.layers)
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, base_parent_cell_nums)
     else:
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[parent_cell_nums, -1]
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, parent_cell_nums)
 
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
-    swarm = PETSc.DMSwarm().create(comm=parent_mesh._comm)
+    swarm = FiredrakeDMSwarm().create(comm=parent_mesh._comm)
+
+    # save the fields on the swarm
+    swarm.fields = default_fields + default_extra_fields + other_fields
+    swarm.default_fields = default_fields
+    swarm.default_extra_fields = default_extra_fields
+    swarm.other_fields = other_fields
 
     plexdim = plex.getDimension()
     if plexdim != tdim:
@@ -2967,10 +3231,17 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setCellDM(plex)
 
     # Set to Particle In Cell (PIC) type
-    swarm.setType(PETSc.DMSwarm.Type.PIC)
+    if not isinstance(plex, PETSc.DMSwarm):
+        swarm.setType(PETSc.DMSwarm.Type.PIC)
+    else:
+        # This doesn't work where we embed a DMSwarm in a DMSwarm, instead
+        # we register some default fields manually
+        for name, size, dtype in default_fields:
+            if name == "DMSwarmPIC_coor" or name == "DMSwarm_cellid":
+                swarm.registerField(name, size, dtype=dtype)
 
     # Register any fields
-    for name, size, dtype in fields:
+    for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
         swarm.registerField(name, size, dtype=dtype)
     swarm.finalizeFieldRegister()
     # Note that no new fields can now be associated with the DMSWARM.
@@ -2993,6 +3264,8 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
+    field_input_rank = swarm.getField("inputrank")
+    field_input_index = swarm.getField("inputindex")
 
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
@@ -3000,8 +3273,12 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     field_reference_coords[...] = reference_coords
     field_global_index[...] = coords_idxs
     field_rank[...] = ranks
+    field_input_rank[...] = input_ranks
+    field_input_index[...] = input_coords_ixs
 
     # have to restore fields once accessed to allow access again
+    swarm.restoreField("inputindex")
+    swarm.restoreField("inputrank")
     swarm.restoreField("DMSwarm_rank")
     swarm.restoreField("globalindex")
     swarm.restoreField("refcoord")
@@ -3025,6 +3302,203 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
     swarm.setPointSF(sf)
 
     return swarm, n_missing_points
+
+
+def _update_pic_swarm_in_mesh(swarm, parent_mesh, new_coords):
+    """
+    Update the coordinates of a Particle In Cell (PIC) DMSwarm immersed in a
+    Mesh.
+
+    Parameters
+    ----------
+    swarm : ``FiredrakeDMSwarm``
+        The DMSwarm to update.
+    parent_mesh : ``Mesh``
+        The parent mesh within which the DMSwarm is immersed.
+    new_coords : ``np.ndarray``
+        The new coordinates of the DMSwarm points.
+
+    Returns
+    -------
+    num_coords_lost : ``int``
+        The number of coordinates which were lost because they were outside the
+        parent mesh. Negative if coordinates have been gained.
+
+    Notes
+    -----
+    This function is intended to be used when the parent mesh coordinates have
+    been updated. The global indices of the DMSwarm points are recreated and
+    any extra fields are invalidated. For data types where this is possible,
+    the invalidation is indicated by setting their contents to 0.
+    """
+
+    # NOTE that the below recreates a new global index set, which is probably
+    # not desirable. I'll need to think of a way to get indices to be
+    # consistent across mesh coordinate updates so that there's a clear way to
+    # identify individual vertices. I don't think that can be done if you're
+    # updating the coordinates by updating the vertex only mesh coordinates
+    # dat directly.
+    (
+        coords,
+        coords_idxs,
+        reference_coords,
+        parent_cell_nums,
+        ranks,
+        missing_coords_idxs,
+    ) = _parent_mesh_embedding(parent_mesh, new_coords, parent_mesh.tolerance, redundant=False, exclude_halos=True)
+
+    n_missing_points = len(missing_coords_idxs)
+
+    if parent_mesh.extruded:
+        if parent_mesh.variable_layers:
+            raise NotImplementedError("Cannot use a DMSwarm in an ExtrudedMesh with variable layers.")
+        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(parent_cell_nums, parent_mesh.layers)
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, base_parent_cell_nums)
+    else:
+        plex_parent_cell_nums = _plex_parent_cell_nums(parent_mesh, parent_cell_nums)
+
+    # Update the swarm...
+    num_old_coords = swarm.getLocalSize()
+    tdim = parent_mesh.topological_dimension()
+    gdim = parent_mesh.geometric_dimension()
+
+    old_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_old_coords, gdim))
+
+    num_coords_lost = num_old_coords - len(coords)
+
+    # have to restore fields once accessed to allow access again
+    swarm.restoreField("DMSwarmPIC_coor")
+
+    # add or remove any points as necessary
+    if len(old_coords) < len(coords):
+        swarm.addNPoints(len(coords) - len(old_coords))
+    elif len(old_coords) > len(coords):
+        # Note there is no removeNPoints method, so we have to use
+        # a loop
+        assert len(old_coords) - len(coords) == n_missing_points
+        for _ in range(len(old_coords) - len(coords)):
+            swarm.removePoint()
+
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((len(coords), gdim))
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+    field_parent_cell_nums = swarm.getField("parentcellnum")
+    field_reference_coords = swarm.getField("refcoord").reshape((len(coords), tdim))
+    field_global_index = swarm.getField("globalindex")
+    field_rank = swarm.getField("DMSwarm_rank")
+    for name, size, dtype in swarm.other_fields:
+        from warnings import warn
+        # invalidate any other fields by setting them to zeros
+        warn(f"Field \'{name}\' has been invalidated by moving the DMSwarm")
+        swarm_field = swarm.getField(name)
+        try:
+            swarm_field[...] = dtype(0)
+        except TypeError:
+            warn(f"Field \'{name}\' could not be set to zero to indicate invalidity", stacklevel=2)
+
+        swarm.restoreField(name)
+
+    swarm_coords[...] = coords
+    swarm_parent_cell_nums[...] = plex_parent_cell_nums
+    field_parent_cell_nums[...] = parent_cell_nums
+    field_reference_coords[...] = reference_coords
+    field_global_index[...] = coords_idxs
+    field_rank[...] = ranks
+
+    swarm.restoreField("DMSwarm_rank")
+    swarm.restoreField("globalindex")
+    swarm.restoreField("refcoord")
+    swarm.restoreField("parentcellnum")
+    swarm.restoreField("DMSwarmPIC_coor")
+    swarm.restoreField("DMSwarm_cellid")
+
+    if parent_mesh.extruded:
+        field_base_parent_cell_nums = swarm.getField("parentcellbasenum")
+        field_extrusion_heights = swarm.getField("parentcellextrusionheight")
+        field_base_parent_cell_nums[...] = base_parent_cell_nums
+        field_extrusion_heights[...] = extrusion_heights
+        swarm.restoreField("parentcellbasenum")
+        swarm.restoreField("parentcellextrusionheight")
+
+    return num_coords_lost
+
+
+def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
+    """
+    Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) and
+    number of layers, get the base parent cell numbers and extrusion heights.
+
+    Parameters
+    ----------
+
+    parent_cell_nums : ``np.ndarray``
+        Firedrake cell numbers (e.g. from mesh.locate_cell)
+    parent_layers : ``int``
+        Number of layers in the extruded mesh
+
+    Returns
+    -------
+    base_parent_cell_nums : ``np.ndarray``
+        The base parent cell numbers
+    extrusion_heights : ``np.ndarray``
+        The extrusion heights
+
+    Notes
+    -----
+    Only works for meshes without variable layers.
+    """
+    # Extruded mesh parent_cell_nums goes from bottom to top. So for
+    # mx = ExtrudedMesh(UnitIntervalMesh(2), 3) we have
+    # mx.layers = 4
+    # and
+    #  -------------------layer 4-------------------
+    # | parent_cell_num =  2 | parent_cell_num =  5 |
+    # | extrusion_height = 2 | extrusion_height = 2 |
+    #  -------------------layer 3-------------------
+    # | parent_cell_num =  1 | parent_cell_num =  4 |
+    # | extrusion_height = 1 | extrusion_height = 1 |
+    #  -------------------layer 2-------------------
+    # | parent_cell_num =  0 | parent_cell_num =  3 |
+    # | extrusion_height = 0 | extrusion_height = 0 |
+    #  -------------------layer 1-------------------
+    #   base_cell_num = 0         base_cell_num = 1
+    # The base_cell_num is the cell number in the base mesh which, in this
+    # case, is a UnitIntervalMesh with two cells.
+    base_parent_cell_nums = parent_cell_nums // (parent_layers - 1)
+    extrusion_heights = parent_cell_nums % (parent_layers - 1)
+    return base_parent_cell_nums, extrusion_heights
+
+
+def _plex_parent_cell_nums(parent_mesh, parent_cell_nums):
+    """
+    Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) get
+    the corresponding DMPlex cell numbers.
+
+    Parameters
+    ----------
+    parent_mesh : ``Mesh``
+        The parent mesh we are embedding in.
+    parent_cell_nums : ``np.ndarray``
+        Firedrake cell numbers (e.g. from mesh.locate_cell)
+
+    Returns
+    -------
+    plex_parent_cell_nums : ``np.ndarray``
+        The corresponding DMPlex cell numbers.
+
+    Notes
+    -----
+    If the parent mesh coordinates have been modified then we return -1 for
+    the DMPlex cell number. This is because the DMSwarm parent mesh plex
+    numbering is now not guaranteed to match up with DMPlex numbering. DMSwarm
+    functions which rely on the DMPlex numbering,such as DMSwarmMigrate() will
+    not work as expected.
+    """
+    if parent_mesh.coordinates.dat.dat_version > 0:
+        return -np.ones_like(parent_cell_nums)
+    else:
+        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
+        # numbers.
+        return parent_mesh.topology.cell_closure[parent_cell_nums, -1]
 
 
 def _mpi_array_lexicographic_min(x, y, datatype):
@@ -3104,6 +3578,11 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         that were embedded.
     ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of the points.
+    input_ranks : ``np.ndarray``
+        The MPI rank of the process that specified the input ``coords``.
+    input_coords_idxs : ``np.ndarray``
+        The indices of the points in the input ``coords`` array that were
+        embedded.
     missing_coords_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
         embedded. See note below.
@@ -3129,6 +3608,10 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         coords_global = coords_local
         ncoords_global = coords_global.shape[0]
         coords_idxs = np.arange(coords_global.shape[0])
+        input_coords_idxs_local = np.arange(ncoords_local)
+        input_coords_idxs_global = input_coords_idxs_local
+        input_ranks_local = np.zeros(ncoords_local, dtype=int)
+        input_ranks_global = input_ranks_local
     else:
         # Here, we have to assume that all points we can see are unique.
         # We therefore gather all points on all ranks in rank order: if rank 0
@@ -3156,6 +3639,16 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         # endidx = startidx + ncoords_local
         # coords_idxs = np.arange(startidx, endidx)
         coords_idxs = np.arange(coords_global.shape[0])
+        input_coords_idxs_local = np.arange(ncoords_local)
+        input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+        parent_mesh._comm.Allgatherv(
+            input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
+        )
+        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
+        input_ranks_global = np.empty(ncoords_global, dtype=int)
+        parent_mesh._comm.Allgatherv(
+            input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+        )
 
     # Get parent mesh rank ownership information:
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
@@ -3174,14 +3667,27 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # See below for why np.inf is used here.
     ranks = np.full(ncoords_global, np.inf)
 
-    (
-        parent_cell_nums,
-        reference_coords,
-        ref_cell_dists_l1,
-    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    tdim = parent_mesh.topological_dimension()
+    if not isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
+        (
+            parent_cell_nums,
+            reference_coords,
+            ref_cell_dists_l1,
+        ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    else:
+        # Make sure that all the points are considered as being in the mesh
+        parent_cell_nums = np.zeros(ncoords_global, dtype=int)
+        reference_coords = np.zeros((ncoords_global, tdim), dtype=int)
+        reference_coords[:] = 0.0
+        ref_cell_dists_l1 = np.zeros(ncoords_global, dtype=float)
+
     assert len(parent_cell_nums) == ncoords_global
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
+    if reference_coords.shape != (ncoords_global, tdim):
+        raise ValueError(
+            f"Returned reference coordinates have shape {reference_coords.shape} but should be ({ncoords_global}, {tdim})"
+        )
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
@@ -3222,6 +3728,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         np.compress(locally_visible, reference_coords, axis=0),
         np.compress(locally_visible, parent_cell_nums, axis=0),
         np.compress(locally_visible, ranks, axis=0),
+        np.compress(locally_visible, input_ranks_global, axis=0),
+        np.compress(locally_visible, input_coords_idxs_global, axis=0),
         missing_coords_idxs,
     )
 

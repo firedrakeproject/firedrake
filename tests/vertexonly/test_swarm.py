@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -144,7 +145,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)
     plex = parentmesh.topology.topology_dm
     from firedrake.petsc import PETSc
-    fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
+    other_fields = [("fieldA", 1, PETSc.IntType), ("fieldB", 2, PETSc.ScalarType)]
 
     if redundant:
         if MPI.COMM_WORLD.size == 1:
@@ -153,14 +154,30 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=fields)
+            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields)
         else:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=fields)
+            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields)
+        input_rank = 0
+        # inputcoordindices is the correct set of input indices for
+        # redundant==True but I need to work out where they will be after
+        # immersion in the parent mesh. I've done this by manually finding the
+        # indices of inputpointcoords which are close to the
+        # inputlocalpointcoords (this is nasty but I can't think of a better
+        # way to do it!)
+        indices_to_use = np.full(len(inputpointcoords), False)
+        for lp in inputlocalpointcoords:
+            for i, p in enumerate(inputpointcoords):
+                if np.allclose(p, lp):
+                    indices_to_use[i] = True
+                    break
+        input_local_coord_indices = inputcoordindices[indices_to_use]
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=fields, redundant=redundant)
+        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant)
+        input_rank = parentmesh.comm.rank
+        input_local_coord_indices = np.arange(len(inputlocalpointcoords))
 
     # Get point coords on current MPI rank
     localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
@@ -187,13 +204,35 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     assert n_missing_coords == 0
 
     # get custom fields on swarm - will fail if didn't get created
-    for name, size, dtype in fields:
+    for name, size, dtype in other_fields:
         f = swarm.getField(name)
         assert len(f) == size*nptslocal
         assert f.dtype == dtype
         swarm.restoreField(name)
     # Check comm sizes match
     assert plex.comm.size == swarm.comm.size
+    # Check swarm fields are correct
+    default_fields = [
+        ("DMSwarmPIC_coor", parentmesh.geometric_dimension(), RealType),
+        ("DMSwarm_cellid", 1, IntType),
+        ("DMSwarm_rank", 1, IntType),
+    ]
+    default_extra_fields = [
+        ("parentcellnum", 1, IntType),
+        ("refcoord", parentmesh.topological_dimension(), RealType),
+        ("globalindex", 1, IntType),
+        ("inputrank", 1, IntType),
+        ("inputindex", 1, IntType),
+    ]
+    if parentmesh.extruded:
+        default_extra_fields.append(("parentcellbasenum", 1, IntType))
+        default_extra_fields.append(("parentcellextrusionheight", 1, IntType))
+
+    all_fields = default_fields + default_extra_fields + other_fields
+    assert swarm.fields == all_fields
+    assert swarm.default_fields == default_fields
+    assert swarm.default_extra_fields == default_extra_fields
+    assert swarm.other_fields == other_fields
 
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
@@ -243,6 +282,18 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     swarm.restoreField("DMSwarm_rank")
     assert np.array_equal(ranks, inputlocalpointcoordranks)
 
+    # check that the input rank is correct
+    input_ranks = np.copy(swarm.getField("inputrank"))
+    swarm.restoreField("inputrank")
+    assert np.all(input_ranks == input_rank)
+
+    # check that the input index is correct
+    input_indices = np.copy(swarm.getField("inputindex"))
+    swarm.restoreField("inputindex")
+    assert np.array_equal(input_indices, input_local_coord_indices)
+    if redundant:
+        assert np.array_equal(input_indices, globalindices)
+
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
@@ -255,9 +306,57 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
         swarm.restoreField("DMSwarm_cellid")
         assert np.all(petsclocalparentcellindices == localparentcellindices)
 
-    # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
-    # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
-    # assert n_missing_coords == 2
+    # Try moving the swarm
+
+    parentcellnum = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    refcoord = np.copy(swarm.getField("refcoord"))
+    swarm.restoreField("refcoord")
+
+    # Updated coordinates should always be MPI rank local
+    new_coords = inputlocalpointcoords + 0.001
+    # no points should be lost here and all points should be in the same cells
+
+    # this should raise a user warning since we have added fields which will
+    # now be invalidated
+    with pytest.warns(UserWarning):
+        mesh._update_pic_swarm_in_mesh(swarm, parentmesh, new_coords)
+
+    # check coordinates
+    newlocalpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
+    swarm.restoreField("DMSwarmPIC_coor")
+    if len(inputpointcoords.shape) > 1:
+        newlocalpointcoords = np.reshape(newlocalpointcoords, (-1, inputpointcoords.shape[1]))
+    assert np.array_equal(newlocalpointcoords, localpointcoords + 0.001)
+
+    # at least some of refcoords should be different too
+    newrefcoord = np.copy(swarm.getField("refcoord"))
+    swarm.restoreField("refcoord")
+    assert len(newrefcoord) == len(refcoord)
+    if len(newrefcoord) > 0:
+        assert np.any(np.not_equal(newrefcoord, refcoord))
+
+    # check other fields are the same
+    newlocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+    swarm.restoreField("DMSwarm_cellid")
+    assert np.array_equal(newlocalparentcellindices, localparentcellindices)
+    newglobalindices = np.copy(swarm.getField("globalindex"))
+    swarm.restoreField("globalindex")
+    assert np.array_equal(newglobalindices, globalindices)
+    newranks = np.copy(swarm.getField("DMSwarm_rank"))
+    swarm.restoreField("DMSwarm_rank")
+    assert np.array_equal(newranks, ranks)
+    newparentcellnum = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    assert np.array_equal(newparentcellnum, parentcellnum)
+
+    # Check we've invalidated the other fields by setting them to zero
+    for name, size, dtype in other_fields:
+        f = swarm.getField(name)
+        assert len(f) == size*nptslocal
+        assert f.dtype == dtype
+        assert not np.any(f)
+        swarm.restoreField(name)
 
 
 @pytest.mark.parallel
