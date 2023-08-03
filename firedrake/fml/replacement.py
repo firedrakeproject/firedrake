@@ -6,8 +6,7 @@ import ufl
 from .form_manipulation_language import Term, subject
 from firedrake import split, MixedElement
 
-__all__ = ["replace_test_function", "replace_trial_function",
-           "replace_subject"]
+__all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 
 
 # ---------------------------------------------------------------------------- #
@@ -15,10 +14,42 @@ __all__ = ["replace_test_function", "replace_trial_function",
 # ---------------------------------------------------------------------------- #
 def _replace_dict(old, new, old_idx, new_idx, replace_type):
     """
-    Build a dictionary to pass to the ufl.replace routine
-    The dictionary matches variables in the old term with those in the new
+    Build a dictionary to pass to the ufl.replace routine. The dictionary
+    matches variables in the old term with those in the new.
 
-    Does not check types unless indexing is required (leave type-checking to ufl.replace)
+    Does not check types unless indexing is required (leave type-checking to
+    ufl.replace).
+
+    Parameters
+    ----------
+    old : :class:`Function` or :class:`TestFunction` or :class:`TrialFunction`
+        The old variable to be replaced.
+    new : :class:`Function` or :class:`TestFunction` or :class:`TrialFunction`
+        The new variable to be replace with.
+    old_idx : int
+        The index of the old variable to be replaced. If the old variable is not
+        indexable then this should be None.
+    new_idx : int
+        The index of the new variable to replace with. If the new variable is
+        not indexable then this should be None.
+    replace_type : str
+        A string to use in error messages, describing the type of replacement
+        that is happening.
+
+    Returns
+    -------
+    dict
+        A dictionary pairing the variables in the old term to be replaced with
+        the new variables to replace them.
+
+    Raises
+    ------
+    ValueError
+        If the old_idx argument is not provided when an indexable variable is to
+        be replaced by something not of the same shape.
+    ValueError
+        If the new_idx argument is not provided when an indexable variable is to
+        be replace something not of the same shape.
     """
 
     mixed_old = type(old.ufl_element()) is MixedElement
@@ -98,11 +129,15 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
     """
     A routine to replace the test function in a term with a new test function.
 
-    Args:
-        new_test (:class:`TestFunction`): the new test function.
+    Parameters
+    ----------
+    new_test : :class:`TestFunction`
+        The new test function.
 
-    Returns:
-        a function that takes in t, a :class:`Term`, and returns a new
+    Returns
+    -------
+    func
+        A function that takes in t, a :class:`Term`, and returns a new
         :class:`Term` with form containing the new_test and labels=t.labels
     """
 
@@ -111,11 +146,15 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
         Replaces the test function in a term with a new expression. This is
         built around the ufl replace routine.
 
-        Args:
-            t (:class:`Term`): the original term.
+        Parameters
+        ----------
+        t : :class:`Term`
+            The original term.
 
-        Returns:
-            :class:`Term`: the new term.
+        Returns
+        -------
+        :class:`Term`
+            The new term.
         """
         old_test = t.form.arguments()[0]
         replace_dict = _replace_dict(old_test, new_test,
@@ -138,11 +177,15 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
     """
     A routine to replace the trial function in a term with a new expression.
 
-    Args:
-        new (:class:`TrialFunction` or :class:`Function`): the new function.
+    Parameters
+    ----------
+    new : :class:`TrialFunction` or :class:`Function`
+        The new function.
 
-    Returns:
-        a function that takes in t, a :class:`Term`, and returns a new
+    Returns
+    -------
+    func
+        A function that takes in t, a :class:`Term`, and returns a new
         :class:`Term` with form containing the new_test and labels=t.labels
     """
 
@@ -151,14 +194,20 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
         Replaces the trial function in a term with a new expression. This is
         built around the ufl replace routine.
 
-        Args:
-            t (:class:`Term`): the original term.
+        Parameters
+        ----------
+        t (:class:`Term`)
+            The original term.
 
-        Raises:
-            TypeError: if the form is linear.
+        Raises
+        ------
+        TypeError
+            If the form is not linear.
 
-        Returns:
-            :class:`Term`: the new term.
+        Returns
+        -------
+        :class:`Term`
+            The new term.
         """
         if len(t.form.arguments()) != 2:
             raise TypeError('Trying to replace trial function of a form that is not linear')
@@ -183,25 +232,34 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
     """
     A routine to replace the subject in a term with a new variable.
 
-    Args:
-        new (:class:`ufl.Expr`): the new expression to replace the subject.
-        idx (int, optional): index of the subject in the equation's
-            :class:`MixedFunctionSpace`. Defaults to None.
+    Parameters
+    ----------
+    new : :class:`ufl.Expr`
+        The new expression to replace the subject.
+    idx : int, optional
+        Index of the subject in the equation's :class:`MixedFunctionSpace`.
+        Defaults to None.
     """
     def repl(t):
         """
         Replaces the subject in a term with a new expression. This is built
         around the ufl replace routine.
 
-        Args:
-            t (:class:`Term`): the original term.
+        Parameters
+        ----------
+        t : :class:`Term`
+            The original term.
 
-        Raises:
-            ValueError: when the new expression and subject are not of
-                compatible sizes (e.g. a mixed function vs a non-mixed function)
+        Raises
+        ------
+        ValueError
+            When the new expression and subject are not of compatible sizes
+            (e.g. a mixed function vs a non-mixed function)
 
-        Returns:
-            :class:`Term`: the new term.
+        Returns
+        -------
+        :class:`Term`:
+            The new term.
         """
 
         old_subj = t.get(subject)
