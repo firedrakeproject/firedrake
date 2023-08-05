@@ -358,7 +358,7 @@ class Label(object):
         ----------
         label : str
             The name of the label.
-        value : any type, optional
+        value : Any, optional
             The value for the label to take. Can be any type (subject to the
             validator). Defaults to True.
         validator : func, optional
@@ -377,7 +377,7 @@ class Label(object):
         ----------
         target : :class:`ufl.Form`, :class:`Term` or :class:`LabelledForm`
             The form, term or labelled form to be labelled.
-        value : any type, optional
+        value : Any, optional
             The value to attach to this label. Defaults to None.
 
         Raises
@@ -452,7 +452,7 @@ class Label(object):
         ----------
         target : :class:`Term` or :class:`LabelledForm`
             Term or labelled form to have this label updated.
-        new : any type
+        new : Any
             The new value for this label to take. The type is subject to the
             label's validator (if it has one).
 
