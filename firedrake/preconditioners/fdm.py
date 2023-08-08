@@ -10,7 +10,7 @@ from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
-from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+from firedrake.ufl_expr import TestFunction, TrialFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
 from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
@@ -147,8 +147,7 @@ class FDMPC(PCBase):
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=mat_type, options_prefix=options_prefix)
                 self._assemble_A = TwoFormAssembler(J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                                    form_compiler_parameters=fcp,
-                                                    mat_type=mat_type).assemble
+                                                    form_compiler_parameters=fcp).assemble
                 self._assemble_A()
                 Amat = self.A.petscmat
 
@@ -348,6 +347,58 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
+    def scale_coefficients(self, mixed_form, coefficients, fcp):
+        """
+        Assemble low-order mass matrices, apply diagonal scaling, and compute eigenvalues.
+        Then scale the high-order coefficients accordingly
+        """
+        from firedrake.preconditioners.pmg import PMGPC
+        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+
+        def scaling_callable(mat, diag, data, nc):
+            diag = mat.getDiagonal(result=diag)
+            diag.reciprocal()
+            diag.sqrtabs()
+            mat.diagonalScale(L=diag, R=diag)
+            vals = mat.getValuesCSR()[-1]
+            vals = vals.reshape((-1, nc, nc))
+            lam = numpy.linalg.eigvalsh(vals)
+            omega = 0.25
+            scale = omega * lam[:, :1] + (1.0-omega) * lam[:, -1:]
+            scale = numpy.mean(lam, axis=1)[:, None]
+            numpy.multiply(scale, data, out=data)
+
+        assembly_callables = []
+        splitter = ExtractSubBlock()
+        for index, key in enumerate(("beta", "alpha")):
+            form = splitter.split(mixed_form, argument_indices=(index, index))
+            coef = coefficients[key]
+            V = coef.function_space()
+            degree = 1
+            element = PMGPC.reconstruct_degree(V.ufl_element(), degree)
+            Vc = FunctionSpace(V.mesh(), element)
+
+            qdegree = 2 * degree + 1
+            md = {"degree": qdegree}
+            cargs = (TestFunction(Vc), TrialFunction(Vc))
+            cform = form(*cargs, coefficients={})
+            cform = ufl.Form([i.reconstruct(metadata=md) for i in cform.integrals()])
+
+            tensor = allocate_matrix(cform, form_compiler_parameters=fcp,
+                                     mat_type="aij", options_prefix=None)
+            _assemble = TwoFormAssembler(cform, tensor=tensor,
+                                         form_compiler_parameters=fcp).assemble
+
+            mat = tensor.petscmat
+            diag = mat.createVecRight()
+            n = V.finat_element.space_dimension() * V.value_size
+            nc = Vc.finat_element.space_dimension() * Vc.value_size
+            data = coef.dat.data.reshape((-1, n))
+            assembly_callables.append(_assemble)
+            assembly_callables.append(partial(scaling_callable, mat, diag, data, nc))
+
+        return assembly_callables
+
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
@@ -456,6 +507,8 @@ class FDMPC(PCBase):
             tensor = coefficients.setdefault("gamma", Function(V))
             assembly_callables.append(OneFormAssembler(J_facet, tensor=tensor, diagonal=True,
                                                        form_compiler_parameters=fcp).assemble)
+
+        # assembly_callables.extend(self.scale_coefficients(mixed_form, coefficients, fcp=fcp))
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
