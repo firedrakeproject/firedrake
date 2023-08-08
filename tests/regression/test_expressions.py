@@ -413,6 +413,22 @@ def test_assign_from_mfs_sub(cg1, vcg1):
         v.assign(w1)
 
 
+@pytest.mark.skipif(not utils.complex_mode, reason="Test specific to complex mode")
+def test_assign_complex_value(cg1):
+    f = Function(cg1)
+    g = Function(cg1)
+
+    f.assign(1+1j)
+    assert np.allclose(f.dat.data_ro, 1+1j)
+
+    f.assign(1j)
+    assert np.allclose(f.dat.data_ro, 1j)
+
+    g.assign(2.0)
+    f.assign((1+1j)*g)
+    assert np.allclose(f.dat.data_ro, 2+2j)
+
+
 @pytest.mark.parametrize('value', [10, -10],
                          ids=lambda v: "(f = %d)" % v)
 @pytest.mark.parametrize('expr', ['f', '2*f'])
