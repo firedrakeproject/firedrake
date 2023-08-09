@@ -267,8 +267,8 @@ Using the input ordering property
 
 Any set of points with associated data in our domain can be expressed as a
 P0DG function on a :func:`~.VertexOnlyMesh`. The recommended way to import data
-from an external source is via the :py:attr:`~.MeshGeometry.input_ordering`
-method: this produces another vertex-only mesh which has points in the order
+from an external source is via the :py:attr:`~.VertexOnlyMeshTopology.input_ordering`
+property: this produces another vertex-only mesh which has points in the order
 and MPI rank that they were specified when first creating the original
 vertex-only mesh. For example:
 
@@ -279,7 +279,7 @@ vertex-only mesh. For example:
 
 This is entirely parallel safe.
 
-Similarly, we can use :py:attr:`~.MeshGeometry.input_ordering` to get data out
+Similarly, we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` to get data out
 of a vertex-only mesh in a parallel-safe way. If we return to our example from
 :ref:`the section where we introduced vertex only meshes <primary-api>`, we
 had
@@ -292,7 +292,7 @@ had
 In parallel, this will print the values of ``f`` at the given ``points`` list
 **after the points have been distributed over the parent mesh**. If we want the
 values of ``f`` at the ``points`` list **before the points have been
-distributed** we can use :py:attr:`~.MeshGeometry.input_ordering` as follows:
+distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as follows:
 
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
@@ -303,7 +303,7 @@ distributed** we can use :py:attr:`~.MeshGeometry.input_ordering` as follows:
 
    When a a vertex-only mesh is created with ``redundant = True`` (which is the
    default when creating a :func:`~.VertexOnlyMesh`) the
-   :py:attr:`~.MeshGeometry.input_ordering` method will return a vertex-only
+   :py:attr:`~.VertexOnlyMeshTopology.input_ordering` method will return a vertex-only
    mesh with all points on rank 0.
 
 If we ran the example in parallel, the above code would print
@@ -326,7 +326,7 @@ a good idea to set the values to ``nan`` before the interpolation:
 More ways to interact with external data
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Aside from :py:attr:`~.MeshGeometry.input_ordering`, we can use
+Aside from :py:attr:`~.VertexOnlyMeshTopology.input_ordering`, we can use
 :func:`~.interpolate` to interact with external data to, for example,
 compare a PDE solution with the point data. The :math:`l_2` error norm
 (euclidean norm) of a function :math:`f` (which may be a PDE solution)
@@ -346,7 +346,7 @@ We can express this in Firedrake as
    # or equivalently
    error = errornorm(interpolate(f, P0DG), y_pts)
 
-We can then use the :py:attr:`~.MeshGeometry.input_ordering` vertex-only mesh
+We can then use the :py:attr:`~.VertexOnlyMeshTopology.input_ordering` vertex-only mesh
 to safely check the values of ``error`` at the points
 :math:`\{x_i\}_{i=0}^{N-1}`.
 

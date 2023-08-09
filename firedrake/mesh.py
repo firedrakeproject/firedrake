@@ -42,7 +42,7 @@ __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
-    'AbstractMeshTopology', 'ExtrudedMeshTopology'
+    'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology'
 ]
 
 
@@ -1531,9 +1531,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         Half-initialise a mesh topology.
 
-        :arg swarm: Particle In Cell (PIC) :class:`DMSwarm` representing
-            vertices immersed within a :class:`DMPlex` stored in the
-            `parentmesh`
+        :arg swarm: Particle In Cell (PIC) DMSwarm representing
+            vertices immersed within a DMPlex stored in the
+            ``parentmesh`` argument.
         :arg parentmesh: the mesh within which the vertex-only mesh
             topology is immersed.
         :arg name: name of the mesh
@@ -1751,6 +1751,79 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def input_ordering(self):
+        """
+        Return the input ordering of the mesh vertices as a
+        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
+        the global indices and parent mesh cell information.
+
+        Notes
+        -----
+        If ``redundant=True`` at mesh creation, all the vertices will
+        be returned on rank 0.
+
+        Any points that were not found in the original mesh when it was created
+        will still be present here in their originally supplied order.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        return self._input_ordering
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def input_ordering_sf(self):
+        """
+        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        vertices as roots and this mesh's vertices (including any halo cells)
+        as leaves.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        sf = PETSc.SF().create(comm=self.comm)
+        nroots = self.input_ordering.num_cells()
+        input_ranks = self.topology_dm.getField("inputrank")
+        self.topology_dm.restoreField("inputrank")
+        input_indices = self.topology_dm.getField("inputindex")
+        self.topology_dm.restoreField("inputindex")
+        nleaves = len(input_ranks)
+        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        # local looks like the below, which means we can just pass in None
+        # local = numpy.arange(nleaves, dtype=IntType)
+        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        return sf
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def input_ordering_without_halos_sf(self):
+        """
+        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        vertices as roots and this mesh's non-halo vertices as leaves.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        sf = PETSc.SF().create(comm=self.comm)
+        nroots = self.input_ordering.num_cells()
+        ranks = self.topology_dm.getField("DMSwarm_rank")
+        self.topology_dm.restoreField("DMSwarm_rank")
+        input_ranks = self.topology_dm.getField("inputrank")
+        self.topology_dm.restoreField("inputrank")
+        input_index = self.topology_dm.getField("inputindex")
+        self.topology_dm.restoreField("inputindex")
+        # only include leaves where points are on this rank. This will exclude
+        # any points where the point was not found on the mesh.
+        idxs_to_include = ranks == self.comm.rank
+        input_ranks = input_ranks[idxs_to_include]
+        input_indices = input_index[idxs_to_include]
+        nleaves = len(input_ranks)
+        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        # local looks like the below, which means we can just pass in None
+        # local = numpy.arange(nleaves, dtype=IntType)
+        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        return sf
+
 
 class MeshGeometryCargo:
     """Helper class carrying data for a :class:`MeshGeometry`.
@@ -1801,14 +1874,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
         self.variable_layers = self.extruded and topology.variable_layers
-
-        # no need to display input ordering attr for non vertex-only meshes
-        if not isinstance(topology, VertexOnlyMeshTopology):
-            try:
-                del self.input_ordering
-                del self.input_ordering_sf
-            except AttributeError:
-                pass
 
         # initialise the mesh cargo
         self.ufl_cargo().init(coordinates)
@@ -2309,85 +2374,6 @@ values from f.)"""
         one can only mark cell or facet entities.
         """
         self.topology.mark_entities(f.topological, label_name, label_value)
-
-    @utils.cached_property  # TODO: Recalculate if mesh moves
-    def input_ordering(self):
-        """
-        Return the input ordering of the mesh vertices as a
-        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
-        the global indices and parent mesh cell information.
-
-        Only available for vertex-only meshes.
-
-        Notes
-        -----
-        If ``redundant=True`` at mesh creation, all the vertices will
-        be returned on rank 0.
-
-        Any points that were not found in the original mesh when it was created
-        will still be present here in their originally supplied order.
-        """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        return self._input_ordering
-
-    @utils.cached_property  # TODO: Recalculate if mesh moves
-    def input_ordering_sf(self):
-        """
-        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
-        vertices as roots and this mesh's vertices (including any halo cells)
-        as leaves.
-
-        Only available for vertex-only meshes.
-        """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        sf = PETSc.SF().create(comm=self.comm)
-        nroots = self.input_ordering.num_cells()
-        input_ranks = self.topology_dm.getField("inputrank")
-        self.topology_dm.restoreField("inputrank")
-        input_indices = self.topology_dm.getField("inputindex")
-        self.topology_dm.restoreField("inputindex")
-        nleaves = len(input_ranks)
-        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        # local looks like the below, which means we can just pass in None
-        # local = numpy.arange(nleaves, dtype=IntType)
-        sf.setGraph(nroots, None, input_ranks_and_idxs)
-        return sf
-
-    @utils.cached_property  # TODO: Recalculate if mesh moves
-    def input_ordering_without_halos_sf(self):
-        """
-        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
-        vertices as roots and this mesh's non-halo vertices as leaves.
-
-        Only available for vertex-only meshes.
-        """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        sf = PETSc.SF().create(comm=self.comm)
-        nroots = self.input_ordering.num_cells()
-        ranks = self.topology_dm.getField("DMSwarm_rank")
-        self.topology_dm.restoreField("DMSwarm_rank")
-        input_ranks = self.topology_dm.getField("inputrank")
-        self.topology_dm.restoreField("inputrank")
-        input_index = self.topology_dm.getField("inputindex")
-        self.topology_dm.restoreField("inputindex")
-        # only include leaves where points are on this rank. This will exclude
-        # any points where the point was not found on the mesh.
-        idxs_to_include = ranks == self.comm.rank
-        input_ranks = input_ranks[idxs_to_include]
-        input_indices = input_index[idxs_to_include]
-        nleaves = len(input_ranks)
-        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        # local looks like the below, which means we can just pass in None
-        # local = numpy.arange(nleaves, dtype=IntType)
-        sf.setGraph(nroots, None, input_ranks_and_idxs)
-        return sf
 
 
 @PETSc.Log.EventDecorator()
@@ -2920,14 +2906,14 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     vmesh_out = initialise(mesh, swarm, tdim, name, use_cell_dm_marking=True)
     # Make the VOM which uses the original ordering of the points
-    vmesh_out._input_ordering = initialise(
+    vmesh_out.topology._input_ordering = initialise(
         vmesh_out,
         original_swarm,
         0,
         name + "_input_ordering",
         use_cell_dm_marking=False,
     )
-    vmesh_out._input_ordering._input_ordering = None
+    vmesh_out.topology._input_ordering.topology._input_ordering = None
 
     return vmesh_out
 
