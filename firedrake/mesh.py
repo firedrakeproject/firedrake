@@ -2808,7 +2808,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     mesh.init()
 
-    vertexcoords = np.asarray(vertexcoords, dtype=np.double)
+    vertexcoords = np.asarray(vertexcoords, dtype=RealType)
     gdim = mesh.geometric_dimension()
     tdim = mesh.topological_dimension()
     _, pdim = vertexcoords.shape
