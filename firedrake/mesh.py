@@ -2927,6 +2927,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         name + "_input_ordering",
         use_cell_dm_marking=False,
     )
+    vmesh_out._input_ordering._input_ordering = None
 
     return vmesh_out
 

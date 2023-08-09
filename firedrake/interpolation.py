@@ -762,20 +762,12 @@ class VomOntoVomWrapper(object):
 
     def __init__(self, V, source_vom, target_vom, expr, arguments):
         reduce = False
-        broadcast = False
-        try:
-            if source_vom.input_ordering is target_vom:
-                reduce = True
-                original_vom = source_vom
-        except AttributeError:
-            pass
-        try:
-            if target_vom.input_ordering is source_vom:
-                broadcast = True
-                original_vom = target_vom
-        except AttributeError:
-            pass
-        if not (reduce or broadcast):
+        if source_vom.input_ordering is target_vom:
+            reduce = True
+            original_vom = source_vom
+        elif target_vom.input_ordering is source_vom:
+            original_vom = target_vom
+        else:
             raise ValueError(
                 "The target vom and source vom must be linked by input ordering!"
             )

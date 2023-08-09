@@ -99,8 +99,7 @@ def functionspace_tests(vm):
     f.interpolate(Constant(2, domain=vm))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
     if "input_ordering" in vm.name:
-        with pytest.raises(AttributeError):
-            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        assert vm.input_ordering is None
         return
     # Can interpolate onto the input ordering VOM and we retain values from the
     # expresson on the main VOM
@@ -190,8 +189,7 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(Constant([1] * gdim, domain=vm))
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
     if "input_ordering" in vm.name:
-        with pytest.raises(AttributeError):
-            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        assert vm.input_ordering is None
         return
     # Can interpolate onto the input ordering VOM and we retain values from the
     # expresson on the main VOM
