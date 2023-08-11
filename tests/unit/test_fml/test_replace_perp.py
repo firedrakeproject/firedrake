@@ -1,9 +1,9 @@
 # The perp routine should come from UFL when it is fully implemented there
-from gusto import perp
-from gusto.fml import subject, replace_subject, all_terms
+from ufl import perp
 from firedrake import (UnitSquareMesh, FunctionSpace, MixedFunctionSpace,
                        TestFunctions, Function, split, inner, dx, errornorm,
-                       SpatialCoordinate, as_vector, TrialFunctions, solve)
+                       SpatialCoordinate, as_vector, TrialFunctions, solve,
+                       subject, replace_subject, all_terms)
 
 
 def test_replace_perp():
@@ -28,7 +28,7 @@ def test_replace_perp():
 
     # make a function to replace the subject with and give it some values
     U1 = Function(W)
-    u1, _ = U1.split()
+    u1, _ = U1.subfunctions
     x, y = SpatialCoordinate(mesh)
     u1.interpolate(as_vector([1, 2]))
 
@@ -38,9 +38,9 @@ def test_replace_perp():
     U2 = Function(W)
     solve(a == L.form, U2)
 
-    u2, _ = U2.split()
+    u2, _ = U2.subfunctions
     U3 = Function(W)
-    u3, _ = U3.split()
+    u3, _ = U3.subfunctions
     u3.interpolate(as_vector([-2, 1]))
 
     assert errornorm(u2, u3) < 1e-14
