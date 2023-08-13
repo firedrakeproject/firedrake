@@ -1,4 +1,8 @@
+import functools
+
 import ufl
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.corealg.multifunction import MultiFunction
 from itertools import chain
 from contextlib import ExitStack
 
@@ -9,6 +13,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
+from firedrake.function import Function
 from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",

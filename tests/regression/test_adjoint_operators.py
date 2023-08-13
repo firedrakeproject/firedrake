@@ -702,3 +702,48 @@ def test_consecutive_nonlinear_solves():
     rf = ReducedFunctional(J, Control(uic))
     h = Constant(0.01, domain=mesh)
     assert taylor_test(rf, uic, h) > 1.9
+
+
+def test_repeated_linear_solves_reuses_cached_solvers():
+    from firedrake_adjoint import ReducedFunctional, Control, taylor_test
+
+    mesh = IntervalMesh(50, 0, 1)
+    V = FunctionSpace(mesh,"CG",1)
+    u = TrialFunction(V)
+    u_ = Function(V)
+    v = TestFunction(V)
+
+    bc_left = DirichletBC(V, 1, 1)
+    bc_right = DirichletBC(V, 2, 2)
+    bc = [bc_left, bc_right]
+
+    T = 1.0
+    dt = 0.1
+    f = Constant(1)
+
+    u_1 = Function(V).assign(1)
+
+    a = u_1*u*v*dx + dt*f*inner(grad(u),grad(v))*dx
+    L = u_1*v*dx
+
+    t = dt
+    while t <= T:
+        solve(a == L, u_, bc)
+        u_1.assign(u_)
+        t += dt
+
+    J = assemble(u_1**2*dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    h = Constant(0.01)
+    assert taylor_test(rf, Constant(1), h) > 1.9
+
+    from pyop2.caching import cache_manager
+    solver_cache = cache_manager["firedrake.solver"]
+    solver_cache.clear(mesh.comm)
+
+    # check that things replay correctly
+    assert np.allclose(rf(Constant(1)), J)
+
+    assert solver_cache.currsize(mesh.comm) > 0
+    assert solver_cache.cache(mesh.comm).hit_rate > 0.8

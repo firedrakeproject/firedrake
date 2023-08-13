@@ -1,11 +1,14 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import functools
+import weakref
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
+from ufl.algorithms import extract_coefficients
 from firedrake_configuration import get_config
 
 _current_uid = 0
@@ -115,3 +118,14 @@ def split_by(condition, items):
         else:
             result[1].append(item)
     return tuple(result[0]), tuple(result[1])
+
+
+#TODO These should live in a different file
+def ufl_form_cache_key(form, include_data=False):
+    return form.signature(), tuple(extract_coefficients(form))
+
+
+def ufl_expression_cache_key(expr):
+    ...
+
+

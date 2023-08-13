@@ -23,8 +23,9 @@ from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
-from firedrake.utils import ScalarType, tuplify
+from firedrake.utils import ScalarType, tuplify, ufl_form_cache_key
 from pyop2 import op2
+from pyop2.caching import cache_manager, PLRUCache, cached
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from pyop2.utils import cached_property
 
@@ -34,6 +35,11 @@ __all__ = "assemble",
 
 _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
+
+ASSEMBLER_CACHE_NAME = "firedrake.assembler"
+cache_manager.add_cache(
+    ASSEMBLER_CACHE_NAME, PLRUCache()
+)
 
 
 @PETSc.Log.EventDecorator()
@@ -266,7 +272,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     # will lead to old bcs getting stored along with old tensors.
 
     # FIXME This only works for 1-forms at the moment
-    is_cacheable = len(form.arguments()) == 1
+    # is_cacheable = len(form.arguments()) == 1
+    is_cacheable = False
     if is_cacheable:
         try:
             key = tuple(bcs), diagonal, tuplify(form_compiler_parameters), zero_bc_nodes
@@ -278,14 +285,18 @@ def _assemble_form(form, tensor=None, bcs=None, *,
 
     rank = len(form.arguments())
     if rank == 0:
-        assembler = ZeroFormAssembler(form, tensor, form_compiler_parameters)
+        with PETSc.Log.Event("create zero form assembler"):
+            assembler = _create_zero_form_assembler(form, tensor, form_compiler_parameters)
     elif rank == 1 or (rank == 2 and diagonal):
-        assembler = OneFormAssembler(form, tensor, bcs, diagonal=diagonal,
-                                     form_compiler_parameters=form_compiler_parameters,
-                                     needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
+        with PETSc.Log.Event("create one form assembler"):
+            assembler = _create_one_form_assembler(form, tensor, bcs, diagonal=diagonal,
+                                         form_compiler_parameters=form_compiler_parameters,
+                                         zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
-        assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
-                                     needs_zeroing=False, weight=weight)
+        with PETSc.Log.Event("create two form assembler"):
+            assembler = _create_two_form_assembler(form, tensor, bcs, form_compiler_parameters,
+                                         weight=weight)
+            assembler.replace_tensor(tensor)
     else:
         raise AssertionError
 
@@ -382,6 +393,58 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                                options_prefix=options_prefix)
     else:
         raise AssertionError
+        raise N
+
+
+def _zero_form_assembler_cache_key(
+    form, tensor, form_compiler_parameters,
+):
+    return tensor.comm, (ufl_form_cache_key(form), tensor, tuplify(form_compiler_parameters))
+
+
+@cached(cache=cache_manager[ASSEMBLER_CACHE_NAME], key=_zero_form_assembler_cache_key)
+def _create_zero_form_assembler(
+    form, tensor, form_compiler_parameters,
+):
+    return ZeroFormAssembler(form, tensor, form_compiler_parameters)
+
+
+def _one_form_assembler_cache_key(
+    form, tensor, bcs, diagonal,
+     form_compiler_parameters,
+     zero_bc_nodes
+):
+    return tensor.comm, (ufl_form_cache_key(form), tensor, bcs, diagonal,
+                         tuplify(form_compiler_parameters), zero_bc_nodes)
+
+
+@cached(cache=cache_manager[ASSEMBLER_CACHE_NAME], key=_one_form_assembler_cache_key)
+def _create_one_form_assembler(
+    form, tensor, bcs, diagonal,
+     form_compiler_parameters,
+     zero_bc_nodes
+):
+    return OneFormAssembler(form, tensor, bcs, diagonal=diagonal,
+                                 form_compiler_parameters=form_compiler_parameters,
+                                 needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
+
+
+def _two_form_assembler_cache_key(
+    form, tensor, bcs, form_compiler_parameters, weight,
+):
+    # omit tensor from cache key, reinsert above
+    #FIXME bcs *should* be a part of the cache key for now. I'm only omitting because
+    # they are getting regenerated but I think that they are always the same in the
+    # problem I am using
+    return tensor.comm, (ufl_form_cache_key(form), tuplify(form_compiler_parameters), weight)
+
+
+@cached(cache=cache_manager[ASSEMBLER_CACHE_NAME], key=_two_form_assembler_cache_key)
+def _create_two_form_assembler(
+    form, tensor, bcs, form_compiler_parameters, weight,
+):
+    return TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
+                                 needs_zeroing=False, weight=weight)
 
 
 class FormAssembler(abc.ABC):
