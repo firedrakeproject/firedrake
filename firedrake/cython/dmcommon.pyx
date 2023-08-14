@@ -3193,11 +3193,11 @@ def mark_points_with_function_array(PETSc.DM plex,
 def to_petsc_local_numbering(PETSc.Vec vec, V):
     """
     Reorder a PETSc Vec corresponding to a Firedrake Function w.r.t.
-    the initial PETSc numbering.
+    the PETSc natural numbering.
 
-    :arg vec: the PETSc Vec to reorder
+    :arg vec: the PETSc Vec to reorder; must be a global vector
     :arg V: the FunctionSpace of the Function which the Vec comes from
-    :ret out: a copy of the Vec, ordered with the PETSc numbering
+    :ret out: a copy of the Vec, ordered with the PETSc natural numbering
     """
     cdef int dim, idx, start, end, p, d, k
     cdef PetscInt dof, off
