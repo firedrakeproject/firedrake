@@ -5,7 +5,7 @@ from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from pyadjoint.reduced_functional_numpy import gather
 
 from firedrake.functionspace import FunctionSpace
-from firedrake.adjoint.blocks import ConstantAssignBlock
+from firedrake.adjoint_utils.blocks import ConstantAssignBlock
 
 from ufl.domain import extract_unique_domain
 

@@ -3,7 +3,7 @@ import firedrake
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, create_overloaded_object
 from .backend import Backend
-from firedrake.adjoint.checkpointing import maybe_disk_checkpoint
+from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
 
 class AssembleBlock(Block, Backend):

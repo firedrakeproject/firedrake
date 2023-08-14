@@ -6,7 +6,7 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, stop_annotating
 from pyadjoint.enlisting import Enlist
 import firedrake
-from firedrake.adjoint.checkpointing import maybe_disk_checkpoint
+from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .backend import Backend
 
 

@@ -1,7 +1,7 @@
 import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint.blocks import NonlinearVariationalSolveBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from ufl import replace
 
 

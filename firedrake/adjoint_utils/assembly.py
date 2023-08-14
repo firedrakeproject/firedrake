@@ -2,7 +2,7 @@ import numbers
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
-from firedrake.adjoint.blocks import AssembleBlock
+from firedrake.adjoint_utils.blocks import AssembleBlock
 
 
 def annotate_assemble(assemble):

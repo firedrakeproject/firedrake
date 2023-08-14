@@ -48,12 +48,11 @@ def handle_taping():
 
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
-    from firedrake_adjoint import annotate_tape, continue_annotation
+    from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
         continue_annotation()
     yield
-    # Since importing firedrake_adjoint modifies a global variable, we need to
-    # pause annotations at the end of the module
+    # Ensure annotation is paused when we finish.
     annotate = annotate_tape()
     if annotate:
         pause_annotation()
@@ -110,7 +109,7 @@ def firedrake_operator(request, f_exact, V):
 def test_pytorch_loss_backward(V, f_exact):
     """Test backpropagation through a vector-valued Firedrake operator"""
 
-    from firedrake_adjoint import ReducedFunctional, Control
+    from firedrake.adjoint import ReducedFunctional, Control
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -164,7 +163,7 @@ def test_pytorch_loss_backward(V, f_exact):
 def test_firedrake_loss_backward(V):
     """Test backpropagation through a scalar-valued Firedrake operator"""
 
-    from firedrake_adjoint import ReducedFunctional, Control
+    from firedrake.adjoint import ReducedFunctional, Control
 
     # Instantiate model
     model = EncoderDecoder(V.dim())
@@ -219,7 +218,7 @@ def test_firedrake_loss_backward(V):
 def test_taylor_torch_operator(firedrake_operator, V):
     """Taylor test for the torch operator"""
 
-    from firedrake_adjoint import ReducedFunctional, Control
+    from firedrake.adjoint import ReducedFunctional, Control
 
     # Control value
     w = Function(V)

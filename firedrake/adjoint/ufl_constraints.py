@@ -1,4 +1,4 @@
-from .blocks import backend
+from firedrake.adjoint_utils.blocks import backend
 import ufl
 import ufl.algorithms
 import numpy

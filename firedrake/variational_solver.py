@@ -9,7 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
-from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",

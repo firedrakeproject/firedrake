@@ -1,5 +1,5 @@
 from pyadjoint import Block
-from firedrake.adjoint.checkpointing import maybe_disk_checkpoint
+from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
 
 class MeshInputBlock(Block):
