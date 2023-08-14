@@ -83,6 +83,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None, name=None, count=None):
+        """"""
+
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
