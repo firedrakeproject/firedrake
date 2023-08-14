@@ -143,11 +143,13 @@ class GenericSolveBlock(Block, Backend):
 
         F_form = self._create_F_form()
 
-        dFdu = self.backend.derivative(F_form,
-                                       fwd_block_variable.saved_output,
-                                       self.backend.TrialFunction(
-                                            u.function_space()
-                                        ))
+        dFdu = self.backend.derivative(
+            F_form,
+            fwd_block_variable.saved_output,
+            self.backend.TrialFunction(
+                u.function_space()
+            )
+        )
         dFdu_form = self.backend.adjoint(dFdu)
         dJdu = dJdu.copy()
 
@@ -549,7 +551,7 @@ def solve_init_params(self, args, kwargs, varform):
             if "Jp" in self.forward_kwargs:
                 self.adj_kwargs["Jp"] = self.backend.adjoint(
                     self.forward_kwargs["Jp"]
-                 )
+                )
 
             if "M" in self.forward_kwargs:
                 raise NotImplementedError(
@@ -851,9 +853,9 @@ class SupermeshProjectBlock(Block, Backend):
           * v_B = w`.
 
         For a seed vector :math:`v_B^{seed}` from the target space, the adjoint
-        is given by
-          Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
-          Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
+        is given by:
+          * Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
+          * Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
         """
         if len(adj_inputs) != 1:
             raise NotImplementedError(

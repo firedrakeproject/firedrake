@@ -3,7 +3,7 @@ from ufl import replace
 from ufl.corealg.traversal import traverse_unique_terminals
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.algorithms.analysis import extract_arguments_and_coefficients
-from pyadjoint import Block, OverloadedType, AdjFloat, stop_annotating
+from pyadjoint import Block, OverloadedType, AdjFloat
 import firedrake
 from firedrake.adjoint.checkpointing import maybe_disk_checkpoint, \
     DelegatedFunctionCheckpoint
