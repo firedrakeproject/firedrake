@@ -3188,3 +3188,39 @@ def mark_points_with_function_array(PETSc.DM plex,
         CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
         if array[offset] == 1:
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
+
+
+def to_petsc_local_numbering(PETSc.Vec vec, V):
+    """
+    Reorder a PETSc Vec corresponding to a Firedrake Function w.r.t.
+    the PETSc natural numbering.
+
+    :arg vec: the PETSc Vec to reorder; must be a global vector
+    :arg V: the FunctionSpace of the Function which the Vec comes from
+    :ret out: a copy of the Vec, ordered with the PETSc natural numbering
+    """
+    cdef int dim, idx, start, end, p, d, k
+    cdef PetscInt dof, off
+    cdef PETSc.Vec out
+    cdef PETSc.Section section
+    cdef np.ndarray[PetscReal, mode="c", ndim=1] varray, oarray
+
+    section = V.dm.getGlobalSection()
+    out = vec.duplicate()
+    varray = vec.array_r
+    oarray = out.array
+    dim = V.value_size
+    idx = 0
+    start, end = vec.getOwnershipRange()
+    for p in range(*section.getChart()):
+        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(section.sec, p, &off))
+            assert off >= 0
+            off *= dim
+            for d in range(dof):
+                for k in range(dim):
+                    oarray[idx] = varray[off + dim * d + k - start]
+                    idx += 1
+    assert idx == (end - start)
+    return out
