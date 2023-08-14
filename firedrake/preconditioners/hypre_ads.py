@@ -26,7 +26,7 @@ class HypreADS(PCBase):
         except TypeError:
             pass
         if mesh.topological_dimension() != 3:
-            raise ValueError("Hypre ADS only works for meshes of topological dimension 3, (not degree %d)" % (mesh.topological_dimension())) 
+            raise ValueError("Hypre ADS only works for meshes of topological dimension 3, (not dimension %d)" % (mesh.topological_dimension())) 
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
