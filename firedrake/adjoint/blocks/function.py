@@ -185,11 +185,11 @@ class FunctionAssignBlock(Block, Backend):
         else:
             if self.expr is None:
                 prepared = inputs[0]
-                output = self.backend.Function(
-                    block_variable.output.function_space()
-                )
-                output.assign(prepared)
-                return maybe_disk_checkpoint(output)
+            output = self.backend.Function(
+                block_variable.output.function_space()
+            )
+            output.assign(prepared)
+            return maybe_disk_checkpoint(output)
 
     def __str__(self):
         rhs = self.expr or self.other or self.get_dependencies()[0].output
