@@ -149,6 +149,9 @@ This will also work in parallel, as the interpolation will occur on
 each process, and Firedrake will take care of the halo updates before
 the next operation using ``f``.
 
+For interaction with external point data, see the
+:ref:`corresponding manual section <external-point-data>`.
+
 
 C string expressions
 --------------------
