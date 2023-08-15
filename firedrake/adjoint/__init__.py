@@ -45,11 +45,11 @@ import sys
 # Work around the name clash of firedrake.adjoint vs ufl.adjoint.
 # This will eventually become cleaner once we can rely on users having
 # Python 3.12 (see PEP 713).
-class AdjointModule(types.ModuleType):
+class _AdjointModule(types.ModuleType):
     def __call__(self, form):
         return firedrake.ufl_expr.adjoint(form)
 
 
-sys.modules[__name__].__class__ = AdjointModule
+sys.modules[__name__].__class__ = _AdjointModule
 
 set_working_tape(Tape())
