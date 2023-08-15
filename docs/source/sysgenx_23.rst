@@ -22,11 +22,7 @@ in the same location.
 Registration
 ------------
 
-Registration will be £180 for students and £300 for others. This includes two
-nights accommodation and meals for the duration of the workshop. `Register
-here! <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake/sysgenx-excalibur>`__
-
-Registration closes 23 July.
+Registration has now closed.
 
 Further details
 ---------------
