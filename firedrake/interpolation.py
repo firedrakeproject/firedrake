@@ -21,7 +21,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils
-from firedrake.adjoint import annotate_interpolate
+from firedrake.adjoint_utils import annotate_interpolate
 from firedrake.petsc import PETSc
 
 __all__ = ("interpolate", "Interpolator")

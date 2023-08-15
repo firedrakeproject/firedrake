@@ -13,12 +13,11 @@ def handle_taping():
 
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
-    from firedrake_adjoint import annotate_tape, continue_annotation
+    from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
         continue_annotation()
     yield
-    # Since importing firedrake_adjoint modifies a global variable, we need to
-    # pause annotations at the end of the module
+    # Ensure annotations are paused when we finish.
     annotate = annotate_tape()
     if annotate:
         pause_annotation()
@@ -39,7 +38,7 @@ def num_points(request):
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_poisson_inverse_conductivity(num_points):
     # Have to import inside test to make sure cleanup fixtures work as intended
-    from firedrake_adjoint import Control, ReducedFunctional, minimize
+    from firedrake.adjoint import Control, ReducedFunctional, minimize
 
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements

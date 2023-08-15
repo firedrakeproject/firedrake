@@ -1,4 +1,4 @@
-from firedrake.adjoint.blocks import InterpolateBlock
+from firedrake.adjoint_utils.blocks import InterpolateBlock
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 from functools import wraps
 

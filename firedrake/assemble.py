@@ -16,7 +16,7 @@ import ufl
 from ufl.domain import extract_unique_domain
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.adjoint import annotate_assemble
+from firedrake.adjoint_utils import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key

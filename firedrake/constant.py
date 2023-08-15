@@ -10,7 +10,7 @@ from ufl.utils.counted import Counted
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import ConstantMixin
+from firedrake.adjoint_utils.constant import ConstantMixin
 
 
 __all__ = ['Constant']

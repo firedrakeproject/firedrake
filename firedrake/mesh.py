@@ -28,7 +28,7 @@ from firedrake.utils import IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.adjoint import MeshGeometryMixin
+from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 
 try:
