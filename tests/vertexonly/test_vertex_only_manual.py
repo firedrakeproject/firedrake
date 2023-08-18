@@ -51,8 +51,8 @@ def test_vom_manual_points_outside_domain():
         points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
 
     vom = True  # avoid flake8 unused variable warning
-    with pytest.raises(ValueError):
-        # This will raise a ValueError
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
+        # This will raise a VertexOnlyMeshMissingPointsError
         vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='error')
 
     def display_correct_indent():
