@@ -16,7 +16,7 @@ from firedrake.utils import ScalarType, IntType, as_ctypes
 from firedrake import functionspaceimpl
 from firedrake import utils
 from firedrake import vector
-from firedrake.adjoint import FunctionMixin
+from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
 

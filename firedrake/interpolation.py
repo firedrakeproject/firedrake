@@ -21,10 +21,50 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils
-from firedrake.adjoint import annotate_interpolate
+from firedrake.adjoint_utils import annotate_interpolate
 from firedrake.petsc import PETSc
+from firedrake.halo import _get_mtype as get_dat_mpi_type
+from mpi4py import MPI
+
+from pyadjoint import stop_annotating
 
 __all__ = ("interpolate", "Interpolator")
+
+
+# Current behaviour of interpolation in Firedrake:
+# - v.interpolate(expr),
+#   interpolate(expr, v),
+#   Interpolator(expr, v).interpolate(),
+#   v = interpolate(expr, V) and
+#   Interpolator(expr, V).interpolate(v)
+#   - Works with UFL expressions which contain no UFL Arguments. The
+#     expression can contain functions (UFL Coefficients) from other
+#     function spaces which will be interpolated into V.
+#   - Either operates on a function v in V (UFL Coefficient) or outputs a
+#     function in V.
+#   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
+#   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
+#     is mathematical nonsense due to the absence of UFL Cofunctions in
+#     Firedrake. See
+#     https://github.com/firedrakeproject/firedrake/issues/3017
+# - B = Interpolator(expr_1_argument, V)
+#   - creates the linear interpolation operator B : W -> V where the UFL
+#     Argument is linear in the expression and is in W. The UFL Argument must
+#     be number 0 (i.e. TestFunction(W) rather than TrialFunction(W)).
+#   - The rest of the expression, including any functions (UFL
+#     Coefficients), are already interpolated into V and are encorporated
+#     in the operator.
+#   - NOTE: Nonlinear Arguments are currently allowed in the expression and
+#     shouldn't be. See
+#     https://github.com/firedrakeproject/firedrake/issues/3018
+# - w = B.interpolate(v)
+#   - v is a function in V (NOT an expression).
+#   - w is a function in W.
+#   - Maths: v = Bw
+# - v_star = B.interpolate(w_star, transpose = True)
+#   - w_star is a cofunction in W^* (such as an assembled 1-form).
+#   - v_star is a cofunction in V^*.
+#   - Maths: v^* = B^* w^*
 
 
 @PETSc.Log.EventDecorator()
@@ -130,6 +170,8 @@ class Interpolator(object):
 
         if self.nargs:
             function, = function
+            if not hasattr(function, "dat"):
+                raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if transpose:
                 mul = assembled_interpolator.handle.multTranspose
                 V = self.arguments[0].function_space()
@@ -161,7 +203,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
+    target_mesh = V.ufl_domain()
     if len(arguments) == 0:
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        vom_onto_other_vom = (
+            isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and target_mesh is not source_mesh
+        )
         if isinstance(V, firedrake.Function):
             f = V
             V = f.function_space()
@@ -179,10 +228,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = V.ufl_domain()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
-        if target_mesh is not source_mesh:
+        vom_onto_other_vom = (
+            isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and target_mesh is not source_mesh
+        )
+        if target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
             if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
@@ -201,39 +254,75 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
                     argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
-        sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
-                                ((V.cell_node_map(), argfs_map),),
-                                name="%s_%s_sparsity" % (V.name, argfs.name),
-                                nest=False,
-                                block_sparse=True)
-        tensor = op2.Mat(sparsity)
+        if vom_onto_other_vom:
+            # We make our own linear operator for this case using PETSc SFs
+            tensor = None
+        else:
+            sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
+                                    ((V.cell_node_map(), argfs_map),),
+                                    name="%s_%s_sparsity" % (V.name, argfs.name),
+                                    nest=False,
+                                    block_sparse=True)
+            tensor = op2.Mat(sparsity)
         f = tensor
     else:
         raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
 
-    # Make sure we have an expression of the right length i.e. a value for
-    # each component in the value shape of each function space
-    dims = [numpy.prod(fs.ufl_element().value_shape(), dtype=int)
-            for fs in V]
-    loops = []
-    if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
-        raise RuntimeError('Expression of length %d required, got length %d'
-                           % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
+    if vom_onto_other_vom:
+        # To interpolate between vertex-only meshes we use a PETSc SF
+        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments)
+        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+        # data, including the correct data size and dimensional information
+        # (so for vector function spaces in 2 dimensions we might need a
+        # concatenation of 2 MPI.DOUBLE types when we are in real mode)
+        if tensor is not None:
+            # Callable will do interpolation into tensor (which is a Dat) when
+            # it is called.
+            wrapper.mpi_type, _ = get_dat_mpi_type(tensor)
+            assert not len(arguments)
+            callable = partial(wrapper.forward_operation, tensor)
+        else:
+            assert len(arguments) == 1
+            assert tensor is None
+            # we know we will be outputting either a function or a cofunction,
+            # both of which will use a dat as a data carrier. At present, the
+            # data type does not depend on function space dimension, so we can
+            # safely use the argument function space. NOTE: If this changes
+            # after cofunctions are fully implemented, this will need to be
+            # reconsidered.
+            temp_source_func = firedrake.Function(argfs)
+            wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
 
-    if len(V) > 1:
-        raise NotImplementedError(
-            "UFL expressions for mixed functions are not yet supported.")
-    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+            # Leave wrapper inside a callable so we can access the handle
+            # property (which is pretending to be a petsc mat)
+            def callable():
+                return wrapper
 
-    if bcs and len(arguments) == 0:
-        loops.extend([partial(bc.apply, f) for bc in bcs])
+        return callable, arguments
+    else:
+        # Make sure we have an expression of the right length i.e. a value for
+        # each component in the value shape of each function space
+        dims = [numpy.prod(fs.ufl_element().value_shape(), dtype=int)
+                for fs in V]
+        loops = []
+        if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
+            raise RuntimeError('Expression of length %d required, got length %d'
+                               % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
 
-    def callable(loops, f):
-        for l in loops:
-            l()
-        return f
+        if len(V) > 1:
+            raise NotImplementedError(
+                "UFL expressions for mixed functions are not yet supported.")
+        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
 
-    return partial(callable, loops, f), arguments
+        if bcs and len(arguments) == 0:
+            loops.extend([partial(bc.apply, f) for bc in bcs])
+
+        def callable(loops, f):
+            for l in loops:
+                l()
+            return f
+
+        return partial(callable, loops, f), arguments
 
 
 @utils.known_pyop2_safe
@@ -617,10 +706,10 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     dofs_per_target_cell = cnm.arity
     base_cells = vmx.cell_parent_base_cell_list
     heights = vmx.cell_parent_extrusion_height_list
-    assert cnm.values.shape[1] == dofs_per_target_cell
+    assert cnm.values_with_halo.shape[1] == dofs_per_target_cell
     assert len(cnm.offset) == dofs_per_target_cell
     target_cell_parent_node_list = [
-        cnm.values[base_cell, :] + height * cnm.offset[:]
+        cnm.values_with_halo[base_cell, :] + height * cnm.offset[:]
         for base_cell, height in zip(base_cells, heights)
     ]
     return op2.Map(
@@ -644,4 +733,207 @@ def hash_expr(expr):
     """
     domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
     coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
-    return compute_expression_signature(expr, {**domain_numbering, **coefficient_numbering})
+    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
+    return compute_expression_signature(
+        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
+    )
+
+
+class VomOntoVomWrapper(object):
+    """Utility class for interpolating from one ``VertexOnlyMesh`` to it's
+    intput ordering ``VertexOnlyMesh``, or vice versa.
+
+    Parameters
+    ----------
+    V : `.FunctionSpace`
+        The P0DG function space (which may be vector or tensor valued) on the
+        source vertex-only mesh.
+    source_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate from.
+    target_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate to.
+    expr : `ufl.Expr`
+        The expression to interpolate. If ``arguments`` is not empty, those
+        arguments must be present within it.
+    arguments : list of `ufl.Argument`
+        The arguments in the expression. These are not extracted from expr here
+        since, where we use this, we already have them.
+    """
+
+    def __init__(self, V, source_vom, target_vom, expr, arguments):
+        reduce = False
+        if source_vom.input_ordering is target_vom:
+            reduce = True
+            original_vom = source_vom
+        elif target_vom.input_ordering is source_vom:
+            original_vom = target_vom
+        else:
+            raise ValueError(
+                "The target vom and source vom must be linked by input ordering!"
+            )
+        self.V = V
+        self.source_vom = source_vom
+        self.expr = expr
+        self.arguments = arguments
+        self.reduce = reduce
+        # note that interpolation doesn't include halo cells
+        self.handle = VomOntoVomDummyMat(
+            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
+        )
+
+    @property
+    def mpi_type(self):
+        """
+        The MPI type to use for the PETSc SF.
+
+        Should correspond to the underlying data type of the PETSc Vec.
+        """
+        return self.handle.mpi_type
+
+    @mpi_type.setter
+    def mpi_type(self, val):
+        self.handle.mpi_type = val
+
+    def forward_operation(self, target_dat):
+        coeff = self.handle.expr_as_coeff()
+        with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
+            self.handle.mult(coeff_vec, target_vec)
+
+
+class VomOntoVomDummyMat(object):
+    """Dummy object to stand in for a PETSc ``Mat`` when we are interpolating
+    between vertex-only meshes.
+
+    Parameters
+    ----------
+    sf: PETSc.sf
+        The PETSc Star Forest (SF) to use for the operation
+    forward_reduce : bool
+        If ``True``, the action of the operator (accessed via the `mult`
+        method) is to perform a SF reduce from the source vec to the target
+        vec, whilst the adjoint action (accessed via the `multTranspose`
+        method) is to perform a SF broadcast from the source vec to the target
+        vec. If ``False``, the opposite is true.
+    V : `.FunctionSpace`
+        The P0DG function space (which may be vector or tensor valued) on the
+        source vertex-only mesh.
+    source_vom : `.VertexOnlyMesh`
+        The vertex-only mesh we interpolate from.
+    expr : `ufl.Expr`
+        The expression to interpolate. If ``arguments`` is not empty, those
+        arguments must be present within it.
+    arguments : list of `ufl.Argument`
+        The arguments in the expression.
+    """
+
+    def __init__(self, sf, forward_reduce, V, source_vom, expr, arguments):
+        self.sf = sf
+        self.forward_reduce = forward_reduce
+        self.V = V
+        self.source_vom = source_vom
+        self.expr = expr
+        self.arguments = arguments
+
+    @property
+    def mpi_type(self):
+        """
+        The MPI type to use for the PETSc SF.
+
+        Should correspond to the underlying data type of the PETSc Vec.
+        """
+        return self._mpi_type
+
+    @mpi_type.setter
+    def mpi_type(self, val):
+        self._mpi_type = val
+
+    def expr_as_coeff(self, source_vec=None):
+        """
+        Return a coefficient that corresponds to the expression used at
+        construction, where the expression has been interpolated into the P0DG
+        function space on the source vertex-only mesh.
+
+        Will fail if there are no arguments.
+        """
+        # Since we always output a coefficient when we don't have arguments in
+        # the expression, we should evaluate the expression on the source mesh
+        # so its dat can be sent to the target mesh.
+        with stop_annotating():
+            element = self.V.ufl_element()  # Could be vector/tensor valued
+            P0DG = firedrake.FunctionSpace(self.source_vom, element)
+            # if we have any arguments in the expression we need to replace
+            # them with equivalent coefficients now
+            coeff_expr = self.expr
+            if len(self.arguments):
+                if len(self.arguments) > 1:
+                    raise NotImplementedError(
+                        "Can only interpolate expressions with one argument!"
+                    )
+                if source_vec is None:
+                    raise ValueError("Need to provide a source dat for the argument!")
+                arg = self.arguments[0]
+                arg_coeff = firedrake.Function(arg.function_space())
+                arg_coeff.dat.data_wo[:] = source_vec.getArray().reshape(
+                    arg_coeff.dat.data_wo.shape
+                )
+                coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
+            coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
+        return coeff
+
+    def reduce(self, source_vec, target_vec):
+        source_arr = source_vec.getArray()
+        target_arr = target_vec.getArray()
+        self.sf.reduceBegin(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+        self.sf.reduceEnd(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+
+    def broadcast(self, source_vec, target_vec):
+        source_arr = source_vec.getArray()
+        target_arr = target_vec.getArray()
+        self.sf.bcastBegin(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+        self.sf.bcastEnd(
+            self.mpi_type,
+            source_arr,
+            target_arr,
+            MPI.REPLACE,
+        )
+
+    def mult(self, source_vec, target_vec):
+        # need to evaluate expression before doing mult
+        coeff = self.expr_as_coeff(source_vec)
+        with coeff.dat.vec_ro as coeff_vec:
+            if self.forward_reduce:
+                self.reduce(coeff_vec, target_vec)
+            else:
+                self.broadcast(coeff_vec, target_vec)
+
+    def multTranspose(self, source_vec, target_vec):
+        # can only do transpose if our expression exclusively contains a
+        # single argument, making the application of the adjoint operator
+        # straightforward (haven't worked out how to do this otherwise!)
+        if not len(self.arguments) == 1:
+            raise NotImplementedError(
+                "Can only apply transpose to expressions with one argument!"
+            )
+        if self.arguments[0] is not self.expr:
+            raise NotImplementedError(
+                "Can only apply transpose to expressions consisting of a single argument at the moment."
+            )
+        if self.forward_reduce:
+            self.broadcast(source_vec, target_vec)
+        else:
+            self.reduce(source_vec, target_vec)
