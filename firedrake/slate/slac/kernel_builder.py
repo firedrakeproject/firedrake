@@ -187,7 +187,7 @@ class LocalLoopyKernelBuilder:
 
         return [which]
 
-    def facet_integral_predicates(self, mesh, integral_type, kinfo):
+    def facet_integral_predicates(self, mesh, integral_type, kinfo, subdomain_id):
         self.bag.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
@@ -207,8 +207,8 @@ class LocalLoopyKernelBuilder:
         # TODO subdomain boundary integrals, this does the wrong thing for integrals like f*ds + g*ds(1)
         # "otherwise" is treated incorrectly as "everywhere"
         # However, this replicates an existing slate bug.
-        if kinfo.subdomain_id != "otherwise":
-            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 1)), "==", kinfo.subdomain_id))
+        if subdomain_id != "otherwise":
+            predicates.append(pym.Comparison(pym.Subscript(pym.Variable(self.cell_facets_arg_name), (fidx[0], 1)), "==", subdomain_id))
 
         # Additional facet array argument to be fed into tsfc loopy kernel
         subscript = pym.Subscript(pym.Variable(self.local_facet_array_arg_name),
@@ -403,52 +403,53 @@ class LocalLoopyKernelBuilder:
 
         for cxt_kernel in cxt_kernels:
             for tsfc_kernel in cxt_kernel.tsfc_kernels:
-                integral_type = cxt_kernel.original_integral_type
-                slate_tensor = cxt_kernel.tensor
-                mesh = slate_tensor.ufl_domain()
-                kinfo = tsfc_kernel.kinfo
-                reads = []
-                inames_dep = []
+                for subdomain_id in tsfc_kernel.kinfo.subdomain_id:
+                    integral_type = cxt_kernel.original_integral_type
+                    slate_tensor = cxt_kernel.tensor
+                    mesh = slate_tensor.ufl_domain()
+                    kinfo = tsfc_kernel.kinfo
+                    reads = []
+                    inames_dep = []
 
-                if integral_type not in self.supported_integral_types:
-                    raise ValueError("Integral type '%s' not recognized" % integral_type)
+                    if integral_type not in self.supported_integral_types:
+                        raise ValueError("Integral type '%s' not recognized" % integral_type)
 
-                # Prepare lhs and args for call to tsfc kernel
-                output_var = pym.Variable(loopy_tensor.name)
-                reads.append(output_var)
-                output = self.generate_lhs(slate_tensor, output_var)
-                kernel_data = self.collect_tsfc_kernel_data(
-                    mesh,
-                    cxt_kernel.coefficients,
-                    cxt_kernel.constants,
-                    self.bag.coefficients,
-                    self.bag.constants,
-                    kinfo
-                )
-                reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
+                    # Prepare lhs and args for call to tsfc kernel
+                    output_var = pym.Variable(loopy_tensor.name)
+                    reads.append(output_var)
+                    output = self.generate_lhs(slate_tensor, output_var)
+                    kernel_data = self.collect_tsfc_kernel_data(
+                        mesh,
+                        cxt_kernel.coefficients,
+                        cxt_kernel.constants,
+                        self.bag.coefficients,
+                        self.bag.constants,
+                        kinfo
+                    )
+                    reads.extend(self.loopify_tsfc_kernel_data(kernel_data))
 
-                # Generate predicates for different integral types
-                if self.is_integral_type(integral_type, "cell_integral"):
-                    predicates = None
-                    if kinfo.subdomain_id != "otherwise":
-                        raise NotImplementedError("No subdomain markers for cells yet")
-                elif self.is_integral_type(integral_type, "facet_integral"):
-                    predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo)
-                    reads.append(facet_arg)
-                    inames_dep.append(fidx[0].name)
-                elif self.is_integral_type(integral_type, "layer_integral"):
-                    predicates = self.layer_integral_predicates(slate_tensor, integral_type)
-                else:
-                    raise ValueError("Unhandled integral type {}".format(integral_type))
+                    # Generate predicates for different integral types
+                    if self.is_integral_type(integral_type, "cell_integral"):
+                        predicates = None
+                        if subdomain_id != "otherwise":
+                            raise NotImplementedError("No subdomain markers for cells yet")
+                    elif self.is_integral_type(integral_type, "facet_integral"):
+                        predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo, subdomain_id)
+                        reads.append(facet_arg)
+                        inames_dep.append(fidx[0].name)
+                    elif self.is_integral_type(integral_type, "layer_integral"):
+                        predicates = self.layer_integral_predicates(slate_tensor, integral_type)
+                    else:
+                        raise ValueError("Unhandled integral type {}".format(integral_type))
 
-                # TSFC kernel call
-                key = self.bag.call_name_generator(integral_type)
-                call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
-                insn = loopy.CallInstruction((output,), call,
-                                             within_inames=frozenset(inames_dep),
-                                             predicates=predicates, id=key)
-                event, = kinfo.events
-                yield insn, kinfo.kernel.code, event
+                    # TSFC kernel call
+                    key = self.bag.call_name_generator(integral_type)
+                    call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
+                    insn = loopy.CallInstruction((output,), call,
+                                                 within_inames=frozenset(inames_dep),
+                                                 predicates=predicates, id=key)
+                    event, = kinfo.events
+                    yield insn, kinfo.kernel.code, event
 
 
 class SlateWrapperBag:
