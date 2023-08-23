@@ -1121,7 +1121,7 @@ class ParloopBuilder:
                 raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
-            if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
+            if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
