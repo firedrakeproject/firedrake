@@ -1044,10 +1044,9 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     elif package == "petsc4py/":
-        build_and_install_petsc4py()
+        build_and_install_x4py("petsc4py")
     elif package == "slepc4py/":
-        # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-        run_pip_install(["--ignore-installed", get_slepc4py_dir()])
+        build_and_install_x4py("slepc4py")
     elif package == "h5py/":
         # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
@@ -1165,26 +1164,32 @@ def build_and_install_petsc():
                 check_call(["rm", "-f", deletefile])
 
 
-def build_and_install_petsc4py():
+def build_and_install_x4py(package="petsc4py"):
+    if package == "petsc4py":
+        x4py_dir = get_petsc4py_dir()
+    elif package == "slepc4py":
+        x4py_dir = get_slepc4py_dir()
+    else:
+        raise ValueError("build_and_install_x4py() should be called with 'petsc4py' or 'slepc4py' only")
     with environment(**blas):
         if args.honour_petsc_dir:
-            log.info("Copying petsc4py to virtualenv to install")
-            petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
-            if not os.path.exists(petsc4py_copy):
-                shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
-            pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
+            log.info("Copying {} to virtualenv to install".format(package))
+            x4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', package)
+            if not os.path.exists(x4py_copy):
+                shutil.copytree(x4py_dir, x4py_copy, dirs_exist_ok=True)
+            pipargs = ["-vvv", "--ignore-installed", x4py_copy]
             try:
                 check_output(pipinstall + pipargs)
             except subprocess.CalledProcessError:
-                with open(os.path.join(petsc4py_copy, "README.md")) as fh:
-                    fh.write("# Unable to install petsc4py\n")
-                    fh.write("This is just a copy of the petsc4py source for debugging\n")
+                with open(os.path.join(x4py_copy, "README.md")) as fh:
+                    fh.write("# Unable to install {}\n".format(package))
+                    fh.write("This is just a copy of the {} source for debugging\n".format(package))
                     fh.write("See `firedrake-install.log` for the error")
                 raise
             else:
-                shutil.rmtree(petsc4py_copy)
+                shutil.rmtree(x4py_copy)
         else:
-            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
+            pipargs = ["-vvv", "--ignore-installed", x4py_dir]
             check_output(pipinstall + pipargs)
 
 
@@ -1241,17 +1246,9 @@ def build_and_install_h5py():
 
 def build_and_install_libsupermesh():
     log.info("Installing libsupermesh")
-    url = "git+https://bitbucket.org/libsupermesh/libsupermesh.git"
+    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
-        log.info("Updating the git repository for libsupermesh")
-        with directory("libsupermesh"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            changed = git_sha != git_sha_new
-            if changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
+        changed = git_update("libsupermesh", url)
     else:
         git_clone(url)
         changed = True
@@ -1831,7 +1828,7 @@ if mode == "install":
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install_wrap(package.split())
+            run_pip_install_wrap(package.split(), {})
 
     # "Temporary" workaround for missing VTK wheel on Python 3.11
     if sys.version_info[:2] == (3, 11):

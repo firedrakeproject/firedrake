@@ -8,12 +8,11 @@ import pytest
 
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
-    from firedrake_adjoint import annotate_tape, continue_annotation
+    from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
         continue_annotation()
     yield
-    # Since importing firedrake_adjoint modifies a global variable, we need to
-    # pause annotations at the end of the module
+    # Ensure annotations are paused at the end of the module.
     annotate = annotate_tape()
     if annotate:
         pause_annotation()
@@ -66,7 +65,7 @@ def adjoint_example(mesh):
 # A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
-    from firedrake_adjoint import enable_disk_checkpointing, \
+    from firedrake.adjoint import enable_disk_checkpointing, \
         checkpointable_mesh, pause_disk_checkpointing
     tape = get_working_tape()
     tape.clear_tape()
@@ -86,7 +85,7 @@ def test_disk_checkpointing():
 
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
-    from firedrake_adjoint import enable_disk_checkpointing, \
+    from firedrake.adjoint import enable_disk_checkpointing, \
         checkpointable_mesh, pause_disk_checkpointing
     tape = get_working_tape()
     tape.clear_tape()

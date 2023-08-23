@@ -41,9 +41,7 @@ deadline is 21 July.
 Registration
 ------------
 
-Registration will be £180 for students and £300 for others. This includes two
-nights accommodation and meals for the duration of the workshop. `Register
-here! <https://estore.imperial.ac.uk/conferences-and-events/faculty-of-natural-sciences/mathematics/firedrake/firedrake-workshop-2023>`__
+Registration for the workshop has now closed.
 
 Organising committee
 --------------------

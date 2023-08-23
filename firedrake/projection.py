@@ -7,7 +7,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint import annotate_project
+from firedrake.adjoint_utils import annotate_project
 from finat import HDivTrace
 
 

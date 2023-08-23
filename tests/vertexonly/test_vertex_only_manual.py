@@ -1,6 +1,8 @@
 from firedrake import *
 import pytest
-# Ensure that the code shown in the manual runs without error.
+# Ensure that the code shown in the manual runs without error. If you change
+# the code here make sure you update the .. literalinclude:: bits in the manual
+# too!
 
 
 def test_vertex_only_mesh_manual_example():
@@ -23,7 +25,22 @@ def test_vertex_only_mesh_manual_example():
     # Interpolation performs point evaluation
     f_at_points = interpolate(f, P0DG)
 
-    print(f_at_points.dat.data)
+    print(f_at_points.dat.data_ro)
+
+    # Make a P0DG function on the input ordering vertex-only mesh again
+    P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
+    f_at_input_points = Function(P0DG_input_ordering)
+
+    # We interpolate the other way this time
+    f_at_input_points.interpolate(f_at_points)
+
+    print(f_at_input_points.dat.data_ro)  # will print the values at the input points
+
+    import numpy as np
+    f_at_input_points.dat.data_wo[:] = np.nan
+    f_at_input_points.interpolate(f_at_points)
+
+    print(f_at_input_points.dat.data_ro)  # any points not found will be NaN
 
 
 def test_vom_manual_points_outside_domain():
@@ -33,17 +50,22 @@ def test_vom_manual_points_outside_domain():
         # point (1.1, 1.0) is outside the mesh
         points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
 
+    vom = True  # avoid flake8 unused variable warning
     with pytest.raises(ValueError):
         # This will raise a ValueError
         vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='error')
 
-    # This will generate a warning and the point will be lost
-    vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='warn')
+    def display_correct_indent():
+        # This will generate a warning and the point will be lost
+        vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='warn')
 
-    # This will cause the point to be silently lost
-    vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour=None)
+        # This will cause the point to be silently lost
+        vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour=None)
 
-    assert vom  # Just here to shut up flake8 unused variable warning.
+        assert vom  # Just here to shut up flake8 unused variable warning.
+
+    assert vom  # here too
+    display_correct_indent()
 
 
 def test_vom_manual_keyword_arguments():
@@ -117,3 +139,38 @@ def test_mesh_tolerance_change():
         print(parent_mesh.tolerance)
 
     assert vom
+
+
+@pytest.mark.parallel
+def test_input_ordering_input():
+    parent_mesh = UnitSquareMesh(100, 100, quadrilateral=True)
+    if parent_mesh.comm.rank == 0:
+        point_locations_from_elsewhere = [[0.1, 0.1], [0.2, 0.2], [1.0, 1.0]]
+        point_data_values_from_elsewhere = [1.0, 2.0, 3.0]
+    elif parent_mesh.comm.rank == 1:
+        point_locations_from_elsewhere = [[0.3, 0.3], [0.4, 0.4], [0.9, 0.9]]
+        point_data_values_from_elsewhere = [4.0, 5.0, 6.0]
+    else:
+        import numpy as np
+        point_locations_from_elsewhere = np.array([]).reshape(0, 2)
+        point_data_values_from_elsewhere = []
+
+    # We have a set of points with corresponding data from elsewhere which vary
+    # from rank to rank
+    vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere, redundant=False)
+    P0DG = FunctionSpace(vom, "DG", 0)
+
+    # Create a P0DG function on the input ordering vertex-only mesh
+    P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
+    point_data_input_ordering = Function(P0DG_input_ordering)
+
+    # We can safely set the values of this function, knowing that the data will
+    # be in the same order and on the same MPI rank as point_locations_from_elsewhere
+    point_data_input_ordering.dat.data_wo[:] = point_data_values_from_elsewhere
+
+    # Interpolate puts this data onto the original vertex-only mesh
+    point_data = interpolate(point_data_input_ordering, P0DG)
+
+    assert vom
+    if point_data:  # in case point data is None for some reason - apparently it can be in complex mode without an error occuring?
+        assert point_data  # avoid flake8 unused variable warning

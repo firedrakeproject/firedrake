@@ -6,11 +6,11 @@ from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
-from ufl.utils.counted import counted_init
+from ufl.utils.counted import Counted
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import ConstantMixin
+from firedrake.adjoint_utils.constant import ConstantMixin
 
 
 __all__ = ['Constant']
@@ -30,7 +30,7 @@ def _create_dat(op2type, value, comm):
     return dat, rank, shape
 
 
-class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin):
+class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin, Counted):
     """A "constant" coefficient
 
     A :class:`Constant` takes one value over the whole
@@ -53,9 +53,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
        :class:`~ufl.form.Form` on its own you need to pass a
        :func:`~.Mesh` as the domain argument.
     """
-    _globalcount = 0
 
-    def __new__(cls, value, domain=None):
+    def __new__(cls, value, domain=None, name=None, count=None):
         if domain:
             # Avoid circular import
             from firedrake.function import Function
@@ -83,7 +82,9 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None, name=None):
+    def __init__(self, value, domain=None, name=None, count=None):
+        """"""
+
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
@@ -93,11 +94,19 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         self.name = name or 'constant_%d' % self.uid
 
         super().__init__()
-        counted_init(self, None, self.__class__)
-        self._hash = None
+        Counted.__init__(self, count)
 
     def __repr__(self):
         return f"Constant({self.dat.data_ro}, {self.count()})"
+
+    def _ufl_signature_data_(self, renumbering):
+        return (type(self).__name__, renumbering[self])
+
+    def __hash__(self):
+        return hash((type(self), self.count()))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.count() == other.count()
 
     @property
     def ufl_shape(self):
