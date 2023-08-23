@@ -41,10 +41,11 @@ class GenericSolveBlock(Block, Backend):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, ufl.Form):
+        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
             self.linear = True
-            for c in self.rhs.coefficients():
-                self.add_dependency(c, no_duplicates=True)
+            if not isinstance(rhs, ufl.Cofunction):
+                for c in self.rhs.coefficients():
+                    self.add_dependency(c, no_duplicates=True)
         else:
             self.linear = False
 
@@ -517,8 +518,10 @@ class GenericSolveBlock(Block, Backend):
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
+        rhs_func = self.backend.Function(rhs.function_space().dual(), val=rhs.vector())
         for bc in bcs:
-            bc.apply(rhs)
+            bc.apply(rhs_func)
+        rhs.assign(self.backend.Cofunction(rhs.function_space(), val=rhs_func.vector()))
         self.backend.solve(lhs, func.vector(), rhs, **kwargs)
         return func
 

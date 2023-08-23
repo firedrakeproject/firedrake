@@ -66,6 +66,8 @@ class FunctionAssignBlock(Block, Backend):
                 adj_output = self.backend.Function(
                     block_variable.output.function_space())
                 adj_output.assign(prepared)
+                adj_output = self.backend.Cofunction(adj_output.function_space().dual(),
+                                                     val=adj_output.vector())
                 return adj_output.vector()
         else:
             # Linear combination
@@ -77,7 +79,10 @@ class FunctionAssignBlock(Block, Backend):
                         expr, block_variable.saved_output, adj_input_func
                     )
                 )
-                adj_output.assign(diff_expr)
+                # Firedrake does not support assignment of conjugate functions
+                adj_output.interpolate(ufl.conj(diff_expr))
+                adj_output = self.backend.Cofunction(adj_output.function_space().dual(),
+                                                     val=adj_output.vector())
             else:
                 mesh = adj_output.function_space().mesh()
                 diff_expr = ufl.algorithms.expand_derivatives(

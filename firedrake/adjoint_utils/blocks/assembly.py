@@ -13,8 +13,11 @@ class AssembleBlock(Block, Backend):
         if self.backend.__name__ != "firedrake":
             mesh = self.form.ufl_domain().ufl_cargo()
         else:
-            mesh = self.form.ufl_domain()
-        self.add_dependency(mesh)
+            mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') else None
+
+        if mesh:
+            self.add_dependency(mesh)
+
         for c in self.form.coefficients():
             self.add_dependency(c, no_duplicates=True)
 
@@ -28,7 +31,7 @@ class AssembleBlock(Block, Backend):
            `<(dform/dc_rep)*, adj_input>`
 
            - If `form` has arity 0 => `dform/dc_rep` is a 1-form and
-             `adj_input` a foat, we can simply use the `*` operator.
+             `adj_input` a float, we can simply use the `*` operator.
 
            - If `form` has arity 1 => `dform/dc_rep` is a 2-form and we can
              symbolically take its adjoint and then apply the action on
@@ -51,8 +54,8 @@ class AssembleBlock(Block, Backend):
             # have been expanded beforehand. However, UFL doesn't support
             # expanding coordinate derivatives of Coefficients in physical
             # space, implying that we can't symbolically take the
-            # action/adjoint of the Jacobian for SpatialCoordinates. ->
-            # Workaround: Apply action/adjoint numerically (using PETSc).
+            # action/adjoint of the Jacobian for SpatialCoordinates.
+            # -> Workaround: Apply action/adjoint numerically (using PETSc).
             if not isinstance(c_rep, self.backend.SpatialCoordinate):
                 # Symbolically compute: (dform/dc_rep)^* * adj_input
                 adj_output = self.backend.action(self.backend.adjoint(dform),
@@ -62,7 +65,7 @@ class AssembleBlock(Block, Backend):
                 # Get PETSc matrix
                 dform_mat = self.compat.assemble_adjoint_value(dform).petscmat
                 # Action of the adjoint (Hermitian transpose)
-                adj_output = self.backend.Function(space)
+                adj_output = self.backend.Cofunction(space.dual())
                 with adj_input.dat.vec_ro as v_vec:
                     with adj_output.dat.vec as res_vec:
                         dform_mat.multHermitian(v_vec, res_vec)
@@ -133,14 +136,14 @@ class AssembleBlock(Block, Backend):
                 continue
             if isinstance(c_rep, self.compat.MeshType):
                 X = self.backend.SpatialCoordinate(c_rep)
-                dform += self.backend.derivative(form, X, tlm_value)
+                dform += self.backend.action(self.backend.derivative(form, X), tlm_value)
             else:
-                dform += self.backend.derivative(form, c_rep, tlm_value)
+                dform += self.backend.action(self.backend.derivative(form, c_rep), tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = self.compat.assemble_adjoint_value(dform)
             if arity_form == 1 and dform != 0:
-                # Then dform is a Vector
+                # Then dform is a Vector (and not a ZeroBaseForm since dform != 0)
                 dform = dform.function
         return dform
 
@@ -180,7 +183,7 @@ class AssembleBlock(Block, Backend):
             hessian_input, arity_form, form, c1_rep, space
         )
 
-        ddform = 0
+        ddform = 0.
         for other_idx, bv in relevant_dependencies:
             c2_rep = bv.saved_output
             tlm_input = bv.tlm_value
@@ -196,10 +199,8 @@ class AssembleBlock(Block, Backend):
 
         if not isinstance(ddform, float):
             ddform = ufl.algorithms.expand_derivatives(ddform)
-            if not ddform.empty():
-                hessian_outputs += self.compute_action_adjoint(
-                    adj_input, arity_form, dform=ddform
-                )[0]
+            if not (isinstance(ddform, ufl.ZeroBaseForm) or (isinstance(ddform, ufl.Form) and ddform.empty())):
+                hessian_outputs += self.compute_action_adjoint(adj_input, arity_form, dform=ddform)[0]
 
         if isinstance(c1, self.compat.ExpressionType):
             return [(hessian_outputs, space)]

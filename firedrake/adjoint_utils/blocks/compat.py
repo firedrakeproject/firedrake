@@ -119,7 +119,7 @@ def compat(backend):
             """A wrapper around Firedrake's assemble that returns a Vector
             instead of a Function when assembling a 1-form."""
             result = backend.assemble(*args, **kwargs)
-            if isinstance(result, backend.Function):
+            if isinstance(result, (backend.Function, backend.Cofunction)):
                 return result.vector()
             else:
                 return result
