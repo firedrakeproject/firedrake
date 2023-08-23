@@ -100,6 +100,7 @@ def test_vector_bilinear_exterior_facet_integral():
         values[row, col] = 0.0
     assert np.allclose(values, 0.0)
 
+
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
                          [(('+', ), ('+', )),
