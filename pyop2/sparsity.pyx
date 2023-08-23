@@ -185,6 +185,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
     cdef:
         PetscInt rdim, cdim
         PetscScalar *values
+        PetscScalar *diag_values
         int set_entry
         int set_size
         int region_selector
@@ -192,7 +193,6 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         PetscInt layer_start, layer_end, layer_bottom, num_layers, effective_offset, layer
         PetscInt[:, ::1] layers
         PetscInt i, k, irem
-        PetscScalar zero = 0.0
         PetscInt nrow, ncol
         PetscInt rarity, carity, tmp_rarity, tmp_carity
         PetscInt[:, ::1] rmap, cmap, tempmap
@@ -211,9 +211,11 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
     # Always allocate space for diagonal
     nrow, ncol = mat.getLocalSize()
     if set_diag:
-        for i in range(nrow):
-            if i < ncol:
-                CHKERR(MatSetValuesLocal(mat.mat, 1, &i, 1, &i, &zero, PETSC_INSERT_VALUES))
+        CHKERR(PetscCalloc1(rdim*cdim, &diag_values))
+        for i in range(nrow // rdim):
+            if i < ncol  // cdim:
+                CHKERR(MatSetValuesBlockedLocal(mat.mat, 1, &i, 1, &i, diag_values, PETSC_INSERT_VALUES))
+        CHKERR(PetscFree(diag_values))
     extruded = maps[0][0].iterset._extruded
     for iteration_region, pair in zip(iteration_regions, maps):
         # Iterate over row map values including value entries
