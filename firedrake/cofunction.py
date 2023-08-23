@@ -5,7 +5,7 @@ from pyop2 import op2, mpi
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake.logging import warning
-from firedrake import utils, vector
+from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -100,6 +100,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return type(self)(self.function_space(),
                           val=val, name=self.name(),
                           dtype=self.dat.dtype)
+
+    def _analyze_form_arguments(self):
+        # Cofunctions have one argument in primal space as they map from V to R.
+        self._arguments = (ufl_expr.Argument(self.function_space().dual(), 0),)
+        self._coefficients = (self,)
 
     @utils.cached_property
     @FunctionMixin._ad_annotate_subfunctions
@@ -213,9 +218,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         firedrake.function.Function
             Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
         """
-        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
-                                                     "riesz_representation": riesz_map,
-                                                     "solver_options": solver_options})
+        return self._ad_convert_riesz(self.vector(), options={"function_space": self.function_space().dual(),
+                                                              "riesz_representation": riesz_map,
+                                                              "solver_options": solver_options})
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
@@ -248,6 +253,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self
 
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    @FunctionMixin._ad_annotate_imul
+    def __imul__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat *= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat *= expr.dat
+            return self
         return NotImplemented
 
     def interpolate(self, expression):

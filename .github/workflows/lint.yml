@@ -10,10 +10,7 @@ on:
 jobs:
   linter:
     name: "Run linter"
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
-    # Steps represent a sequence of tasks that will be executed as
-    # part of the jobs
     steps:
       - uses: actions/checkout@v3
       - name: Setup python
@@ -27,7 +24,7 @@ jobs:
           pip install flake8 pylint
       - name: Lint codebase
         run: |
-          make lint
+          make lint GITHUB_ACTIONS_FORMATTING=1
       - name: Install bibtex linter
         run: |
           pip install bibtexparser

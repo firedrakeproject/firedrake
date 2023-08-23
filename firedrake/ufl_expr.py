@@ -5,7 +5,7 @@ from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
@@ -110,9 +110,10 @@ class Coargument(ufl.argument.Coargument):
         return self.function_space().make_dat()
 
     def _analyze_form_arguments(self):
-        # Returns the argument found in the Coargument object
-        self._arguments = (self,)
         self._coefficients = ()
+        # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
+        # So they have one argument in the primal space and one in the dual space.
+        self._arguments = (Argument(self.function_space().dual(), 0), self)
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
@@ -246,7 +247,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-    elif isinstance(uc, firedrake.Function):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
         if uc.ufl_shape != ():
@@ -353,3 +354,41 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+def extract_domains(func):
+    """Extract the domain from `func`.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return ufl.domain.extract_domains(func)
+
+
+def extract_unique_domain(func):
+    """Extract the single unique domain `func` is defined on.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return func.function_space().mesh()
+    else:
+        return ufl.domain.extract_unique_domain(func)

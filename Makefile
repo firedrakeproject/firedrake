@@ -4,13 +4,21 @@ modules:
 	@echo "    Building extension modules"
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
+# Adds file annotations to Github Actions (only useful on CI)
+GITHUB_ACTIONS_FORMATTING=0
+ifeq ($(GITHUB_ACTIONS_FORMATTING), 1)
+	FLAKE8_FORMAT=--format='::error file=%(path)s,line=%(row)d,col=%(col)d,title=%(code)s::%(path)s:%(row)d:%(col)d: %(code)s %(text)s'
+else
+	FLAKE8_FORMAT=
+endif
+
 lint:
 	@echo "    Linting firedrake codebase"
-	@python -m flake8 firedrake
+	@python -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake test suite"
-	@python -m flake8 tests
+	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting firedrake scripts"
-	@python -m flake8 scripts --filename=*
+	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 
 actionlint:
 	@echo "    Pull latest actionlint image"

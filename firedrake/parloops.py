@@ -4,14 +4,15 @@ non-finite element operations such as slope limiters."""
 import collections
 
 from ufl.indexed import Indexed
-from ufl.domain import join_domains, extract_domains
+from ufl.domain import join_domains
 
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
 
-from firedrake import constant, function, cofunction
+from firedrake import constant
+from firedrake.ufl_expr import extract_domains
 from firedrake.petsc import PETSc
 from cachetools import LRUCache
 
@@ -299,7 +300,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     else:
         domains = []
         for func, _ in args.values():
-            domains.extend(_extract_domains(func))
+            domains.extend(extract_domains(func))
         domains = join_domains(domains)
         # Assume only one domain
         domain, = domains
@@ -320,22 +321,3 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
     return op2.parloop(*op2args, **kwargs)
-
-
-def _extract_domains(func):
-    """Extract the domain from `func`.
-
-    Parameters
-    ----------
-    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
-        The function to extract the domain from.
-
-    Returns
-    -------
-    list of firedrake.mesh.MeshGeometry
-        Extracted domains.
-    """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
-        return [func.function_space().mesh()]
-    else:
-        return extract_domains(func)

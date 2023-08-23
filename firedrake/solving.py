@@ -25,7 +25,7 @@ import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 from firedrake import dmhooks, function, solving_utils, vector
 import firedrake
-from firedrake.adjoint import annotate_solve
+from firedrake.adjoint_utils import annotate_solve
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 
@@ -150,7 +150,7 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
-    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
+    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, (ufl.Form, ufl.Cofunction)):
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters)

@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.assemble import allocate_matrix
 from firedrake.utils import ScalarType
 import ufl
 
@@ -152,6 +153,30 @@ def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+
+
+def test_tensor_copy(a, M):
+
+    # 1-form tensor
+    V = a.arguments()[0].function_space()
+    tensor = Cofunction(V.dual())
+    formsum = assemble(a) + a
+    res = assemble(formsum, tensor=tensor)
+
+    assert isinstance(formsum, ufl.form.FormSum)
+    assert isinstance(res, Cofunction)
+    for f, f2 in zip(res.subfunctions, tensor.subfunctions):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+
+    # 2-form tensor
+    tensor = allocate_matrix(M)
+    formsum = assemble(M) + M
+    res = assemble(formsum, tensor=tensor)
+
+    assert isinstance(formsum, ufl.form.FormSum)
+    assert isinstance(res, ufl.Matrix)
+    assert np.allclose(res.petscmat[:, :],
+                       tensor.petscmat[:, :], rtol=1e-14)
 
 
 def test_cofunction_assign(a, M, f):

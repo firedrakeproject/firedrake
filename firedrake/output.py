@@ -11,10 +11,15 @@ from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
-from .paraview_reordering import vtk_lagrange_tet_reorder,\
-    vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
-    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reorder,\
-    vtk_lagrange_wedge_reorder
+from .paraview_reordering import (
+    vtk_lagrange_tet_reorder,
+    vtk_lagrange_hex_reorder,
+    vtk_lagrange_interval_reorder,
+    vtk_lagrange_triangle_reorder,
+    vtk_lagrange_quad_reorder,
+    vtk_lagrange_wedge_reorder,
+)
+
 __all__ = ("File", )
 
 

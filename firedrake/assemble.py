@@ -13,9 +13,10 @@ from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
+from ufl.domain import extract_unique_domain
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.adjoint import annotate_assemble
+from firedrake.adjoint_utils import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
@@ -113,9 +114,10 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        appctx=None,
                        options_prefix=None,
                        zero_bc_nodes=False,
-                       is_base_form_preprocessed=False):
+                       is_base_form_preprocessed=False,
+                       weight=1.0):
 
-    # Preprocess and restructure the DAG
+    # Prepr ocess and restructure the DAG
     if not is_base_form_preprocessed:
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
@@ -151,11 +153,11 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                                                     form_compiler_parameters,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
-                                                    zero_bc_nodes,
+                                                    zero_bc_nodes, weight,
                                                     *(visited[arg] for arg in operands))
 
     # Update tensor with the assembled result value
-    assembled_base_form = visited[expr]
+    # assembled_base_form = visited[expr]
     # Doesn't need to update `tensor` with `assembled_base_form`
     # for assembled 1-form (Cofunction) because both underlying
     # Dat objects are the same (they automatically update).
@@ -164,9 +166,23 @@ def assemble_base_form(expression, tensor=None, bcs=None,
     #    assembled_base_form.petscmat.copy(tensor.petscmat)
 
     # What about cases where expanding derivatives produce a non-Form object ?
-    if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
-        expression._cache = expr._cache
-    return assembled_base_form
+    # if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+    #    expression._cache = expr._cache
+    # return assembled_base_form
+
+    if tensor:
+        update_tensor(visited[expr], tensor)
+    return visited[expr]
+
+
+def update_tensor(assembled_base_form, tensor):
+    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
+        assembled_base_form.dat.copy(tensor.dat)
+    elif isinstance(tensor, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+        assembled_base_form.petscmat.copy(tensor.petscmat)
+    else:
+        raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
 
 def restructure_base_form(expr, visited=None):
@@ -366,7 +382,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                form_compiler_parameters,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
-                               zero_bc_nodes, *args):
+                               zero_bc_nodes, weight, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
 
         if args and mat_type != "matfree":
@@ -375,22 +391,22 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             # Substitute the external operators by their output
             expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
 
-        res = _assemble_form(expr, tensor=tensor, bcs=bcs,
-                             diagonal=diagonal,
-                             mat_type=mat_type,
-                             sub_mat_type=sub_mat_type,
-                             appctx=appctx,
-                             options_prefix=options_prefix,
-                             form_compiler_parameters=form_compiler_parameters,
-                             zero_bc_nodes=zero_bc_nodes)
+        return _assemble_form(expr, tensor=tensor, bcs=bcs,
+                              diagonal=diagonal,
+                              mat_type=mat_type,
+                              sub_mat_type=sub_mat_type,
+                              appctx=appctx,
+                              options_prefix=options_prefix,
+                              form_compiler_parameters=form_compiler_parameters,
+                              zero_bc_nodes=zero_bc_nodes, weight=weight)
 
-        if isinstance(res, firedrake.Function):
-            # TODO: Remove once MatrixImplicitContext is Cofunction safe.
-            res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
-        return res
+        # if isinstance(res, firedrake.Function):
+        #   # TODO: Remove once MatrixImplicitContext is Cofunction safe.
+        #   res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
+        # return res
 
     elif isinstance(expr, ufl.Adjoint):
-        if (len(args) != 1):
+        if len(args) != 1:
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
         petsc_mat = mat.petscmat
@@ -435,11 +451,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         else:
             raise TypeError("Incompatible LHS for Action.")
     elif isinstance(expr, ufl.FormSum):
-        if (len(args) != len(expr.weights())):
+        if len(args) != len(expr.weights()):
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
-        if all([isinstance(op, firedrake.Cofunction) for op in args]):
+        if all([isinstance(op, float) for op in args]):
+            return sum(args)
+        elif all([isinstance(op, firedrake.Cofunction) for op in args]):
             # TODO check all are in same function space
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
@@ -900,7 +918,7 @@ class FormAssembler(abc.ABC):
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = o.ufl_domain()
+            domain = extract_unique_domain(o)
             if domain is not None and domain.topology != topology:
                 raise NotImplementedError("Assembly with multiple meshes is not supported")
 
