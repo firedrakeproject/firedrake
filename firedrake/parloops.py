@@ -14,6 +14,7 @@ from firedrake.parameters import target
 
 from firedrake.logging import warning
 from firedrake import constant
+from firedrake.ufl_expr import extract_domains
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType_c
 try:

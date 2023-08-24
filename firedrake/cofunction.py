@@ -3,8 +3,9 @@ import ufl
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
 import firedrake.assemble
+import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake.logging import warning
-from firedrake import utils, vector
+from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint import FunctionMixin
 try:
@@ -47,14 +48,23 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                (defaults to ``ScalarType``).
         """
 
-        ufl.Cofunction.__init__(self,
-                                function_space.ufl_function_space())
+        V = function_space
+        if isinstance(V, Cofunction):
+            V = V.function_space()
+            # Deep copy prevents modifications to Vector copies.
+            # Also, this discard the value of `val` if it was specified (consistent with Function)
+            val = function_space.copy(deepcopy=True).vector()
+        elif not isinstance(V, functionspaceimpl.FiredrakeDualSpace):
+            raise NotImplementedError("Can't make a Cofunction defined on a "
+                                      + str(type(function_space)))
+
+        ufl.Cofunction.__init__(self, V.ufl_function_space())
 
         # User comm
-        self.comm = function_space.comm
+        self.comm = V.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm)
-        self._function_space = function_space
+        self._comm = mpi.internal_comm(V.comm)
+        self._function_space = V
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
@@ -67,6 +77,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
+
+        if isinstance(function_space, Cofunction):
+            self.dat.copy(function_space.dat)
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -87,6 +100,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return type(self)(self.function_space(),
                           val=val, name=self.name(),
                           dtype=self.dat.dtype)
+
+    def _analyze_form_arguments(self):
+        # Cofunctions have one argument in primal space as they map from V to R.
+        self._arguments = (ufl_expr.Argument(self.function_space().dual(), 0),)
+        self._coefficients = (self,)
 
     @utils.cached_property
     @FunctionMixin._ad_annotate_subfunctions
@@ -130,7 +148,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self._function_space
 
-    @FunctionMixin._ad_annotate_assign
+    @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
@@ -173,32 +191,36 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         raise ValueError('Cannot assign %s' % expr)
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
-        r"""Return the Riesz representation of this :class:`Cofunction` with
-           respect to the given Riesz map.
+        """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
 
-        :arg riesz_map: The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
-        :kwarg solver_options: Solver options to pass to the linear solver.
-            - solver_parameters: optional solver parameters.
-            - nullspace: an optional :class:`.VectorSpaceBasis` (or
-                :class:`.MixedVectorSpaceBasis`) spanning the null space of
-                the operator.
-            - transpose_nullspace: as for the nullspace, but used to
-                make the right hand side consistent.
-            - near_nullspace: as for the nullspace, but used to add
-                the near nullspace.
-            - options_prefix: an optional prefix used to distinguish
-                PETSc options. If not provided a unique prefix will be
-                created.  Use this option if you want to pass options
-                to the solver from the command line in addition to
-                through the ``solver_parameters`` dict.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
+        the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
+        with u and v trial and test functions, respectively.
 
-            Example: For a L2 Riesz map, the Riesz representation is obtained by solving
-                the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
-                with u and v trial and test functions, respectively.
+        Parameters
+        ----------
+        riesz_map : str or callable
+                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        solver_options : dict
+                         Solver options to pass to the linear solver:
+                            - solver_parameters: optional solver parameters.
+                            - nullspace: an optional :class:`.VectorSpaceBasis` (or :class:`.MixedVectorSpaceBasis`)
+                                         spanning the null space of the operator.
+                            - transpose_nullspace: as for the nullspace, but used to make the right hand side consistent.
+                            - near_nullspace: as for the nullspace, but used to add the near nullspace.
+                            - options_prefix: an optional prefix used to distinguish PETSc options.
+                                              If not provided a unique prefix will be created.
+                                              Use this option if you want to pass options to the solver from the command line
+                                              in addition to through the ``solver_parameters`` dict.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
         """
-        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
-                                                     "riesz_representation": riesz_map,
-                                                     "solver_options": solver_options})
+        return self._ad_convert_riesz(self.vector(), options={"function_space": self.function_space().dual(),
+                                                              "riesz_representation": riesz_map,
+                                                              "solver_options": solver_options})
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
@@ -231,6 +253,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self
 
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
+        return NotImplemented
+
+    @FunctionMixin._ad_annotate_imul
+    def __imul__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat *= expr
+            return self
+        if isinstance(expr, vector.Vector):
+            expr = expr.function
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat *= expr.dat
+            return self
         return NotImplemented
 
     def interpolate(self, expression):

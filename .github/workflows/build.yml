@@ -48,7 +48,31 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
-          ./firedrake/scripts/firedrake-install $COMPLEX --venv-name build --package-branch ufl external-operator_dualspace --package-branch pyadjoint dualspace --tinyasm --disable-ssh --minimal-petsc --slepc --documentation-dependencies --install thetis --install gusto --install icepack --install irksome --install femlium --no-package-manager|| (cat firedrake-install.log && /bin/false)
+          # Linting should ignore unquoted shell variable $COMPLEX
+          # shellcheck disable=SC2086
+          ./firedrake/scripts/firedrake-install \
+            $COMPLEX \
+            --honour-petsc-dir \
+            --mpicc="$MPICH_DIR"/mpicc \
+            --mpicxx="$MPICH_DIR"/mpicxx \
+            --mpif90="$MPICH_DIR"/mpif90 \
+            --mpiexec="$MPICH_DIR"/mpiexec \
+            --venv-name firedrake_venv \
+            --no-package-manager \
+            --disable-ssh \
+            --documentation-dependencies \
+            --tinyasm \
+            --torch \
+            --netgen \
+            --slepc \
+            --install thetis \
+            --install gusto \
+            --install icepack \
+            --install irksome \
+            --install femlium \
+            --package-branch pyadjoint dualspace \
+            --package-branch ufl external-operator_dualspace \
+            || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../build/bin/activate

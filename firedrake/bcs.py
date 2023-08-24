@@ -19,7 +19,7 @@ from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']

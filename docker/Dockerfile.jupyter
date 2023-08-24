@@ -9,7 +9,7 @@ USER firedrake
 
 WORKDIR /home/firedrake
 # Install an iPython kernel for firedrake
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install jupyterhub ipykernel notebook ipywidgets mpltools nbformat nbconvert"
+RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install jupyterhub ipykernel notebook==6.5.0 ipywidgets mpltools nbformat nbconvert"
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbextension enable --py widgetsnbextension --sys-prefix"
 
 # Remove the install log.

@@ -9,7 +9,7 @@ from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
-from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -311,10 +311,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)) and L == 0:
+        if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)) and L == 0:
             F = ufl_expr.action(J, u)
         else:
-            if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1:
                 raise ValueError("Provided RHS is not a linear form")

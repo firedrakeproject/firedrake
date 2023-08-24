@@ -53,14 +53,7 @@ class Vector(object):
                 The former shares data, the latter copies data.
         """
         if isinstance(x, Vector):
-            x_func = x.function
-            function_space = x_func.function_space()
-            # Need to allocate new space and copy values:
-            # -> Otherwise modifying the value of a Vector will also modify its copies.
-            x_copy = x_func.copy(deepcopy=True).vector()
-            # Can't do type(x.function)(x.function) because Cofunction
-            # doesn't accept this notation. Is there a valid reason for that ?
-            self.function = type(x_func)(function_space, val=x_copy)
+            self.function = type(x.function)(x.function)
         elif isinstance(x, (firedrake.Function, firedrake.Cofunction)):
             self.function = x
         else:

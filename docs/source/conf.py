@@ -124,7 +124,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'dolfin_adjoint_common\..*'),
     (r'py:.*', r'pyadjoint\..*'),
     (r'py:.*', r'tsfc\..*'),
-    (r'py:.*', r'coffee\..*'),
+    (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
@@ -255,6 +255,7 @@ latex_elements = {
 \sphinxDUC{2218}{$\circ$}
 \sphinxDUC{22C5}{$\cdot$}
 \sphinxDUC{25A3}{$\boxdot$}
+\sphinxDUC{03BB}{$\lambda$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 

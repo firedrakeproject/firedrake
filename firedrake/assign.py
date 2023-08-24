@@ -75,6 +75,7 @@ class CoefficientCollector(MultiFunction):
 
     int_value = _scalar
     float_value = _scalar
+    complex_value = _scalar
     zero = _scalar
 
     def multi_index(self, o):
