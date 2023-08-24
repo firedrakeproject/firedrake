@@ -7,6 +7,7 @@ import os
 import shutil
 import atexit
 from abc import ABC, abstractmethod
+from numbers import Number
 _stop_disk_checkpointing = 1
 _checkpoint_init_data = False
 
@@ -322,6 +323,10 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
 
     def restore(self):
         saved_output = self.other.saved_output
-        return type(saved_output)(saved_output.function_space(),
-                                  saved_output.dat,
-                                  count=self.count)
+        if isinstance(saved_output, Number):
+            # Happens if the user calls the ReducedFunctional on a number.
+            return saved_output
+        else:
+            return type(saved_output)(saved_output.function_space(),
+                                      saved_output.dat,
+                                      count=self.count)
