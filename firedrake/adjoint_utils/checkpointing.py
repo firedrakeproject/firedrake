@@ -317,6 +317,11 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
     """
     def __init__(self, other):
         self.other = other
+        # Obtain a unique identity for this saved output.
+        self.count = type(other.output)(other.output.function_space()).count()
 
     def restore(self):
-        return self.other.saved_output
+        saved_output = self.other.saved_output
+        return type(saved_output)(saved_output.function_space(),
+                                  saved_output.dat,
+                                  count=self.count)

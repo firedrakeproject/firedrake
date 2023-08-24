@@ -123,7 +123,7 @@ class FunctionMixin(FloatingType):
 
                 if isinstance(other, type(self)):
                     if self.function_space().mesh() == other.function_space().mesh():
-                        block_var._checkpoint = DelegatedFunctionCheckpoint(other.copy(deepcopy=True).block_variable)
+                        block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
