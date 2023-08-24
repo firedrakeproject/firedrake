@@ -701,3 +701,19 @@ def test_consecutive_nonlinear_solves():
     rf = ReducedFunctional(J, Control(uic))
     h = Constant(0.01, domain=mesh)
     assert taylor_test(rf, uic, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_assign_function():
+    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    uic = Function(V, name="uic").assign(1.0)
+    u0 = Function(V, name="u0")
+    u1 = Function(V, name="u1")
+    u0.assign(uic)
+    u1.assign(2 * u0 + uic)
+    J = assemble(((u1 + Constant(1.0)) ** 2) * dx)
+    rf = ReducedFunctional(J, Control(uic))
+    h = Function(V, name="h").assign(0.01)
+    assert taylor_test(rf, uic, h) > 1.9
