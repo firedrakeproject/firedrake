@@ -554,3 +554,13 @@ def test_interpolation_on_hex():
     f = Function(V).interpolate(expr)
     assert assemble((f - expr)**2 * dx) < 1e-13
     assert abs(assemble(f * dx) - 1./(p + 1)**3) < 1e-11
+
+
+def test_interpolate_logical_not():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "P", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    a = interpolate(conditional(Not(x < .2), 1, 0), V)
+    b = interpolate(conditional(x >= .2, 1, 0), V)
+    assert np.allclose(a.dat.data, b.dat.data)

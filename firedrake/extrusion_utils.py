@@ -12,6 +12,7 @@ from tsfc.finatinterface import create_element
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
+from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
@@ -21,7 +22,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     Given either a kernel or a (fixed) layer_height, compute an
     extruded coordinate field for an extruded mesh.
 
-    :arg extruded_topology: an ``ExtrudedMeshTopology`` to extrude
+    :arg extruded_topology: an :class:`~.ExtrudedMeshTopology` to extrude
          a coordinate field for.
     :arg base_coords: a :class:`~.Function` to read the base
          coordinates from.
@@ -144,9 +145,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        tdim = base_coords.ufl_domain().ufl_cell().topological_dimension()
+        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension()
         if tdim not in [1, 2]:
-            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
+            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % extract_unique_domain(base_coords).ufl_cell())
         # tdim == 1:
         #
         # normal is:

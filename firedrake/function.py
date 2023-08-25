@@ -3,12 +3,14 @@ import sys
 import ufl
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
+from ufl.domain import extract_unique_domain
 import cachetools
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
+from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -222,11 +224,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     .. math::
 
-            f = \\sum_i f_i \phi_i(x)
+      f = \sum_i f_i \phi_i(x)
 
     The :class:`Function` class provides storage for the coefficients
     :math:`f_i` and associates them with a :class:`.FunctionSpace` object
-    which provides the basis functions :math:`\\phi_i(x)`.
+    which provides the basis functions :math:`\phi_i(x)`.
 
     Note that the coefficients are always scalars: if the
     :class:`Function` is vector-valued then this is specified in
@@ -418,6 +420,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         if expr == 0:
             self.dat.zero(subset=subset)
+        elif self.ufl_element().family() == "Real":
+            try:
+                self.dat.data_wo[...] = expr
+                return self
+            except (DataTypeError, DataValueError) as e:
+                raise ValueError(e)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
@@ -483,7 +491,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @property
     def _ctypes(self):
-        mesh = self.ufl_domain()
+        mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
@@ -513,11 +521,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         :arg arg: The point to locate.
         :arg args: Additional points.
         :kwarg dont_raise: Do not raise an error if a point is not found.
-        :kwarg tolerance: Tolerence to use when checking if a point is in a
-            cell. Default is the ``MeshTopology.tolerance`` of the mesh the
-            function is defined on. Changing this from default will cause the
-            spatial index to be rebuilt which can take some time.
+        :kwarg tolerance: Tolerence to use when checking if a point is
+            in a cell. Default is the ``tolerance`` provided when
+            creating the :func:`~.Mesh` the function is defined on.
+            Changing this from default will cause the spatial index to
+            be rebuilt which can take some time.
         """
+        # Shortcut if function space is the R-space
+        if self.ufl_element().family() == "Real":
+            return self.dat.data_ro
+
         # Need to ensure data is up-to-date for reading
         self.dat.global_to_local_begin(op2.READ)
         self.dat.global_to_local_end(op2.READ)
@@ -546,13 +559,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
-        # Immersed not supported
-        tdim = mesh.ufl_cell().topological_dimension()
-        gdim = mesh.ufl_cell().geometric_dimension()
-        if tdim < gdim:
-            raise NotImplementedError("Point is almost certainly not on the manifold.")
 
         # Validate geometric dimension
+        gdim = mesh.ufl_cell().geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -637,6 +646,7 @@ class PointNotInDomainError(Exception):
 
     Attributes: domain, point
     """
+
     def __init__(self, domain, point):
         self.domain = domain
         self.point = point
@@ -657,7 +667,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
-    mesh = function.ufl_domain()
+    mesh = extract_unique_domain(function)
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 

@@ -118,7 +118,7 @@ def pseudo_random_coords(size):
 # NOTE: these _spatialcoordinate tests should be equivalent to some kind of
 # interpolation from a CG1 VectorFunctionSpace (I think)
 def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     # Reshaping because for all meshes, we want (-1, gdim) but
     # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
     # () and shape (1,).
@@ -130,7 +130,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 
 def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
     if (
@@ -158,7 +158,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
 
 
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
@@ -168,7 +168,7 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     vfs_fam, vfs_deg, vfs_typ = vfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -194,7 +194,7 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)
@@ -210,7 +210,7 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -244,7 +244,7 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
 @pytest.mark.xfail(raises=NotImplementedError, reason="Interpolation of UFL expressions into mixed functions not supported")
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     V1 = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     V2 = FunctionSpace(parentmesh, "CG", 1)
@@ -285,7 +285,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
 
 
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
     # Remove below when interpolating constant onto Real works for extruded
@@ -300,7 +300,7 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
 
 def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # try and make reusable Interpolator from V to W
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
     # Remove below when interpolating constant onto Real works for extruded
@@ -327,8 +327,8 @@ def test_extruded_cell_parent_cell_list():
     # we are not at the cell midpoints
     coords = np.array([[0.2, 0.1], [0.5, 0.2], [0.7, 0.1], [0.2, 0.4], [0.4, 0.4], [0.8, 0.5], [0.1, 0.7], [0.5, 0.9], [0.9, 0.8]])
 
-    vms = VertexOnlyMesh(ms, coords)
-    vmx = VertexOnlyMesh(mx, coords)
+    vms = VertexOnlyMesh(ms, coords, missing_points_behaviour=None)
+    vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour=None)
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
     assert np.equal(vms.coordinates.dat.data_ro, coords).all()

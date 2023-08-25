@@ -12,7 +12,7 @@ Where and when
 ~~~~~~~~~~~~~~
 
 Friday 12 January, 1400-1700 at the `Centre for Doctoral Training in
-Mathematics of Planet Earth <http://mpecdt.org>`_ on Imperial College
+Mathematics of Planet Earth <https://mpecdt.ac.uk>`__ on Imperial College
 London's South Kensington Campus.
 
 Tutorial contents

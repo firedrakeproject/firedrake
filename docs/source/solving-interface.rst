@@ -1106,12 +1106,12 @@ tolerances) so we are happy that the Jacobian is correct.
 .. _Hypre: https://computing.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods
 .. _PETSc: https://petsc.org/release/
 .. _PETSc manual: https://petsc.org/release/docs/manual/manual.pdf
-.. _KSP: https://petsc.org/release/docs/manualpages/KSP/
-.. _SNES: https://petsc.org/release/docs/manualpages/SNES/
-.. _fieldsplit: https://petsc.org/release/docs/manualpages/PC/PCFIELDSPLIT/
+.. _KSP: https://petsc.org/release/manualpages/KSP/
+.. _SNES: https://petsc.org/release/manualpages/SNES/
+.. _fieldsplit: https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/
 .. _PETSc FAQ: https://petsc.org/release/faq
 .. _SNES nonconvergence: https://petsc.org/release/faq/#why-is-newton-s-method-snes-not-converging-or-converges-slowly
 .. _KSP nonconvergence: https://petsc.org/release/faq/#why-is-the-linear-solver-ksp-not-converging-or-converges-slowly
-.. _LSC: https://petsc.org/release/docs/manualpages/PC/PCLSC/
+.. _LSC: https://petsc.org/release/manualpages/PC/PCLSC/
 .. _UFL: https://fenics-ufl.readthedocs.io/en/latest/
 .. _firedrake_bugs: mailto:firedrake@imperial.ac.uk

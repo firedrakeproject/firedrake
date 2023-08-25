@@ -26,16 +26,15 @@ def test_laplace_physical_ev(parallel=False):
     a = inner(grad(u), grad(v))*dx
     m = inner(u, v)*dx
 
-    A = topetsc(assemble(a, bcs=[bc]))
-    M = topetsc(assemble(m, bcs=[bc]))
+    A = topetsc(assemble(a, bcs=[bc], weight=1.))
+    M = topetsc(assemble(m, bcs=[bc], weight=0.))
 
-    # This shifts the "1.0" Eigenvalues out of the spectrum
-    # of interest (which is around 0.0 in this case).
-    vals = np.repeat(1E8, len(bc.nodes))
-    A.setValuesLocalRCV(bc.nodes.reshape(-1, 1),
-                        bc.nodes.reshape(-1, 1),
-                        vals.reshape(-1, 1))
-    A.assemble()
+    # Another way to shift the eigenvalues of value 1.0 out of
+    # the spectrum of interest:
+    # vals = np.repeat(1E8, len(bc.nodes))
+    # A.setValuesLocalRCV(bc.nodes.reshape(-1, 1),
+    #                     bc.nodes.reshape(-1, 1),
+    #                     vals.reshape(-1, 1))
 
     E = SLEPc.EPS()
     E.create(comm=mesh.comm)
@@ -62,7 +61,6 @@ def test_laplace_physical_ev(parallel=False):
     ev_exact = np.array([1**2 * np.pi**2 + 1**2 * np.pi**2,
                          2**2 * np.pi**2 + 1**2 * np.pi**2,
                          1**2 * np.pi**2 + 2**2 * np.pi**2])
-
     assert np.allclose(ev_exact, np.array(ev)[:3], atol=1e-1)
 
 

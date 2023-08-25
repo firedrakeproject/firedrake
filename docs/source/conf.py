@@ -30,10 +30,11 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
     'sphinx.ext.graphviz',
+    'sphinxcontrib.jquery',
     'sphinxcontrib.youtube',
     'sphinxcontrib.bibtex',
     'sphinxcontrib.inkscapeconverter',
-    'numpydoc'
+    'sphinx.ext.napoleon',
 ]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
@@ -138,6 +139,8 @@ nitpick_ignore_regex = [
     # Slate Binary- and Unary- OPs
     ('py:class', r'(firedrake\.)*(slate\.)+(.*Op)'),
     ('py:class', 'firedrake.solving_utils._SNESContext'),
+    # Pyadjoint BlockVariable is not properly referenced in pyadjoint
+    ('py:class', 'BlockVariable'),
 ]
 
 # Dodgy links
@@ -146,8 +149,10 @@ linkcheck_ignore = [
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
     r'https://asmedigitalcollection\.asme\.org/',
+    r'https://ieeexplore\.ieee\.org/document/1634311/',
+    r'http://www.cs.virginia.edu/stream/',
 ]
-linkcheck_timeout = 10
+linkcheck_timeout = 30
 
 # -- Options for HTML output ---------------------------------------------
 
@@ -231,6 +236,9 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # -- Options for LaTeX output --------------------------------------------
 
+import os
+watermark = os.environ.get('FIREDRAKE_MANUAL_RELEASE')
+
 latex_additional_files = [
     '_static/sphinxpoptitle.sty'
 ]
@@ -273,6 +281,28 @@ latex_elements = {
 \usepackage{sphinxpoptitle}
 \subtitle{}
 \edition{2023}
+'''
+f'''
+% Mark non-release versions with draft
+\\usepackage{{draftwatermark}}
+\DraftwatermarkOptions{{
+stamp={str(not bool(watermark)).lower()},
+angle=90,
+scale=0.5,
+fontsize=0.1\paperwidth,
+text={{DRAFT {release}}},
+hpos=0.05\paperwidth
+}}
+
+% Hacky way to add all metadata, neither tool sets all fields
+\hypersetup{{pdfinfo={{
+Title={{Firedrake User Manual}},
+Subject={{Mathematics}},
+}}}}
+\pdfinfo{{
+/Author ({author})
+/Keywords (Firedrake, Partial Differential Equations, PDEs, Finite Element, FEM, Code Generation)
+}}
 ''',
 
     'extrapackages': r'''\usepackage{mathtools}''',
@@ -287,7 +317,7 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('book', 'Firedrake.tex', u'User Manual', r' \and \\'.join(author_list), 'manual'),
+    ('book', 'Firedrake.tex', u'Firedrake User Manual', r' \and \\'.join(author_list), 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -353,18 +383,20 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
+    'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
+    'loopy': ('https://documen.tician.de/loopy/', None),
+    'torch': ('https://pytorch.org/docs/stable/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
-
-numpydoc_show_class_members = False
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
 extlinks = {

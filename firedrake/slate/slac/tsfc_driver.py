@@ -5,6 +5,8 @@ from functools import partial
 from firedrake.slate.slac.utils import RemoveRestrictions
 from firedrake.tsfc_interface import compile_form as tsfc_compile
 
+from tsfc.ufl_utils import extract_firedrake_constants
+
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
 
@@ -12,6 +14,7 @@ from ufl import Form
 ContextKernel = collections.namedtuple("ContextKernel",
                                        ["tensor",
                                         "coefficients",
+                                        "constants",
                                         "original_integral_type",
                                         "tsfc_kernels"])
 ContextKernel.__doc__ = """\
@@ -22,13 +25,14 @@ particular integral type.
                list of TSFC assembly kernels.
 :param coefficients: The local coefficients of the tensor contained
                      in the integrands (arguments for TSFC subkernels).
+:param constants: The local constants of the tensor contained in the integrands.
 :param original_integral_type: The unmodified measure type
                                of the form integrals.
 :param tsfc_kernels: A list of local tensor assembly kernels
                      provided by TSFC."""
 
 
-def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
+def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
     """Compiles the TSFC form associated with a Slate :class:`~.Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
@@ -60,11 +64,12 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None, coffee=True):
         kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters,
-                               coffee=coffee, split=False, diagonal=tensor.diagonal)
+                               split=False, diagonal=tensor.diagonal)
 
         if kernels:
             cxt_k = ContextKernel(tensor=tensor,
                                   coefficients=form.coefficients(),
+                                  constants=extract_firedrake_constants(form),
                                   original_integral_type=orig_it_type,
                                   tsfc_kernels=kernels)
             cxt_kernels.append(cxt_k)

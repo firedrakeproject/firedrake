@@ -62,9 +62,14 @@ def run_riesz_map(V, mat_type):
     a = inner(d(u), d(v))*dx + inner(u, v)*dx
     L = inner(f, v)*dx
     bcs = [DirichletBC(V, u_exact, "on_boundary")]
-
+    if V.mesh().ufl_cell().is_simplex():
+        appctx = dict()
+    else:
+        from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+        appctx = {"get_gradient": tabulate_exterior_derivative,
+                  "get_curl": tabulate_exterior_derivative}
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx=appctx)
     solver.solve()
     its = solver.snes.ksp.getIterationNumber()
     return its
@@ -72,7 +77,7 @@ def run_riesz_map(V, mat_type):
 
 @pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize(["family", "cell"],
-                         [("N1curl", "tetrahedron")])
+                         [("N1curl", "tetrahedron"), ("NCE", "hexahedron")])
 def test_hiptmair_hcurl(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)
@@ -82,7 +87,7 @@ def test_hiptmair_hcurl(family, cell):
 
 @pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize(["family", "cell"],
-                         [("RT", "tetrahedron")])
+                         [("RT", "tetrahedron"), ("NCF", "hexahedron")])
 def test_hiptmair_hdiv(family, cell):
     mesh = mesh_hierarchy(cell)[-1]
     V = FunctionSpace(mesh, family, degree=1)

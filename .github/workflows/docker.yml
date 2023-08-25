@@ -1,0 +1,79 @@
+name: Build and push Docker images
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Optional tag (defaults to `latest`)'
+        required: false
+        default: 'latest'
+        type: string
+      status:
+        description: 'Firedrake test status'
+        required: true
+        type: string
+    secrets:
+      # Docker login information
+      DOCKERHUB_USER:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+jobs:
+  # Firedrake environment container
+  docker_env:
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-env
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.env
+    secrets: inherit
+  # Firedrake container (just Firedrake)
+  docker_vanilla:
+    needs: docker_env
+    # Only run if "Build Firedrake" succeeds
+    if: ${{ inputs.status == 'success' }}
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-vanilla
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.vanilla
+    secrets: inherit
+  # Firedrake container (Firedrake and friends)
+  docker_firedrake:
+    needs: docker_vanilla
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.firedrake
+    secrets: inherit
+  # Firedrake container with documentation dependencies and TeX
+  docker_docdeps:
+    needs: docker_vanilla
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-docdeps
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.docdeps
+    secrets: inherit
+  # Firedrake complex container
+  docker_complex:
+    needs: docker_env
+    # Only run if "Build Firedrake" succeeds
+    if: ${{ inputs.status == 'success' }}
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-complex
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.complex
+    secrets: inherit
+  # Firedrake container with Jupyter notebooks
+  docker_jupyter:
+    needs: docker_firedrake
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-jupyter
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.jupyter
+    secrets: inherit

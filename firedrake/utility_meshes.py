@@ -260,7 +260,6 @@ cells are not currently supported"
             "old_coords": (old_coordinates, READ),
             "L": (cL, READ),
         },
-        is_loopy_kernel=True,
     )
 
     return mesh.Mesh(
@@ -491,6 +490,8 @@ def OneElementThickMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitTriangleMesh(
+    refinement_level=0,
+    distribution_parameters=None,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -498,6 +499,9 @@ def UnitTriangleMesh(
 ):
     """Generate a mesh of the reference triangle
 
+    :kwarg refinement_level: Number of uniform refinements to perform
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -509,12 +513,37 @@ def UnitTriangleMesh(
     """
     coords = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
     cells = [[0, 1, 2]]
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
-    )
+    plex = mesh.plex_from_cell_list(2, cells, coords, comm)
+
+    # mark boundary facets
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+
+    tol = 1e-2  # 0.5 would suffice
+    for face in boundary_faces:
+        face_coords = plex.vecGetClosure(coord_sec, coords, face)
+        # |x+y-1| < eps
+        if abs(face_coords[0] + face_coords[1] - 1) < tol and abs(face_coords[2] + face_coords[3] - 1) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+        # |x| < eps
+        if abs(face_coords[0]) < tol and abs(face_coords[2]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+        # |y| < eps
+        if abs(face_coords[1]) < tol and abs(face_coords[3]) < tol:
+            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
+    plex.removeLabel("boundary_faces")
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    plex.setName(mesh._generate_default_mesh_topology_name(name))
     return mesh.Mesh(
         plex,
         reorder=False,
+        distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
@@ -528,6 +557,8 @@ def RectangleMesh(
     ny,
     Lx,
     Ly,
+    originX=0.,
+    originY=0.,
     quadrilateral=False,
     reorder=None,
     diagonal="left",
@@ -539,11 +570,13 @@ def RectangleMesh(
 ):
     """Generate a rectangular mesh
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg Lx: The extent in the x direction
-    :arg Ly: The extent in the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
+    :arg nx: The number of cells in the x direction.
+    :arg ny: The number of cells in the y direction.
+    :arg Lx: The X coordinates of the upper right corner of the rectangle.
+    :arg Ly: The Y coordinates of the upper right corner of the rectangle.
+    :arg originX: The X coordinates of the lower left corner of the rectangle.
+    :arg originY: The Y coordinates of the lower left corner of the rectangle.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
@@ -561,9 +594,9 @@ def RectangleMesh(
 
     The boundary edges in this mesh are numbered as follows:
 
-    * 1: plane x == 0
+    * 1: plane x == originX
     * 2: plane x == Lx
-    * 3: plane y == 0
+    * 3: plane y == originY
     * 4: plane y == Ly
     """
 
@@ -571,8 +604,8 @@ def RectangleMesh(
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
-    ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    xcoords = np.linspace(originX, Lx, nx + 1, dtype=np.double)
+    ycoords = np.linspace(originY, Ly, ny + 1, dtype=np.double)
     return TensorRectangleMesh(
         xcoords,
         ycoords,
@@ -971,7 +1004,6 @@ def PeriodicRectangleMesh(
             "Lx": (cLx, READ),
             "Ly": (cLy, READ),
         },
-        is_loopy_kernel=True,
     )
 
     return mesh.Mesh(
@@ -1790,7 +1822,6 @@ def PeriodicBoxMesh(
             "hy": (hy, READ),
             "hz": (hz, READ),
         },
-        is_loopy_kernel=True,
     )
     m1 = mesh.Mesh(
         new_coordinates,
@@ -2957,7 +2988,6 @@ def PartiallyPeriodicRectangleMesh(
             "Lx": (cLx, READ),
             "Ly": (cLy, READ),
         },
-        is_loopy_kernel=True,
     )
 
     if direction == "y":

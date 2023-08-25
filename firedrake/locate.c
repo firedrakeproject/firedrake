@@ -10,7 +10,8 @@ int locate_cell(struct Function *f,
         ref_cell_l1_dist try_candidate,
         ref_cell_l1_dist_xtr try_candidate_xtr,
         void *temp_ref_coords,
-        void *found_ref_coords)
+        void *found_ref_coords,
+        double *found_ref_cell_dist_l1)
 {
     RTError err;
     int cell = -1;
@@ -21,8 +22,8 @@ int locate_cell(struct Function *f,
     surrounds this is declared in pointquery_utils.py. We cast when we use the
     ref_coords_copy function and trust that the underlying memory which the
     pointers refer to is updated as necessary. */
-    double closest_ref_coord = DBL_MAX;
-    double current_closest_ref_coord =  -0.5;
+    double ref_cell_dist_l1 = DBL_MAX;
+    double current_ref_cell_dist_l1 =  -0.5;
     /* NOTE: `tolerance`, which is used throughout this funciton, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
@@ -40,20 +41,22 @@ int locate_cell(struct Function *f,
         }
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
-                current_closest_ref_coord = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-                if (current_closest_ref_coord <= 0.0) {
+                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+                if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
                     memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
                     break;
                 }
-                else if (current_closest_ref_coord < closest_ref_coord) {
+                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
                     /* getting closer... */
-                    closest_ref_coord = current_closest_ref_coord;
-                    if (closest_ref_coord < tolerance) {
+                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                    if (ref_cell_dist_l1 < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = ids[i];
                         memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                     }
                 }
             }
@@ -63,20 +66,22 @@ int locate_cell(struct Function *f,
                 int nlayers = f->n_layers;
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;
-                current_closest_ref_coord = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                if (current_closest_ref_coord <= 0.0) {
+                current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
                     memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
                     break;
                 }
-                else if (current_closest_ref_coord < closest_ref_coord) {
+                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
                     /* getting closer... */
-                    closest_ref_coord = current_closest_ref_coord;
-                    if (closest_ref_coord < tolerance) {
+                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                    if (ref_cell_dist_l1 < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = ids[i];
                         memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                     }
                 }
             }
@@ -85,20 +90,22 @@ int locate_cell(struct Function *f,
     } else {
         if (f->extruded == 0) {
             for (int c = 0; c < f->n_cols; c++) {
-                current_closest_ref_coord = (*try_candidate)(temp_ref_coords, f, c, x);
-                if (current_closest_ref_coord <= 0.0) {
+                current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
+                if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = c;
                     memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                    found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
                     break;
                 }
-                else if (current_closest_ref_coord < closest_ref_coord) {
+                else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
                     /* getting closer... */
-                    closest_ref_coord = current_closest_ref_coord;
-                    if (closest_ref_coord < tolerance) {
+                    ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                    if (ref_cell_dist_l1 < tolerance) {
                         /* Close to cell within tolerance so could be this cell */
                         cell = c;
                         memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                        found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                     }
                 }
             }
@@ -106,20 +113,22 @@ int locate_cell(struct Function *f,
         else {
             for (int c = 0; c < f->n_cols; c++) {
                 for (int l = 0; l < f->n_layers; l++) {
-                    current_closest_ref_coord = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                    if (current_closest_ref_coord <= 0.0) {
+                    current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                    if (current_ref_cell_dist_l1 <= 0.0) {
                         /* Found cell! */
                         cell = l;
                         memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                        found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
                         break;
                     }
-                    else if (current_closest_ref_coord < closest_ref_coord) {
+                    else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
                         /* getting closer... */
-                        closest_ref_coord = current_closest_ref_coord;
-                        if (closest_ref_coord < tolerance) {
+                        ref_cell_dist_l1 = current_ref_cell_dist_l1;
+                        if (ref_cell_dist_l1 < tolerance) {
                             /* Close to cell within tolerance so could be this cell */
                             cell = l;
                             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+                            found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
                         }
                     }
                 }

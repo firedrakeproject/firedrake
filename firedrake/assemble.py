@@ -71,6 +71,9 @@ def assemble(expr, *args, **kwargs):
     :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
         boundary condition. Default is ``False``.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
 
     :returns: See below.
 
@@ -708,7 +711,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                    appctx=None,
                    options_prefix=None,
                    form_compiler_parameters=None,
-                   zero_bc_nodes=False):
+                   zero_bc_nodes=False,
+                   weight=1.0):
     """Assemble a form.
 
     See :func:`assemble` for a description of the arguments to this function.
@@ -756,7 +760,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
         assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
-                                     needs_zeroing=False)
+                                     needs_zeroing=False, weight=weight)
     else:
         raise AssertionError
 
@@ -903,7 +907,7 @@ class FormAssembler(abc.ABC):
     :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
     """
 
-    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True, weight=1.0):
         assert tensor is not None
 
         bcs = solving._extract_bcs(bcs)
@@ -913,6 +917,7 @@ class FormAssembler(abc.ABC):
         self._bcs = bcs
         self._form_compiler_params = form_compiler_parameters or {}
         self._needs_zeroing = needs_zeroing
+        self.weight = weight
 
     @property
     @abc.abstractmethod
@@ -1189,7 +1194,7 @@ class ExplicitMatrixAssembler(FormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
-            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component)
+            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1313,6 +1318,7 @@ class _GlobalKernelBuilder:
         self._unroll = unroll
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -1516,6 +1522,13 @@ def _as_global_kernel_arg_coefficient(_, self):
         return self._make_dat_global_kernel_arg(finat_element, index)
 
 
+@_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
+def _as_global_kernel_arg_constant(_, self):
+    const = next(self._constants)
+    value_size = numpy.prod(const.ufl_shape, dtype=int)
+    return op2.GlobalKernelArg((value_size,))
+
+
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
 def _as_global_kernel_arg_cell_sizes(_, self):
     # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
@@ -1581,6 +1594,7 @@ class ParloopBuilder:
         self._lgmaps = lgmaps
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
     def build(self):
         """Construct the parloop."""
@@ -1711,6 +1725,12 @@ def _as_parloop_arg_coefficient(arg, self):
         return op2.DatParloopArg(coeff.dat, m)
 
 
+@_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+def _as_parloop_arg_constant(arg, self):
+    const = next(self._constants)
+    return op2.GlobalParloopArg(const.dat)
+
+
 @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_parloop_arg_cell_orientations(_, self):
     func = self._mesh.cell_orientations()
@@ -1760,6 +1780,18 @@ class _FormHandler:
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
                 yield form.coefficients()[idx].subfunctions[subidx]
+
+    @staticmethod
+    def iter_constants(form, kinfo):
+        """Yield the form constants"""
+        # Is kinfo really needed?
+        from tsfc.ufl_utils import extract_firedrake_constants
+        if isinstance(form, slate.TensorBase):
+            for const in form.constants():
+                yield const
+        else:
+            for const in extract_firedrake_constants(form):
+                yield const
 
     @staticmethod
     def index_function_spaces(form, indices):

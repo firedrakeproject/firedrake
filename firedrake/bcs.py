@@ -324,7 +324,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, firedrake.Function):
+        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
             if g.function_space() != self.function_space():
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g

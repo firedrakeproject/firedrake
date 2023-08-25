@@ -51,7 +51,8 @@ extern int locate_cell(struct Function *f,
 		       ref_cell_l1_dist try_candidate,
 		       ref_cell_l1_dist_xtr try_candidate_xtr,
 		       void *temp_ref_coords,
-		       void *found_ref_coords);
+		       void *found_ref_coords,
+		       double *found_ref_cell_dist_l1);
 
 extern int evaluate(struct Function *f,
 		    double *x,

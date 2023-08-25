@@ -523,7 +523,7 @@ correctly following the instructions for custom installation here_.
 
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 
-.. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Viewer/index.html
+.. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Viewer/index.html
 .. _h5py: http://www.h5py.org
 
 .. _here: https://docs.h5py.org/en/latest/build.html#custom-installation

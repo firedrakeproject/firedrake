@@ -54,7 +54,7 @@ Location
 ~~~~~~~~
 
 The workshop will be held in the `Centre for Doctoral Training in
-Mathematics of Planet Earth <http://mpecdt.org>`_ at Imperial College London's South
+Mathematics of Planet Earth <https://mpecdt.ac.uk>`_ at Imperial College London's South
 Kensington Campus. Further details will follow soon.
 
 Registration

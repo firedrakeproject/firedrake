@@ -107,8 +107,7 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)})
 
         instructions = """
         for i, j
@@ -350,8 +349,7 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (broken_res_hdiv, INC)})
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -405,8 +403,7 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (unbroken_hdiv, INC)})
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

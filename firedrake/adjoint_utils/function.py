@@ -1,28 +1,12 @@
 from functools import wraps
 import ufl
+from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
 from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
-    CheckpointBase, checkpoint_init_data
-
-
-class DelegatedFunctionCheckpoint(CheckpointBase):
-    """A wrapper which delegates the checkpoint of this Function to another Function.
-
-    This enables us to avoid checkpointing a Function twice when it is copied.
-
-    Parameters
-    ----------
-    other: BlockVariable
-        The block variable to which we delegate checkpointing.
-    """
-    def __init__(self, other):
-        self.other = other
-
-    def restore(self):
-        return self.other.saved_output
+    CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
 
 
 class FunctionMixin(FloatingType):
@@ -51,7 +35,7 @@ class FunctionMixin(FloatingType):
 
             if annotate:
                 bcs = kwargs.get("bcs", [])
-                if isinstance(b, firedrake.Function) and b.ufl_domain() != self.function_space().mesh():
+                if isinstance(b, firedrake.Function) and extract_unique_domain(b) != self.function_space().mesh():
                     block = SupermeshProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
                 else:
                     block = ProjectBlock(b, self.function_space(), self, bcs, ad_block_tag=ad_block_tag)
@@ -120,7 +104,6 @@ class FunctionMixin(FloatingType):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
             Firedrake assign call."""
             ad_block_tag = kwargs.pop("ad_block_tag", None)
-
             # do not annotate in case of self assignment
             annotate = annotate_tape(kwargs) and self != other
 
@@ -371,6 +354,9 @@ class FunctionMixin(FloatingType):
             vec *= 2
         else:
             vec += ovec
+
+    def _ad_function_space(self, mesh):
+        return self.ufl_function_space()
 
     def _reduce(self, r, r0):
         vec = self.vector().get_local()

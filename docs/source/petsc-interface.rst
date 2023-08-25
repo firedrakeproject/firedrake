@@ -407,5 +407,5 @@ entity ``d`` (according to the DMPlex numbering) by
 
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
-.. _PETSc manual: https://petsc.org/release/docs/manual/dmplex/
-.. _its numbering: https://petsc.org/release/docs/manual/dmplex/#data-layout-by-hand
+.. _PETSc manual: https://petsc.org/release/manual/dmplex/
+.. _its numbering: https://petsc.org/release/manual/dmplex/#data-layout-by-hand

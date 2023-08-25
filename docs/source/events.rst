@@ -8,6 +8,13 @@
 Firedrake events
 ----------------
 
+Firedrake '23
+~~~~~~~~~~~~~
+
+The seventh Firedrake user and developer workshop will be held
+between 13-15 September 2023 at Missenden Abbey. For more
+information see :doc:`the workshop page <firedrake_23>`.
+
 PETSc4py documentation sprint
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

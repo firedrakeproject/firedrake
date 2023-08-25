@@ -37,6 +37,7 @@ def cell_midpoints(m):
 
 @pytest.fixture(params=["interval",
                         "square",
+                        "squarequads",
                         "extruded",
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
@@ -49,6 +50,8 @@ def parentmesh(request):
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
+    elif request.param == "squarequads":
+        return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
     elif request.param == "extrudedvariablelayers":
@@ -67,12 +70,14 @@ def parentmesh(request):
         return m
 
 
-@pytest.fixture(params=["redundant", "nonredundant"])
+@pytest.fixture(params=["redundant", "nonredundant", "redistribute"])
 def redundant(request):
     if request.param == "redundant":
         return True
-    else:
+    elif request.param == "nonredundant":
         return False
+    else:
+        return "redistribute"
 
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
@@ -112,14 +117,36 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
+    ref_cell_dists_l1 = []
     # this method of getting owned cells works for all mesh types
     owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
-        cell_num = m.locate_cell(inputvertexcoords[i])
-        if cell_num is not None and cell_num < owned_cells:
+        cell_num, _, ref_cell_dist_l1 = m.locate_cells_ref_coords_and_dists(inputvertexcoords[i].reshape(1, gdim))
+        if cell_num != -1 and cell_num < owned_cells:
             in_bounds.append(i)
-    # Correct coordinates (though not guaranteed to be in same order)
-    np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
+            ref_cell_dists_l1.append(ref_cell_dist_l1)
+    # In parallel locate_cells_ref_coords_and_dists might give point
+    # duplication: the voting algorithm in VertexOnlyMesh should remove these.
+    # We can check that this is the case by seeing if all the missing
+    # coordinates have positive distances from the reference cell but this is a
+    # faff. For now just check that, where point duplication occurs, we have
+    # some ref_cell_dists_l1 over half the mesh tolerance (i.e. where I'd
+    # expect this to start ocurring).
+    total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
+    total_in_bounds = MPI.COMM_WORLD.allreduce(len(in_bounds), op=MPI.SUM)
+    skip_in_bounds_checks = False
+    if total_cells != total_in_bounds:
+        assert MPI.COMM_WORLD.size > 1  # i.e. we're in parallel
+        assert total_cells < total_in_bounds  # i.e. some points are duplicated
+        local_cells = len(vm.coordinates.dat.data_ro)
+        local_in_bounds = len(in_bounds)
+        if not local_cells == local_in_bounds and local_in_bounds > 0:
+            assert max(ref_cell_dists_l1) > 0.5*m.tolerance
+            skip_in_bounds_checks = True
+    # Correct local coordinates (though not guaranteed to be in same order)
+    if not skip_in_bounds_checks:
+        # Correct local coordinates (though not guaranteed to be in same order)
+        np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
     # Correct parent topology
     assert vm._parent_mesh is m
     assert vm.topology._parent_mesh is m.topology
@@ -165,11 +192,16 @@ def test_generate_cell_midpoints(parentmesh, redundant):
     """
     inputcoords, inputcoordslocal = cell_midpoints(parentmesh)
     if redundant:
-        # check redundant argument broadcasts from rank 0 by only supplying the
-        # global cell midpoints only on rank 0. Note that this is the default
-        # behaviour so it needn't be specified explicitly.
-        if MPI.COMM_WORLD.rank == 0:
-            vm = VertexOnlyMesh(parentmesh, inputcoords)
+        if MPI.COMM_WORLD.size == 1:
+            pytest.skip("Testing redundant or redistribution in serial isn't worth the time")
+        if redundant == "redistribute":
+            # We set redunant to False (which stops broadcasting from rank 0)
+            # and supply the global cell midpoints only on rank 0 to check they
+            # are redistributed correctly.
+            if MPI.COMM_WORLD.rank == 0:
+                vm = VertexOnlyMesh(parentmesh, inputcoords, redundant=False)
+            else:
+                vm = VertexOnlyMesh(parentmesh, np.empty(shape=(0, inputcoords.shape[1])), redundant=False)
         else:
             # Otherwise we check redundant argument broadcasts from rank 0 by only
             # supplying the global cell midpoints only on rank 0. Note that this is
@@ -203,7 +235,10 @@ def test_generate_cell_midpoints(parentmesh, redundant):
     vm_input._parent_mesh is vm
     vm_input.input_ordering is None
 
-    vm = VertexOnlyMesh(parentmesh, inputcoords)
+    # Have correct number of vertices
+    total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
+    assert total_cells == len(inputcoords)
+
     # Midpoints located in correct cells of parent mesh
     V = VectorFunctionSpace(parentmesh, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(parentmesh))
@@ -256,6 +291,22 @@ def test_extrude(parentmesh):
     ExtrudedMesh(vm, 1)
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_redistribution():
+    m = UnitSquareMesh(1, 1)
+    with pytest.warns(UserWarning):
+        vm1 = VertexOnlyMesh(m, np.array([[0.1, 0.1], [0.9, 0.9], [0.1, 0.9], [0.9, 0.1], [2, 3]]), missing_points_behaviour='warn')
+    if m.comm.rank == 0:
+        # rank 0 should still raise a warning because rank 1 specifies a point
+        # that is not in the mesh
+        with pytest.warns(UserWarning):
+            vm2 = VertexOnlyMesh(m, np.array([[0.1, 0.1], [0.9, 0.9]]), missing_points_behaviour='warn', redundant=False)
+    else:
+        with pytest.warns(UserWarning):
+            vm2 = VertexOnlyMesh(m, np.array([[0.1, 0.9], [0.9, 0.1], [2, 3]]), missing_points_behaviour='warn', redundant=False)
+    assert np.allclose(vm1.coordinates.dat.data_ro, vm2.coordinates.dat.data_ro)
+
+
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
@@ -269,7 +320,7 @@ def test_point_tolerance():
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
     assert m.topology.tolerance == 0.1
-    vm = VertexOnlyMesh(m, coords, tolerance=0.0)
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
     assert m.topology.tolerance == 0.0
@@ -279,7 +330,7 @@ def test_point_tolerance():
     vm = VertexOnlyMesh(m, coords)
     assert vm.cell_set.size == 1
     m.tolerance = 0.0
-    vm = VertexOnlyMesh(m, coords)
+    vm = VertexOnlyMesh(m, coords, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
 
 
@@ -290,13 +341,18 @@ def test_missing_points_behaviour(parentmesh):
     """
     inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
     assert len(inputcoord) == 1
-    # No error by default
-    vm = VertexOnlyMesh(parentmesh, inputcoord)
+    # Can surpress error
+    vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
+    # Error by default
+    with pytest.raises(ValueError):
+        vm = VertexOnlyMesh(parentmesh, inputcoord)
+    # Error or warning if specified
     with pytest.raises(ValueError):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
+        assert vm.cell_set.size == 0
 
 
 def test_outside_boundary_behaviour(parentmesh):
@@ -319,6 +375,15 @@ def test_outside_boundary_behaviour(parentmesh):
     assert vm.cell_set.size == 1
 
 
+@pytest.mark.parallel
+def test_on_boundary_behaviour():
+    coords = np.array([[0.4, 0.2, 0.3]])
+    mesh = UnitCubeMesh(10, 10, 10)
+    vm = VertexOnlyMesh(mesh, coords)
+    total_num_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro_with_halos), op=MPI.SUM)
+    assert total_num_cells == 1
+
+
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
 def test_partition_behaviour_2d_2procs():
     test_partition_behaviour()
@@ -331,21 +396,21 @@ def test_partition_behaviour_2d_3procs():
 
 def test_partition_behaviour():
     parentmesh = UnitSquareMesh(1, 1)
-    inputcoords = [[0.0-1e-15, 0.5],
-                   [0.5, 0.0-1e-15],
-                   [0.5, 1.0+1e-15],
-                   [1.0+1e-15, 0.5],
+    inputcoords = [[0.0-1e-8, 0.5],
+                   [0.5, 0.0-1e-8],
+                   [0.5, 1.0+1e-8],
+                   [1.0+1e-8, 0.5],
                    [0.5, 0.5],
                    [0.5, 0.5],
-                   [0.5+1e-15, 0.5],
-                   [0.5, 0.5+1e-15]]
+                   [0.5+1e-12, 0.5],
+                   [0.5, 0.5+1e-12]]
     npts = len(inputcoords)
     # Check that we get all the points with a big enough tolerance
-    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-13, missing_points_behaviour='error')
+    vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-6)
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == npts
     # Check that we lose all but the last 4 points with a small tolerance
     with pytest.warns(UserWarning):
-        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-16, missing_points_behaviour='warn')
+        vm = VertexOnlyMesh(parentmesh, inputcoords, tolerance=1e-10, missing_points_behaviour='warn')
     assert MPI.COMM_WORLD.allreduce(vm.cell_set.size, op=MPI.SUM) == 4
 
 

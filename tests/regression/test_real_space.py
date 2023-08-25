@@ -117,6 +117,19 @@ def test_real_mixed_monolithic_two_form_assembly():
 
 
 @pytest.mark.skipcomplex
+def test_real_mixed_empty_component_assembly():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, 'CG', 1)
+    R = FunctionSpace(mesh, 'R', 0)
+    W = V * R
+    w = Function(W)
+    v, _ = split(w)
+    # This assembly has an empty block since the R component doesn't appear.
+    # The test passes if the empty block doesn't cause the assembly to fail.
+    assemble(derivative(inner(grad(v), grad(v)) * dx, w))
+
+
+@pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
     mesh = ExtrudedMesh(m, 10)

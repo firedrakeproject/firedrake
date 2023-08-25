@@ -8,6 +8,7 @@ from mpi4py import MPI
 
 @pytest.fixture(params=["interval",
                         "square",
+                        "squarequads",
                         "extruded",
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
@@ -20,6 +21,8 @@ def parentmesh(request):
         return UnitIntervalMesh(1)
     elif request.param == "square":
         return UnitSquareMesh(1, 1)
+    elif request.param == "squarequads":
+        return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
     elif request.param == "extrudedvariablelayers":
@@ -242,7 +245,7 @@ def vectorfunctionspace_tests(vm):
 
 
 def test_functionspaces(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm)
     vectorfunctionspace_tests(vm)
     functionspace_tests(vm.input_ordering)
