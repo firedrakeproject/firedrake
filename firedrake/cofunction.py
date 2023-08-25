@@ -7,7 +7,7 @@ import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake.logging import warning
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
-from firedrake.adjoint import FunctionMixin
+from firedrake.adjoint_utils.function import FunctionMixin
 try:
     import cachetools
 except ImportError:
