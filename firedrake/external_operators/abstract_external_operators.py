@@ -10,7 +10,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake import utils, functionspaceimpl
-from firedrake.adjoint import ExternalOperatorsMixin
+from firedrake.adjoint_utils.external_operators import ExternalOperatorsMixin
 
 from pyop2.datatypes import ScalarType
 

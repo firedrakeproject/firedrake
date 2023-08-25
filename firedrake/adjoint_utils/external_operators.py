@@ -1,4 +1,4 @@
-from firedrake.adjoint.function import FunctionMixin
+from firedrake.adjoint_utils.function import FunctionMixin
 
 
 class ExternalOperatorsMixin(FunctionMixin):
