@@ -276,11 +276,15 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         if tensor is not None:
-            # Callable will do interpolation into tensor (which is a Dat) when
-            # it is called.
-            wrapper.mpi_type, _ = get_dat_mpi_type(tensor)
+            # Callable will do interpolation into our pre-supplied function f
+            # when it is called.
+            assert f.dat is tensor
+            wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
             assert not len(arguments)
-            callable = partial(wrapper.forward_operation, tensor)
+
+            def callable():
+                wrapper.forward_operation(f.dat)
+                return f
         else:
             assert len(arguments) == 1
             assert tensor is None
