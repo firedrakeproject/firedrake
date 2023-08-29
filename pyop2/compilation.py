@@ -659,6 +659,6 @@ def clear_cache(prompt=False):
 
     if remove:
         print(f"Removing cached libraries from {cachedir}")
-        shutil.rmtree(cachedir)
+        shutil.rmtree(cachedir, ignore_errors=True)
     else:
         print("Not removing cached libraries")
