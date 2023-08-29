@@ -40,7 +40,7 @@ Travel
 ------
 
 Missenden Abbey location is available here `<https://missendenabbey.co.uk>`__.
-The nearest Missenden Abbey train
+The nearest train
 station is `Great Missenden <https://www.nationalrail.co.uk/stations/great-missenden/>`__.
 
 
