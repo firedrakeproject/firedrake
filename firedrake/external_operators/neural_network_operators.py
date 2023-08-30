@@ -243,7 +243,7 @@ class PytorchOperator(PointnetOperator):
             return evaluate(self, *args, **kwargs)
         return wrapper
 
-    @_eval_update_weights
+    # @_eval_update_weights
     def _evaluate(self, *args, **kwargs):
         """
         Evaluate the neural network by performing a forward pass through the network
