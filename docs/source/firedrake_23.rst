@@ -29,14 +29,20 @@ Key Dates
 * 13-15/9/2023 Workshop. The workshop will run from midday on 13
   September until before lunch on 15 September.
 
-Abstracts
+Programme
 ---------
 
-We welcome presentations by anyone working on or using Firedrake. Come and show
-your results, present us with your problems, and show us your plans. Please
-submit your abstract on
-`EasyChair <https://easychair.org/conferences/?conf=firedrake23>`__. The
-deadline is 21 July.
+Click here for `the programme
+<https://easychair.org/smart-program/Firedrake'23/>`__
+
+
+Travel
+------
+
+Missenden Abbey location is available here `<https://missendenabbey.co.uk>`__.
+The nearest train
+station is `Great Missenden <https://www.nationalrail.co.uk/stations/great-missenden/>`__.
+
 
 Registration
 ------------
