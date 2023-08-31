@@ -7,6 +7,7 @@ from firedrake.external_operators import AbstractExternalOperator, assemble_meth
 from firedrake.function import Function
 from firedrake.constant import Constant
 from firedrake import utils
+from firedrake.ml.pytorch import *
 
 from pyop2.datatypes import ScalarType
 
@@ -191,13 +192,11 @@ class PytorchOperator(PointnetOperator):
     # --- Callbacks ---
 
     def _pre_forward_callback(self, *args, **kwargs):
-        # If several operands for inputs, the user needs to overwrite this function
-        # in order to state how the operands are linked to the inputs
-        if len(args) > 1:
-            raise ValueError('%s has more than one operand: You need to specify how to use the operands to construct the model inputs via _pre_forward_callback' % type(self).__name__)
-        op = args[0]
-        torch_op = self.ml_backend.tensor(op.dat.data_ro, requires_grad=True)
-        return self.ml_backend.unsqueeze(torch_op, self.inputs_format)
+        # Concatenate the operands to form the model inputs
+        # -> For more complex cases, the user needs to overwrite this function
+        #    to state how the operands can be used to form the inputs.
+        inputs = self.ml_backend.cat([to_torch(op, requires_grad=True, batched=False) for op in args])
+        return self.ml_backend.unsqueeze(inputs, self.inputs_format)
 
     def _post_forward_callback(self, N, x, model_tape=False, **kwargs):
         if self.derivatives == (0,)*len(self.ufl_operands):
@@ -263,7 +262,8 @@ class PytorchOperator(PointnetOperator):
 
         # Process the inputs
         space = self.ufl_function_space()
-        ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
+        # ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
+        ops = self.operator_inputs()
 
         # Pre forward callback
         torch_op = self._pre_forward_callback(*ops)
@@ -281,14 +281,13 @@ class PytorchOperator(PointnetOperator):
         # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
         if model_tape:
             return res
-        result = Function(space)
-        result.dat.data[:] = res
+        res = from_torch(res, space)
 
         # Explictly set the train mode does matter for
         # networks having different behaviours for training/evaluating (e.g. Dropout)
         model.train()
 
-        return self.assign(result)
+        return res
 
     def evaluate_backprop(self, x, params_idx, controls):
         outputs = self.evaluate(model_tape=True)
