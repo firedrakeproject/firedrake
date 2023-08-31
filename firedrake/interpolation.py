@@ -28,7 +28,7 @@ from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
-from pyadjoint import stop_annotating
+from pyadjoint import stop_annotating, no_annotations
 
 __all__ = (
     "interpolate",
@@ -276,6 +276,7 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(
         self,
         expr,
@@ -620,6 +621,7 @@ class SameMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
         super().__init__(expr, V, subset, freeze_expr, access, bcs)
         try:
