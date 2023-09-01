@@ -7,7 +7,7 @@ from firedrake.external_operators import AbstractExternalOperator, assemble_meth
 from firedrake.function import Function
 from firedrake.constant import Constant
 from firedrake import utils
-from firedrake.ml.pytorch import *
+from firedrake.ml.pytorch import to_torch, from_torch
 
 from pyop2.datatypes import ScalarType
 
