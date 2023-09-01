@@ -42,7 +42,8 @@ __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
-    'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology'
+    'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
+    'VertexOnlyMeshMissingPointsError',
 ]
 
 
@@ -2745,6 +2746,32 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     return self
 
 
+class MissingPointsBehaviour(enum.Enum):
+    IGNORE = None
+    ERROR = "error"
+    WARN = "warn"
+
+
+class VertexOnlyMeshMissingPointsError(Exception):
+    """Exception raised when 1 or more points are not found by a
+    :func:`~.VertexOnlyMesh` in its parent mesh.
+
+    Attributes
+    ----------
+    n_missing_points : int
+        The number of points which were not found in the parent mesh.
+    """
+
+    def __init__(self, n_missing_points):
+        self.n_missing_points = n_missing_points
+
+    def __str__(self):
+        return (
+            f"{self.n_missing_points} vertices are outside the mesh and have "
+            "been removed from the VertexOnlyMesh."
+        )
+
+
 @PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                    tolerance=None, redundant=True, name=None):
@@ -2757,7 +2784,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
-        ValueError.
+        :class:`~.VertexOnlyMeshMissingPointsError`.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
@@ -2822,7 +2849,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
     # sufficient.
-    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree())) > 1:
+    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree()) > 1):
         raise NotImplementedError("Only straight edged meshes are supported")
 
     # Currently we take responsibility for locating the mesh cells in which the
@@ -2841,16 +2868,18 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
 
-    if missing_points_behaviour:
+    missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
+
+    if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
         if n_missing_points:
-            msg = f"{n_missing_points} vertices are outside the mesh and have been removed from the VertexOnlyMesh"
-            if missing_points_behaviour == 'error':
-                raise ValueError(msg)
-            elif missing_points_behaviour == 'warn':
+            error = VertexOnlyMeshMissingPointsError(n_missing_points)
+            if missing_points_behaviour == MissingPointsBehaviour.ERROR:
+                raise error
+            elif missing_points_behaviour == MissingPointsBehaviour.WARN:
                 from warnings import warn
-                warn(msg)
+                warn(str(error))
             else:
-                raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
+                raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
 
     name = name if name is not None else mesh.name + "_immersed_vom"
 

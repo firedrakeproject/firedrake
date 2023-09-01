@@ -217,9 +217,10 @@ duplication.
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Be default points outside the domain  by more than the :ref:`specified
-tolerance <tolerance>` will generate a ``ValueError``. This can be switched
-to a warning or switched off entirely:
+Be default points outside the domain by more than the :ref:`specified
+tolerance <tolerance>` will generate
+a :class:`~.VertexOnlyMeshMissingPointsError`. This can be switched to a
+warning or switched off entirely:
 
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3

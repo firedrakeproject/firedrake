@@ -345,14 +345,17 @@ def test_missing_points_behaviour(parentmesh):
     vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     # Error by default
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord)
     # Error or warning if specified
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
         assert vm.cell_set.size == 0
+    with pytest.raises(ValueError) as e:
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='hello')
+    assert "\'hello\'" in str(e.value)
 
 
 def test_outside_boundary_behaviour(parentmesh):

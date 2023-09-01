@@ -113,6 +113,15 @@ def functionspace_tests(vm):
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # check other interpolation APIs work identically
+    h2 = interpolate(g, W)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    I = Interpolator(g, W)
+    h2 = I.interpolate()
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    h2.zero()
+    I.interpolate(output=h2)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g*Constant(1, domain=vm))
@@ -203,6 +212,15 @@ def vectorfunctionspace_tests(vm):
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # check other interpolation APIs work identically
+    h2 = interpolate(g, W)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    I = Interpolator(g, W)
+    h2 = I.interpolate()
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    h2.zero()
+    I.interpolate(output=h2)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g*Constant(1, domain=vm))
