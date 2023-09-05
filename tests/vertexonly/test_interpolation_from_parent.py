@@ -213,16 +213,17 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     except CellOrientationsRuntimeError:
         assert parentmesh.name == "immersedsphere"
         if len(vertexcoords):
-            # at gives [] for empty vertexcoords but otherwise fails with a
+            # .at gives [] for empty vertexcoords but otherwise fails with a
             # loopy error
             with pytest.raises(Exception):
                 v.at(vertexcoords)
         pytest.xfail(
             f"{V.ufl_element().family()} cannot perform point evaluations on immersed manifolds!"
         )
+        return
     if parentmesh.name == "immersedsphere":
         at_results = np.asarray(v.at(vertexcoords)).reshape(
-            -1, parentmesh.geometric_dimension()
+            w_v.dat.data_ro.shape
         )
         if np.allclose(at_results, w_v.dat.data_ro) and not np.allclose(
             at_results, 2 * np.asarray(vertexcoords)
@@ -231,6 +232,7 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
             pytest.xfail(
                 f"{V.ufl_element().family()} does not give correct point evaluations on immersed manifolds when using .at!"
             )
+            return
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
@@ -282,7 +284,31 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     result = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result) == 0:
         result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
-    w_v = interpolate(v, W)
+    try:
+        w_v = interpolate(v, W)
+    except CellOrientationsRuntimeError:
+        assert parentmesh.name == "immersedsphere"
+        if len(vertexcoords):
+            # .at gives [] for empty vertexcoords but otherwise fails with a
+            # loopy error
+            with pytest.raises(Exception):
+                v.at(vertexcoords)
+        pytest.xfail(
+            f"{V.ufl_element().family()} cannot perform point evaluations on immersed manifolds!"
+        )
+        return
+    if parentmesh.name == "immersedsphere":
+        at_results = np.asarray(v.at(vertexcoords)).reshape(
+            w_v.dat.data_ro.shape
+        )
+        if np.allclose(at_results, w_v.dat.data_ro) and not np.allclose(
+            w_v.dat.data_ro.reshape(result.shape), result
+        ):
+            assert parentmesh.name == "immersedsphere"
+            pytest.xfail(
+                f"{V.ufl_element().family()} does not give correct point evaluations on immersed manifolds when using .at!"
+            )
+            return
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
