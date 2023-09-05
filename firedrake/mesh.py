@@ -3733,7 +3733,7 @@ def _parent_mesh_embedding(
     # particular coordinate, we break the tie by choosing the lowest rank.
     # This turns out to be a lexicographic row-wise minimum of the
     # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
-    # break ties by minimising the distance.
+    # break ties by choosing the lowest rank.
     owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
