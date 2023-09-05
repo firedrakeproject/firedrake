@@ -2848,9 +2848,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
 
-    if gdim != tdim:
-        raise NotImplementedError("Immersed manifold meshes are not supported")
-
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
     # sufficient.
@@ -3386,8 +3383,8 @@ def _dmswarm_create(
     swarm.other_fields = other_fields
 
     plexdim = plex.getDimension()
-    if plexdim != tdim:
-        # This is a Firedrake extruded mesh, so we need to use the
+    if plexdim != tdim or plexdim != gdim:
+        # This is a Firedrake extruded or immersed mesh, so we need to use the
         # mesh geometric dimension when we create the swarm. In this
         # case DMSwarmMigate() will not work.
         swarmdim = gdim
@@ -3720,6 +3717,11 @@ def _parent_mesh_embedding(
     assert len(parent_cell_nums) == ncoords_global
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
+
+    if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
+        # The reference coordinates contain an extra unnecessary dimension
+        # which we can safely delete
+        reference_coords = reference_coords[:, :parent_mesh.topological_dimension()]
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
