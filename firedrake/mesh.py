@@ -1826,6 +1826,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return sf
 
 
+class CellOrientationsRuntimeError(RuntimeError):
+    """Exception raised when there are problems with cell orientations."""
+    pass
+
+
 class MeshGeometryCargo:
     """Helper class carrying data for a :class:`MeshGeometry`.
 
@@ -2310,7 +2315,7 @@ values from f.)"""
         # Storing `_cell_orientations` in `MeshTopology` would make the `MeshTopology`
         # object only useful for specific definition of "cell normals".
         if not hasattr(self, '_cell_orientations'):
-            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+            raise CellOrientationsRuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
 
     @PETSc.Log.EventDecorator()
@@ -2328,7 +2333,7 @@ values from f.)"""
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
-            raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
+            raise CellOrientationsRuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         if not isinstance(expr, ufl.classes.Expr):
             raise TypeError("UFL expression expected!")
