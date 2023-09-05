@@ -63,14 +63,7 @@ def make_high_order(m_low_order, degree):
             ),
         ),
         "unitsquare_Regge_source",
-        pytest.param(
-            "spheresphere",
-            marks=pytest.mark.xfail(
-                # CalledProcessError is so the parallel tests correctly xfail
-                raises=(subprocess.CalledProcessError, NotImplementedError),
-                reason="Cannot yet interpolate from immersed manifold meshes.",
-            ),
-        ),
+        "spheresphere",
     ]
 )
 def parameters(request):
@@ -170,7 +163,8 @@ def parameters(request):
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
         # we use add to avoid TSFC complaints about too many indices for sum
-        # factorisation
+        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
+        # into V_dest
         expr_src = reduce(add, SpatialCoordinate(m_src))
         expr_dest = reduce(add, SpatialCoordinate(m_dest))
         expected = reduce(add, coords.T)
@@ -222,8 +216,8 @@ def parameters(request):
         V_dest = TensorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = TensorFunctionSpace(m_dest, "DQ", 2)
     elif request.param == "spheresphere":
-        m_src = UnitCubedSphereMesh(5)
-        m_dest = UnitIcosahedralSphereMesh(5)
+        m_src = UnitCubedSphereMesh(5, name="src_sphere")
+        m_dest = UnitIcosahedralSphereMesh(5, name="dest_sphere")
         coords = np.array(
             [
                 [0, 1, 0],
@@ -234,12 +228,15 @@ def parameters(request):
                 [-sqrt(3) / 2, 1 / 2, 0],
             ]
         )  # points that ought to be on the unit circle, at z=0
-        # function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.5
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        # We don't add source and target mesh vertices since no amount of mesh
+        # tolerance loading allows .at to avoid getting different results on different
+        # processes for this mesh pair.
+        # We use add to avoid TSFC complaints about too many indices for sum
+        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
+        # into V_dest
+        expr_src = reduce(add, SpatialCoordinate(m_src))
+        expr_dest = reduce(add, SpatialCoordinate(m_dest))
+        expected = reduce(add, coords.T)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -444,22 +441,29 @@ def test_interpolate_cross_mesh_not_point_eval():
     expected = 2 * coords
     V_src = FunctionSpace(m_src, "RT", 2)
     V_dest = FunctionSpace(m_dest, "RTCE", 2)
+    atol = 1e-8  # default
     # This might not make much mathematical sense, but it should test if we get
     # the not implemented error for non-point evaluation nodes!
     with pytest.raises(NotImplementedError):
         interpolate_function(
-            m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+            m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
         )
 
 
 def get_expected_values(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
 ):
+    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
+        # Between immersed manifolds we will often be doing projection so we
+        # need a higher tolerance for our tests
+        atol = 1e-3
+    else:
+        atol = 1e-8  # default
     interpolate_function(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
     )
     interpolate_expression(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
     )
     interpolator, f_src, f_dest, m_src = interpolator_function(
         m_src,
@@ -470,70 +474,73 @@ def get_expected_values(
         expected,
         expr_src,
         expr_dest,
+        atol,
     )
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
     interpolator_function_transpose(
-        interpolator, f_src, cofunction_dest, m_src, coords, expected
+        interpolator, f_src, cofunction_dest, m_src, m_dest, coords, expected, atol
     )
-    interpolator_expression(m_src, m_dest, V_src, V_dest, coords, expected, expr_src)
+    interpolator_expression(
+        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, atol
+    )
 
 
 def interpolate_function(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
     f_src = Function(V_src).interpolate(expr_src)
     f_dest = interpolate(f_src, V_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
+    assert np.allclose(got, expected, atol=atol)
 
     f_src = Function(V_src).interpolate(expr_src)
     f_dest = interpolate(f_src, V_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
+    assert np.allclose(got, expected, atol=atol)
 
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
     # works with Function interpolate method
     f_dest = Function(V_dest)
     f_dest.interpolate(f_src)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(got, expected, atol=atol)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
     # output argument works
     f_dest = Function(V_dest)
     Interpolator(f_src, V_dest).interpolate(output=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(got, expected, atol=atol)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
 
 def interpolate_expression(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
     f_dest = interpolate(expr_src, V_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
+    assert np.allclose(got, expected, atol=atol)
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
     # output argument works for expressions
     f_dest = Function(V_dest)
     Interpolator(expr_src, V_dest).interpolate(output=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(got, expected, atol=atol)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
 
 def interpolator_function(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
+    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
     f_src = Function(V_src).interpolate(expr_src)
 
@@ -543,9 +550,9 @@ def interpolator_function(
     f_dest = interpolator.interpolate(f_src)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
-    assert np.allclose(got, expected)
+    assert np.allclose(got, expected, atol=atol)
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro)
+    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
     with pytest.raises(ValueError):
         # can't interpolate expressions using an interpolator
@@ -558,7 +565,7 @@ def interpolator_function(
 
 
 def interpolator_function_transpose(
-    interpolator, f_src, cofunction_dest, m_src, coords, expected
+    interpolator, f_src, cofunction_dest, m_src, m_dest, coords, expected, atol
 ):
     cofunction_dest_on_src = interpolator.interpolate(cofunction_dest, transpose=True)
     assert extract_unique_domain(cofunction_dest_on_src) is m_src
@@ -566,15 +573,27 @@ def interpolator_function_transpose(
     # behaviour of adjoint interpolation (which is nontrivial for meshes which
     # are not exact refinements of each other!) For now I check that I don't
     # get f_src or its equivalent cofunction back!
-    assert not np.allclose(cofunction_dest_on_src.dat.data_ro, f_src.dat.data_ro)
+    assert not np.allclose(
+        cofunction_dest_on_src.dat.data_ro, f_src.dat.data_ro, atol=atol
+    )
     V_src = f_src.function_space()
     cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
+    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere" and atol > 1e-8:
+        # In the spheresphere case we need to make sure our tolerance is back
+        # to default, since we actually DO get the same cofunction back with an
+        # atol of 1e-3
+        assert np.allclose(
+            cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
+        )
+        atol = 1e-8
     assert not np.allclose(
-        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro
+        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
     )
 
 
-def interpolator_expression(m_src, m_dest, V_src, V_dest, coords, expected, expr_src):
+def interpolator_expression(
+    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, atol
+):
     f_src = Function(V_src).interpolate(expr_src)
 
     with pytest.raises(NotImplementedError):
@@ -582,16 +601,18 @@ def interpolator_expression(m_src, m_dest, V_src, V_dest, coords, expected, expr
         f_dest = interpolator.interpolate(f_src)
         assert extract_unique_domain(f_dest) is m_dest
         got = f_dest.at(coords)
-        assert np.allclose(got, 2 * expected)
+        assert np.allclose(got, 2 * expected, atol=atol)
         cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
         cofunction_dest_on_src = interpolator.interpolate(
             cofunction_dest, transpose=True
         )
         assert extract_unique_domain(cofunction_dest_on_src) is m_src
-        assert not np.allclose(f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro)
+        assert not np.allclose(
+            f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=atol
+        )
         cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
         assert not np.allclose(
-            cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro
+            cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
         )
 
 
