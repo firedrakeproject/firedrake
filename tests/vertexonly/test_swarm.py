@@ -114,7 +114,13 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        # This mesh is so coarse that we need to reduce the tolerance to get
+        # locate cell to give us the correct answer (the check for all unique
+        # parentcellnum will fail otherwise)
+        m.tolerance = 0.5
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -353,6 +359,12 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         assert np.all(np.isin(input_local_coord_indices, input_indices))
         if redundant:
             assert np.array_equal(np.unique(input_indices), np.sort(globalindices))
+
+    # check we have unique parent cell numbers, which we should since we have
+    # points at cell midpoints
+    parentcellnums = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    assert len(np.unique(parentcellnums)) == len(parentcellnums)
 
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
