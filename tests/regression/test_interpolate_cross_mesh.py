@@ -94,9 +94,6 @@ def parameters(request):
         # only add target mesh vertices since they are common to both meshes
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
-        # function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.5
         expr_src = reduce(mul, SpatialCoordinate(m_src))
         expr_dest = reduce(mul, SpatialCoordinate(m_dest))
         expected = reduce(mul, coords.T)
@@ -122,9 +119,6 @@ def parameters(request):
         # only add target mesh vertices since they are common to both meshes
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
-        # function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.5
         expr_src = reduce(mul, SpatialCoordinate(m_src))
         expr_dest = reduce(mul, SpatialCoordinate(m_dest))
         expected = reduce(mul, coords.T)

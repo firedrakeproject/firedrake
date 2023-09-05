@@ -502,7 +502,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name, tolerance=1.0):
+    def __init__(self, name, tolerance=0.5):
         """Initialise an abstract mesh topology.
 
         :arg name: name of the mesh
@@ -866,7 +866,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=0.5):
         """Half-initialise a mesh topology.
 
         :arg plex: PETSc DMPlex representing the mesh topology
@@ -1308,7 +1308,7 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=1.0):
+    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=0.5):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
@@ -1528,7 +1528,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=1.0):
+    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=0.5):
         """
         Half-initialise a mesh topology.
 
@@ -2473,7 +2473,7 @@ def Mesh(meshfile, **kwargs):
 
     :param tolerance: The relative tolerance (i.e. as defined on the reference
            cell) for the distance a point can be from a cell and still be
-           considered to be in the cell. Defaults to 1.0. Increase
+           considered to be in the cell. Defaults to 0.5. Increase
            this if point at mesh boundaries (either rank local or global) are
            reported as being outside the mesh, for example when creating a
            :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
@@ -2525,7 +2525,7 @@ def Mesh(meshfile, **kwargs):
     if coordinates is not None:
         return make_mesh_from_coordinates(coordinates, name)
 
-    tolerance = kwargs.get("tolerance", 1.0)
+    tolerance = kwargs.get("tolerance", 0.5)
 
     utils._init()
 
@@ -2599,7 +2599,7 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=1.0):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=0.5):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
