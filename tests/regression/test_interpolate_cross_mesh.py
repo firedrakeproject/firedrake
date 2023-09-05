@@ -225,6 +225,9 @@ def parameters(request):
         # We don't add source and target mesh vertices since no amount of mesh
         # tolerance loading allows .at to avoid getting different results on different
         # processes for this mesh pair.
+        # Function.at often gets conflicting answers across boundaries for this
+        # mesh, so we lower the tolerance a bit for this test
+        m_dest.tolerance = 0.1
         # We use add to avoid TSFC complaints about too many indices for sum
         # factorisation when interpolating expressions of SpatialCoordinates(m_src)
         # into V_dest
