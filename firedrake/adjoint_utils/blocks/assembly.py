@@ -136,7 +136,8 @@ class AssembleBlock(Block, Backend):
                 continue
             if isinstance(c_rep, self.compat.MeshType):
                 X = self.backend.SpatialCoordinate(c_rep)
-                # dform += self.backend.action(self.backend.derivative(form, X), tlm_value)
+                # Spatial coordinates derivatives cannot be expanded in the physical space,
+                # which is required by symbolic operators such as `action`.
                 dform += self.backend.derivative(form, X, tlm_value)
             else:
                 dform += self.backend.action(self.backend.derivative(form, c_rep), tlm_value)
