@@ -305,9 +305,7 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
 
-        super().__init__(
-            expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs
-        )
+        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs)
 
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
@@ -341,12 +339,6 @@ class CrossMeshInterpolator(Interpolator):
             # for this to work.
             raise NotImplementedError(
                 "Cannot yet interpolate from high order meshes to other meshes."
-            )
-        if src_mesh_gdim != src_mesh.topological_dimension():
-            # Need to implement vertex-only mesh immersion in immersed manifold
-            # meshes for this to work.
-            raise NotImplementedError(
-                "Cannot yet interpolate from immersed manifold meshes."
             )
 
         self.sub_interpolators = []

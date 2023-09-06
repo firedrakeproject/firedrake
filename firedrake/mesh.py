@@ -502,7 +502,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, name, tolerance=1.0):
+    def __init__(self, name, tolerance=0.5):
         """Initialise an abstract mesh topology.
 
         :arg name: name of the mesh
@@ -866,7 +866,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=1.0):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=0.5):
         """Half-initialise a mesh topology.
 
         :arg plex: PETSc DMPlex representing the mesh topology
@@ -1308,7 +1308,7 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=1.0):
+    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=0.5):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
@@ -1528,7 +1528,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=1.0):
+    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=0.5):
         """
         Half-initialise a mesh topology.
 
@@ -1824,6 +1824,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # local = numpy.arange(nleaves, dtype=IntType)
         sf.setGraph(nroots, None, input_ranks_and_idxs)
         return sf
+
+
+class CellOrientationsRuntimeError(RuntimeError):
+    """Exception raised when there are problems with cell orientations."""
+    pass
 
 
 class MeshGeometryCargo:
@@ -2310,7 +2315,7 @@ values from f.)"""
         # Storing `_cell_orientations` in `MeshTopology` would make the `MeshTopology`
         # object only useful for specific definition of "cell normals".
         if not hasattr(self, '_cell_orientations'):
-            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+            raise CellOrientationsRuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
         return self._cell_orientations
 
     @PETSc.Log.EventDecorator()
@@ -2328,7 +2333,7 @@ values from f.)"""
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
-            raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
+            raise CellOrientationsRuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         if not isinstance(expr, ufl.classes.Expr):
             raise TypeError("UFL expression expected!")
@@ -2468,7 +2473,7 @@ def Mesh(meshfile, **kwargs):
 
     :param tolerance: The relative tolerance (i.e. as defined on the reference
            cell) for the distance a point can be from a cell and still be
-           considered to be in the cell. Defaults to 1.0. Increase
+           considered to be in the cell. Defaults to 0.5. Increase
            this if point at mesh boundaries (either rank local or global) are
            reported as being outside the mesh, for example when creating a
            :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
@@ -2520,7 +2525,7 @@ def Mesh(meshfile, **kwargs):
     if coordinates is not None:
         return make_mesh_from_coordinates(coordinates, name)
 
-    tolerance = kwargs.get("tolerance", 1.0)
+    tolerance = kwargs.get("tolerance", 0.5)
 
     utils._init()
 
@@ -2594,7 +2599,7 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=1.0):
+def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=0.5):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
@@ -2807,8 +2812,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     .. note::
 
-        Manifold meshes and extruded meshes with variable extrusion layers are
-        not yet supported. See note below about ``VertexOnlyMesh`` as input.
+        Extruded meshes with variable extrusion layers are not yet supported.
+        See note below about ``VertexOnlyMesh`` as input.
 
     .. note::
         When running in parallel with ``redundant = False``, ``vertexcoords``
@@ -2842,9 +2847,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-
-    if gdim != tdim:
-        raise NotImplementedError("Immersed manifold meshes are not supported")
 
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
@@ -3381,8 +3383,8 @@ def _dmswarm_create(
     swarm.other_fields = other_fields
 
     plexdim = plex.getDimension()
-    if plexdim != tdim:
-        # This is a Firedrake extruded mesh, so we need to use the
+    if plexdim != tdim or plexdim != gdim:
+        # This is a Firedrake extruded or immersed mesh, so we need to use the
         # mesh geometric dimension when we create the swarm. In this
         # case DMSwarmMigate() will not work.
         swarmdim = gdim
@@ -3716,6 +3718,11 @@ def _parent_mesh_embedding(
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
 
+    if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
+        # The reference coordinates contain an extra unnecessary dimension
+        # which we can safely delete
+        reference_coords = reference_coords[:, :parent_mesh.topological_dimension()]
+
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
     # see below for why np.inf is used here.
@@ -3733,7 +3740,7 @@ def _parent_mesh_embedding(
     # particular coordinate, we break the tie by choosing the lowest rank.
     # This turns out to be a lexicographic row-wise minimum of the
     # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
-    # break ties by minimising the distance.
+    # break ties by choosing the lowest rank.
     owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )

@@ -161,8 +161,8 @@ Interpolating onto other meshes
 
 .. note::
 
-   Interpolation *from* :ref:`immersed manifolds <immersed_manifolds>` and
-   :ref:`high-order meshes <changing_coordinate_fs>` is currently not supported.
+   Interpolation *from* :ref:`high-order meshes <changing_coordinate_fs>` is
+   currently not supported.
 
 If the target mesh extends outside the source mesh domain, then cross-mesh
 interpolation will raise a :py:class:`~.DofNotDefinedError`.

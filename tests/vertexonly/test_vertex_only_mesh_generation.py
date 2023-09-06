@@ -42,7 +42,7 @@ def cell_midpoints(m):
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
+                        "immersedsphere",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -61,7 +61,9 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -310,7 +312,7 @@ def test_redistribution():
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
-    assert m.tolerance == 1.0
+    assert m.tolerance == 0.5
     assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]

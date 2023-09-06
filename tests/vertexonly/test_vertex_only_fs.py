@@ -13,7 +13,7 @@ from mpi4py import MPI
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
+                        "immersedsphere",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -32,7 +32,9 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh(refinement_level=2, name='immersedsphere')
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
