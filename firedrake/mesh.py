@@ -2812,8 +2812,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     .. note::
 
-        Manifold meshes and extruded meshes with variable extrusion layers are
-        not yet supported. See note below about ``VertexOnlyMesh`` as input.
+        Extruded meshes with variable extrusion layers are not yet supported.
+        See note below about ``VertexOnlyMesh`` as input.
 
     .. note::
         When running in parallel with ``redundant = False``, ``vertexcoords``
