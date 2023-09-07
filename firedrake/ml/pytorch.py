@@ -1,7 +1,19 @@
+import os
 try:
     import torch
 except ImportError:
-    raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
+    if "FIREDRAKE_BUILDING_DOCS" in os.environ:
+        # If building docs and pytorch is not installed, produce a mock
+        # torch.autograd.Function class with the correct `__module__`
+        # attribute. This is sufficient for the intersphinx reference to
+        # resolve.
+        from types import SimpleNamespace, new_class
+        torch = SimpleNamespace()
+        torch.autograd = SimpleNamespace()
+        torch.autograd.Function = new_class("Function")
+        torch.autograd.Function.__module__ = "torch.autograd"
+    else:
+        raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 import collections
 from functools import partial

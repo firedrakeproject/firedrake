@@ -184,3 +184,15 @@ def test_constants_are_renumbered_in_form_signature():
 
     assert c.count() != d.count()
     assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
+
+
+def test_constant_subclasses_are_correctly_numbered():
+    class CustomConstant(Constant):
+        pass
+
+    const1 = CustomConstant(1.0)
+    const2 = Constant(1.0)
+    const3 = CustomConstant(1.0)
+
+    assert const2.count() == const1.count() + 1
+    assert const3.count() == const1.count() + 2

@@ -51,8 +51,8 @@ def test_vom_manual_points_outside_domain():
         points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
 
     vom = True  # avoid flake8 unused variable warning
-    with pytest.raises(ValueError):
-        # This will raise a ValueError
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
+        # This will raise a VertexOnlyMeshMissingPointsError
         vom = VertexOnlyMesh(parent_mesh, points, missing_points_behaviour='error')
 
     def display_correct_indent():
@@ -94,7 +94,7 @@ def test_mesh_tolerance():
     # point (1.1, 1.0) is outside the mesh
     points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
 
-    # This prints 1.0 - points can be up to around 1 mesh cell width away from
+    # This prints 0.5 - points can be up to around half a mesh cell width away from
     # the edge of the mesh and still be considered inside the domain.
     print(parent_mesh.tolerance)
 

@@ -105,11 +105,11 @@ FEniCS '15 is supported by:
 
 .. |NERC| image:: /images/nerc.*
   :height: 60px
-  :target: http://www.nerc.ac.uk
+  :target: https://www.ukri.org/councils/nerc/
 
 .. |EPSRC| image:: /images/epsrc.*
   :height: 60px
-  :target: http://www.epsrc.ac.uk
+  :target: https://www.ukri.org/councils/epsrc/
 
 .. |Imperial College London| image:: /images/imperial.*
   :height: 60px

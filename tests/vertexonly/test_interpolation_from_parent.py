@@ -15,10 +15,7 @@ import subprocess
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere",
-                                     # CalledProcessError is so the parallel tests correctly xfail
-                                     marks=pytest.mark.xfail(raises=(subprocess.CalledProcessError, NotImplementedError),
-                                                             reason="immersed parent meshes not supported")),
+                        "immersedsphere",
                         "periodicrectangle",
                         "shiftedmesh"],
                 ids=lambda x: f"{x}-mesh")
@@ -38,7 +35,9 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh(refinement_level=2, name='immersedsphere')
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -85,6 +84,12 @@ def vfs(request, parentmesh):
                 pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
         else:
             pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
+        if parentmesh.name == "immersedsphere":
+            # See https://github.com/firedrakeproject/firedrake/issues/3089
+            if family == "N1curl" or family == "N2curl":
+                pytest.xfail(f"{family} does not give correct point evaluation results on immersed manifolds")
+            elif family == "N1div" or family == "N2div":
+                pytest.xfail(f"{family} cannot yet perform point evaluation on immersed manifolds")
     return request.param
 
 
@@ -98,6 +103,12 @@ def tfs(request, parentmesh):
     if (family != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
             and parentmesh.ufl_cell().cellname() != "tetrahedron"):
         pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
+    if parentmesh.name == "immersedsphere":
+        # See https://github.com/firedrakeproject/firedrake/issues/3089
+        if family == "Regge":
+            pytest.xfail(f"{family} does not give correct point evaluation results on immersed manifolds")
+        elif family == "BDM":
+            pytest.xfail(f"{family} cannot yet perform point evaluation on immersed manifolds")
     return request.param
 
 
@@ -113,11 +124,34 @@ def pseudo_random_coords(size):
     return (b - a) * np.random.random_sample(size=size) + a
 
 
+def allgather(comm, coords):
+    """Gather all coordinates from all ranks."""
+    coords = coords.copy()
+    coords = comm.allgather(coords)
+    coords = np.concatenate(coords)
+    return coords
+
+
+def immersed_sphere_vertexcoords(mesh, vertexcoords_old):
+    # Need to pick points approximately on the surface of the sphere
+    # to avoid interpolation errors in the tests. I just use the vertices of
+    # the mesh itself. Correct projection behaviour (when the points are not
+    # within cells) is tested elsewhere.
+    if not len(vertexcoords_old):
+        return vertexcoords_old
+    else:
+        # Get the coordinates of the vertices of the mesh
+        meshvertexcoords = allgather(mesh.comm, mesh.coordinates.dat.data_ro)
+        return meshvertexcoords[0:len(vertexcoords_old)]
+
+
 # Tests
 
 # NOTE: these _spatialcoordinate tests should be equivalent to some kind of
 # interpolation from a CG1 VectorFunctionSpace (I think)
 def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     # Reshaping because for all meshes, we want (-1, gdim) but
     # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
@@ -130,6 +164,8 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 
 def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     fs_fam, fs_deg, fs_typ = fs
@@ -158,6 +194,8 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
 
 
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = VectorFunctionSpace(vm, "DG", 0)
@@ -167,6 +205,8 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 
 def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vfs_fam, vfs_deg, vfs_typ = vfs
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
@@ -194,6 +234,8 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
     W = TensorFunctionSpace(vm, "DG", 0)
@@ -209,6 +251,8 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
 
 
 def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     tfs_fam, tfs_deg, tfs_typ = tfs
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro
@@ -243,6 +287,8 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
 
 @pytest.mark.xfail(raises=NotImplementedError, reason="Interpolation of UFL expressions into mixed functions not supported")
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
+    if parentmesh.name == "immersedsphere":
+        vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     tfs_fam, tfs_deg, tfs_typ = tfs
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
