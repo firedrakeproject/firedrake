@@ -62,10 +62,15 @@ class AssembleBlock(Block, Backend):
                                                  adj_input)
                 adj_output = self.compat.assemble_adjoint_value(adj_output)
             else:
-                # Get PETSc matrix
-                dform_mat = self.compat.assemble_adjoint_value(dform).petscmat
-                # Action of the adjoint (Hermitian transpose)
                 adj_output = self.backend.Cofunction(space.dual())
+                # Assemble `dform`: derivatives are expanded along the way
+                # which may lead to a ZeroBaseForm
+                assembled_dform = self.compat.assemble_adjoint_value(dform)
+                if assembled_dform == 0:
+                    return adj_output, dform
+                # Get PETSc matrix
+                dform_mat = assembled_dform.petscmat
+                # Action of the adjoint (Hermitian transpose)
                 with adj_input.dat.vec_ro as v_vec:
                     with adj_output.dat.vec as res_vec:
                         dform_mat.multHermitian(v_vec, res_vec)
