@@ -2,6 +2,7 @@ import numpy
 from functools import partial, singledispatch
 import os
 import tempfile
+import abc
 
 import FIAT
 import ufl
@@ -23,13 +24,21 @@ import firedrake
 import firedrake.assemble
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, action, adjoint
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating
 
-__all__ = ("interpolate", "Interpolator", "Interp")
+__all__ = (
+    "interpolate",
+    "Interpolator",
+    "Interp",
+    "DofNotDefinedError",
+    "CrossMeshInterpolator",
+    "SameMeshInterpolator",
+)
 
 
 class Interp(ufl.Interp):
@@ -109,16 +118,43 @@ class Interp(ufl.Interp):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
+def interpolate(
+    expr,
+    V,
+    subset=None,
+    access=op2.WRITE,
+    allow_missing_dofs=False,
+    default_missing_val=None,
+    ad_block_tag=None,
+):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over.
-    :kwarg access: The access descriptor for combining updates to shared dofs.
-    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
+        interpolation over. Cannot, at present, be used when interpolating
+        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
+    :kwarg access: The pyop2 access descriptor for combining updates to shared
+        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
+        supported at present when interpolating across meshes unless the target
+        mesh is a :func:`.VertexOnlyMesh`. See note below.
+    :kwarg allow_missing_dofs: For interpolation across meshes: allow
+        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
+        defined on the source mesh. For example, where nodes are point
+        evaluations, points in the target mesh that are not in the source mesh.
+        When ``False`` this raises a ``ValueError`` should this occur. When
+        ``True`` the corresponding values are set to zero or to the value
+        ``default_missing_val`` if given. Ignored if interpolating within the
+        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+        :func:`.VertexOnlyMesh` in this scenario is, at present, set when
+        it is created).
+    :kwarg default_missing_val: For interpolation across meshes: the optional
+        value to assign to DoFs in the target mesh that are outside the source
+        mesh. If this is not set then zero is used. Ignored if interpolating
+        within the same mesh or onto a :func:`.VertexOnlyMesh`.
+    :kwarg ad_block_tag: An optional string for tagging the resulting block on
+        the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
@@ -141,19 +177,44 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
        performance by using an :class:`Interpolator` instead.
 
     """
-    return Interpolator(expr, V, subset=subset, access=access).interpolate()
+    return Interpolator(
+        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs
+    ).interpolate(default_missing_val=default_missing_val)
 
 
-class Interpolator(object):
+class Interpolator(abc.ABC):
     """A reusable interpolation object.
 
     :arg expr: The expression to interpolate.
     :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over.
+        interpolation over. Cannot, at present, be used when interpolating
+        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
     :kwarg freeze_expr: Set to True to prevent the expression being
-        re-evaluated on each call.
+        re-evaluated on each call. Cannot, at present, be used when
+        interpolating across meshes unless the target mesh is a
+        :func:`.VertexOnlyMesh`.
+    :kwarg access: The pyop2 access descriptor for combining updates to shared
+        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
+        supported at present when interpolating across meshes. See note in
+        :func:`.interpolate` if changing this from default.
+    :kwarg bcs: An optional list of boundary conditions to zero-out in the
+        output function space. Interpolator rows or columns which are
+        associated with boundary condition nodes are zeroed out when this is
+        specified.
+    :kwarg allow_missing_dofs: For interpolation across meshes: allow
+        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
+        defined on the source mesh. For example, where nodes are point
+        evaluations, points in the target mesh that are not in the source mesh.
+        When ``False`` this raises a ``ValueError`` should this occur. When
+        ``True`` the corresponding values are either left unchanged in the
+        :class:`.Function` produced by the interpolation, or are set to a
+        default value if one is provided. See the ``default_missing_val`` kwarg
+        of :meth:`interpolate` for more. Ignored if interpolating within the
+        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+        :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is
+        created).
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
@@ -165,19 +226,36 @@ class Interpolator(object):
        :class:`Interpolator` is also collected).
 
     """
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
-        try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
-        except FIAT.hdiv_trace.TraceError:
-            raise NotImplementedError("Can't interpolate onto traces sorry")
-        self.arguments = arguments
-        self.nargs = len(arguments)
-        self.freeze_expr = freeze_expr
+
+    def __new__(cls, expr, V, **kwargs):
+        target_mesh = V.ufl_domain()
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        if target_mesh is not source_mesh:
+            if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+                return object.__new__(SameMeshInterpolator)
+            else:
+                return object.__new__(CrossMeshInterpolator)
+        else:
+            return object.__new__(SameMeshInterpolator)
+
+    def __init__(
+        self,
+        expr,
+        V,
+        subset=None,
+        freeze_expr=False,
+        access=op2.WRITE,
+        bcs=None,
+        allow_missing_dofs=False,
+    ):
         self.expr = expr
         self.V = V
         self.subset = subset
+        self.freeze_expr = freeze_expr
         self.access = access
         self.bcs = bcs
+        self._allow_missing_dofs = allow_missing_dofs
+        self.callable = None
 
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False):
@@ -218,10 +296,10 @@ class Interpolator(object):
         res = firedrake.assemble(interp, tensor=output)
         return res
 
-    def _interpolate(self, *function, output=None, transpose=False):
-        """Compute the interpolation. This is only expected to be called
-        from the Interp assembly handler. Interpolation should be achieved
-        by calling `Interpolator.interpolate` which is annotated.
+    @abc.abstractmethod
+    def _interpolate(self, *args, **kwargs):
+        """
+        Compute the interpolation.
 
         :arg function: If the expression being interpolated contains an
             :class:`ufl.Argument`, then the :class:`.Function` value to
@@ -229,7 +307,408 @@ class Interpolator(object):
         :kwarg output: Optional. A :class:`.Function` to contain the output.
         :kwarg transpose: Set to true to apply the transpose (adjoint) of the
               interpolation operator.
+        :kwarg default_missing_val: For interpolation across meshes: the
+            optional value to assign to DoFs in the target mesh that are
+            outside the source mesh. If this is not set and an ``output``
+            :class:`.Function` is specified, then such DoF values are left
+            unchanged. If this is not set and no ``output`` :class:`.Function`
+            is specified, then the default value is zero. This does not affect
+            transpose interpolation. Ignored if interpolating within the same
+            mesh or onto a :func:`.VertexOnlyMesh`.
+
         :returns: The resulting interpolated :class:`.Function`.
+        """
+        pass
+
+
+class DofNotDefinedError(Exception):
+    r"""Raised when attempting to interpolate across function spaces where the
+    target function space contains degrees of freedom (i.e. nodes) which cannot
+    be defined in the source function space. This typically occurs when the
+    target mesh covers a larger domain than the source mesh.
+
+    Attributes
+    ----------
+    src_mesh : :func:`.Mesh`
+        The source mesh.
+    dest_mesh : :func:`.Mesh`
+        The destination mesh.
+
+    """
+
+    def __init__(self, src_mesh, dest_mesh):
+        self.src_mesh = src_mesh
+        self.dest_mesh = dest_mesh
+
+    def __str__(self):
+        return (
+            f"The given target function space on domain {repr(self.dest_mesh)} "
+            "contains degrees of freedom which cannot cannot be defined in the "
+            f"source function space on domain {repr(self.src_mesh)}. "
+            "This may be because the target mesh covers a larger domain than the "
+            "source mesh. To disable this error, set allow_missing_dofs=True."
+        )
+
+
+class CrossMeshInterpolator(Interpolator):
+    """
+    Interpolate a function from one mesh and function space to another.
+
+    For arguments, see :class:`.Interpolator`.
+    """
+
+    def __init__(
+        self,
+        expr,
+        V,
+        subset=None,
+        freeze_expr=False,
+        access=op2.WRITE,
+        bcs=None,
+        allow_missing_dofs=False,
+    ):
+        if subset:
+            raise NotImplementedError("subset not implemented")
+        if freeze_expr:
+            # Probably just need to pass freeze_expr to the various
+            # interpolators for this to work.
+            raise NotImplementedError("freeze_expr not implemented")
+        if access != op2.WRITE:
+            raise NotImplementedError("access other than op2.WRITE not implemented")
+        if bcs:
+            raise NotImplementedError("bcs not implemented")
+        if V.ufl_element().mapping() != "identity":
+            # Identity mapping between reference cell and physical coordinates
+            # implies point evaluation nodes. A more general version would
+            # require finding the global coordinates of all quadrature points
+            # of the target function space in the source mesh.
+            raise NotImplementedError(
+                "Can only interpolate into spaces with point evaluation nodes."
+            )
+
+        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs)
+
+        self.arguments = extract_arguments(expr)
+        self.nargs = len(self.arguments)
+        if self.nargs and self.arguments[0] != self.expr:
+            raise NotImplementedError(
+                "Can't yet create an interpolator from an expression with arguments."
+            )
+
+        if self._allow_missing_dofs:
+            missing_points_behaviour = MissingPointsBehaviour.IGNORE
+        else:
+            missing_points_behaviour = MissingPointsBehaviour.ERROR
+
+        # setup
+        V_dest = V
+        src_mesh = extract_unique_domain(expr)
+        dest_mesh = V_dest.ufl_domain()
+        src_mesh_gdim = src_mesh.geometric_dimension()
+        dest_mesh_gdim = dest_mesh.geometric_dimension()
+        if src_mesh_gdim != dest_mesh_gdim:
+            raise ValueError(
+                "geometric dimensions of source and destination meshes must match"
+            )
+        self.src_mesh = src_mesh
+        self.dest_mesh = dest_mesh
+        if numpy.any(
+            numpy.asarray(src_mesh.coordinates.function_space().ufl_element().degree())
+            > 1
+        ):
+            # Need to implement vertex-only mesh immersion in high order meshes
+            # for this to work.
+            raise NotImplementedError(
+                "Cannot yet interpolate from high order meshes to other meshes."
+            )
+
+        self.sub_interpolators = []
+
+        # Create a VOM at the nodes of V_dest in src_mesh. We don't include halo
+        # node coordinates because interpolation doesn't usually include halos.
+        # NOTE: it is very important to set redundant=False, otherwise the
+        # input ordering VOM will only contain the points on rank 0!
+        # QUESTION: Should any of the below have annotation turned off?
+        ufl_scalar_element = V_dest.ufl_element()
+        if ufl_scalar_element.num_sub_elements():
+            if all(
+                ufl_scalar_element.sub_elements()[0] == e
+                for e in ufl_scalar_element.sub_elements()
+            ):
+                # For a VectorElement or TensorElement the correct
+                # VectorFunctionSpace equivalent is built from the scalar
+                # sub-element.
+                ufl_scalar_element = ufl_scalar_element.sub_elements()[0]
+                if ufl_scalar_element.value_shape() != ():
+                    raise NotImplementedError(
+                        "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
+                    )
+            else:
+                assert type(ufl_scalar_element) is ufl.MixedElement
+                # Build and save an interpolator for each sub-element
+                # separately for MixedFunctionSpaces. NOTE: since we can't have
+                # expressions for MixedFunctionSpaces we know that the input
+                # argument ``expr`` must be a Function. V_dest can be a Function
+                # or a FunctionSpace, and subfunctions works for both.
+                if self.nargs == 1:
+                    # Arguments don't have a subfunctions property so I have to
+                    # make them myself. NOTE: this will not be correct when we
+                    # start allowing interpolators created from an expression
+                    # with arguments, as opposed to just being the argument.
+                    expr_subfunctions = [
+                        firedrake.TestFunction(V_src_sub_func)
+                        for V_src_sub_func in self.expr.function_space().subfunctions
+                    ]
+                elif self.nargs > 1:
+                    raise NotImplementedError(
+                        "Can't yet create an interpolator from an expression with multiple arguments."
+                    )
+                else:
+                    expr_subfunctions = self.expr.subfunctions
+                if len(expr_subfunctions) != len(V_dest.subfunctions):
+                    raise NotImplementedError(
+                        "Can't interpolate from a non-mixed function space into a mixed function space."
+                    )
+                for input_sub_func, target_sub_func in zip(
+                    expr_subfunctions, V_dest.subfunctions
+                ):
+                    sub_interpolator = CrossMeshInterpolator(
+                        input_sub_func,
+                        target_sub_func,
+                        subset=subset,
+                        freeze_expr=freeze_expr,
+                        access=access,
+                        bcs=bcs,
+                        allow_missing_dofs=allow_missing_dofs,
+                    )
+                    self.sub_interpolators.append(sub_interpolator)
+                return
+        V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
+        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
+        dest_node_coords = f_dest_node_coords.dat.data_ro
+        try:
+            self.vom_dest_node_coords_in_src_mesh = firedrake.VertexOnlyMesh(
+                src_mesh,
+                dest_node_coords,
+                redundant=False,
+                missing_points_behaviour=missing_points_behaviour,
+            )
+        except VertexOnlyMeshMissingPointsError:
+            raise DofNotDefinedError(src_mesh, dest_mesh)
+        # vom_dest_node_coords_in_src_mesh uses the parallel decomposition of
+        # the global node coordinates of V_dest in the SOURCE mesh (src_mesh).
+        # I first point evaluate my expression at these locations, giving a
+        # P0DG function on the VOM. As described in the manual, this is an
+        # interpolation operation.
+        shape = V_dest.ufl_element().value_shape()
+        if len(shape) == 0:
+            fs_type = firedrake.FunctionSpace
+        elif len(shape) == 1:
+            fs_type = firedrake.VectorFunctionSpace
+        else:
+            fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
+        P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
+        self.point_eval_interpolator = Interpolator(self.expr, P0DG_vom)
+        # The parallel decomposition of the nodes of V_dest in the DESTINATION
+        # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
+        # VOM. This again is an interpolation operation, which, under the hood
+        # is a PETSc SF reduce.
+        P0DG_vom_i_o = fs_type(
+            self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
+        )
+        self.to_input_ordering_interpolator = Interpolator(
+            firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
+        )
+        # The P0DG function outputted by the above interpolation has the
+        # correct parallel decomposition for the nodes of V_dest in dest_mesh so
+        # we can safely assign the dat values. This is all done in the actual
+        # interpolation method below.
+
+    @PETSc.Log.EventDecorator()
+    def _interpolate(
+        self,
+        *function,
+        output=None,
+        transpose=False,
+        default_missing_val=None,
+        **kwargs,
+    ):
+        """Compute the interpolation.
+
+        For arguments, see :class:`.Interpolator`.
+        """
+        if transpose and not self.nargs:
+            raise ValueError(
+                "Can currently only apply transpose interpolation with arguments."
+            )
+        if self.nargs != len(function):
+            raise ValueError(
+                "Passed %d Functions to interpolate, expected %d"
+                % (len(function), self.nargs)
+            )
+
+        if self.nargs:
+            (f_src,) = function
+            if not hasattr(f_src, "dat"):
+                raise ValueError(
+                    "The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!"
+                )
+        else:
+            f_src = self.expr
+
+        if transpose:
+            V_dest = self.expr.function_space()
+        else:
+            if isinstance(self.V, firedrake.Function):
+                V_dest = self.V.function_space()
+            else:
+                V_dest = self.V
+        if output:
+            if output.function_space() != V_dest:
+                raise ValueError("Given output has the wrong function space!")
+        else:
+            if isinstance(self.V, firedrake.Function):
+                output = self.V
+            else:
+                output = firedrake.Function(V_dest).zero()
+
+        if len(self.sub_interpolators):
+            # MixedFunctionSpace case
+            for sub_interpolator, f_src_sub_func, output_sub_func in zip(
+                self.sub_interpolators, f_src.subfunctions, output.subfunctions
+            ):
+                if f_src is self.expr:
+                    # f_src is already contained in self.point_eval_interpolator,
+                    # so the sub_interpolators are already prepared to interpolate
+                    # without needing to be given a Function
+                    assert not self.nargs
+                    sub_interpolator.interpolate(
+                        output=output_sub_func, transpose=transpose, **kwargs
+                    )
+                else:
+                    sub_interpolator.interpolate(
+                        f_src_sub_func,
+                        output=output_sub_func,
+                        transpose=transpose,
+                        **kwargs,
+                    )
+            return output
+
+        if not transpose:
+            if f_src is self.expr:
+                # f_src is already contained in self.point_eval_interpolator
+                assert not self.nargs
+                f_src_at_dest_node_coords_src_mesh_decomp = (
+                    self.point_eval_interpolator.interpolate()
+                )
+            else:
+                f_src_at_dest_node_coords_src_mesh_decomp = (
+                    self.point_eval_interpolator.interpolate(f_src)
+                )
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
+                self.to_input_ordering_interpolator.V
+            )
+            # We have to create the Function before interpolating so we can
+            # set default missing values (if requested).
+            if default_missing_val:
+                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
+                    :
+                ] = default_missing_val
+            elif self._allow_missing_dofs:
+                # If we have allowed missing points we know we might end up
+                # with points in the target mesh that are not in the source
+                # mesh. However, since we haven't specified a default missing
+                # value we expect the interpolation to leave these points
+                # unchanged. By setting the dat values to NaN we can later
+                # identify these points and skip over them when assigning to
+                # the output function.
+                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
+
+            self.to_input_ordering_interpolator.interpolate(
+                f_src_at_dest_node_coords_src_mesh_decomp,
+                output=f_src_at_dest_node_coords_dest_mesh_decomp,
+            )
+
+            # we can now confidently assign this to a function on V_dest
+            if self._allow_missing_dofs and default_missing_val is None:
+                indices = numpy.where(
+                    ~numpy.isnan(f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro)
+                )[0]
+                output.dat.data_wo[
+                    indices
+                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[indices]
+            else:
+                output.dat.data_wo[
+                    :
+                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[:]
+
+        else:
+            # adjoint/transpose interpolation
+
+            # f_src is a cofunction on V_dest.dual as originally specified when
+            # creating the interpolator. Our first adjoint operation is to
+            # assign the dat values to a P0DG cofunction on our input ordering
+            # VOM. This has the parallel decomposition V_dest on our orinally
+            # specified dest_mesh. We can therefore safely create a P0DG
+            # cofunction on the input-ordering VOM (which has this parallel
+            # decomposition and ordering) and assign the dat values. NOTE: we
+            # can't yet use actual cofunctions, so we use Functions in their
+            # place.
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
+                self.to_input_ordering_interpolator.V
+            )
+            f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
+                :
+            ] = f_src.dat.data_ro[:]
+
+            # The rest of the transpose interpolation is merely the composition
+            # of the transpose interpolators in the reverse direction. NOTE: I
+            # don't have to worry about skipping over missing points here
+            # because I'm going from the input ordering VOM to the original VOM
+            # and all points from the input ordering VOM are in the original.
+            f_src_at_src_node_coords = self.to_input_ordering_interpolator.interpolate(
+                f_src_at_dest_node_coords_dest_mesh_decomp, transpose=True
+            )
+            # NOTE: if I wanted the default missing value to be applied to
+            # transpose interpolation I would have to do it here. However,
+            # this would require me to implement default missing values for
+            # transpose interpolation from a point evaluation interpolator
+            # which I haven't done. I wonder if it is necessary - perhaps the
+            # adjoint operator always sets all the values of the resulting
+            # cofunction? My initial attempt to insert setting the dat values
+            # prior to performing the multTranspose operation in
+            # SameMeshInterpolator.interpolate did not effect the result. For
+            # now, I say in the docstring that it only applies to forward
+            # interpolation.
+            self.point_eval_interpolator.interpolate(
+                f_src_at_src_node_coords, transpose=True, output=output
+            )
+
+        return output
+
+
+class SameMeshInterpolator(Interpolator):
+    """
+    An interpolator for interpolation within the same mesh or onto a validly-
+    defined :func:`.VertexOnlyMesh`.
+
+    For arguments, see :class:`.Interpolator`.
+    """
+
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
+        super().__init__(expr, V, subset, freeze_expr, access, bcs)
+        try:
+            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
+        except FIAT.hdiv_trace.TraceError:
+            raise NotImplementedError("Can't interpolate onto traces sorry")
+        self.arguments = arguments
+        self.nargs = len(arguments)
+
+    @PETSc.Log.EventDecorator()
+    def _interpolate(self, *function, output=None, transpose=False, **kwargs):
+        """Compute the interpolation.
+
+        For arguments, see :class:`.Interpolator`.
         """
         if transpose and not self.nargs:
             raise ValueError("Can currently only apply transpose interpolation with arguments.")
@@ -358,11 +837,15 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         if tensor is not None:
-            # Callable will do interpolation into tensor (which is a Dat) when
-            # it is called.
-            wrapper.mpi_type, _ = get_dat_mpi_type(tensor)
+            # Callable will do interpolation into our pre-supplied function f
+            # when it is called.
+            assert f.dat is tensor
+            wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
             assert not len(arguments)
-            callable = partial(wrapper.forward_operation, tensor)
+
+            def callable():
+                wrapper.forward_operation(f.dat)
+                return f
         else:
             assert len(arguments) == 1
             assert tensor is None

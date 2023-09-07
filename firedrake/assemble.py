@@ -522,7 +522,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         else:
             # The case rank == 0 is handled via the DAG restructuration
             raise ValueError("Incompatible number of arguments.")
-    elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix, ufl.ZeroBaseForm)):
+    elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
         return expr
     elif isinstance(expr, ufl.Coefficient):
         return expr
