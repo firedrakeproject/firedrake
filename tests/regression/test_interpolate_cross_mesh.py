@@ -551,11 +551,11 @@ def interpolator_function(
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         # can't interpolate expressions using an interpolator
         interpolator.interpolate(2 * f_src)
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         interpolator.interpolate(2 * cofunction_dest, transpose=True)
 
     return interpolator, f_src, f_dest, m_src
