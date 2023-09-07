@@ -80,6 +80,27 @@ def test_bilinear_exterior_facet_integral(dg_trial_test):
     assert np.allclose(outer_facet, 0.0)
 
 
+def test_vector_bilinear_exterior_facet_integral():
+    mesh = IntervalMesh(5, 5)
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * ds
+    A = assemble(a)
+    values = A.M.values
+
+    # Only the first and last vertices should contain nonzeros. Since these are
+    # blocked that means that the first two entries and the last two entries
+    # should be nonzero.
+    nonzeros = [[0, 0], [1, 1], [-2, -2], [-1, -1]]
+    assert all(np.allclose(values[row, col], 1.0) for row, col in nonzeros)
+
+    # the remaining entries should all be zero
+    for row, col in nonzeros:
+        values[row, col] = 0.0
+    assert np.allclose(values, 0.0)
+
+
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
                          [(('+', ), ('+', )),
