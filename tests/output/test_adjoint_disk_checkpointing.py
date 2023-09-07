@@ -28,7 +28,7 @@ def adjoint_example(mesh):
     w = Function(W)
 
     x, y = SpatialCoordinate(mesh)
-    # InterpolateBlock
+    # AssembleBlock
     m = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
 
     u, v = w.subfunctions
