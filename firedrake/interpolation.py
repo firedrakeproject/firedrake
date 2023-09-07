@@ -125,7 +125,6 @@ def interpolate(
     access=op2.WRITE,
     allow_missing_dofs=False,
     default_missing_val=None,
-    ad_block_tag=None,
 ):
     """Interpolate an expression onto a new function in V.
 
@@ -153,8 +152,6 @@ def interpolate(
         value to assign to DoFs in the target mesh that are outside the source
         mesh. If this is not set then zero is used. Ignored if interpolating
         within the same mesh or onto a :func:`.VertexOnlyMesh`.
-    :kwarg ad_block_tag: An optional string for tagging the resulting block on
-        the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
