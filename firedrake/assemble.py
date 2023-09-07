@@ -501,15 +501,17 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             _, v1 = expr.arguments()
             expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
         # Should we use `freeze_expr` to cache the interpolation ? (e.g. if timestepping loop)
-        interpolator = firedrake.Interpolator(expression, expr.function_space(), **expr.interp_data)
+        interp_data = expr.interp_data
+        default_missing_val = interp_data.pop('default_missing_val', None)
+        interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
         # Assembly
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
                 output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                return interpolator._interpolate(v, output=output, transpose=True)
+                return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
             # Assembling the operator, or its Jacobian action.
-            return interpolator._interpolate(output=tensor)
+            return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
         elif rank == 2:
             # Return the interpolation matrix
             op2_mat = interpolator.callable()

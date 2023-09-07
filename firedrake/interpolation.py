@@ -255,7 +255,7 @@ class Interpolator(abc.ABC):
         self.callable = None
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, *function, output=None, transpose=False):
+    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
         """This performs interpolation by assembling `Interp`, which in turn calls
         `Interpolator._interpolate`. Having this structure ensures consistency between
         `Interpolator` and `Interp`.
@@ -278,7 +278,9 @@ class Interpolator(abc.ABC):
                 output = V
             V = V.function_space()
         interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
-                       'access': self.access, 'bcs': self.bcs}
+                       'access': self.access, 'bcs': self.bcs,
+                       'allow_missing_dofs': self._allow_missing_dofs,
+                       'default_missing_val': default_missing_val}
         interp = Interp(self.expr, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)

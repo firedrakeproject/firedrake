@@ -412,8 +412,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self,
             subset=subset,
             allow_missing_dofs=allow_missing_dofs,
-            default_missing_val=default_missing_val,
-            ad_block_tag=ad_block_tag,
+            default_missing_val=default_missing_val
         )
 
     def zero(self, subset=None):
