@@ -10,6 +10,7 @@ from firedrake_configuration import get_config
 
 _current_uid = 0
 
+RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 

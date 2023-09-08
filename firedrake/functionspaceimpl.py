@@ -400,6 +400,7 @@ class FunctionSpace(object):
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
@@ -564,7 +565,8 @@ class FunctionSpace(object):
                              self.mesh().cell_set,
                              self.finat_element.space_dimension(),
                              "cell_node",
-                             self.offset)
+                             self.offset,
+                             self.offset_quotient)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
@@ -573,11 +575,15 @@ class FunctionSpace(object):
         offset = self.cell_node_map().offset
         if offset is not None:
             offset = numpy.append(offset, offset)
+        offset_quotient = self.cell_node_map().offset_quotient
+        if offset_quotient is not None:
+            offset_quotient = numpy.append(offset_quotient, offset_quotient)
         return sdata.get_map(self,
                              self.mesh().interior_facets.set,
                              2*self.finat_element.space_dimension(),
                              "interior_facet_node",
-                             offset)
+                             offset,
+                             offset_quotient)
 
     def exterior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
@@ -587,7 +593,8 @@ class FunctionSpace(object):
                              self.mesh().exterior_facets.set,
                              self.finat_element.space_dimension(),
                              "exterior_facet_node",
-                             self.offset)
+                             self.offset,
+                             self.offset_quotient)
 
     def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.

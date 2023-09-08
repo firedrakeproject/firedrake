@@ -8,7 +8,6 @@ import sys
 
 cwd = abspath(dirname(__file__))
 demo_dir = join(cwd, "..", "..", "demos")
-pylit = join(cwd, "..", "..", "pylit", "pylit.py")
 
 
 # Discover the demo files by globbing the demo directory
@@ -52,7 +51,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
     name = splitext(basename(rst_file))[0]
     output = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call([pylit, rst_file, output])
+    subprocess.check_call(["pylit", rst_file, output])
     return output
 
 

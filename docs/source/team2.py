@@ -5,6 +5,8 @@ from urllib.request import urlopen
 
 
 class Table:
+    """ This class makes it easier to generate tables in jinja templates
+    """
     def __init__(self, data, cols, transpose=False):
         self.data = [*data]
         if isinstance(self.data[0], str):
@@ -38,7 +40,7 @@ class Table:
 
 
 def cache_web_image(name, url):
-    img_name = name.split()[0].lower().encode("punycode").decode()
+    img_name = "".join(name.split()).lower().encode("punycode").decode()
     img_name = img_name[:-1] if img_name[-1] == "-" else img_name
     with urlopen(url) as response:
         filetype = response.getheader("Content-Type")
@@ -49,19 +51,19 @@ def cache_web_image(name, url):
             fh.write(response.read())
 
 
-#
+# Read the current team information from configuration file
 team = ConfigParser(interpolation=ExtendedInterpolation())
 team.optionxform = lambda x: x
 team.read("team.ini")
 
-#
+# Grab images from provided URLs and cahce them (if necessary)
 for name, links in team["active-team"].items():
     parts = links.split(",")
     if parts[1:]:
         website = parts[1]
         cache_web_image(name, website)
 
-#
+# Environment for applying templates
 env = Environment(
     loader=FileSystemLoader("."),
     autoescape=select_autoescape(),
@@ -69,12 +71,12 @@ env = Environment(
     lstrip_blocks=True
 )
 
-#
+# Collect names for the team page
 extra = [*team["contributing-individual"].items()]
 exclude = [*team["active-team"].keys()] + [*team["inactive-team"].keys()]
 extra = [e for e in extra if e[0] not in exclude]
 
-#
+# Create team webpage from template
 team_rst = env.get_template("team.rst_t")
 with open("team.rst", "w") as fh:
     fh.write(team_rst.render(
@@ -84,7 +86,7 @@ with open("team.rst", "w") as fh:
         ctable=Table(extra, 3, transpose=True)
     ))
 
-#
+# Create authors file for the Github repository
 authors_rst = env.get_template("authors.rst_t")
 
 institution_set = set(chain(
@@ -102,4 +104,17 @@ with open("AUTHORS.rst", "w") as fh:
     fh.write(authors_rst.render(
         institution_set=institution_set,
         individual_set=individual_set
+    ))
+
+# Create citations file for the Github repository
+citation_rst = env.get_template("citation.rst_t")
+institution_list = [inst[0] for inst in team["dev-institution"].items()]
+institution = ' and '.join(institution_list)
+author_list = list(team['active-team'].keys())
+author_list += list(team['inactive-team'].keys())
+author = ' and '.join(author_list)
+with open("CITATION.rst", "w") as fh:
+    fh.write(citation_rst.render(
+        author=author,
+        institution=institution
     ))

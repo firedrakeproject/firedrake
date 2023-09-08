@@ -92,8 +92,7 @@ class TransferManager(object):
             firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.value_size,
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
-                               {"A": (f, firedrake.INC)},
-                               is_loopy_kernel=True)
+                               {"A": (f, firedrake.INC)})
             with f.dat.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
 

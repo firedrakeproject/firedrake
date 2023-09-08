@@ -42,9 +42,8 @@ Videos of the talks are available `on the Firedrake youtube channel
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-The workshop dinner will be a terrace barbeque at `Doggett's Coat and
-Badge
-<http://www.nicholsonspubs.co.uk/doggettscoatandbadgesouthbanklondon/>`_
+The workshop dinner will be a terrace barbeque at ``Doggett's Coat and
+Badge``
 featuring views across the Thames to St Paul's Cathedral and a fine
 selection of English real ales and other delights. For information on
 getting to Doggett's, see :ref:`the directions <to-doggetts>`.
@@ -106,11 +105,11 @@ FEniCS '15 is supported by:
 
 .. |NERC| image:: /images/nerc.*
   :height: 60px
-  :target: http://www.nerc.ac.uk
+  :target: https://www.ukri.org/councils/nerc/
 
 .. |EPSRC| image:: /images/epsrc.*
   :height: 60px
-  :target: http://www.epsrc.ac.uk
+  :target: https://www.ukri.org/councils/epsrc/
 
 .. |Imperial College London| image:: /images/imperial.*
   :height: 60px
