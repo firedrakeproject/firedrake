@@ -16,6 +16,7 @@ import subprocess
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"],
                 ids=lambda x: f"{x}-mesh")
@@ -37,6 +38,11 @@ def parentmesh(request):
     elif request.param == "immersedsphere":
         m = UnitIcosahedralSphereMesh(refinement_level=2, name='immersedsphere')
         m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial")
         return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
