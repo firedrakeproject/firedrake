@@ -77,6 +77,7 @@ of standard shapes.  1-dimensional intervals may be constructed with
 example to build unit square meshes).  See
 :mod:`~firedrake.utility_meshes` for full details.
 
+.. _immersed_manifolds:
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -259,6 +260,9 @@ extruded ("vertical") space.  Firedrake allows us to separately choose
 the horizontal and vertical spaces when building a function space on
 an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
+
+
+.. _supported_elements:
 
 Supported finite elements
 -------------------------
@@ -631,6 +635,8 @@ we can write:
        solve(F == 0, bcs=[bc])
        t += dt
        c.assign(t)
+
+.. _more_complicated_forms:
 
 More complicated forms
 ----------------------

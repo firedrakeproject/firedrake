@@ -13,9 +13,10 @@ from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
+from ufl.domain import extract_unique_domain
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.adjoint import annotate_assemble
+from firedrake.adjoint_utils import annotate_assemble
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
@@ -461,7 +462,7 @@ class FormAssembler(abc.ABC):
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = o.ufl_domain()
+            domain = extract_unique_domain(o)
             if domain is not None and domain.topology != topology:
                 raise NotImplementedError("Assembly with multiple meshes is not supported")
 

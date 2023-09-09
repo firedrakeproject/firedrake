@@ -13,12 +13,11 @@ def handle_taping():
 
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
-    from firedrake_adjoint import annotate_tape, continue_annotation
+    from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
         continue_annotation()
     yield
-    # Since importing firedrake_adjoint modifies a global variable, we need to
-    # pause annotations at the end of the module
+    # Ensure annotations are paused when we finish.
     annotate = annotate_tape()
     if annotate:
         pause_annotation()
@@ -39,11 +38,15 @@ def num_points(request):
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_poisson_inverse_conductivity(num_points):
     # Have to import inside test to make sure cleanup fixtures work as intended
-    from firedrake_adjoint import Control, ReducedFunctional, minimize
+    from firedrake.adjoint import Control, ReducedFunctional, minimize
 
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
     m = UnitSquareMesh(2, 2)
+    if m.comm.size > 1:
+        # lower tolerance avoids issues with .at getting different results
+        # across ranks
+        m.tolerance = 1e-10
     V = FunctionSpace(m, family='CG', degree=2)
     Q = FunctionSpace(m, family='CG', degree=2)
 
@@ -65,10 +68,11 @@ def test_poisson_inverse_conductivity(num_points):
     # Generate random point cloud
     np.random.seed(0)
     xs = np.random.random_sample((num_points, 2))
-    point_cloud = VertexOnlyMesh(m, xs)
+    # we set redundant to False to ensure that we put points on all ranks
+    point_cloud = VertexOnlyMesh(m, xs, redundant=False)
 
-    # Prove the the point cloud coordinates are correct
-    assert (point_cloud.coordinates.dat.data_ro == xs).all()
+    # Check the point cloud coordinates are correct
+    assert (point_cloud.input_ordering.coordinates.dat.data_ro == xs).all()
 
     # Generate "observed" data
     generator = np.random.default_rng(0)
@@ -79,10 +83,15 @@ def test_poisson_inverse_conductivity(num_points):
     ζ = generator.standard_normal(len(xs))
     u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
 
-    # Store data on the point_cloud
+    # Store data on the point_cloud by setting input ordering dat
+    P0DG_input_ordering = FunctionSpace(point_cloud.input_ordering, 'DG', 0)
+    u_obs_input_ordering = Function(P0DG_input_ordering)
+    u_obs_input_ordering.dat.data_wo[:] = u_obs_vals
+
+    # Interpolate onto the point_cloud to get it in the right place
     P0DG = FunctionSpace(point_cloud, 'DG', 0)
     u_obs = Function(P0DG)
-    u_obs.dat.data[:] = u_obs_vals
+    u_obs.interpolate(u_obs_input_ordering)
 
     # Run the forward model
     u = Function(V)
@@ -103,3 +112,9 @@ def test_poisson_inverse_conductivity(num_points):
 
     # Estimate q using Newton-CG which evaluates the hessian action
     minimize(Ĵ, method='Newton-CG', options={'disp': True})
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.parallel
+def test_poisson_inverse_conductivity_parallel(num_points):
+    test_poisson_inverse_conductivity(num_points)

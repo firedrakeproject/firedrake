@@ -36,6 +36,8 @@ This can also be used if `f` is a solution to a PDE.
    This will be fixed in a future Firedrake update.
 
 
+.. _changing_coordinate_fs:
+
 Changing the coordinate function space
 --------------------------------------
 

@@ -125,6 +125,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'dolfin_adjoint_common\..*'),
     (r'py:.*', r'pyadjoint\..*'),
     (r'py:.*', r'tsfc\..*'),
+    (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2

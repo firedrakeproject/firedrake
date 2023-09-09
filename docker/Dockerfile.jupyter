@@ -8,8 +8,8 @@ WORKDIR /home/firedrake
 # PETSC_ARCH inherited from firedrakeproject/firedrake
 
 # Install an iPython kernel for firedrake
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install jupyterhub ipykernel notebook==6.5.0 ipywidgets mpltools nbformat nbconvert"
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbextension enable --py widgetsnbextension --sys-prefix"
+RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install nbclassic nbformat nbconvert"
+RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbclassic --generate-config"
 
 # Remove the install log.
 RUN bash -c "rm firedrake-*"
@@ -28,4 +28,4 @@ RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in thetis/*.ip
 ENV OMPI_MCA_btl tcp,self
 ENV PATH /home/firedrake/firedrake/bin:$PATH
 
-CMD ["/home/firedrake/firedrake/bin/jupyter", "notebook", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
+CMD ["/home/firedrake/firedrake/bin/jupyter", "nbclassic", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
