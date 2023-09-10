@@ -180,7 +180,7 @@ class ImplicitMatrix(MatrixBase):
 
 
 class AssembledMatrix(MatrixBase):
-    """A representation of an matrix without knowing the underlying form.
+    """A representation of a matrix that doesn't require knowing the underlying form.
      This class wraps the relevant information for Python PETSc matrix.
 
     :arg a: A tuple of the arguments the matrix represents
