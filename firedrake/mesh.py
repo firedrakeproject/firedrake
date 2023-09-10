@@ -2524,7 +2524,7 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh  = FiredrakeMesh(meshfile, user_comm)
+        netgen_firedrake_mesh = FiredrakeMesh(meshfile, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
     else:
         basename, ext = os.path.splitext(meshfile)
