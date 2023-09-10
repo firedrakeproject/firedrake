@@ -187,36 +187,49 @@ def update_tensor(assembled_base_form, tensor):
 
 def restructure_base_form(expr, visited=None):
     r"""Perform a preorder traversal to simplify and optimize the DAG.
-    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) and external operator.
+    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) a base form operator.
+
              We have: dFdu = \frac{\partial F}{\partial u} + Action(dFdN, dNdu)
              Now taking the action on a rank-1 object w (e.g. Coefficient/Cofunction) results in:
+
         (1) Action(Action(dFdN, dNdu), w)
+
                 Action                     Action
                 /    \                     /     \
               Action  w     ----->       dFdN   Action
               /    \                            /    \
             dFdN    dNdu                      dNdu    w
-        This situations does not only arise for ExternalOperator but also when we have a 2-form instead of dNdu!
+
+        This situations does not only arise for BaseFormOperator but also when we have a 2-form instead of dNdu!
+
         (2) Action(dNdu, w)
+
              Action
               /   \
              /     w        ----->   dNdu(u; w, v*)
             /
        dNdu(u; uhat, v*)
+
         (3) Action(F, N)
+
              Action                                       F
               /   \         ----->   F(..., N)[v]  =      |
             F[v]   N                                      N
+
         (4) Adjoint(dNdu)
+
              Adjoint
                 |           ----->   dNdu(u; v*, uhat)
            dNdu(u; uhat, v*)
+
         (5) N(u; w) (scalar valued)
+
                                  Action
             N(u; w)   ---->       /   \   = Action(N, w)
                              N(u; v*)  w
 
     So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
+
              Action             Action               Action
              /    \    (1)      /     \      (2)     /     \               (4)                                dFdN
            Action  w  ---->  dFdN   Action  ---->  dFdN   dNdu(u; w, v*)  ---->  dFdN(..., dNdu(u; w, v*)) =    |
@@ -234,6 +247,14 @@ def restructure_base_form(expr, visited=None):
 
         This case arises as a consequence of (2) which turns sum of `Action`s (i.e. ufl.FormSum since Action is a BaseForm)
         into sum of `BaseFormOperator`s (i.e. ufl.Sum since BaseFormOperator is an Expr as well).
+
+        (7) Action(w*, dNdu)
+
+                 Action
+                 /   \
+                w*    \        ----->   dNdu(u; v0, w*)
+                       \
+                  dNdu(u; v1, v0*)
 
     It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
     various dag rotations/manipulations in expr.
@@ -259,6 +280,19 @@ def restructure_base_form(expr, visited=None):
             # Or
             # 2) Let expr as it is by returning `ufl.Action(left, right)`.
             return ufl.action(left, right)
+        # -- Case (7) -- #
+        if is_rank_1(left) and isinstance(right, ufl.core.base_form_operator.BaseFormOperator) and len(right.arguments()) != 1:
+            # Action(w*, dNdu(u; v1, v*)) -> dNdu(u; v0, w*)
+            # Get lowest numbered argument
+            arg = min(right.arguments(), key=lambda v: v.number())
+            # Need to replace lowest numbered argument of right by left
+            replace_map = {arg: left}
+            # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
+            other_args = [a for a in right.arguments() if a is not arg]
+            new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
+            replace_map.update(dict(zip(other_args, new_args)))
+            # Replace arguments
+            return ufl.replace(right, replace_map)
 
     # -- Case (4) -- #
     if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
@@ -343,9 +377,12 @@ def base_form_operands(expr):
 
 def preprocess_form(form, fc_params):
     """Preprocess ufl.Form objects
+
     :arg form: a :class:`~ufl.classes.Form`
     :arg fc_params:: Dictionary of parameters to pass to the form compiler.
+
     :returns: The resulting preprocessed :class:`~ufl.classes.Form`.
+
     This function preprocess the form, mainly by expanding the derivatives, in order to determine
     if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
     This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
@@ -372,7 +409,7 @@ def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        # => No restructuration needed for Form and slate.TensorBase
+        # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)
         expr = restructure_base_form_postorder(expr)
     return expr
@@ -388,7 +425,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         if args and mat_type != "matfree":
             # Retrieve the Form's children
             base_form_operators = base_form_operands(expr)
-            # Substitute the external operators by their output
+            # Substitute the base form operators by their output
             expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
 
         return _assemble_form(expr, tensor=tensor, bcs=bcs,
@@ -433,9 +470,8 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
                 res = PETSc.Mat().create()
-                # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
-                return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
                                               options_prefix=options_prefix)
             else:
@@ -463,16 +499,16 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
             res = PETSc.Mat().create()
-            set = False
+            is_set = False
             for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.petscmat
                 petsc_mat.scale(w)
-                if set:
+                if is_set:
                     res = res + petsc_mat
                 else:
                     res = petsc_mat
-                    set = True
-            return matrix.AssembledMatrix(expr.arguments(), bcs, res,
+                    is_set = True
+            return matrix.AssembledMatrix(expr, bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
@@ -522,7 +558,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
-            # The case rank == 0 is handled via the DAG restructuration
+            # The case rank == 0 is handled via the DAG restructuring
             raise ValueError("Incompatible number of arguments.")
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
         return expr
@@ -727,7 +763,7 @@ def _assemble_expr(expr):
     from ufl.algorithms.analysis import extract_base_form_operators
     from ufl.checks import is_scalar_constant_expression
 
-    # Get BaseFormOperators (`Interp` or `ExternalOperator`)
+    # Get BaseFormOperators (e.g. `Interp` or `ExternalOperator`)
     base_form_operators = extract_base_form_operators(expr)
 
     # -- Linear combination involving 2-form BaseFormOperators -- #
