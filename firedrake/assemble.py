@@ -125,7 +125,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
         # to transmit the cache. All of this only holds when `expression` if a ufl.Form
         # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
-        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+        if isinstance(expression, ufl.form.Form):
             expr._cache = expression._cache
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
         if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):

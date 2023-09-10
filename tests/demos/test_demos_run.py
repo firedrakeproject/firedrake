@@ -27,10 +27,8 @@ def env():
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
 
-    if basename(rst_file) == "qg_1layer_wave.py.rst":
+    if basename(rst_file) == 'qg_1layer_wave.py.rst':
         pytest.skip("This test occasionally fails due to presumed build hardware issues")
-    if basename(rst_file) == "netgen_mesh.py.rst":
-        pytest.xfail(reason="Upstream issue with Netgen")
 
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)

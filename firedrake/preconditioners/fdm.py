@@ -438,7 +438,7 @@ class FDMPC(PCBase):
                 assembly_callables.append(ctx._assemble_block_diagonal)
         else:
             from firedrake.assemble import OneFormAssembler
-            tensor = Function(Z)
+            tensor = Function(Z.dual())
             coefficients["beta"] = tensor.subfunctions[0]
             coefficients["alpha"] = tensor.subfunctions[1]
             assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
@@ -1628,7 +1628,7 @@ class PoissonFDMPC(FDMPC):
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=alpha.ufl_shape))
-            tensor = coefficients.setdefault("alpha", Function(Q))
+            tensor = coefficients.setdefault("alpha", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1650,7 +1650,7 @@ class PoissonFDMPC(FDMPC):
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
             Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
-            tensor = coefficients.setdefault("beta", Function(Q))
+            tensor = coefficients.setdefault("beta", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1673,12 +1673,12 @@ class PoissonFDMPC(FDMPC):
             G = G * abs(ufl.JacobianDeterminant(mesh))
 
             Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=G.ufl_shape))
-            tensor = coefficients.setdefault("Gq_facet", Function(Q))
+            tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
             PT = Piola.T
             Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=PT.ufl_shape))
-            tensor = coefficients.setdefault("PT_facet", Function(Q))
+            tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1702,7 +1702,7 @@ class PoissonFDMPC(FDMPC):
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
                 forms.append(ufl.inner(test, beta)*ds_ext)
 
-        tensor = coefficients.setdefault("bcflags", Function(Q))
+        tensor = coefficients.setdefault("bcflags", Function(Q.dual()))
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:

@@ -28,24 +28,10 @@ def annotate_assemble(assemble):
 
             if not isinstance(output, (float, Function, Cofunction)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
-
-            tape = get_working_tape()
-
-            """
-            extops_form = form.external_operators()
-            for coeff in form.coefficients():
-                extops_coeff_form = [e.result_coefficient() for e in extops_form]
-                dict_extops = dict(zip(extops_coeff_form, extops_form))
-                if coeff in extops_coeff_form:
-                    block_extops = PointwiseOperatorBlock(dict_extops[coeff], *args, **kwargs)
-                    tape.add_block(block_extops)
-
-                    block_variable = coeff.block_variable
-                    block_extops.add_output(block_variable)
-            """
-
             output = create_overloaded_object(output)
             block = AssembleBlock(form, ad_block_tag=ad_block_tag)
+
+            tape = get_working_tape()
             tape.add_block(block)
 
             block.add_output(output.block_variable)
