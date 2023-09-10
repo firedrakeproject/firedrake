@@ -188,7 +188,7 @@ def update_tensor(assembled_base_form, tensor):
 
 def restructure_base_form(expr, visited=None):
     r"""Perform a preorder traversal to simplify and optimize the DAG.
-    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) an external operator.
+    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) a base form operator.
 
              We have: dFdu = \frac{\partial F}{\partial u} + Action(dFdN, dNdu)
              Now taking the action on a rank-1 object w (e.g. Coefficient/Cofunction) results in:
@@ -201,7 +201,7 @@ def restructure_base_form(expr, visited=None):
               /    \                            /    \
             dFdN    dNdu                      dNdu    w
 
-        This situations does not only arise for ExternalOperator but also when we have a 2-form instead of dNdu!
+        This situations does not only arise for BaseFormOperator but also when we have a 2-form instead of dNdu!
 
         (2) Action(dNdu, w)
 
@@ -410,7 +410,7 @@ def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        # => No restructuration needed for Form and slate.TensorBase
+        # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)
         expr = restructure_base_form_postorder(expr)
     return expr
@@ -471,8 +471,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
                 res = PETSc.Mat().create()
-
-                # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
                 return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
@@ -577,7 +575,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
-            # The case rank == 0 is handled via the DAG restructuration
+            # The case rank == 0 is handled via the DAG restructuring
             raise ValueError("Incompatible number of arguments.")
     elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
         return expr
@@ -783,7 +781,7 @@ def _assemble_expr(expr):
     from ufl.algorithms.analysis import extract_base_form_operators
     from ufl.checks import is_scalar_constant_expression
 
-    # Get BaseFormOperators (`Interp` or `ExternalOperator`)
+    # Get BaseFormOperators (e.g. `Interp` or `ExternalOperator`)
     base_form_operators = extract_base_form_operators(expr)
 
     # -- Linear combination involving 2-form BaseFormOperators -- #

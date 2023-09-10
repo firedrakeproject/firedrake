@@ -1,6 +1,7 @@
 import ufl
 import ufl.argument
 from ufl.duals import is_dual
+from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
@@ -221,7 +222,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
             f"Cannot take the derivative of a {type(form).__name__}"
         )
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if u_is_x or isinstance(u, (Constant, firedrake.AbstractExternalOperator)):
+    if u_is_x or isinstance(u, (Constant, BaseFormOperator)):
         uc = u
     else:
         uc, = extract_coefficients(u)
@@ -252,7 +253,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction, firedrake.AbstractExternalOperator)):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction, BaseFormOperator)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
         # if uc.ufl_shape != ():
