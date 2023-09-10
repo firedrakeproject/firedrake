@@ -286,7 +286,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
 
 @PETSc.Log.EventDecorator()
-def action(form, coefficient):
+def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
     :arg form: A UFL form, or a Slate tensor.
@@ -298,11 +298,11 @@ def action(form, coefficient):
             raise ValueError("Can't take action of rank-0 tensor")
         return form * firedrake.AssembledVector(coefficient)
     else:
-        return ufl.action(form, coefficient)
+        return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()
-def adjoint(form, reordered_arguments=None):
+def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
     """Compute the adjoint of a form.
 
     :arg form: A UFL form, or a Slate tensor.
@@ -338,7 +338,7 @@ def adjoint(form, reordered_arguments=None):
                                    Argument(v.function_space(),
                                             number=u.number(),
                                             part=u.part()))
-        return ufl.adjoint(form, reordered_arguments)
+        return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()

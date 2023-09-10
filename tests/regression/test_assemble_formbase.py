@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import allocate_matrix
+from firedrake.assemble import preprocess_base_form, allocate_matrix
 from firedrake.utils import ScalarType
 import ufl
 
@@ -153,6 +153,19 @@ def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+
+
+def test_preprocess_form(M, a, f):
+    from ufl.algorithms.expand_indices import expand_indices
+
+    expr = action(action(M, M), f)
+    A = preprocess_base_form(expr)
+    B = action(M, action(M, f))
+
+    assert isinstance(A, ufl.Action)
+    assert A.left() == B.left()
+    # Need to expand indices to be able to match equal (different MultiIndex used for both).
+    assert expand_indices(A.right()) == expand_indices(B.right())
 
 
 def test_tensor_copy(a, M):
