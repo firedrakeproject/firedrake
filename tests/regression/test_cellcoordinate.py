@@ -19,7 +19,7 @@ def test_cell_coordinate_ds(mesh):
 
 def test_cell_coordinate_dS_not_restricted():
     mesh = UnitSquareMesh(1, 1)
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(CellCoordinate(mesh)[0]*dS)
 
 
@@ -35,7 +35,7 @@ def test_cell_coordinate_dS():
 
 
 def test_facet_coordinate_dx(mesh):
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(FacetCoordinate(mesh)[0]*dx)
 
 

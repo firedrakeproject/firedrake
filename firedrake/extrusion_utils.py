@@ -12,6 +12,7 @@ from tsfc.finatinterface import create_element
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
+from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
@@ -64,7 +65,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType)
+    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology._comm)
 
     if kernel is not None:
         op2.ParLoop(kernel,
@@ -144,9 +145,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        tdim = base_coords.ufl_domain().ufl_cell().topological_dimension()
+        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension()
         if tdim not in [1, 2]:
-            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
+            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % extract_unique_domain(base_coords).ufl_cell())
         # tdim == 1:
         #
         # normal is:
@@ -254,11 +255,18 @@ def flat_entity_permutations(entity_permutations):
         flat_entity_permutations[b] = {}
         for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
             flat_entity_permutations[b][eb] = {}
-            for ob in set(ob for ob, ov in entity_permutations[(b, 0)][2 * eb]):
+            for ob in set(ob for eo, ob, ov in entity_permutations[(b, 0)][2 * eb]):
+                # eo (extrinsic orientation) is always 0 for:
+                # -- quad x interval,
+                # -- triangle x interval,
+                # -- etc.
+                # eo = {0, 1}, but only eo = 0 is relevant for:
+                # -- interval x interval on dim = (1, 1).
+                eo = 0
                 # Orientation in the extruded direction is always 0
                 ov = 0
-                perm0 = entity_permutations[(b, 0)][2 * eb][(ob, ov)]
-                perm1 = entity_permutations[(b, 1)][eb][(ob, ov)]
+                perm0 = entity_permutations[(b, 0)][2 * eb][(eo, ob, ov)]
+                perm1 = entity_permutations[(b, 1)][eb][(eo, ob, ov)]
                 n0, n1 = len(perm0), len(perm1)
                 flat_entity_permutations[b][eb][ob] = \
                     list(perm0) + \
@@ -345,6 +353,58 @@ def calculate_dof_offset(finat_element):
             for i in dof_indices:
                 dof_offset[i] = entity_offset[b]
     return dof_offset
+
+
+@functools.lru_cache()
+def calculate_dof_offset_quotient(finat_element):
+    """Return the offset quotient for each DoF within the base cell.
+
+    :arg finat_element: A FInAT element.
+    :returns: A numpy array containing the offset quotient for each DoF.
+
+    offset_quotient q of each DoF (in a local cell) is defined as
+    i // o, where i is the local DoF ID of the DoF on the entity and
+    o is the offset of that DoF computed in ``calculate_dof_offset()``.
+
+    Let DOF(e, l, i) represent a DoF on (base-)entity e on layer l that has local ID i
+    and suppose this DoF has offset o and offset_quotient q. In periodic extrusion it
+    is convenient to identify DOF(e, l, i) as DOF(e, l + q, i % o); this transformation
+    allows one to always work with the "unit cell" in which i < o always holds.
+
+    In FEA offset_quotient is 0 or 1.
+
+    Example::
+
+               local ID   offset     offset_quotient
+
+               2--2--2    2--2--2    1--1--1
+               |     |    |     |    |     |
+        CG2    1  1  1    2  2  2    0  0  0
+               |     |    |     |    |     |
+               0--0--0    2--2--2    0--0--0
+
+               +-----+    +-----+    +-----+
+               | 1 3 |    | 4 4 |    | 0 0 |
+        DG1    |     |    |     |    |     |
+               | 0 2 |    | 4 4 |    | 0 0 |
+               +-----+    +-----+    +-----+
+
+    """
+    # scalar-valued elements only
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+    if is_real_tensor_product_element(finat_element):
+        return None
+    dof_offset_quotient = numpy.zeros(finat_element.space_dimension(), dtype=IntType)
+    for (b, v), entities in finat_element.entity_dofs().items():
+        for entity, dof_indices in entities.items():
+            quotient = 1 if v == 0 and entity % 2 == 1 else 0
+            for i in dof_indices:
+                dof_offset_quotient[i] = quotient
+    if (dof_offset_quotient == 0).all():
+        # Avoid unnecessary codegen in pyop2/codegen/builder.
+        dof_offset_quotient = None
+    return dof_offset_quotient
 
 
 def is_real_tensor_product_element(element):

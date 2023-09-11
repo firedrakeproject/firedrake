@@ -265,8 +265,8 @@ precondition the system with:
 
 .. code-block:: python3
 
-   solve(a == L, 
-         solver_parameters={'pc_type': 'hypre', 
+   solve(a == L,
+         solver_parameters={'pc_type': 'hypre',
                             'pc_hypre_type': 'boomeramg'})
 
 Although the `KSP` name suggests that only Krylov methods are
@@ -277,7 +277,7 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 
 .. code-block:: python3
 
-   solve(a == L, 
+   solve(a == L,
          solver_parameters={'ksp_type': 'preonly',
                             'pc_type': 'lu'})
 
@@ -286,7 +286,7 @@ iterations with:
 
 .. code-block:: python3
 
-   solve(a == L, 
+   solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
                             'pc_type': 'jacobi'}
 
@@ -350,7 +350,7 @@ use:
 Finally, we can set the maximum allowed number of iterations for the
 Krylov method by using the ``'ksp_max_it'`` option.
 
-.. _mixed_preconditioning:
+.. _mixed-preconditioning:
 
 Preconditioning mixed finite element systems
 ++++++++++++++++++++++++++++++++++++++++++++
@@ -384,12 +384,12 @@ space.
    u, p = TrialFunctions(W)
    v, q = TestFunctions(W)
    f = Function(V2)
-   
+
    a = (p*q - q*div(u) + lmbda*inner(v, u) + div(v)*p)*dx
    L = f*q*dx
 
    u = Function(W)
-   solve(a == L, u, 
+   solve(a == L, u,
          solver_parameters={'ksp_type': 'cg',
                             'pc_type': 'fieldsplit',
                             'pc_fieldsplit_type': 'schur',
@@ -653,7 +653,7 @@ to solve the linear system we would write:
 
 .. code-block:: python3
 
-   solve(F == 0, u, 
+   solve(F == 0, u,
          solver_parameters={'snes_type': 'newtonls',
                             'ksp_type': 'preonly',
                             'pc_type': 'lu'}
@@ -841,7 +841,7 @@ Singular operators in mixed spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you have an operator in a mixed space, you may well precondition
-the system using a `Schur complement <mixed_preconditioning>`_.  If
+the system using a :ref:`Schur complement <mixed-preconditioning>`.  If
 the operator is singular, you will therefore have to tell the solver
 about the null space of each diagonal block separately.  To do this in
 Firedrake, we build a
@@ -905,7 +905,7 @@ badly conditioned.  If the problem is small, we can try using a direct
 solve to see if the solution obtained is correct:
 
 .. code-block:: python3
-   
+
    solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'}
 
 If this approach fails with a "zero-pivot" error, it is likely that
@@ -920,7 +920,7 @@ using an algebraic multigrid preconditioner.  If PETSc was installed
 with Hypre use:
 
 .. code-block:: python3
-   
+
    solver_parameters={'pc_type': 'hypre', 'pc_hypre_type': 'boomeramg'}
 
 If you're using a symmetric method, such as conjugate gradient, check
@@ -938,7 +938,7 @@ difficult problems this might be too low, in which case, you can
 increase the restart length with:
 
 .. code-block:: python3
-   
+
    solver_parameters={'ksp_gmres_restart': 100}
 
 
@@ -1103,15 +1103,15 @@ Notice how now the differences are small (within expected error
 tolerances) so we are happy that the Jacobian is correct.
 
 
-.. _Hypre: http://computation.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods/software
-.. _PETSc: http://www.mcs.anl.gov/petsc/
-.. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-current/docs/manual.pdf
-.. _KSP: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/KSP/
-.. _SNES: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/SNES/
-.. _fieldsplit: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCFIELDSPLIT.html
-.. _PETSc FAQ: http://www.mcs.anl.gov/petsc/documentation/faq.html
-.. _SNES nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#newton
-.. _KSP nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#kspdiverged
-.. _LSC: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCLSC.html
-.. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
+.. _Hypre: https://computing.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods
+.. _PETSc: https://petsc.org/release/
+.. _PETSc manual: https://petsc.org/release/docs/manual/manual.pdf
+.. _KSP: https://petsc.org/release/manualpages/KSP/
+.. _SNES: https://petsc.org/release/manualpages/SNES/
+.. _fieldsplit: https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/
+.. _PETSc FAQ: https://petsc.org/release/faq
+.. _SNES nonconvergence: https://petsc.org/release/faq/#why-is-newton-s-method-snes-not-converging-or-converges-slowly
+.. _KSP nonconvergence: https://petsc.org/release/faq/#why-is-the-linear-solver-ksp-not-converging-or-converges-slowly
+.. _LSC: https://petsc.org/release/manualpages/PC/PCLSC/
+.. _UFL: https://fenics-ufl.readthedocs.io/en/latest/
 .. _firedrake_bugs: mailto:firedrake@imperial.ac.uk

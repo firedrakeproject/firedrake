@@ -3,6 +3,7 @@ from collections import OrderedDict
 import numpy as np
 
 from ufl.form import ZeroBaseForm
+from pyop2.mpi import internal_comm, decref
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -46,25 +47,23 @@ def as_backend_type(tensor):
 
 class Vector(object):
     def __init__(self, x):
-        """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.
+        """Build a `Vector` that wraps a :class:`pyop2.types.dat.Dat` for Dolfin compatibilty.
 
         :arg x: an :class:`~.Function` to wrap or a :class:`Vector` to copy.
                 The former shares data, the latter copies data.
         """
         if isinstance(x, Vector):
-            x_func = x.function
-            function_space = x_func.function_space()
-            # Need to allocate new space and copy values:
-            # -> Otherwise modifying the value of a Vector will also modify its copies.
-            x_copy = x_func.copy(deepcopy=True).vector()
-            # Can't do type(x.function)(x.function) because Cofunction
-            # doesn't accept this notation. Is there a valid reason for that ?
-            self.function = type(x_func)(function_space, val=x_copy)
+            self.function = type(x.function)(x.function)
         elif isinstance(x, (firedrake.Function, firedrake.Cofunction)):
             self.function = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
-        self.comm = self.dat.comm
+        self.comm = self.function.function_space().comm
+        self._comm = internal_comm(self.comm)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @firedrake.utils.cached_property
     def dat(self):

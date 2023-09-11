@@ -327,10 +327,10 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.split()
+            us = problem.u.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
-            # We are going to make a new solution Cofunction on the sub
+            # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
             # But the form may refer to the rest of the solution
             # anyway.
@@ -339,12 +339,10 @@ class _SNESContext(object):
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
-                # subu = cofunction.Cofunction(V.dual(), val=val)
                 subu = function.Function(V, val=val)
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                # subu = cofunction.Cofunction(V.dual(), val=val)
                 subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
@@ -365,9 +363,9 @@ class _SNESContext(object):
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
-            # to solve for, it points to a new Cofunction (which wraps
+            # to solve for, it points to a new Function (which wraps
             # the original pieces). For the rest, it points to the
-            # pieces from the original Cofunction.
+            # pieces from the original Function.
             # IOW, we've reinterpreted our original mixed solution
             # function as being made up of some spaces we're still
             # solving for, and some spaces that have just become

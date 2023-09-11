@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.mesh import _from_cell_list as create_dm
+from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
 
@@ -276,7 +276,10 @@ def test_overlapping_bc_nodes(quad):
     assert np.allclose(A, np.identity(V.dof_dset.size))
 
 
-def test_mixed_bcs():
+@pytest.mark.parametrize("diagonal",
+                         [False, True],
+                         ids=["matrix", "diagonal"])
+def test_mixed_bcs(diagonal):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     W = V*V
@@ -285,11 +288,12 @@ def test_mixed_bcs():
 
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
-    A = assemble(inner(u, v)*dx, bcs=bc)
-
-    A11 = A.M[1, 1].values
-
-    assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+    A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    if diagonal:
+        data = A.dat[1].data
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
@@ -321,16 +325,18 @@ def test_bc_nodes_cover_ghost_dofs():
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
-    dm = create_dm(2, [[0, 1, 2],
-                       [1, 2, 3],
-                       [1, 3, 4]],
-                   [[0, 0],
-                    [1, 0],
-                    [0, 1],
-                    [0.5, 1],
-                    [1, 1]],
-                   COMM_WORLD)
-
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [1, 3, 4]],
+        [[0, 0],
+         [1, 0],
+         [0, 1],
+         [0.5, 1],
+         [1, 1]],
+        comm=COMM_WORLD
+    )
     dm.createLabel("Face Sets")
 
     if dm.comm.rank == 0:

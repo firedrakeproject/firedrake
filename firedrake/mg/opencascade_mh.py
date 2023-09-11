@@ -151,7 +151,7 @@ def project_mesh_to_cad_3d(mesh, cad):
         surf = BRepAdaptor_Surface(face)
 
         for node in owned_nodes:
-            pt = gp_Pnt(*coorddata[node, :])
+            pt = gp_Pnt(*coorddata[node, :].real)
 
             proj = GeomAPI_ProjectPointOnSurf(pt, surf.Surface().Surface())
             if proj.NbPoints() > 0:
@@ -186,7 +186,7 @@ def project_mesh_to_cad_3d(mesh, cad):
                 continue
 
             for node in intersecting_nodes:
-                pt = gp_Pnt(*coorddata[node, :])
+                pt = gp_Pnt(*coorddata[node, :].real)
 
                 projections = []
                 for edge in intersecting_edges:
@@ -226,7 +226,7 @@ def project_mesh_to_cad_2d(mesh, cad):
         curve = BRepAdaptor_Curve(edge)
 
         for node in owned_nodes:
-            pt = gp_Pnt(*coorddata[node, :], 0)
+            pt = gp_Pnt(*coorddata[node, :].real, 0)
             proj = GeomAPI_ProjectPointOnCurve(pt, curve.Curve().Curve())
             if proj.NbPoints() > 0:
                 projpt = proj.NearestPoint()

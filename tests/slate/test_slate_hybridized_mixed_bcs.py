@@ -35,7 +35,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
     bcs = [DirichletBC(W[0], zero(), "on_boundary")]
 
     solve(a == L, w, solver_parameters=params, bcs=bcs)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # (Non-hybrid)
     w2 = Function(W)
@@ -43,7 +43,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
           solver_parameters={'pc_type': 'lu',
                              'mat_type': 'aij',
                              'ksp_type': 'preonly'}, bcs=bcs)
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
@@ -87,7 +87,7 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
     bcs = [DirichletBC(W[0], zero(), "top"),
            DirichletBC(W[0], zero(), "bottom")]
     solve(a == L, w, solver_parameters=params, bcs=bcs)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # (Non-hybrid)
     w2 = Function(W)
@@ -95,7 +95,7 @@ def test_slate_hybridized_extruded_bcs(degree, hdiv_family):
           solver_parameters={'pc_type': 'lu',
                              'mat_type': 'aij',
                              'ksp_type': 'preonly'}, bcs=bcs)
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)

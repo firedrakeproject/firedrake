@@ -1,6 +1,6 @@
 import numpy
 from firedrake import *
-from firedrake.mesh import _from_cell_list as create_dm
+from firedrake.mesh import plex_from_cell_list
 
 
 def test_one_d_mesh_volume():
@@ -15,17 +15,21 @@ def test_one_d_mesh_volume():
 
 
 def test_two_d_mesh_volume():
-    dm = create_dm(2, [[0, 1, 2],
-                       [1, 2, 3],
-                       [3, 4, 5],
-                       [1, 3, 6]],
-                   [[0, 0],
-                    [1, 0],
-                    [1, 1],
-                    [2, 0],
-                    [3, 0],
-                    [3, 1],
-                    [2, -1]], COMM_WORLD)
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [3, 4, 5],
+         [1, 3, 6]],
+        [[0, 0],
+         [1, 0],
+         [1, 1],
+         [2, 0],
+         [3, 0],
+         [3, 1],
+         [2, -1]],
+        comm=COMM_WORLD
+    )
     mesh2d = Mesh(dm, reorder=False)
 
     extmesh = ExtrudedMesh(mesh2d, [[0, 2],

@@ -4,6 +4,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
+from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
 
 __all__ = ("HypreADS",)
@@ -12,21 +13,33 @@ __all__ = ("HypreADS",)
 class HypreADS(PCBase):
     def initialize(self, obj):
         A, P = obj.getOperators()
+        appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix()
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())
+        formdegree = V.finat_element.formdegree
         degree = V.ufl_element().degree()
-        if family != 'Raviart-Thomas' or degree != 1:
+        try:
+            degree = max(degree)
+        except TypeError:
+            pass
+        if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
-        NC1 = FunctionSpace(mesh, "N1curl", 1)
-        # DiscreteGradient
-        G = Interpolator(grad(TestFunction(P1)), NC1).callable().handle
-        # DiscreteCurl
-        C = Interpolator(curl(TestFunction(NC1)), V).callable().handle
+        NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
+        G_callback = appctx.get("get_gradient", None)
+        if G_callback is None:
+            G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
+        else:
+            G = G_callback(P1, NC1)
+        C_callback = appctx.get("get_curl", None)
+        if C_callback is None:
+            C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
+        else:
+            C = C_callback(NC1, V)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)

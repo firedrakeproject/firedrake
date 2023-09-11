@@ -33,9 +33,6 @@ def test_assemble_interp(mesh):
     b = interpolate(f1, V2)
     assert np.allclose(a.dat.data, b.dat.data)
 
-    assembled_If1 = assemble(If1)
-    assert np.allclose(assembled_If1.dat.data, b.dat.data)
-
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interp(v1, V2)

@@ -90,8 +90,7 @@ class SCPC(SCBase):
         end
         """
         self.weight = Function(Vc)
-        par_loop((domain, instructions), dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
         with self.weight.dat.vec as wc:
             wc.reciprocal()
 
@@ -155,7 +154,7 @@ class SCPC(SCBase):
         nullspace = self.cxt.appctx.get("condensed_field_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(Vc)
-            Smat.setNullSpace(nsp.nullspace(comm=pc.comm))
+            Smat.setNullSpace(nsp.nullspace())
 
         # Create a SNESContext for the DM associated with the trace problem
         self._ctx_ref = self.new_snes_ctx(pc,
@@ -220,7 +219,7 @@ class SCPC(SCBase):
         from firedrake.assemble import OneFormAssembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
-        fields = x.split()
+        fields = x.subfunctions
         systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
@@ -261,7 +260,7 @@ class SCPC(SCBase):
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.split()[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.subfunctions[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
@@ -280,9 +279,9 @@ class SCPC(SCBase):
 
             with self.condensed_rhs.dat.vec_ro as rhs:
                 if self.condensed_ksp.getInitialGuessNonzero():
-                    acc = self.solution.split()[self.c_field].dat.vec
+                    acc = self.solution.subfunctions[self.c_field].dat.vec
                 else:
-                    acc = self.solution.split()[self.c_field].dat.vec_wo
+                    acc = self.solution.subfunctions[self.c_field].dat.vec_wo
                 with acc as sol:
                     self.condensed_ksp.solve(rhs, sol)
 

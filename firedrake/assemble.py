@@ -9,13 +9,16 @@ import cachetools
 import finat
 import firedrake
 import numpy
+from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 import ufl
-from firedrake import (assemble_expressions, extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.adjoint import annotate_assemble
+from firedrake.adjoint_utils import annotate_assemble
+from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
@@ -39,7 +42,7 @@ def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
     :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-        a :class:`~slate.TensorBase` expression.
+        a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
     :kwarg diagonal: If assembling a matrix is it diagonal?
@@ -68,6 +71,9 @@ def assemble(expr, *args, **kwargs):
     :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
         boundary condition. Default is ``False``.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
 
     :returns: See below.
 
@@ -95,66 +101,9 @@ def assemble(expr, *args, **kwargs):
     if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
         return assemble_base_form(expr, *args, **kwargs)
     elif isinstance(expr, ufl.core.expr.Expr):
-        return assemble_expression(expr)
+        return _assemble_expr(expr)
     else:
         raise TypeError(f"Unable to assemble: {expr}")
-
-
-"""
-def assemble_expression(expr):
-    from ufl.algorithms.analysis import extract_base_form_operators
-    if len(extract_base_form_operators(expr)):
-        if isinstance(expr, ufl.algebra.Sum):
-            # Assemble components to produce Coefficient or Matrix objects
-            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
-            # or `assemble_expressions` (e.g. expr -> Coefficient)
-            assembled_ops = [assemble(e) for e in expr.ufl_operands]
-            if all(isinstance(op, firedrake.Function) for op in assembled_ops):
-                return assemble_expressions.assemble_expression(sum(assembled_ops))
-            elif all(isinstance(op, matrix.AssembledMatrix) for op in assembled_ops):
-                a, b = assembled_ops
-                res = a + b
-                return matrix.AssembledMatrix(a.arguments(), a.bcs, res)
-            else:
-                raise TypeError("Mismatching sum shapes")
-        elif isinstance(expr, ufl.algebra.Product):
-            # Assemble components to produce Coefficient or Matrix objects
-            # Call `assemble` as we might use assemble_base_form (e.g expr -> BaseFormOperator)
-            # or `assemble_expressions` (e.g. expr -> Coefficient)
-            a, b = expr.ufl_operands
-            if not len(assemble_expressions.extract_coefficients(a)):
-                return assemble(a * assemble(b))
-            if not len(assemble_expressions.extract_coefficients(b)):
-                return assemble(b * assemble(a))
-            return assemble(ufl.action(a, b))
-    else:
-        return assemble_expressions.assemble_expression(expr)
-"""
-
-
-def assemble_expression(expr):
-    from ufl.algorithms.analysis import extract_base_form_operators
-    from ufl.checks import is_scalar_constant_expression
-
-    base_form_operators = extract_base_form_operators(expr)
-    if len(base_form_operators) and any(len(e.arguments()) > 1 for e in base_form_operators):
-        if isinstance(expr, ufl.algebra.Sum):
-            a, b = [assemble(e) for e in expr.ufl_operands]
-            # Only Expr resulting in a Matrix if assembled are BaseFormOperator
-            if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
-                raise TypeError('Mismatching Sum shapes')
-            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
-        elif isinstance(expr, ufl.algebra.Product):
-            a, b = expr.ufl_operands
-            scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
-            if scalar:
-                base_form = a if a is scalar else b
-                assembled_mat = assemble(base_form)
-                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
-            a, b = [assemble(e) for e in (a, b)]
-            return assemble_base_form(ufl.action(a, b))
-    else:
-        return assemble_expressions.assemble_expression(expr)
 
 
 def assemble_base_form(expression, tensor=None, bcs=None,
@@ -165,15 +114,16 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        appctx=None,
                        options_prefix=None,
                        zero_bc_nodes=False,
-                       preassembled_base_form=False,
-                       visited=None):
+                       is_base_form_preprocessed=False,
+                       visited=None,
+                       weight=1.0):
 
-    # Preprocess and restructure the DAG
-    if not preassembled_base_form:
+    # Prepr ocess and restructure the DAG
+    if not is_base_form_preprocessed:
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
         # to transmit the cache. All of this only holds when `expression` if a ufl.Form
-        # and therefore when `preassembled_base_form` is False.
+        # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = expression._cache
@@ -204,27 +154,41 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                                                     form_compiler_parameters,
                                                     mat_type, sub_mat_type,
                                                     appctx, options_prefix,
-                                                    zero_bc_nodes,
+                                                    zero_bc_nodes, weight,
                                                     *(visited[arg] for arg in operands))
 
     # Update tensor with the assembled result value
-    assembled_base_form = visited[expr]
-    # Copy assembled result to the tensor
-    if tensor:
-        if isinstance(assembled_base_form, firedrake.Cofunction):
-            assembled_base_form.dat.copy(tensor.dat)
-        elif isinstance(assembled_base_form, matrix.MatrixBase):
-            # Uses the PETSc copy method.
-            assembled_base_form.petscmat.copy(tensor.petscmat)
+    # assembled_base_form = visited[expr]
+    # Doesn't need to update `tensor` with `assembled_base_form`
+    # for assembled 1-form (Cofunction) because both underlying
+    # Dat objects are the same (they automatically update).
+    # if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
+    #     Uses the PETSc copy method.
+    #    assembled_base_form.petscmat.copy(tensor.petscmat)
+
     # What about cases where expanding derivatives produce a non-Form object ?
-    if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
-        expression._cache = expr._cache
-    return assembled_base_form
+    # if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+    #    expression._cache = expr._cache
+    # return assembled_base_form
+
+    if tensor:
+        update_tensor(visited[expr], tensor)
+    return visited[expr]
+
+
+def update_tensor(assembled_base_form, tensor):
+    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
+        assembled_base_form.dat.copy(tensor.dat)
+    elif isinstance(tensor, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+        assembled_base_form.petscmat.copy(tensor.petscmat)
+    else:
+        raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
 
 def restructure_base_form(expr, visited=None):
     r"""Perform a preorder traversal to simplify and optimize the DAG.
-    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) an external operator.
+    Example: Let's consider F(u, N(u; v*); v) with N(u; v*) a base form operator.
 
              We have: dFdu = \frac{\partial F}{\partial u} + Action(dFdN, dNdu)
              Now taking the action on a rank-1 object w (e.g. Coefficient/Cofunction) results in:
@@ -237,7 +201,7 @@ def restructure_base_form(expr, visited=None):
               /    \                            /    \
             dFdN    dNdu                      dNdu    w
 
-        This situations does not only arise for ExternalOperator but also when we have a 2-form instead of dNdu!
+        This situations does not only arise for BaseFormOperator but also when we have a 2-form instead of dNdu!
 
         (2) Action(dNdu, w)
 
@@ -446,7 +410,7 @@ def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        # => No restructuration needed for Form and slate.TensorBase
+        # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)
         expr = restructure_base_form_postorder(expr)
     return expr
@@ -456,7 +420,7 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                form_compiler_parameters,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
-                               zero_bc_nodes, *args):
+                               zero_bc_nodes, weight, *args):
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
 
         if args and mat_type != "matfree":
@@ -472,21 +436,21 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                               appctx=appctx,
                               options_prefix=options_prefix,
                               form_compiler_parameters=form_compiler_parameters,
-                              zero_bc_nodes=zero_bc_nodes)
+                              zero_bc_nodes=zero_bc_nodes, weight=weight)
 
         # if isinstance(res, firedrake.Function):
-        #     TODO: Remove once MatrixImplicitContext is Cofunction safe.
-        #     res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
+        #   # TODO: Remove once MatrixImplicitContext is Cofunction safe.
+        #   res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
         # return res
 
     elif isinstance(expr, ufl.Adjoint):
-        if (len(args) != 1):
+        if len(args) != 1:
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
         petsc_mat = mat.petscmat
-        # TODO Add Hermitian Transpose to petsc4py and replace transpose
-        petsc_mat.transpose()
-        return matrix.AssembledMatrix(expr, bcs, petsc_mat,
+        petsc_mat.hermitianTranspose()
+        (row, col) = mat.arguments()
+        return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
                                       appctx=appctx,
                                       options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
@@ -507,8 +471,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
                 res = PETSc.Mat().create()
-
-                # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
                 return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
@@ -526,11 +488,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         else:
             raise TypeError("Incompatible LHS for Action.")
     elif isinstance(expr, ufl.FormSum):
-        if (len(args) != len(expr.weights())):
+        if len(args) != len(expr.weights()):
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
-        if all([isinstance(op, firedrake.Cofunction) for op in args]):
+        if all([isinstance(op, float) for op in args]):
+            return sum(args)
+        elif all([isinstance(op, firedrake.Cofunction) for op in args]):
             # TODO check all are in same function space
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
             return firedrake.Cofunction(args[0].function_space(), res)
@@ -593,29 +557,30 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             _, v1 = expr.arguments()
             expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
         # Should we use `freeze_expr` to cache the interpolation ? (e.g. if timestepping loop)
-        interpolator = firedrake.Interpolator(expression, expr.function_space(), **expr.interp_data)
+        interp_data = expr.interp_data
+        default_missing_val = interp_data.pop('default_missing_val', None)
+        interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
         # Assembly
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
                 output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                return interpolator._interpolate(v, output=output, transpose=is_adjoint)
+                return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
             # Assembling the operator, or its Jacobian action.
-            return interpolator._interpolate(transpose=is_adjoint, output=tensor)
+            return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
         elif rank == 2:
             # Return the interpolation matrix
             op2_mat = interpolator.callable()
             petsc_mat = op2_mat.handle
             if is_adjoint:
-                # TODO: Work out how to get the conjugate?
-                petsc_mat.transpose()
-            return matrix.AssembledMatrix(expr, bcs, petsc_mat,
+                petsc_mat.hermitianTranspose()
+            return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
-            # The case rank == 0 is handled via the DAG restructuration
+            # The case rank == 0 is handled via the DAG restructuring
             raise ValueError("Incompatible number of arguments.")
-    elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Matrix, ufl.ZeroBaseForm)):
+    elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
         return expr
     elif isinstance(expr, ufl.Coefficient):
         return expr
@@ -749,7 +714,8 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                    appctx=None,
                    options_prefix=None,
                    form_compiler_parameters=None,
-                   zero_bc_nodes=False):
+                   zero_bc_nodes=False,
+                   weight=1.0):
     """Assemble a form.
 
     See :func:`assemble` for a description of the arguments to this function.
@@ -797,7 +763,7 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
     elif rank == 2:
         assembler = TwoFormAssembler(form, tensor, bcs, form_compiler_parameters,
-                                     needs_zeroing=False)
+                                     needs_zeroing=False, weight=weight)
     else:
         raise AssertionError
 
@@ -807,6 +773,57 @@ def _assemble_form(form, tensor=None, bcs=None, *,
         form._cache[_FORM_CACHE_KEY][key] = assembler
 
     return assembler.assemble()
+
+
+def _assemble_expr(expr):
+    """Assemble a pointwise expression.
+
+    :arg expr: The :class:`ufl.core.expr.Expr` to be evaluated.
+    :returns: A :class:`firedrake.Function` containing the result of this evaluation.
+    """
+    from ufl.algorithms.analysis import extract_base_form_operators
+    from ufl.checks import is_scalar_constant_expression
+
+    # Get BaseFormOperators (e.g. `Interp` or `ExternalOperator`)
+    base_form_operators = extract_base_form_operators(expr)
+
+    # -- Linear combination involving 2-form BaseFormOperators -- #
+    # Example: a * dNdu1(u1, u2; v1, v*) + b * dNdu2(u1, u2; v2, v*)
+    # with u1, u2 Functions, v1, v2, v* BaseArguments, dNdu1, dNdu2 BaseFormOperators, and a, b scalars.
+    if len(base_form_operators) and any(len(e.arguments()) > 1 for e in base_form_operators):
+        if isinstance(expr, ufl.algebra.Sum):
+            a, b = [assemble(e) for e in expr.ufl_operands]
+            # Only Expr resulting in a Matrix if assembled are BaseFormOperator
+            if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                raise TypeError('Mismatching Sum shapes')
+            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
+        elif isinstance(expr, ufl.algebra.Product):
+            a, b = expr.ufl_operands
+            scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
+            if scalar:
+                base_form = a if a is scalar else b
+                assembled_mat = assemble(base_form)
+                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
+            a, b = [assemble(e) for e in (a, b)]
+            return assemble_base_form(ufl.action(a, b))
+    # -- Linear combination of Functions and 1-form BaseFormOperators -- #
+    # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
+    # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
+    else:
+        base_form_operators = extract_base_form_operators(expr)
+        assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
+        # Substitute base form operators with their output before examining the expression
+        # which avoids conflict when determining function space, for example:
+        # extract_coefficients(Interp(u, V2)) with u \in V1 will result in an output function space V1
+        # instead of V2.
+        if base_form_operators:
+            expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
+        try:
+            coefficients = ufl.algorithms.extract_coefficients(expr)
+            V, = set(c.function_space() for c in coefficients) - {None}
+        except ValueError:
+            raise ValueError("Cannot deduce correct target space from pointwise expression")
+        return firedrake.Function(V).assign(expr)
 
 
 def _check_inputs(form, tensor, bcs, diagonal):
@@ -858,7 +875,15 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
                  form_compiler_parameters, options_prefix):
     rank = len(form.arguments())
     if rank == 0:
-        return op2.Global(1, [0.0], dtype=utils.ScalarType)
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=form.ufl_domains()[0]._comm
+        )
     elif rank == 1:
         test, = form.arguments()
         return firedrake.Cofunction(test.function_space().dual())
@@ -885,7 +910,7 @@ class FormAssembler(abc.ABC):
     :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
     """
 
-    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, tensor, bcs=(), form_compiler_parameters=None, needs_zeroing=True, weight=1.0):
         assert tensor is not None
 
         bcs = solving._extract_bcs(bcs)
@@ -895,6 +920,7 @@ class FormAssembler(abc.ABC):
         self._bcs = bcs
         self._form_compiler_params = form_compiler_parameters or {}
         self._needs_zeroing = needs_zeroing
+        self.weight = weight
 
     @property
     @abc.abstractmethod
@@ -911,11 +937,16 @@ class FormAssembler(abc.ABC):
 
         :returns: The assembled object.
         """
+        if annotate_tape():
+            raise NotImplementedError(
+                "Taping with explicit FormAssembler objects is not supported yet. "
+                "Use assemble instead."
+            )
+
         if self._needs_zeroing:
             self._as_pyop2_type(self._tensor).zero()
 
-        for parloop in self.parloops:
-            parloop()
+        self.execute_parloops()
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -934,6 +965,10 @@ class FormAssembler(abc.ABC):
             parloop.arguments[0].data = data
         self._tensor = tensor
 
+    def execute_parloops(self):
+        for parloop in self.parloops:
+            parloop()
+
     @cached_property
     def local_kernels(self):
         try:
@@ -942,7 +977,7 @@ class FormAssembler(abc.ABC):
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = o.ufl_domain()
+            domain = extract_unique_domain(o)
             if domain is not None and domain.topology != topology:
                 raise NotImplementedError("Assembly with multiple meshes is not supported")
 
@@ -1044,6 +1079,13 @@ class OneFormAssembler(FormAssembler):
     @property
     def result(self):
         return self._tensor
+
+    def execute_parloops(self):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with self._tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops:
+                parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
@@ -1155,7 +1197,7 @@ class ExplicitMatrixAssembler(FormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
-            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component)
+            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1202,7 +1244,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     # Don't expand derivatives if mat_type is 'matfree'
     mat_type = kwargs.pop('mat_type', None)
     fc_params = kwargs.get('form_compiler_parameters')
-    # Pre-process form
+    # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
     form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
@@ -1215,7 +1257,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     elif isinstance(form, ufl.form.BaseForm):
         return functools.partial(assemble_base_form, form, *args, tensor=tensor,
                                  mat_type=mat_type,
-                                 preassembled_base_form=True, **kwargs)
+                                 is_base_form_preprocessed=True, **kwargs)
     else:
         raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
@@ -1234,13 +1276,14 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
     subdomain_key = []
     for val in form.subdomain_data().values():
         for k, v in val.items():
-            if v is not None:
-                extruded = v._extruded
-                constant_layers = extruded and v.constant_layers
-                subset = isinstance(v, op2.Subset)
-                subdomain_key.append((k, extruded, constant_layers, subset))
-            else:
-                subdomain_key.append((k,))
+            for i, vi in enumerate(v):
+                if vi is not None:
+                    extruded = vi._extruded
+                    constant_layers = extruded and vi.constant_layers
+                    subset = isinstance(vi, op2.Subset)
+                    subdomain_key.append((k, i, extruded, constant_layers, subset))
+                else:
+                    subdomain_key.append((k, i))
 
     return ((sig,)
             + tuple(subdomain_key)
@@ -1278,6 +1321,7 @@ class _GlobalKernelBuilder:
         self._unroll = unroll
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -1295,6 +1339,7 @@ class _GlobalKernelBuilder:
                              "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
         iteration_region = iteration_regions.get(self._integral_type, None)
         extruded = self._mesh.extruded
+        extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
 
         return op2.GlobalKernel(self._kinfo.kernel,
@@ -1302,6 +1347,7 @@ class _GlobalKernelBuilder:
                                 iteration_region=iteration_region,
                                 pass_layer_arg=self._kinfo.pass_layer_arg,
                                 extruded=extruded,
+                                extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
                                 subset=self._needs_subset)
 
@@ -1316,7 +1362,7 @@ class _GlobalKernelBuilder:
     @cached_property
     def _needs_subset(self):
         subdomain_data = self._form.subdomain_data()[self._mesh]
-        if subdomain_data.get(self._integral_type, None) is not None:
+        if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
         if self._kinfo.subdomain_id == "everywhere":
@@ -1363,8 +1409,16 @@ class _GlobalKernelBuilder:
                 offset += offset
         else:
             offset = None
+        if self._mesh.extruded_periodic:
+            offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
+            if offset_quotient is not None:
+                offset_quotient = tuple(offset_quotient)
+                if self._integral_type in {"interior_facet", "interior_facet_vert"}:
+                    offset_quotient += offset_quotient
+        else:
+            offset_quotient = None
 
-        map_arg = op2.MapKernelArg(arity, offset)
+        map_arg = op2.MapKernelArg(arity, offset, offset_quotient)
         self._map_arg_cache[key] = map_arg
         return map_arg
 
@@ -1471,6 +1525,13 @@ def _as_global_kernel_arg_coefficient(_, self):
         return self._make_dat_global_kernel_arg(finat_element, index)
 
 
+@_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
+def _as_global_kernel_arg_constant(_, self):
+    const = next(self._constants)
+    value_size = numpy.prod(const.ufl_shape, dtype=int)
+    return op2.GlobalKernelArg((value_size,))
+
+
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
 def _as_global_kernel_arg_cell_sizes(_, self):
     # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
@@ -1536,6 +1597,7 @@ class ParloopBuilder:
         self._lgmaps = lgmaps
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
+        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
     def build(self):
         """Construct the parloop."""
@@ -1576,9 +1638,14 @@ class ParloopBuilder:
         try:
             subdomain_data = self._form.subdomain_data()[self._mesh][self._integral_type]
         except KeyError:
-            subdomain_data = None
+            subdomain_data = [None]
 
-        if subdomain_data is not None:
+        subdomain_data = [sd for sd in subdomain_data if sd is not None]
+        if subdomain_data:
+            try:
+                subdomain_data, = subdomain_data
+            except ValueError:
+                raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
@@ -1590,7 +1657,7 @@ class ParloopBuilder:
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, ufl.functionspace.BaseFunctionSpace)
+        assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
@@ -1661,6 +1728,12 @@ def _as_parloop_arg_coefficient(arg, self):
         return op2.DatParloopArg(coeff.dat, m)
 
 
+@_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+def _as_parloop_arg_constant(arg, self):
+    const = next(self._constants)
+    return op2.GlobalParloopArg(const.dat)
+
+
 @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_parloop_arg_cell_orientations(_, self):
     func = self._mesh.cell_orientations()
@@ -1692,7 +1765,12 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global((1,), self._iterset.layers-2, dtype=numpy.int32)
+    glob = op2.Global(
+        (1,),
+        self._iterset.layers-2,
+        dtype=numpy.int32,
+        comm=self._iterset.comm
+    )
     return op2.GlobalParloopArg(glob)
 
 
@@ -1704,7 +1782,19 @@ class _FormHandler:
         """Yield the form coefficients referenced in ``kinfo``."""
         for idx, subidxs in kinfo.coefficient_map:
             for subidx in subidxs:
-                yield form.coefficients()[idx].split()[subidx]
+                yield form.coefficients()[idx].subfunctions[subidx]
+
+    @staticmethod
+    def iter_constants(form, kinfo):
+        """Yield the form constants"""
+        # Is kinfo really needed?
+        from tsfc.ufl_utils import extract_firedrake_constants
+        if isinstance(form, slate.TensorBase):
+            for const in form.constants():
+                yield const
+        else:
+            for const in extract_firedrake_constants(form):
+                yield const
 
     @staticmethod
     def index_function_spaces(form, indices):

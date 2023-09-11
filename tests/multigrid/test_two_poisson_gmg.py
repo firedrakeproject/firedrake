@@ -80,7 +80,7 @@ def run_two_poisson(typ):
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
     x = SpatialCoordinate(W.mesh())
-    for h in f.split():
+    for h in f.subfunctions:
         h.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
 
     problem = NonlinearVariationalProblem(F, u, bcs=bcs)
@@ -94,7 +94,7 @@ def run_two_poisson(typ):
     for exact in [exact_P2, exact_P1]:
         exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
 
-    sol_P2, sol_P1 = u.split()
+    sol_P2, sol_P1 = u.subfunctions
     return norm(assemble(exact_P2 - sol_P2)), norm(assemble(exact_P1 - sol_P1))
 
 

@@ -1,0 +1,1 @@
+from firedrake.ml.neural_network_operators import neuralnet

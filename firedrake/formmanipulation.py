@@ -95,7 +95,7 @@ class ExtractSubBlock(MultiFunction):
         if o in self._arg_cache:
             return self._arg_cache[o]
 
-        V_is = V.split()
+        V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
         try:

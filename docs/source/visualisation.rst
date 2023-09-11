@@ -94,7 +94,7 @@ the :doc:`mesh coordinates <mesh-coordinates>` associated to a field must be rep
 with the same basis as the field. To visualise fields in anything
 other than these spaces we must transform the data to this
 format first. One option is to do so by hand before outputting.
-Either by :doc:`interpolating <interpolation>` or else :func:`projecting <project>`
+Either by :doc:`interpolating <interpolation>` or else :func:`projecting <firedrake.projection.project>`
 the :doc:`mesh coordinates <mesh-coordinates>` and then the field. Since this is
 such a common operation, the :class:`~.File` object is set up to manage these
 operations automatically, we just need to choose whether we want data to be
@@ -154,7 +154,7 @@ This approximation can be controlled in at least two ways:
    on the tessellated data is compared pointwise to the original data at
    the midpoints of the edges of the tessellated geometry and the corresponding
    points on the original geometry. The Maximum Number of Subdivisions is the
-   maximum number of times an edge in the original geometry can be subdivided. 
+   maximum number of times an edge in the original geometry can be subdivided.
 
 Besides the two tools listed above, Paraview provides many other tools (filters)
 that might be applied to the original data or composed with the tools listed above.
@@ -257,7 +257,7 @@ the functions :func:`tripcolor <firedrake.plot.tripcolor>`, :func:`tricontour
 <firedrake.plot.tricontour>`, and so forth, all behave more or less like their
 counterparts in matplotlib, and actually call them under the hood. The only
 difference is that the Firedrake functions include an extra optional argument
-``axes`` to specify the matplotlib :class:`Axes <matplotlib.axis.Axes>` object
+``axes`` to specify the matplotlib :class:`Axes <matplotlib.axes.Axes>` object
 to draw on. When using matplotlib by itself these methods are methods of the
 Axes object. Otherwise the usage is identical. For example, the following code
 would make a filled contour plot of the function ``u`` using the inferno

@@ -59,7 +59,7 @@ def run_gtmg_mixed_poisson():
               'coarse_space_bcs': get_p1_prb_bcs()}
 
     solve(a == L, w, solver_parameters=params, appctx=appctx)
-    _, uh = w.split()
+    _, uh = w.subfunctions
 
     # Analytical solution
     f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
@@ -135,7 +135,7 @@ def run_gtmg_scpc_mixed_poisson():
     bcs = DirichletBC(W.sub(2), Constant(0.0), "on_boundary")
 
     solve(a == L, w, bcs=bcs, solver_parameters=params, appctx=appctx)
-    _, uh, _ = w.split()
+    _, uh, _ = w.subfunctions
 
     # Analytical solution
     f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))

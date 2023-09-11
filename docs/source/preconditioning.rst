@@ -10,7 +10,7 @@
 Firedrake has tight coupling with the `PETSc <https://petsc.org>`__
 library which provides support for a wide range of preconditioning
 strategies, see the relevant `PETSc documentation
-<https://petsc.org/release/docs/manual/ksp/#preconditioners>`__ for an
+<https://petsc.org/release/manual/ksp/#preconditioners>`__ for an
 overview.
 
 In addition to these algebraic approaches, Firedrake offers a flexible
@@ -27,7 +27,7 @@ Additive Schwarz methods
 
 Small-block overlapping additive Schwarz preconditioners built on top
 of `PCASM
-<https://petsc.org/release/docs/manualpages/PC/PCASM.html>`__ that can
+<https://petsc.org/release/manualpages/PC/PCASM.html>`__ that can
 be used as components of robust multigrid schemes when using geometric
 multigrid.
 
@@ -50,7 +50,7 @@ multigrid.
 
 In addition to these algebraic approaches to constructing patches,
 Firedrake also interfaces with `PCPATCH
-<https://petsc.org/release/docs/manualpages/PC/PCPATCH.html>`__ for
+<https://petsc.org/release/manualpages/PC/PCPATCH.html>`__ for
 both linear and nonlinear overlapping Schwarz methods. The approach is
 described in detail in :cite:`Farrell2019d`. These preconditioners can
 be used with both sparse matrices and Firedrake's :doc:`matrix-free

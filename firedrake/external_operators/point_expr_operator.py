@@ -4,7 +4,6 @@ import sympy as sp
 
 # from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
-from ufl.log import error
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 
@@ -41,10 +40,10 @@ class PointexprOperator(AbstractExternalOperator):
 
         # Check
         if not isinstance(operator_data, types.FunctionType):
-            error("Expecting a FunctionType pointwise expression")
+            raise TypeError("Expecting a FunctionType pointwise expression")
         expr_shape = operator_data(*operands).ufl_shape
         if expr_shape != function_space.ufl_element().value_shape():
-            error("The dimension does not match with the dimension of the function space %s" % function_space)
+            raise ValueError("The dimension does not match with the dimension of the function space %s" % function_space)
 
     @property
     def expr(self):
@@ -86,6 +85,12 @@ class PointexprOperator(AbstractExternalOperator):
         J = self._matrix_builder((), assembly_opts, integral_types)
         with result.dat.vec as vec:
             J.petscmat.setDiagonal(vec)
+        return J
+
+    @assemble_method(1, (1, 0))
+    def assemble_Jacobian_adjoint(self, *args, assembly_opts, **kwargs):
+        J = self.assemble_Jacobian(*args, assembly_opts=assembly_opts, **kwargs)
+        J.petscmat.hermitianTranspose()
         return J
 
     @assemble_method(1, (None, 0))

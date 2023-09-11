@@ -126,7 +126,7 @@ def test_nullspace_mixed():
     exact = Function(DG)
     exact.interpolate(x[1] - 0.5)
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 1e-7
 
     # Now using a Schur complement
@@ -141,7 +141,7 @@ def test_nullspace_mixed():
                              'fieldsplit_1_ksp_type': 'cg',
                              'fieldsplit_1_pc_type': 'none'})
 
-    sigma, u = w.split()
+    sigma, u = w.subfunctions
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
@@ -313,13 +313,13 @@ def test_near_nullspace_mixed():
     bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
 
     rotW = Function(W)
-    rotV, _ = rotW.split()
+    rotV, _ = rotW.subfunctions
     rotV.interpolate(as_vector((-y, x)))
 
     c0 = Function(W)
-    c0V, _ = c0.split()
+    c0V, _ = c0.subfunctions
     c1 = Function(W)
-    c1V, _ = c1.split()
+    c1V, _ = c1.subfunctions
     c0V.interpolate(Constant([1., 0.]))
     c1V.interpolate(Constant([0., 1.]))
 

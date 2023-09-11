@@ -85,7 +85,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     solver.solve()
 
     # Computed flux, scalar, and trace
-    q_h, u_h, uhat_h = s.split()
+    q_h, u_h, uhat_h = s.subfunctions
 
     scalar_error = errornorm(a_scalar, u_h, norm_type="L2")
     flux_error = errornorm(a_flux, q_h, norm_type="L2")

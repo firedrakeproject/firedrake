@@ -38,15 +38,20 @@ After numerous manipulations (described in detail in :cite:`Salwa:2017`) and eva
 
 .. math::
 
-    \begin{align}
-    & \int v \phi^{n+1} \, {\mathrm d} S_f = \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\
-    & \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} = \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\
-    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  \left( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} \right) \right) \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }
-    \\
-    & \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F \underline{ - \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s }= 0 \\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
-    & \int v \eta^{n+1} \, {\mathrm d} S_f = \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F   \underline{ - \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\
-    & \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} x_S = \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} x_S \, .
-    \end{align}
+    \begin{aligned}
+    \int v \phi^{n+1} \, {\mathrm d} S_f &= \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\\\
+    %
+    \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S\ \underline{+ \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} &= \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\
+    &\hspace{4em}- \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  \left( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} \right) \right) \, {\mathrm d} x_S \\
+    &\hspace{8em}\underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }\\\\
+    %
+    \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F\ \underline{- \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s } &= 0 \\\\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
+    %
+    \int v \eta^{n+1} \, {\mathrm d} S_f &= \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F\\
+    &\hspace{4em}\underline{- \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\\\
+    %
+    \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} x_S &= \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} x_S \, .
+    \end{aligned}
 
 The underlined terms are the coupling terms. Note that the first equation for :math:`\phi` at the free surface is solved on the free surface only, the last equation for :math:`{\bf X}` in the structure domain, while the others are solved in both domains. Moreover, the second and third equations for :math:`\phi` and :math:`{\bf U}` need to be solved simultaneously. The geometry of the system with initial condition is shown below.
 
@@ -140,25 +145,21 @@ We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the 
     I_W = Function(V_DG0_W)
     par_loop(("{[i] : 0 <= i < f.dofs}", "f[i, 0] = 1.0"),
              dx(fluid_id),
-             {"f": (I_W, WRITE)},
-             is_loopy_kernel=True)
+             {"f": (I_W, WRITE)})
     I_cg_W = Function(V_W)
     par_loop(("{[i] : 0 <= i < A.dofs}", "A[i, 0] = fmax(A[i, 0], B[0, 0])"),
              dx,
-             {"A": (I_cg_W, RW), "B": (I_W, READ)},
-             is_loopy_kernel=True)
+             {"A": (I_cg_W, RW), "B": (I_W, READ)})
 
     # Heaviside step function in solid
     I_B = Function(V_DG0_B)
     par_loop(("{[i] : 0 <= i < f.dofs}", "f[i, 0] = 1.0"),
              dx(structure_id),
-             {"f": (I_B, WRITE)},
-             is_loopy_kernel=True)
+             {"f": (I_B, WRITE)})
     I_cg_B = Function(V_B)
     par_loop(("{[i, j] : 0 <= i < A.dofs and 0 <= j < 2}", "A[i, j] = fmax(A[i, j], B[0, 0])"),
              dx,
-             {"A": (I_cg_B, RW), "B": (I_B, READ)},
-             is_loopy_kernel=True)
+             {"A": (I_cg_B, RW), "B": (I_B, READ)})
 
 We use indicator functions to construct normal unit vector outward to the fluid domain at the fluid-structure interface::
 
@@ -306,7 +307,7 @@ In the end, we proceed with the actual computation loop::
         # symplectic Euler scheme
         LVS_phi_f.solve()
         LVS_U_phi.solve()
-        tmp_f, tmp_s = result_mixed.split()
+        tmp_f, tmp_s = result_mixed.subfunctions
         phi.assign(tmp_f)
         U.assign(tmp_s)
         LVS_eta.solve()
@@ -325,9 +326,9 @@ The result of the computation, visualised with `paraview <http://www.paraview.or
 The mesh is deflected for visualization only. As the model is linear, the actual mesh used for computation is fixed. Colours indicate values of the flow potential :math:`\phi`.
 
 
-A python script version of this demo can be found `here <linear_fluid_structure_interaction.py>`__.
+A python script version of this demo can be found :demo:`here <linear_fluid_structure_interaction.py>`.
 
-The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
+The mesh file is :demo:`here <L_domain.msh>`. It can be generated with `gmsh <http://gmsh.info/>`__ from :demo:`this file <L_domain.geo>` with a command: gmsh -2 L_domain.geo.
 
 An extended 3D version of this code is published `here <https://zenodo.org/record/1162196>`__.
 

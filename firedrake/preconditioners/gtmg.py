@@ -12,7 +12,6 @@ class GTMGPC(PCBase):
     _prefix = "gt_"
 
     def initialize(self, pc):
-
         from firedrake import TestFunction, parameters
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
         from firedrake.interpolation import Interpolator
@@ -30,7 +29,7 @@ class GTMGPC(PCBase):
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -42,7 +41,7 @@ class GTMGPC(PCBase):
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ictx)
+                raise ValueError("Don't know how to get form from %r" % ictx)
 
             fine_operator = ictx.a
             fine_bcs = ictx.row_bcs
@@ -71,7 +70,7 @@ class GTMGPC(PCBase):
             fine_petscmat.setTransposeNullSpace(fine_transpose_nullspace)
 
         # Handle the coarse operator
-        coarse_options_prefix = options_prefix + "mg_coarse"
+        coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
 
@@ -105,11 +104,11 @@ class GTMGPC(PCBase):
         # Set nullspace if provided
         if get_coarse_nullspace:
             nsp = get_coarse_nullspace()
-            coarse_opmat.setNullSpace(nsp.nullspace(comm=pc.comm))
+            coarse_opmat.setNullSpace(nsp.nullspace())
 
         if get_coarse_transpose_nullspace:
             tnsp = get_coarse_transpose_nullspace()
-            coarse_opmat.setTransposeNullSpace(tnsp.nullspace(comm=pc.comm))
+            coarse_opmat.setTransposeNullSpace(tnsp.nullspace())
 
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:

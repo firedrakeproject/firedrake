@@ -1,8 +1,9 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_WORLD, internal_comm, decref
 
 from firedrake import function
+from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 
@@ -15,11 +16,12 @@ class VectorSpaceBasis(object):
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Vector`\s or :class:`.Functions`
+    :arg vecs: a list of :class:`.Vector`\s or :class:`.Function`\s
          spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
+    :arg comm: Communicator to create the nullspace on.
 
     .. note::
 
@@ -34,7 +36,7 @@ class VectorSpaceBasis(object):
        should therefore not modify them after instantiation since the
        basis will then be incorrect.
     """
-    def __init__(self, vecs=None, constant=False):
+    def __init__(self, vecs=None, constant=False, comm=None):
         if vecs is None and not constant:
             raise RuntimeError("Must either provide a list of null space vectors, or constant keyword (or both)")
 
@@ -49,18 +51,31 @@ class VectorSpaceBasis(object):
         self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
         self._ad_orthogonalized = False
+        if comm:
+            self.comm = comm
+        elif self._vecs:
+            self.comm = self._vecs[0].comm
+        else:
+            warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
+            self.comm = COMM_WORLD
+        self._comm = internal_comm(self.comm)
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
         r"""The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
 
-        :kwarg comm: Communicator to create the nullspace on."""
+        :kwarg comm: DEPRECATED pass to VectorSpaceBasis.__init__()."""
         if hasattr(self, "_nullspace"):
             return self._nullspace
-        comm = comm or COMM_WORLD
+        if comm:
+            warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
-                                                   comm=comm)
+                                                   comm=self._comm)
         return self._nullspace
 
     @PETSc.Log.EventDecorator()
@@ -97,7 +112,7 @@ class VectorSpaceBasis(object):
         .. note::
 
             Modifies ``b`` in place."""
-        nullsp = self.nullspace(comm=b.comm)
+        nullsp = self.nullspace()
         with b.dat.vec as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
@@ -161,12 +176,12 @@ class VectorSpaceBasis(object):
             if transpose:
                 raise RuntimeError("No MatSetTransposeNearNullSpace operation in PETSc.")
             else:
-                matrix.petscmat.setNearNullSpace(self.nullspace(comm=matrix.comm))
+                matrix.petscmat.setNearNullSpace(self.nullspace())
         else:
             if transpose:
-                matrix.petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
+                matrix.petscmat.setTransposeNullSpace(self.nullspace())
             else:
-                matrix.petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
+                matrix.petscmat.setNullSpace(self.nullspace())
 
     def __iter__(self):
         r"""Yield self when iterated over"""
@@ -213,6 +228,7 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
+        self._comm = internal_comm(self.comm)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -229,6 +245,10 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
+
+    def __del__(self):
+        if hasattr(self, "_comm"):
+            decref(self._comm)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.
@@ -264,7 +284,7 @@ class MixedVectorSpaceBasis(object):
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self.comm)
+                                                   comm=self._comm)
 
     def _apply_monolithic(self, matrix, transpose=False, near=False):
         r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a
@@ -340,7 +360,7 @@ class MixedVectorSpaceBasis(object):
             # Compose appropriate nullspace with IS for schur complement
             if ises is not None:
                 is_ = ises[i]
-                is_.compose(key, basis.nullspace(comm=self.comm))
+                is_.compose(key, basis.nullspace())
 
     def __iter__(self):
         r"""Yield the individual bases making up this MixedVectorSpaceBasis"""

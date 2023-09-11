@@ -14,7 +14,9 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
+from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
 import ctypes
@@ -205,10 +207,13 @@ def matrix_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
+
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
@@ -295,13 +300,16 @@ def residual_funptr(form, state):
                 args.append(statearg)
                 continue
             for ind in indices:
-                c_ = c.split()[ind]
+                c_ = c.subfunctions[ind]
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
+        for constant in extract_firedrake_constants(form):
+            args.append(constant.dat(op2.READ))
+
         if kinfo.integral_type == "interior_facet":
-            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -516,7 +524,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
             coeffs.append(c)
         else:
-            coeffs.extend([c.split()[ind] for ind in indices])
+            coeffs.extend([c.subfunctions[ind] for ind in indices])
     if require_state:
         assert state in coeffs, "Couldn't find state vector in form coefficients"
     data_args = []
@@ -534,6 +542,10 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 if k not in seen:
                     map_args.append(k)
                     seen.add(k)
+
+    for constant in extract_firedrake_constants(form):
+        data_args.extend(constant.dat._kernel_args_)
+
     if require_facet_number:
         data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
@@ -615,10 +627,12 @@ class PlaneSmoother(object):
 
         gdim = data.shape[1]
         bary = numpy.zeros(gdim)
+        ndof = 0
         for p_ in closure_of_p:
             (dof, offset) = (coordinatesSection.getDof(p_), coordinatesSection.getOffset(p_))
-            bary += data[offset:offset+dof].reshape(gdim)
-        bary /= len(closure_of_p)
+            bary += data[offset:offset + dof].reshape(dof, gdim).sum(axis=0)
+            ndof += dof
+        bary /= ndof
         return bary
 
     def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):
@@ -745,14 +759,14 @@ class PatchBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         if P.getType() == "python":
             ictx = P.getPythonContext()
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ictx)
+                raise ValueError("Don't know how to get form from %r" % ictx)
             J = ictx.a
             bcs = ictx.row_bcs
             if bcs != ictx.col_bcs:
@@ -853,7 +867,7 @@ class PatchBase(PCSNESBase):
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
                 facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
-                point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+                point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
                                                  point2facet=point2facet)

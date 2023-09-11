@@ -6,26 +6,26 @@ cdef extern from "mpi-compat.h":
     pass
 
 IF COMPLEX:
-   ctypedef np.complex128_t PetscScalar
+    ctypedef np.complex128_t PetscScalar
 ELSE:
-   ctypedef double PetscScalar
+    ctypedef double PetscScalar
 
 cdef extern from "petsc.h":
-   ctypedef long PetscInt
-   ctypedef double PetscReal
-   ctypedef enum PetscBool:
-       PETSC_TRUE, PETSC_FALSE
-   ctypedef enum PetscCopyMode:
-       PETSC_COPY_VALUES,
-       PETSC_OWN_POINTER,
-       PETSC_USE_POINTER
+    ctypedef long PetscInt
+    ctypedef double PetscReal
+    ctypedef enum PetscBool:
+        PETSC_TRUE, PETSC_FALSE
+    ctypedef enum PetscCopyMode:
+        PETSC_COPY_VALUES,
+        PETSC_OWN_POINTER,
+        PETSC_USE_POINTER
 
 cdef extern from "petscsys.h" nogil:
-   int PetscMalloc1(PetscInt,void*)
-   int PetscMalloc2(PetscInt,void*,PetscInt,void*)
-   int PetscFree(void*)
-   int PetscFree2(void*,void*)
-   int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
+    int PetscMalloc1(PetscInt,void*)
+    int PetscMalloc2(PetscInt,void*,PetscInt,void*)
+    int PetscFree(void*)
+    int PetscFree2(void*,void*)
+    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
@@ -37,6 +37,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetSupport(PETSc.PetscDM,PetscInt,PetscInt*[])
+    int DMPlexGetMaxSizes(PETSc.PetscDM,PetscInt*,PetscInt*)
 
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
@@ -62,6 +63,7 @@ cdef extern from "petscdm.h" nogil:
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
+    int DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
 
 cdef extern from "petscvec.h" nogil:
     int VecGetArray(PETSc.PetscVec,PetscScalar**)
@@ -74,6 +76,7 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+    int ISGetSize(PETSc.PetscIS,PetscInt*)
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     int ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)

@@ -47,7 +47,7 @@ def test_hybrid_extr_helmholtz(quad):
                                 'pc_type': 'lu',
                                 'pc_factor_mat_solver_type': 'mumps'}}
     solve(a == L, w, solver_parameters=params)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     w2 = Function(W)
     params2 = {'pc_type': 'fieldsplit',
@@ -58,7 +58,7 @@ def test_hybrid_extr_helmholtz(quad):
                'fieldsplit_0': {'ksp_type': 'cg'},
                'fieldsplit_1': {'ksp_type': 'cg'}}
     solve(a == L, w2, solver_parameters=params2)
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     sigma_err = errornorm(sigma_h, nh_sigma)
     u_err = errornorm(u_h, nh_u)

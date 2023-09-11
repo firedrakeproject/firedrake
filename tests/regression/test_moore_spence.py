@@ -58,9 +58,9 @@ def test_moore_spence():
 
     # Set initial guesses for state, parameter, null eigenmode
     z = Function(Z)
-    z.split()[0].assign(th)
-    z.split()[1].assign(lm)
-    z.split()[2].assign(eigenmode)
+    z.subfunctions[0].assign(th)
+    z.subfunctions[1].assign(lm)
+    z.subfunctions[2].assign(eigenmode)
 
     # Write Moore-Spence system of equations
     theta, lmbda, phi = split(z)

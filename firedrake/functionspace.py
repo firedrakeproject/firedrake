@@ -11,6 +11,8 @@ from pyop2.utils import flatten
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
 
+import numbers
+
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace")
@@ -78,8 +80,7 @@ def check_element(element, top=True):
     :raises ValueError: if the element is illegal.
 
     """
-    if type(element) in (ufl.BrokenElement, ufl.FacetElement,
-                         ufl.InteriorElement, ufl.RestrictedElement,
+    if type(element) in (ufl.BrokenElement, ufl.RestrictedElement,
                          ufl.HDivElement, ufl.HCurlElement):
         inner = (element._element, )
     elif type(element) is ufl.EnrichedElement:
@@ -120,7 +121,9 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     # Support FunctionSpace(mesh, MixedElement)
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
-
+    if mesh.ufl_cell().cellname() == "hexahedron" and \
+       element.family() not in ["Q", "DQ"]:
+        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
 
@@ -207,7 +210,10 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    dim = dim or mesh.ufl_cell().geometric_dimension()
+    if dim is None:
+        dim = mesh.ufl_cell().geometric_dimension()
+    if not isinstance(dim, numbers.Integral) and dim > 0:
+        raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = ufl.VectorElement(sub_element, dim=dim)
     return FunctionSpace(mesh, element, name=name)
 

@@ -5,8 +5,22 @@ from numpy.linalg import norm as np_norm
 import gc
 
 
-def howmany(cls):
-    return len([x for x in gc.get_objects() if isinstance(x, cls)])
+def count_refs(cls):
+    """ Counts references of type `cls`
+    """
+    gc.collect()
+    # A list comprehension here can trigger:
+    #  > ReferenceError: weakly-referenced object no longer exists
+    # So we count references the "slow" way and ignore `ReferenceError`s
+    count = 0
+    object_list = gc.get_objects()
+    for obj in object_list:
+        try:
+            if isinstance(obj, cls):
+                count += 1
+        except ReferenceError:
+            pass
+    return count
 
 
 @pytest.fixture
@@ -49,14 +63,10 @@ def test_petsc_options_cleared(a_L_out):
 def test_linear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
-    gc.collect()
-    before = howmany(LinearVariationalSolver)
-
+    before = count_refs(LinearVariationalSolver)
     solve(a == L, out)
     out.dat.data_ro  # force evaluation
-
-    gc.collect()
-    after = howmany(LinearVariationalSolver)
+    after = count_refs(LinearVariationalSolver)
 
     assert before == after
 
@@ -67,13 +77,10 @@ def test_assembled_solver_gced(a_L_out):
     A = assemble(a)
     b = assemble(L)
 
-    gc.collect()
-    before = howmany(LinearSolver)
+    before = count_refs(LinearSolver)
     solve(A, out, b)
     out.dat.data_ro
-    gc.collect()
-
-    after = howmany(LinearSolver)
+    after = count_refs(LinearSolver)
 
     assert before == after
 
@@ -81,15 +88,11 @@ def test_assembled_solver_gced(a_L_out):
 def test_nonlinear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
-    gc.collect()
-    before = howmany(NonlinearVariationalSolver)
-
+    before = count_refs(NonlinearVariationalSolver)
     F = action(a, out) - L
     solve(F == 0, out)
     out.dat.data_ro  # force evaluation
-
-    gc.collect()
-    after = howmany(NonlinearVariationalSolver)
+    after = count_refs(NonlinearVariationalSolver)
 
     assert before == after
 
@@ -104,6 +107,23 @@ def test_nonlinear_solver_api(a_L_out):
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
     assert rtol == 1e-8
+
+
+def test_nonlinear_solver_flattens_params(a_L_out):
+    a, L, out = a_L_out
+    J = a
+    F = action(a, out) - L
+    p = NonlinearVariationalProblem(F, out, J=J)
+
+    solver1 = NonlinearVariationalSolver(
+        p, solver_parameters={'snes_type': 'ksponly', 'ksp_rtol': 1e-10}
+    )
+    solver2 = NonlinearVariationalSolver(
+        p, solver_parameters={'snes_type': 'ksponly', 'ksp': {'rtol': 1e-10}}
+    )
+
+    assert solver1.parameters["ksp_rtol"] == 1e-10
+    assert solver2.parameters["ksp_rtol"] == 1e-10
 
 
 def test_linear_solves_equivalent():
@@ -141,6 +161,16 @@ def test_linear_solves_equivalent():
     sol4 = sol3.vector()
     solve(assemble(a), sol4, assemble(L))
     assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
+
+
+def test_linear_solver_flattens_params(a_L_out):
+    a, _, _ = a_L_out
+    A = assemble(a)
+    solver1 = LinearSolver(A, solver_parameters={"ksp_rtol": 1e-10})
+    solver2 = LinearSolver(A, solver_parameters={"ksp": {"rtol": 1e-10}})
+
+    assert solver1.parameters["ksp_rtol"] == 1e-10
+    assert solver2.parameters["ksp_rtol"] == 1e-10
 
 
 def test_constant_jacobian_lvs():
@@ -189,3 +219,22 @@ def test_constant_jacobian_lvs():
     lvs.solve()
 
     assert not (norm(assemble(out*5 - f)) < 2e-7)
+
+
+def test_solve_cofunction_rhs():
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
+
+    L = Cofunction(V.dual())
+    L.vector()[:] = 1.
+
+    w = Function(V)
+    solve(a == L, w)
+
+    Aw = assemble(action(a, w))
+    assert isinstance(Aw, Cofunction)
+    assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)

@@ -459,3 +459,27 @@ def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
     m.init()
     assert m.num_cells() == num_cells
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_split_comm_dm_mesh():
+    nspace = 2
+    rank = COMM_WORLD.rank
+
+    # split global comm into 2 comms of size 2
+    comm = COMM_WORLD.Split(color=(rank // nspace), key=rank)
+
+    mesh = UnitIntervalMesh(4, comm=comm)
+    dm = mesh.topology_dm
+
+    # dm.comm is same as user comm
+    mesh0 = Mesh(dm, comm=comm)  # noqa: F841
+
+    # no user comm given (defaults to comm world)
+    with pytest.raises(ValueError):
+        mesh1 = Mesh(dm)  # noqa: F841
+
+    # wrong user comm given
+    bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
+    with pytest.raises(ValueError):
+        mesh2 = Mesh(dm, comm=bad_comm)  # noqa: F841

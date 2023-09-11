@@ -1,6 +1,5 @@
 import abc
 
-from pyop2.mpi import COMM_SELF
 from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
@@ -43,7 +42,7 @@ class ASMPatchPC(PCBase):
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
-            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=COMM_SELF)]
+            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
@@ -175,7 +174,7 @@ class ASMStarPC(ASMPatchPC):
                     # Local indices within W
                     W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
         return ises
@@ -243,7 +242,7 @@ class ASMVankaPC(ASMPatchPC):
                     # Local indices within W
                     W_indices = slice(off*W.value_size, W.value_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
         return ises
@@ -291,7 +290,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                     continue
                 off = section.getOffset(p)
                 indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype=IntType)
-                iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
         return ises
@@ -313,7 +312,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
     ia = numpy.cumsum([0] + [len(neigh) for neigh in subgraph]).astype(PETSc.IntType)
     ja = numpy.concatenate(subgraph).astype(PETSc.IntType)
-    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(ia, ja, numpy.ones(ja.shape, PETSc.RealType)), comm=COMM_SELF)
+    A = PETSc.Mat().createAIJ((len(points), )*2, csr=(ia, ja, numpy.ones(ja.shape, PETSc.RealType)), comm=PETSc.COMM_SELF)
     A.setOptionsPrefix(prefix)
     rperm, _ = A.getOrdering(ordering_type)
     A.destroy()
@@ -439,6 +438,6 @@ class ASMExtrudedStarPC(ASMStarPC):
                             zlice = slice(W.value_size * begin, W.value_size * end)
                             indices.extend(iset[zlice])
 
-                iset = PETSc.IS().createGeneral(indices, comm=COMM_SELF)
+                iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
         return ises
