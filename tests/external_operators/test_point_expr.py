@@ -1,4 +1,5 @@
 import pytest
+import ufl
 from firedrake import *
 
 
@@ -7,298 +8,138 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
-class PointexprActionOperator(PointexprOperator):
-
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data):
-
-        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, dtype=dtype,
-                                          operator_data=operator_data)
-
-        # Check
-        if not isinstance(operator_data, types.FunctionType):
-            error("Expecting a FunctionType pointwise expression")
-        expr_shape = operator_data(*operands).ufl_shape
-        if expr_shape != function_space.ufl_element().value_shape():
-            error("The dimension does not match with the dimension of the function space %s" % function_space)
-
-    def _evaluate_action(self, args):
-        if len(args) == 0:
-            # Evaluate the operator
-            return self._evaluate()
-
-        # Evaluate the Jacobian/Hessian action
-        operands = self.ufl_operands
-        operator = self._compute_derivatives()
-        expr = as_ufl(operator(*operands))
-        if expr.ufl_shape == () and expr != 0:
-            var = VariableRuleset(self.ufl_operands[0])
-            expr = expr*var._Id
-        elif expr == 0:
-            return self.assign(expr)
-
-        for arg in args:
-            mi = indices(len(expr.ufl_shape))
-            aa = mi
-            bb = mi[-len(arg.ufl_shape):]
-            expr = arg[bb] * expr[aa]
-            mi_tensor = tuple(e for e in mi if not (e in aa and e in bb))
-            if len(expr.ufl_free_indices):
-                expr = as_tensor(expr, mi_tensor)
-        return self.interpolate(expr)
-
-
-def action_point_expr(point_expr, function_space):
-    return partial(PointexprActionOperator, operator_data=point_expr, function_space=function_space)
-
-
-def test_properties(mesh):
-    P = FunctionSpace(mesh, "DG", 0)
+def test_assemble(mesh):
     V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    # Define a random number generator
+    pcg = PCG64(seed=123456789)
+    rg = Generator(pcg)
+
+    # Set operands of the external operator
+    u = Function(V).interpolate(cos(2 * pi * x) * sin(2 * pi * y))
+    v = Function(V).assign(1.)
+    w = rg.beta(V, 1.0, 2.0)
+
+    # Define the external operator N
+    expr = lambda x, y, z: x * y - 2 * z * x ** 2 + z
+    pe = point_expr(expr, function_space=V)
+    N = pe(u, v, w)
+    # Check type
+    assert isinstance(N, ufl.ExternalOperator)
+
+    # -- N(u ,v, w; v*) -- #
+    # Assemble N
+    a = assemble(N)
+    # Check type
+    assert isinstance(a, Function)
+
+    b = Function(V).interpolate(expr(u, v, w))
+    assert np.allclose(a.dat.data, b.dat.data)
+
+    # -- dNdu(u, v, w; uhat, v*) (Jacobian) -- #
+    dNdu = derivative(N, u)
+    # Assemble the Jacobian of N
+    jac = assemble(dNdu)
+    # Check type
+    assert isinstance(jac, MatrixBase)
+
+    # Assemble the exact Jacobian, i.e. the interpolation matrix: `Interp(dexpr(u,v,w)/du, V)`
+    jac_exact = assemble(Interp(derivative(expr(u, v, w), u), V))
+    np.allclose(jac.petscmat[:, :], jac_exact.petscmat[:, :], rtol=1e-14)
+
+    # -- dNdu(u, v, w; δu, v*) (TLM) -- #
+    # Define a random function on V since the tangent linear model maps from V to V
+    delta_u = rg.beta(V, 5, 10)
+    # Assemble the TLM
+    tlm_value = assemble(action(dNdu, delta_u))
+    # Check type
+    assert isinstance(tlm_value, Function)
+
+    tlm_exact = Function(V)
+    with delta_u.dat.vec_ro as x, tlm_exact.dat.vec_ro as y:
+        jac_exact.petscmat.mult(x, y)
+    assert np.allclose(tlm_value.dat.data, tlm_exact.dat.data)
+
+    # -- dNdu(u, v, w; v*, uhat) (Jacobian adjoint)-- #
+    # Assemble the adjoint of the Jacobian of N
+    jac_adj = assemble(adjoint(dNdu))
+    # Check type
+    assert isinstance(jac_adj, MatrixBase)
+
+    jac_adj_exact = assemble(adjoint(jac_exact))
+    np.allclose(jac_adj.petscmat[:, :], jac_adj_exact.petscmat[:, :])
+
+    # -- dNdu(u, v, w; δN, uhat) (Adjoint model) -- #
+    # Define a random cofunction on V* since the adjoint model maps from V* to V*
+    delta_N = Cofunction(V.dual())
+    delta_N.vector()[:] = rg.beta(V, 15, 30).dat.data_ro[:]
+    # Assemble the adjoint model
+    adj_value = assemble(action(adjoint(dNdu), delta_N))
+    # Check type
+    assert isinstance(adj_value, Cofunction)
+
+    # Action of the adjoint of the Jacobian (Hermitian transpose)
+    adj_exact = Cofunction(V.dual())
+    with delta_N.dat.vec_ro as v_vec:
+        with adj_exact.dat.vec as res_vec:
+            jac_exact.petscmat.multHermitian(v_vec, res_vec)
+    assert np.allclose(adj_value.dat.data, adj_exact.dat.data)
+
+    # -- dNdu(u, v, w; delta_u, delta_N) and dNdu(u, v, w; delta_N, delta_u) (Rank 0) -- #
+    # Assemble the action of the TLM
+    action_tlm_value = assemble(action(action(dNdu, delta_u), delta_N))
+    # Assemble the action of the adjoint model
+    action_adj_value = assemble(action(action(adjoint(dNdu), delta_N), delta_u))
+    # Check type
+    assert isinstance(action_tlm_value, float) and isinstance(action_adj_value, float)
+
+    assert np.allclose(action_tlm_value, action_adj_value)
+
+
+def test_solve(mesh):
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+
+    # Set RHS
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))
+
+    # Set Dirichlet boundary condition
+    bcs = DirichletBC(V, 0., "on_boundary")
+
+    # Solve the Poisson problem without external operators:
+    #  - Δu + u = f in Ω
+    #         u = 0 on ∂Ω
+    # with f = (2 * π ** 2 + 1 ) * sin(pi * x) * sin(pi * y)
+    w = Function(V)
+    F = inner(grad(w), grad(v)) * dx + inner(w, v) * dx - inner(f, v) * dx
+    solve(F == 0, w, bcs=bcs)
+
+    # Solve the Poisson problem:
+    #  - Δu + N(u, f) = 0 in Ω
+    #         u = 0 on ∂Ω
+    # with N an ExternalOperator defined as N(u, f; v*) = u - f
     u = Function(V)
-    g = Function(V)
+    pe = point_expr(lambda x, y: x - y, function_space=V)
+    N = pe(u, f)
 
-    def _check_extop_attributes_(x, ops, space, der, shape):
-        assert x.ufl_function_space() == space
-        assert x.ufl_operands == ops
-        assert x.derivatives == der
-        assert x.ufl_shape == shape
+    F = inner(grad(u), grad(v)) * dx + inner(N, v) * dx
+    solve(F == 0, u, bcs=bcs)
 
-    f = lambda x, y: x*y
-    pe = point_expr(f, function_space=P)
-    pe2 = pe(u, g)
-
-    _check_extop_attributes_(pe2, (u, g), P, (0, 0), ())
-
-    assert pe2.operator_data == f
-    assert pe2.expr == f
-
-
-def test_pointwise_expr_operator(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-
-    x, y = SpatialCoordinate(mesh)
-
-    v = Function(V).interpolate(sin(x))
-    u = Function(V).interpolate(cos(x))
-
-    p = point_expr(lambda x, y: x*y, function_space=V)
-    p2 = p(u, v)
-
-    assert p2.ufl_operands[0] == u
-    assert p2.ufl_operands[1] == v
-    assert p2.ufl_function_space() == V
-    assert p2.derivatives == (0, 0)
-    assert p2.ufl_shape == ()
-    assert p2.expr(u, v) == u*v
-
-    error = assemble((u*v-p2)**2*dx)
-    assert error < 1.0e-3
-
+    # Solve the Poisson problem:
+    #  - Δu + u = N(f) in Ω
+    #         u = 0 on ∂Ω
+    # with N an ExternalOperator defined as N(f; v*) = f
     u2 = Function(V)
-    g = Function(V).interpolate(cos(x))
-    v = TestFunction(V)
+    pe = point_expr(lambda x: x, function_space=V)
+    N = pe(f)
 
-    f = Function(V).interpolate(cos(x)*sin(y))
-    p = point_expr(lambda x: x**2+1, function_space=V)
-    p2 = p(g)
+    F = inner(grad(u2), grad(v)) * dx + inner(u2, v) * dx - inner(N, v) * dx
+    solve(F == 0, u2, bcs=bcs)
 
-    F = (dot(grad(p2*u), grad(v)) + u*v)*dx - f*v*dx
-    solve(F == 0, u)
-
-    F2 = (dot(grad((g**2+1)*u2), grad(v)) + u2*v)*dx - f*v*dx
-    solve(F2 == 0, u2)
-
-    a1 = assemble(u*dx)
-    a2 = assemble(u2*dx)
-    err = (a1-a2)**2
-    assert err < 1.0e-9
-
-
-"""
-def test_compute_derivatives(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    P = FunctionSpace(mesh, "DG", 0)
-
-    x, y = SpatialCoordinate(mesh)
-
-    v = Function(V).interpolate(sin(x))
-    u = Function(V).interpolate(cos(x))
-
-    m = u*v
-    a1 = m*dx
-
-    p = point_expr(lambda x, y: 0.5*x**2*y, function_space=P)
-    uhat = TrialFunction(P)
-    p2 = p(u, v)
-    dp2du = p2._ufl_expr_reconstruct_(u, v, derivatives=(1, 0), argument_slots=p2.argument_slots() + (uhat,))
-    a2 = action(TrialFunction(P)*dx, dp2du*dx
-
-    assert p2.ufl_operands[0] == u
-    assert p2.ufl_operands[1] == v
-    assert p2.ufl_function_space() == P
-    assert dp2du.derivatives == (1, 0)
-    assert p2.ufl_shape == ()
-    assert p2.expr(u, v) == 0.5*u**2*v
-
-    assemble_a1 = assemble(a1)
-    assemble_a2 = assemble(a2)
-
-    # Not evaluate on the same space hence the lack of precision
-    assert abs(assemble_a1 - assemble_a2) < 1.0e-3
-"""
-
-
-def test_scalar_check_equality(mesh):
-
-    V1 = FunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
-
-    w = TestFunction(V1)
-    u = Function(V1)
-    f = Function(V1).interpolate(cos(x)*sin(y))
-
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
-    solve(F == 0, u)
-
-    u2 = Function(V1)
-    ps = point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2)
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-    # Action operator
-    u2 = Function(V1)
-    ps = action_point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
-                                          "ksp_type": "cg",
-                                          "pc_type": "none"})
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-
-def test_vector_check_equality(mesh):
-
-    V1 = VectorFunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
-
-    w = TestFunction(V1)
-    u = Function(V1)
-    f = Function(V1).interpolate(as_vector([cos(x), sin(y)]))
-
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
-    solve(F == 0, u)
-
-    u2 = Function(V1)
-    ps = point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2)
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-    # Action operator
-    u2 = Function(V1)
-    ps = action_point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
-                                          "ksp_type": "cg",
-                                          "pc_type": "none"})
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-
-def test_tensor_check_equality(mesh):
-
-    V0 = VectorFunctionSpace(mesh, "CG", 1)
-    V1 = TensorFunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
-
-    w = TestFunction(V1)
-    u = Function(V1)
-    phi = Function(V0).interpolate(as_vector([cos(x), sin(y)]))
-    f = grad(phi)
-
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
-    solve(F == 0, u)
-
-    u2 = Function(V1)
-    ps = point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
-                                          "ksp_type": "cg",
-                                          "pc_type": "none"})
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-    # Action operator
-    u2 = Function(V1)
-    ps = action_point_expr(lambda x: x, function_space=V1)
-    tau2 = ps(u2)
-
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
-    solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
-                                          "ksp_type": "cg",
-                                          "pc_type": "none"})
-
-    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
-    assert err_point_expr < 1.0e-09
-
-
-def test_assemble_action(mesh):
-
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V).assign(1.)
-    w = Function(V).assign(2.)
-    v = TestFunction(V)
-
-    # External operators
-    p = point_expr(lambda x: x, function_space=V)
-    p = p(u)
-
-    # Set the Form
-    u_hat = TrialFunction(V)
-    F = inner(p, v)*dx
-
-    # Symbolically define the Jacobian and its action on `w`
-    J = derivative(F, u, u_hat)
-    J_action = action(J, w)
-
-    # Compute the Jacobian Matrix
-    J = assemble(J)
-    # Compute the Jacobian action on `w`
-    J_action = assemble(J_action)
-
-    # Numerically compute the Jacobian action from `J` and `w`
-    Jw = Cofunction(V.dual())
-    with w.dat.vec_ro as w_vec:
-        with Jw.dat.vec as Jw_vec:
-            J.petscmat.mult(w_vec, Jw_vec)
-
-    # Compute the error
-    with Jw.dat.vec_ro as v_vec:
-        with J_action.dat.vec_ro as w_vec:
-            error = v_vec - w_vec
-            error.abs()
-            assert error.norm() < 1e-9
+    assert (np.allclose(u.dat.data, w.dat.data) and np.allclose(u2.dat.data, w.dat.data))
 
 
 def test_multiple_external_operators(mesh):
