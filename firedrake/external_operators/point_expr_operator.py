@@ -87,6 +87,12 @@ class PointexprOperator(AbstractExternalOperator):
             J.petscmat.setDiagonal(vec)
         return J
 
+    @assemble_method(1, (1, 0))
+    def assemble_Jacobian_adjoint(self, *args, assembly_opts, **kwargs):
+        J = self.assemble_Jacobian(*args, assembly_opts=assembly_opts, **kwargs)
+        J.petscmat.hermitianTranspose()
+        return J
+
     @assemble_method(1, (None, 0))
     def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
         from firedrake.cofunction import Cofunction
