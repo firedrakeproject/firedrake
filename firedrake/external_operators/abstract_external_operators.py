@@ -10,7 +10,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake import utils, functionspaceimpl
-from firedrake.adjoint_utils.external_operators import ExternalOperatorsMixin
 
 from pyop2.datatypes import ScalarType
 
@@ -28,7 +27,7 @@ class RegisteringAssemblyMethods(UFLType):
                 cls._assembly_registry.update({e: val})
 
 
-class AbstractExternalOperator(ExternalOperator, ExternalOperatorsMixin, metaclass=RegisteringAssemblyMethods):
+class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMethods):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
     evaluated pointwise and to provide their own derivatives.
