@@ -8,6 +8,15 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
+@pytest.fixture(params=["normal", "matrix-free"])
+def solver_parameters(request):
+    # Return firedrake operator and the corresponding non-control arguments
+    if request.param == "normal":
+        return {"ksp_type": "preonly", "pc_type": "lu"}
+    elif request.param == "matrix-free":
+        return {"ksp_type": "cg", "pc_type": "none", "mat_type": "matfree"}
+
+
 def test_assemble(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     x, y = SpatialCoordinate(mesh)
@@ -97,7 +106,7 @@ def test_assemble(mesh):
     assert np.allclose(action_tlm_value, action_adj_value)
 
 
-def test_solve(mesh):
+def test_solve(mesh, solver_parameters):
 
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
@@ -115,7 +124,7 @@ def test_solve(mesh):
     # with f = (2 * π ** 2 + 1 ) * sin(pi * x) * sin(pi * y)
     w = Function(V)
     F = inner(grad(w), grad(v)) * dx + inner(w, v) * dx - inner(f, v) * dx
-    solve(F == 0, w, bcs=bcs)
+    solve(F == 0, w, bcs=bcs, solver_parameters=solver_parameters)
 
     # Solve the Poisson problem:
     #  - Δu + N(u, f) = 0 in Ω
@@ -126,7 +135,9 @@ def test_solve(mesh):
     N = pe(u, f)
 
     F = inner(grad(u), grad(v)) * dx + inner(N, v) * dx
-    solve(F == 0, u, bcs=bcs)
+    # When `solver_parameters` relies on a matrix-free solver, the external operator assembly
+    # calls the method of the external operator subclass associated with the assembly of the Jacobian action.
+    solve(F == 0, u, bcs=bcs, solver_parameters=solver_parameters)
 
     # Solve the Poisson problem:
     #  - Δu + u = N(f) in Ω
@@ -137,7 +148,7 @@ def test_solve(mesh):
     N = pe(f)
 
     F = inner(grad(u2), grad(v)) * dx + inner(u2, v) * dx - inner(N, v) * dx
-    solve(F == 0, u2, bcs=bcs)
+    solve(F == 0, u2, bcs=bcs, solver_parameters=solver_parameters)
 
     assert (np.allclose(u.dat.data, w.dat.data) and np.allclose(u2.dat.data, w.dat.data))
 
