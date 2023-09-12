@@ -115,9 +115,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
         raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
-    kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
-    # Handle negative subdomain_id
-    kernel_name = kernel_name.replace("-", "_")
+    kernel_name = f"{prefix}_{integral_type}_integral"
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
