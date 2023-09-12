@@ -521,20 +521,20 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                           options_prefix=options_prefix)
         else:
             raise TypeError("Mismatching FormSum shapes")
-    elif isinstance(expr, ufl.Interp):
+    elif isinstance(expr, ufl.Interpolate):
         # Replace assembled children
         _, expression = expr.argument_slots()
         v, *assembled_expression = args
         if assembled_expression:
-            # Occur in situations such as Interp composition
+            # Occur in situations such as Interpolate composition
             expression = assembled_expression[0]
         expr = expr._ufl_expr_reconstruct_(expression, v)
 
         # Different assembly procedures:
-        # 1) Interp(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interp matrix)
-        # 2) Interp(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-        # 3) Interp(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-        # 4) Interp(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
+        # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
+        # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
+        # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
+        # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
         # This can be generalized to the case where the first slot is an arbitray expression.
         rank = len(expr.arguments())
         # If argument numbers have been swapped => Adjoint.
@@ -771,7 +771,7 @@ def _assemble_expr(expr):
     from ufl.algorithms.analysis import extract_base_form_operators
     from ufl.checks import is_scalar_constant_expression
 
-    # Get BaseFormOperators (e.g. `Interp` or `ExternalOperator`)
+    # Get BaseFormOperators (e.g. `Interpolate` or `ExternalOperator`)
     base_form_operators = extract_base_form_operators(expr)
 
     # -- Linear combination involving 2-form BaseFormOperators -- #
@@ -801,7 +801,7 @@ def _assemble_expr(expr):
         assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
         # Substitute base form operators with their output before examining the expression
         # which avoids conflict when determining function space, for example:
-        # extract_coefficients(Interp(u, V2)) with u \in V1 will result in an output function space V1
+        # extract_coefficients(Interpolate(u, V2)) with u \in V1 will result in an output function space V1
         # instead of V2.
         if base_form_operators:
             expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))

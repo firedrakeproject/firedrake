@@ -276,7 +276,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :returns: this :class:`Function` object"""
         from firedrake.ufl_expr import Argument
         from firedrake import interpolation
-        interp = interpolation.Interp(Argument(self.function_space().dual(), 0), expression)
+        interp = interpolation.Interpolate(Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp)
 
     def vector(self):
