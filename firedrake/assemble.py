@@ -106,7 +106,7 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-def assemble_base_form(expr, tensor=None, bcs=None,
+def assemble_base_form(expression, tensor=None, bcs=None,
                        diagonal=False,
                        mat_type=None,
                        sub_mat_type=None,
@@ -114,7 +114,19 @@ def assemble_base_form(expr, tensor=None, bcs=None,
                        appctx=None,
                        options_prefix=None,
                        zero_bc_nodes=False,
+                       is_base_form_preprocessed=False,
                        weight=1.0):
+
+    # Preprocess the DAG and restructure the DAG
+    if not is_base_form_preprocessed:
+        # Preprocessing the form makes a new object -> current form caching mechanism
+        # will populate `expr`'s cache which is now different than `expression`'s cache so we need
+        # to transmit the cache. All of this only holds when `expression` if a `ufl.Form`
+        # and therefore when `is_base_form_preprocessed` is False.
+        expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
+        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+            expr._cache = expression._cache
+
     stack = [expr]
     visited = {}
     while stack:
@@ -154,6 +166,50 @@ def base_form_operands(expr):
     if isinstance(expr, (ufl.form.FormSum, ufl.Adjoint, ufl.Action)):
         return list(expr.ufl_operands)
     return []
+
+
+def preprocess_form(form, fc_params):
+    """Preprocess ufl.BaseForm objects
+    :arg form: a :class:`~ufl.classes.BaseForm`
+    :arg fc_params:: Dictionary of parameters to pass to the form compiler.
+    :returns: The resulting preprocessed :class:`~ufl.classes.BaseForm`.
+    This function preprocess the form, mainly by expanding the derivatives, in order to determine
+    if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
+    This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
+    we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
+    """
+    if isinstance(form, ufl.form.Form):
+        from firedrake.parameters import parameters as default_parameters
+        from tsfc.parameters import is_complex
+
+        if fc_params is None:
+            fc_params = default_parameters["form_compiler"].copy()
+        else:
+            # Override defaults with user-specified values
+            _ = fc_params
+            fc_params = default_parameters["form_compiler"].copy()
+            fc_params.update(_)
+
+        complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
+
+        return ufl.algorithms.preprocess_form(form, complex_mode)
+    # We also need to expand derivatives for `ufl.BaseForm` objects that are not `ufl.Form`
+    # Example: `Action(A, derivative(B, f))`, where `A` is a `ufl.BaseForm` and `B` can
+    # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
+    # containing derivatives is not supported anymore but might be needed if the expression
+    # in question is within a `ufl.BaseForm` object.
+    return ufl.algorithms.ad.expand_derivatives(form)
+
+
+def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
+    """Preprocess ufl.BaseForm objects"""
+    if mat_type != "matfree":
+        # For "matfree", Form evaluation is delayed
+        expr = preprocess_form(expr, form_compiler_parameters)
+    # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
+    if not isinstance(expr, ufl.form.BaseForm):
+        return assemble(expr)
+    return expr
 
 
 def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
@@ -199,9 +255,8 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
                 res = PETSc.Mat().create()
-                # TODO Figure out what goes here
                 res = petsc_mat.matMult(rhs.petscmat)
-                return matrix.AssembledMatrix(rhs.arguments(), bcs, res,
+                return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
                                               options_prefix=options_prefix)
             else:
@@ -229,16 +284,16 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             return firedrake.Cofunction(args[0].function_space(), res)
         elif all([isinstance(op, ufl.Matrix) for op in args]):
             res = PETSc.Mat().create()
-            set = False
+            is_set = False
             for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.petscmat
                 petsc_mat.scale(w)
-                if set:
+                if is_set:
                     res = res + petsc_mat
                 else:
                     res = petsc_mat
-                    set = True
-            return matrix.AssembledMatrix(expr.arguments(), bcs, res,
+                    is_set = True
+            return matrix.AssembledMatrix(expr, bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
