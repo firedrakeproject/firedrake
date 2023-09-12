@@ -529,8 +529,9 @@ class FDMPC(PCBase):
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
             result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
             A00.destroy()
-            A10.destroy()
             A11.destroy()
+            if Dhat != A10:
+                A10.destroy()
             if value_size != 1:
                 eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
                 temp = result
