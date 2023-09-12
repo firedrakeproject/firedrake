@@ -442,14 +442,19 @@ class LocalLoopyKernelBuilder:
                     else:
                         raise ValueError("Unhandled integral type {}".format(integral_type))
 
+                    # rename the kernel so we don't get clashes with different subdomains
+                    loopy_kernel = kinfo.kernel.code.callables_table[kinfo.kernel.name].subkernel
+                    new_kernel_name = f"{loopy_kernel.name}_{subdomain_id}"
+                    loopy_kernel = loopy_kernel.copy(name=new_kernel_name)
+
                     # TSFC kernel call
                     key = self.bag.call_name_generator(integral_type)
-                    call = pym.Call(pym.Variable(kinfo.kernel.name), tuple(reads))
+                    call = pym.Call(pym.Variable(new_kernel_name), tuple(reads))
                     insn = loopy.CallInstruction((output,), call,
                                                  within_inames=frozenset(inames_dep),
                                                  predicates=predicates, id=key)
                     event, = kinfo.events
-                    yield insn, kinfo.kernel.code, event
+                    yield insn, loopy.make_program(loopy_kernel), event
 
 
 class SlateWrapperBag:
