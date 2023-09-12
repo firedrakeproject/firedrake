@@ -42,6 +42,9 @@ class AssembleBlock(Block, Backend):
                 dc = self.backend.TestFunction(space)
                 dform = self.backend.derivative(form, c_rep, dc)
             dform_vector = self.compat.assemble_adjoint_value(dform)
+            if dform_vector == 0:
+                # Is returning 0. safe ? (`dform_vector` is a `ZeroBaseForm`)
+                return 0., dform
             # Return a Vector scaled by the scalar `adj_input`
             return dform_vector * adj_input, dform
         elif arity_form == 1:
@@ -113,7 +116,7 @@ class AssembleBlock(Block, Backend):
         if self.compat.isconstant(c):
             mesh = self.compat.extract_mesh_from_form(self.form)
             space = c._ad_function_space(mesh)
-        elif isinstance(c, self.backend.Function):
+        elif isinstance(c, (self.backend.Function, self.backend.Cofunction)):
             space = c.function_space()
         elif isinstance(c, self.compat.MeshType):
             c_rep = self.backend.SpatialCoordinate(c_rep)
@@ -175,7 +178,7 @@ class AssembleBlock(Block, Backend):
         if self.compat.isconstant(c1):
             mesh = self.compat.extract_mesh_from_form(form)
             space = c1._ad_function_space(mesh)
-        elif isinstance(c1, self.backend.Function):
+        elif isinstance(c1, (self.backend.Function, self.backend.Cofunction)):
             space = c1.function_space()
         elif isinstance(c1, self.compat.ExpressionType):
             mesh = form.ufl_domain().ufl_cargo()
