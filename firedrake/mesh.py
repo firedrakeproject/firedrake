@@ -2466,6 +2466,8 @@ def Mesh(meshfile, **kwargs):
            distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
            will scale with the dimension of the mesh.
 
+    :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
+
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
     filename extension):
@@ -2524,7 +2526,8 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh = FiredrakeMesh(meshfile, user_comm)
+        netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None})
+        netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
     else:
         basename, ext = os.path.splitext(meshfile)
