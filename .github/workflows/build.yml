@@ -79,8 +79,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch ufl connorjward/track-upstream-dokken-group-integrals \
-            --package-branch tsfc connorjward/subdomain-id-opt \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
