@@ -118,7 +118,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        weight=1.0):
 
     # Preprocess the DAG and restructure the DAG
-    if not is_base_form_preprocessed:
+    if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
         # to transmit the cache. All of this only holds when `expression` if a `ufl.Form`
@@ -126,6 +126,8 @@ def assemble_base_form(expression, tensor=None, bcs=None,
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = expression._cache
+    else:
+        expr = expression
 
     stack = [expr]
     visited = {}
