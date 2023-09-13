@@ -15,90 +15,94 @@ from ufl.algorithms.expand_indices import expand_indices
 from pyop2.sparsity import get_preallocation
 
 
-def insert_mat(A, B, rindices, cindices, triu=False, addv=None):
+def insert_code(triu=False):
     if triu:
         select_cols = "icol -= (icol < irow) * (1 + icol);"
     else:
         select_cols = ""
-    if addv is None:
-        addv = PETSc.InsertMode.INSERT
 
     return f"""
-    InsertMode addv = {addv};
+static inline void MatSetValuesSparse(Mat A, Mat B,
+                                      PetscInt *rindices,
+                                      PetscInt *cindices,
+                                      InsertMode addv)
+{{
+    PetscErrorCode ierr;
     PetscInt ncols, irow, icol;
     PetscInt *cols, *indices;
     PetscScalar *vals;
     PetscInt m, n;
 
-    MatGetSize({B}, &m, NULL);
+    MatGetSize(B, &m, NULL);
     n = 0;
     for (PetscInt i = 0; i < m; i++) {{
-        ierr = MatGetRow({B}, i, &ncols, NULL, NULL);CHKERRQ(ierr);
+        ierr = MatGetRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
         n = ncols > n ? ncols : n;
-        ierr = MatRestoreRow({B}, i, &ncols, NULL, NULL);CHKERRQ(ierr);
+        ierr = MatRestoreRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
     }}
     PetscMalloc1(n, &indices);
     for (PetscInt i = 0; i < m; i++) {{
-        ierr = MatGetRow({B}, i, &ncols, &cols, &vals);CHKERRQ(ierr);
-        irow = {rindices}[i];
+        ierr = MatGetRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
+        irow = rindices[i];
         for (PetscInt j = 0; j < ncols; j++) {{
-            icol = {cindices}[cols[j]];
+            icol = cindices[cols[j]];
             {select_cols}
             indices[j] = icol;
         }}
-        ierr = MatSetValues({A}, 1, &irow, ncols, indices, vals, addv);CHKERRQ(ierr);
-        ierr = MatRestoreRow({B}, i, &ncols, &cols, &vals);CHKERRQ(ierr);
+        ierr = MatSetValues(A, 1, &irow, ncols, indices, vals, addv);CHKERRQ(ierr);
+        ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
     }}
     PetscFree(indices);
-    """
+}}
+"""
 
 
 def constant_kernel(Vrow, Vcol, name, triu=False, addv=None):
+    if addv is None:
+        addv = PETSc.InsertMode.INSERT
     indices = ("rindices",) if Vrow == Vcol else ("rindices", "cindices")
     declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
-    insert_code = insert_mat("A", "B", indices[0], indices[-1], triu=triu, addv=addv)
     return f"""
 #include <petsc.h>
 
-PetscErrorCode {name}(Mat A, Mat B,
-                      {declare_indices})
+{insert_code(triu=triu)}
+
+PetscErrorCode {name}(Mat A, Mat B, {declare_indices})
 {{
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-    // A[rindices, cindices] += B
-    {insert_code}
+    MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv});
     PetscFunctionReturn(0);
 }}
 """
 
 
 def stiffness_kernel(Vrow, Vcol, name, triu=False, addv=None):
+    if addv is None:
+        addv = PETSc.InsertMode.INSERT
     indices = ("rindices",) if Vrow == Vcol else ("rindices", "cindices")
     declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
-    insert_code = insert_mat("A", "B", indices[0], indices[-1], triu=triu, addv=addv)
     return f"""
 #include <petsc.h>
+
+{insert_code(triu=triu)}
 
 PetscErrorCode {name}(Mat A, Mat B, Mat L, Mat D, Mat R,
                       PetscScalar *values,
                       {declare_indices})
 {{
     PetscErrorCode ierr;
+    PetscInt n;
+    Vec vec = NULL;
     PetscFunctionBeginUser;
 
-    // D = diag(values)
-    PetscInt nn;
-    Vec vec = NULL;
-    MatGetSize(D, &nn, NULL);
-    ierr = VecCreateSeqWithArray(PETSC_COMM_SELF, 1, nn, values, &vec);CHKERRQ(ierr);
+    MatGetSize(D, &n, NULL);
+    ierr = VecCreateSeqWithArray(PETSC_COMM_SELF, 1, n, values, &vec);CHKERRQ(ierr);
     ierr = MatDiagonalSet(D, vec, INSERT_VALUES);CHKERRQ(ierr);
     ierr = VecDestroy(&vec);CHKERRQ(ierr);
 
-    // B = L * D * R
     ierr = MatMatMatMult(L, D, R, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B);CHKERRQ(ierr);
-
-    // A[rindices, cindices] += B
-    {insert_code}
+    MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv});
     PetscFunctionReturn(0);
 }}
 """
@@ -378,9 +382,7 @@ def preallocate(Vrow, Vcol, Alocal):
                  *(op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in (preallocator, Alocal)),
                  *(indices(V)(op2.READ, V.cell_node_map()) for V in spaces))
     preallocator.assemble()
-
     nnz = get_preallocation(preallocator, sizes[0][0])
-
     A = PETSc.Mat().createAIJ(sizes, preallocator.getBlockSizes(), nnz=nnz, comm=comm)
     A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
     preallocator.destroy()
@@ -486,7 +488,6 @@ def test_stiffness():
     d = [grad, curl, div][formdegree]
     beta = Constant(1)
     alpha = Constant(2)
-
     u = TestFunction(V)
     v = TrialFunction(V)
     a = (inner(u, beta*v) + inner(d(u), alpha*d(v))) * dx
@@ -496,7 +497,6 @@ def test_stiffness():
     tdense = time.time() - tstart
     print("Time dense", tdense)
     #Agold.view()
-
 
     fcp = None
     coefficients, assembly_callables = assemble_coefficients(a, fcp)
@@ -524,10 +524,12 @@ def test_stiffness():
     name = "stiffnessKernel"
     addv = PETSc.InsertMode.ADD
     kernel = op2.Kernel(stiffness_kernel(V, V, name, addv=addv), name=name)
-    op2.par_loop(kernel, mesh.cell_set,
-                 *(op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in mats),
-                 coefficients.dat(op2.READ, Z.cell_node_map()),
-                 rindices(op2.READ, V.cell_node_map()))
+
+    parloop = op2.ParLoop(kernel, mesh.cell_set,
+                          *(op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in mats),
+                          coefficients.dat(op2.READ, Z.cell_node_map()),
+                          rindices(op2.READ, V.cell_node_map()))
+    parloop()
     Aglobal.assemble()
 
     tsparse = time.time() - tstart
@@ -535,7 +537,6 @@ def test_stiffness():
 
     #Aglobal.view()
     B = Agold - Aglobal
-
     #B.view()
     assert B.norm(norm_type=PETSc.NormType.FROBENIUS)/numpy.prod(B.getSize()) < tol
 
