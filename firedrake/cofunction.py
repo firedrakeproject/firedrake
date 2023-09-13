@@ -163,7 +163,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         will add twice `g` to `f`.
 
-        If present, subset must be an :class:`pyop2.Subset` of this
+        If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
         """
@@ -276,7 +276,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @property
     def node_set(self):
-        r"""A :class:`pyop2.Set` containing the nodes of this
+        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
         :class:`Cofunction`. One or (for rank-1 and 2
         :class:`.FunctionSpace`\s) more degrees of freedom are stored
         at each node.
