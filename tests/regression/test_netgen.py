@@ -207,8 +207,7 @@ def test_firedrake_integral_sphere_high_order_netgen():
     if comm.Get_rank() == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
-        ngmesh = geo.GenerateMesh(maxh=0.05)
-        ngmesh.Curve(4)
+        ngmesh = geo.GenerateMesh(maxh=0.1)
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
