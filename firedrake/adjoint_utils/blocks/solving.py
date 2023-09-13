@@ -43,9 +43,8 @@ class GenericSolveBlock(Block, Backend):
 
         if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
             self.linear = True
-            if not isinstance(rhs, ufl.Cofunction):
-                for c in self.rhs.coefficients():
-                    self.add_dependency(c, no_duplicates=True)
+            for c in self.rhs.coefficients():
+                self.add_dependency(c, no_duplicates=True)
         else:
             self.linear = False
 
@@ -215,7 +214,7 @@ class GenericSolveBlock(Block, Backend):
             trial_function = self.backend.TrialFunction(
                 c._ad_function_space(mesh)
             )
-        elif isinstance(c, self.backend.Function):
+        elif isinstance(c, (self.backend.Function, self.backend.Cofunction)):
             trial_function = self.backend.TrialFunction(c.function_space())
         elif isinstance(c, self.compat.ExpressionType):
             mesh = F_form.ufl_domain().ufl_cargo()
@@ -229,7 +228,7 @@ class GenericSolveBlock(Block, Backend):
             )
             return [tmp_bc]
         elif isinstance(c, self.compat.MeshType):
-            # Using CoordianteDerivative requires us to do action before
+            # Using CoordinateDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = self.backend.action(F_form, adj_sol)
             X = self.backend.SpatialCoordinate(c_rep)
@@ -237,6 +236,9 @@ class GenericSolveBlock(Block, Backend):
                 -F_form_tmp, X,
                 self.backend.TestFunction(c._ad_function_space())
             )
+
+            if dFdm == 0:
+                return self.backend.Function(c._ad_function_space().dual())
 
             dFdm = self.compat.assemble_adjoint_value(dFdm,
                                                       **self.assemble_kwargs)

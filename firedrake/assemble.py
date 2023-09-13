@@ -118,11 +118,11 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        visited=None,
                        weight=1.0):
 
-    # Prepr ocess and restructure the DAG
-    if not is_base_form_preprocessed:
+    # Preprocess the DAG and restructure the DAG
+    if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
-        # to transmit the cache. All of this only holds when `expression` if a ufl.Form
+        # to transmit the cache. All of this only holds when `expression` if a `ufl.Form`
         # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
@@ -377,38 +377,46 @@ def base_form_operands(expr):
 
 
 def preprocess_form(form, fc_params):
-    """Preprocess ufl.Form objects
-
-    :arg form: a :class:`~ufl.classes.Form`
+    """Preprocess ufl.BaseForm objects
+    :arg form: a :class:`~ufl.classes.BaseForm`
     :arg fc_params:: Dictionary of parameters to pass to the form compiler.
 
-    :returns: The resulting preprocessed :class:`~ufl.classes.Form`.
-
+    :returns: The resulting preprocessed :class:`~ufl.classes.BaseForm`.
     This function preprocess the form, mainly by expanding the derivatives, in order to determine
     if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
     This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
     we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
     """
-    from firedrake.parameters import parameters as default_parameters
-    from tsfc.parameters import is_complex
+    if isinstance(form, ufl.form.Form):
+        from firedrake.parameters import parameters as default_parameters
+        from tsfc.parameters import is_complex
 
-    if fc_params is None:
-        fc_params = default_parameters["form_compiler"].copy()
-    else:
-        # Override defaults with user-specified values
-        _ = fc_params
-        fc_params = default_parameters["form_compiler"].copy()
-        fc_params.update(_)
+        if fc_params is None:
+            fc_params = default_parameters["form_compiler"].copy()
+        else:
+            # Override defaults with user-specified values
+            _ = fc_params
+            fc_params = default_parameters["form_compiler"].copy()
+            fc_params.update(_)
 
-    complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
+        complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
 
-    return ufl.algorithms.preprocess_form(form, complex_mode)
+        return ufl.algorithms.preprocess_form(form, complex_mode)
+    # We also need to expand derivatives for `ufl.BaseForm` objects that are not `ufl.Form`
+    # Example: `Action(A, derivative(B, f))`, where `A` is a `ufl.BaseForm` and `B` can
+    # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
+    # containing derivatives is not supported anymore but might be needed if the expression
+    # in question is within a `ufl.BaseForm` object.
+    return ufl.algorithms.ad.expand_derivatives(form)
 
 
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-    if isinstance(expr, (ufl.form.Form, ufl.core.base_form_operator.BaseFormOperator)) and mat_type != "matfree":
+    if mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
         expr = preprocess_form(expr, form_compiler_parameters)
+    # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
+    if not isinstance(expr, ufl.form.BaseForm):
+        return assemble(expr)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)
@@ -530,20 +538,20 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
         expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
         # Call the external operator assembly
         return expr.assemble(assembly_opts=opts)
-    elif isinstance(expr, ufl.Interp):
+    elif isinstance(expr, ufl.Interpolate):
         # Replace assembled children
         _, expression = expr.argument_slots()
         v, *assembled_expression = args
         if assembled_expression:
-            # Occur in situations such as Interp composition
+            # Occur in situations such as Interpolate composition
             expression = assembled_expression[0]
         expr = expr._ufl_expr_reconstruct_(expression, v)
 
         # Different assembly procedures:
-        # 1) Interp(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interp matrix)
-        # 2) Interp(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-        # 3) Interp(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-        # 4) Interp(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
+        # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
+        # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
+        # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
+        # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
         # This can be generalized to the case where the first slot is an arbitray expression.
         rank = len(expr.arguments())
         # If argument numbers have been swapped => Adjoint.
@@ -781,7 +789,7 @@ def _assemble_expr(expr):
     from ufl.algorithms.analysis import extract_base_form_operators
     from ufl.checks import is_scalar_constant_expression
 
-    # Get BaseFormOperators (e.g. `Interp` or `ExternalOperator`)
+    # Get BaseFormOperators (e.g. `Interpolate` or `ExternalOperator`)
     base_form_operators = extract_base_form_operators(expr)
 
     # -- Linear combination involving 2-form BaseFormOperators -- #
@@ -811,7 +819,7 @@ def _assemble_expr(expr):
         assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
         # Substitute base form operators with their output before examining the expression
         # which avoids conflict when determining function space, for example:
-        # extract_coefficients(Interp(u, V2)) with u \in V1 will result in an output function space V1
+        # extract_coefficients(Interpolate(u, V2)) with u \in V1 will result in an output function space V1
         # instead of V2.
         if base_form_operators:
             expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
@@ -992,17 +1000,25 @@ class FormAssembler(abc.ABC):
 
     @cached_property
     def global_kernels(self):
-        return tuple(_make_global_kernel(self._form, tsfc_knl, self.all_integer_subdomain_ids,
-                                         diagonal=self.diagonal,
-                                         unroll=self.needs_unrolling(tsfc_knl, self._bcs))
-                     for tsfc_knl in self.local_kernels)
+        return tuple(
+            _make_global_kernel(
+                self._form, tsfc_knl, subdomain_id, self.all_integer_subdomain_ids,
+                diagonal=self.diagonal, unroll=self.needs_unrolling(tsfc_knl, self._bcs)
+            )
+            for tsfc_knl in self.local_kernels
+            for subdomain_id in tsfc_knl.kinfo.subdomain_id
+        )
 
     @cached_property
     def parloops(self):
-        return tuple(ParloopBuilder(self._form, lknl, gknl, self._tensor,
-                                    self.all_integer_subdomain_ids, diagonal=self.diagonal,
-                                    lgmaps=self.collect_lgmaps(lknl, self._bcs)).build()
-                     for lknl, gknl in zip(self.local_kernels, self.global_kernels))
+        return tuple(
+            ParloopBuilder(
+                self._form, lknl, gknl, self._tensor, subdomain_id,
+                self.all_integer_subdomain_ids, diagonal=self.diagonal,
+                lgmaps=self.collect_lgmaps(lknl, self._bcs)).build()
+            for lknl, gknl in zip(self.local_kernels, self.global_kernels)
+            for subdomain_id in lknl.kinfo.subdomain_id
+        )
 
     def needs_unrolling(self, local_knl, bcs):
         """Do we need to address matrix elements directly rather than in
@@ -1259,7 +1275,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
         raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
 
-def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
+def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
     # N.B. Generating the global kernel is not a collective operation so the
     # communicator does not need to be a part of this cache key.
 
@@ -1282,7 +1298,7 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
                 else:
                     subdomain_key.append((k, i))
 
-    return ((sig,)
+    return ((sig, subdomain_id)
             + tuple(subdomain_key)
             + tuplify(all_integer_subdomain_ids)
             + cachetools.keys.hashkey(local_knl, **kwargs))
@@ -1299,6 +1315,7 @@ class _GlobalKernelBuilder:
     :param form: The variational form.
     :param local_knl: :class:`tsfc_interface.SplitKernel` compiled by either
         TSFC or Slate.
+    :param subdomain_id: The subdomain of the mesh to iterate over.
     :param all_integer_subdomain_ids: See :func:`tsfc_interface.gather_integer_subdomain_ids`.
     :param diagonal: Are we assembling the diagonal of a 2-form?
     :param unroll: If ``True``, address matrix elements directly rather than in
@@ -1310,9 +1327,10 @@ class _GlobalKernelBuilder:
         use any data structures (i.e. a stripped form should be sufficient).
     """
 
-    def __init__(self, form, local_knl, all_integer_subdomain_ids, diagonal=False, unroll=False):
+    def __init__(self, form, local_knl, subdomain_id, all_integer_subdomain_ids, diagonal=False, unroll=False):
         self._form = form
         self._indices, self._kinfo = local_knl
+        self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids.get(self._kinfo.integral_type, None)
         self._diagonal = diagonal
         self._unroll = unroll
@@ -1362,9 +1380,9 @@ class _GlobalKernelBuilder:
         if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
-        if self._kinfo.subdomain_id == "everywhere":
+        if self._subdomain_id == "everywhere":
             return False
-        elif self._kinfo.subdomain_id == "otherwise":
+        elif self._subdomain_id == "otherwise":
             return self._all_integer_subdomain_ids is not None
         else:
             return True
@@ -1577,17 +1595,19 @@ class ParloopBuilder:
         TSFC or Slate.
     :param global_knl: A :class:`pyop2.GlobalKernel` instance.
     :param tensor: The output tensor to write to (cannot be ``None``).
+    :param subdomain_id: The subdomain of the mesh to iterate over.
     :param all_integer_subdomain_ids: See :func:`tsfc_interface.gather_integer_subdomain_ids`.
     :param diagonal: Are we assembling the diagonal of a 2-form?
     :param lgmaps: Optional iterable of local-to-global maps needed for applying
         boundary conditions to 2-forms.
     """
 
-    def __init__(self, form, local_knl, global_knl, tensor,
+    def __init__(self, form, local_knl, global_knl, tensor, subdomain_id,
                  all_integer_subdomain_ids, diagonal=False, lgmaps=None):
         self._form = form
         self._local_knl = local_knl
         self._global_knl = global_knl
+        self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._tensor = tensor
         self._diagonal = diagonal
@@ -1645,11 +1665,11 @@ class ParloopBuilder:
                 raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
-            if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
+            if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._mesh.measure_set(self._integral_type, self._kinfo.subdomain_id,
+            return self._mesh.measure_set(self._integral_type, self._subdomain_id,
                                           self._all_integer_subdomain_ids)
 
     def _get_map(self, V):

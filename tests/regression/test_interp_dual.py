@@ -25,8 +25,8 @@ def test_assemble_interp(mesh):
     f1 = Function(V1).interpolate(expr)
 
     # Check type
-    If1 = Interp(f1, V2)
-    assert isinstance(If1, ufl.Interp)
+    If1 = Interpolate(f1, V2)
+    assert isinstance(If1, ufl.Interpolate)
 
     # -- I(f1, V2) -- #
     a = assemble(If1)
@@ -35,7 +35,7 @@ def test_assemble_interp(mesh):
 
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
-    Iv1 = Interp(v1, V2)
+    Iv1 = Interpolate(v1, V2)
 
     # Get the interpolation matrix
     a = assemble(Iv1)
@@ -65,19 +65,19 @@ def test_assemble_interp(mesh):
     # -- Action(Adjoint(I(v1, v2)), fstar) -- #
     fstar = Cofunction(V2.dual())
     v = Argument(V1, 0)
-    Ivfstar = assemble(Interp(v, fstar))
+    Ivfstar = assemble(Interpolate(v, fstar))
     # Action(Adjoint(I(v1, v2)), fstar) <=> I(v, fstar)
     res = assemble(action(adjoint(Iv1), fstar))
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
-    # -- Interp(f1, u2) (rank 0) -- #
+    # -- Interpolate(f1, u2) (rank 0) -- #
     # Set the Cofunction u2
     u2 = assemble(v2 * dx)
-    # Interp(f1, u2) <=> Action(Interp(f1, V2), u2)
+    # Interpolate(f1, u2) <=> Action(Interpolate(f1, V2), u2)
     # a is rank 0 so assembling it produces a scalar.
-    a = assemble(Interp(f1, u2))
-    # Compute numerically Action(Interp(f1, V2), u2)
-    b = assemble(Interp(f1, V2))
+    a = assemble(Interpolate(f1, u2))
+    # Compute numerically Action(Interpolate(f1, V2), u2)
+    b = assemble(Interpolate(f1, V2))
     with b.dat.vec_ro as x, u2.dat.vec_ro as y:
         res = x.dot(y)
     assert np.abs(a - res) < 1e-9
@@ -92,9 +92,9 @@ def test_assemble_base_form_operator_expressions(mesh):
     f2 = Function(V1).interpolate(sin(2*pi*y))
     f3 = Function(V1).interpolate(cos(2*pi*x))
 
-    If1 = Interp(f1, V2)
-    If2 = Interp(f2, V2)
-    If3 = Interp(f3, V2)
+    If1 = Interpolate(f1, V2)
+    If2 = Interpolate(f2, V2)
+    If3 = Interpolate(f3, V2)
 
     # Sum of BaseFormOperators (1-form)
     res = assemble(If1 + If2 + If3)
@@ -109,8 +109,8 @@ def test_assemble_base_form_operator_expressions(mesh):
 
     # Sum of BaseFormOperator (2-form)
     v1 = TrialFunction(V1)
-    Iv1 = Interp(v1, V2)
-    Iv2 = Interp(v1, V2)
+    Iv1 = Interpolate(v1, V2)
+    Iv2 = Interpolate(v1, V2)
     res = assemble(Iv1 + Iv2)
     mat_Iv1 = assemble(Iv1)
     mat_Iv2 = assemble(Iv2)
@@ -143,7 +143,7 @@ def test_assemble_base_form_operator_expressions(mesh):
     """
     # Multiplication involving BaseFormOperators
     v2 = TrialFunction(V2)
-    Iv3 = Interp(v2, V1)
+    Iv3 = Interpolate(v2, V1)
     mat_Iv3 = assemble(Iv3)
     res = assemble(Iv1 * Iv3)
     assert np.allclose(mat_Iv1.petscmat.matMult(mat_Iv3.petscmat)[:, :], res.petscmat[:, :], rtol=1e-14)
@@ -178,7 +178,7 @@ def test_check_identity(mesh):
     V1 = FunctionSpace(mesh, "CG", 1)
     v2 = TestFunction(V2)
     v1 = TestFunction(V1)
-    a = assemble(Interp(v1, v2*dx))
+    a = assemble(Interpolate(v1, v2*dx))
     b = assemble(v1*dx)
     assert np.allclose(a.dat.data, b.dat.data)
 
@@ -200,9 +200,9 @@ def test_solve_interp_f(mesh):
     F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f2, w)*dx
     solve(F == 0, u)
 
-    # -- Solution where the source term is interpolated via `ufl.Interp`
+    # -- Solution where the source term is interpolated via `ufl.Interpolate`
     u2 = Function(V1)
-    If = Interp(f1, V2)
+    If = Interpolate(f1, V2)
     # This requires assembling If
     F2 = inner(grad(w), grad(u2))*dx + inner(u2, w)*dx - inner(If, w)*dx
     solve(F2 == 0, u2)
@@ -223,19 +223,19 @@ def test_solve_interp_u(mesh):
 
     # -- Non mat-free case not supported yet => Need to be able to get the Interpolation matrix -- #
     """
-    # -- Solution where the source term is interpolated via `ufl.Interp`
+    # -- Solution where the source term is interpolated via `ufl.Interpolate`
     u2 = Function(V1)
     # Iu is the identity
-    Iu = Interp(u2, V1)
+    Iu = Interpolate(u2, V1)
     # This requires assembling the Jacobian of Iu
     F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
     """
 
-    # -- Solution where u2 is interpolated via `ufl.Interp` (mat-free)
+    # -- Solution where u2 is interpolated via `ufl.Interpolate` (mat-free)
     u2 = Function(V1)
     # Iu is the identity
-    Iu = Interp(u2, V1)
+    Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
     F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
@@ -246,7 +246,7 @@ def test_solve_interp_u(mesh):
     # Same problem with grad(Iu) instead of grad(Iu)
     u2 = Function(V1)
     # Iu is the identity
-    Iu = Interp(u2, V1)
+    Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
     F2 = inner(grad(w), grad(Iu))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",

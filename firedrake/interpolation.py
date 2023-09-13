@@ -34,14 +34,14 @@ from pyadjoint import stop_annotating
 __all__ = (
     "interpolate",
     "Interpolator",
-    "Interp",
+    "Interpolate",
     "DofNotDefinedError",
     "CrossMeshInterpolator",
     "SameMeshInterpolator",
 )
 
 
-class Interp(ufl.Interp):
+class Interpolate(ufl.Interpolate):
 
     def __init__(self, expr, v, result_coefficient=None, interp_data=None):
         r""" Symbolic representation of the interpolation operator.
@@ -58,7 +58,7 @@ class Interp(ufl.Interp):
             v2 = extract_arguments(expr)
             if v2 and v2[0].number() == 0:
                 # Cope with the different convention of Interp and Inteprolator:
-                #  -> Interp(Argument(V1, 1), Argument(V2.dual(), 0))
+                #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
                 #  -> Interpolator(Argument(V1, 0), V2)
                 expr = replace(expr, {v2[0]: Argument(v2[0].function_space(),
                                                       number=1,
@@ -67,18 +67,18 @@ class Interp(ufl.Interp):
         # Get the primal space (V** = V)
         vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
         self._function_space = vv.function_space().dual()
-        ufl.Interp.__init__(self, expr, v)
+        ufl.Interpolate.__init__(self, expr, v)
 
-        # Interp data (e.g. subset or access)
+        # Interpolate data (e.g. subset or access)
         self.interp_data = interp_data if interp_data else {}
 
     def function_space(self):
         return self._function_space
 
     def _ufl_expr_reconstruct_(self, expr, v=None, result_coefficient=None, interp_data=None):
-        return ufl.Interp._ufl_expr_reconstruct_(self, expr, v=v,
-                                                 result_coefficient=result_coefficient,
-                                                 interp_data=interp_data or self.interp_data)
+        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v,
+                                                      result_coefficient=result_coefficient,
+                                                      interp_data=interp_data or self.interp_data)
 
 
 # Current behaviour of interpolation in Firedrake:
@@ -281,7 +281,7 @@ class Interpolator(abc.ABC):
                        'access': self.access, 'bcs': self.bcs,
                        'allow_missing_dofs': self._allow_missing_dofs,
                        'default_missing_val': default_missing_val}
-        interp = Interp(self.expr, V, interp_data=interp_data)
+        interp = Interpolate(self.expr, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)
 
