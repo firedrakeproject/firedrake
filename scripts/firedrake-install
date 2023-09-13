@@ -1429,7 +1429,7 @@ def build_and_install_netgen():
     if ngsPETSc_changed:
         with directory("ngsPETSc"):
             with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
-                check_call([python, "-m", "pip", "install", "."])
+                check_call([python, "-m", "pip", "install", "-e", "."])
 
 
 def install_documentation_dependencies():
