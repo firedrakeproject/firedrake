@@ -86,12 +86,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             mpi.decref(self._comm)
 
     def copy(self, deepcopy=False):
-        r"""Return a copy of this CoordinatelessFunction.
+        r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
         :kwarg deepcopy: If ``True``, the new
-            :class:`CoordinatelessFunction` will allocate new space
+            :class:`firedrake.function.CoordinatelessFunction` will allocate new space
             and copy values.  If ``False``, the default, then the new
-            :class:`CoordinatelessFunction` will share the dof values.
+            :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
         if deepcopy:
             val = type(self.dat)(self.dat)
@@ -135,7 +135,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         See also :attr:`subfunctions`.
 
         If the :class:`Cofunction` is defined on a
-        :class:`~.VectorFunctionSpace` or :class:`~.TensorFunctiionSpace`
+        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
         if len(self.function_space()) == 1:
@@ -199,7 +199,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         Parameters
         ----------
-        riesz_map : str or callable
+        riesz_map : str or collections.abc.Callable
                     The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
         solver_options : dict
                          Solver options to pass to the linear solver:
