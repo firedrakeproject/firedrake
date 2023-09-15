@@ -332,7 +332,7 @@ High-order Meshes
 ------------------
 It is possible to construct high-order meshes for a geometry constructed in Netgen.
 In order to do so we need to use the `curve_field` method of a Firedrake `Mesh` object generated from a Netgen mesh.
-In particular, we need to specify the degree of the polynomial field we want to use to parametrise the boundary of the domain and this will be the argument we pass to the `curve_field` method, which will return a `Function` constructed on a DG space of the specified degree representing the coordinates of the banded mesh. ::
+In particular, we need to pass the degree of the polynomial field we want to use to parametrise the coordinates of the domain to the `curve_field` method, which will return a `Function` constructed on a DG space for this purpose. ::
 
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
@@ -351,10 +351,10 @@ In particular, we need to specify the degree of the polynomial field we want to 
 
 .. figure:: Example5.png
    :align: center
-   :alt: Example of a curved mesh of order 4 generated from a geometry described using Open Cascade WorkPlane. 
+   :alt: Example of a curved mesh of order 4 generated from a geometry described using Open Cascade WorkPlane.
 
-High-order mesh are supported also in three dimension, we just need to specify the correct dimension when constructing the OCCGeometry object.
-We will now show how to solve the Poisson problem on a high-order mesh, of order 3, for the unit sphere ::
+High-order meshes are supported also in three dimensions; we just need to specify the correct dimension when constructing the OCCGeometry object.
+We will now show how to solve the Poisson problem on a high-order mesh, of order 3, for the unit sphere. ::
 
    from netgen.occ import Sphere, Pnt
    import netgen
@@ -366,7 +366,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(3)
    mesh = Mesh(Mesh(ngmesh).curve_field(3))
-   #Solving the Poisson problem
+   # Solving the Poisson problem
    File("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
    V = FunctionSpace(mesh, "CG", 3)
@@ -386,9 +386,9 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
 
 .. figure:: Example6.png
    :align: center
-   :alt: The solution of the Poisson problem solved on a mesh of order 3 for the unit sphere. 
+   :alt: The solution of the Poisson problem solved on a mesh of order 3 for the unit sphere.
 
-It is possible to construct high-order meshes also using the `SplineGeometry`, `CSG2d` and `CSG` classes. ::
+It is also possible to construct high-order meshes using the `SplineGeometry`, `CSG2d` and `CSG` classes. ::
 
    from netgen.geom2d import CSG2d, Circle, Rectangle
    import netgen
@@ -408,4 +408,4 @@ It is possible to construct high-order meshes also using the `SplineGeometry`, `
 
 .. figure:: Example7.png
    :align: center
-   :alt: Example of a curved mesh of order 2 generated from a geometry described using Netgen CSG2d. 
+   :alt: Example of a curved mesh of order 2 generated from a geometry described using Netgen CSG2d.
