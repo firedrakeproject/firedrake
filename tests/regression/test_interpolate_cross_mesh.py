@@ -1,5 +1,5 @@
 from firedrake import *
-from ufl.domain import extract_unique_domain
+from firedrake.ufl_expr import extract_unique_domain
 import numpy as np
 import pytest
 from functools import reduce
@@ -555,8 +555,7 @@ def interpolator_function(
         # can't interpolate expressions using an interpolator
         interpolator.interpolate(2 * f_src)
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    with pytest.raises(TypeError):
-        interpolator.interpolate(2 * cofunction_dest, transpose=True)
+    interpolator.interpolate(2 * cofunction_dest, transpose=True)
 
     return interpolator, f_src, f_dest, m_src
 

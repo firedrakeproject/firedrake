@@ -650,11 +650,9 @@ class CrossMeshInterpolator(Interpolator):
             # VOM. This has the parallel decomposition V_dest on our orinally
             # specified dest_mesh. We can therefore safely create a P0DG
             # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values. NOTE: we
-            # can't yet use actual cofunctions, so we use Functions in their
-            # place.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolator.V
+            # decomposition and ordering) and assign the dat values.
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
+                self.to_input_ordering_interpolator.V.dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
