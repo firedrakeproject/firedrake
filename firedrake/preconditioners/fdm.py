@@ -753,6 +753,7 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscInt *cols, *indices;
     PetscScalar *vals;
     PetscInt m, n;
+    PetscFunctionBeginUser;
 
     MatGetSize(B, &m, NULL);
     n = 0;
@@ -1576,26 +1577,29 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         temp.destroy()
         eye.destroy()
 
+    kernel = constant_kernel(name="exterior_derivative")
+    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
+                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
+    assembler = lambda P: op2.par_loop(kernel,
+                                       Vc.mesh().cell_set,
+                                       *(op2.PassthroughArg(op2.PetscMatType(), m.handle) for m in (P, Dhat)),
+                                       *indices)
+
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
     preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
     preallocator.setUp()
-
-    insert = PETSc.InsertMode.INSERT
-    rmap = Vf.local_to_global_map(fbcs)
-    cmap = Vc.local_to_global_map(cbcs)
-    assembler = SparseAssembler(ElementKernel(Dhat), Vf, Vc, rmap, cmap)
-    assembler.assemble(preallocator, addv=insert)
+    assembler(preallocator)
     preallocator.assemble()
 
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
+
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-
-    assembler.assemble(Dmat, addv=insert)
+    assembler(Dmat)
     Dmat.assemble()
     Dhat.destroy()
     return Dmat
