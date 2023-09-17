@@ -602,7 +602,7 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C0))
 
             on_diag = Vrow == Vcol
-            assembly_kernel = element_kernel.kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
+            assembly_kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
             assembler = lambda P: op2.par_loop(assembly_kernel,
@@ -614,7 +614,7 @@ class FDMPC(PCBase):
             #assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
             self.assemblers.setdefault(key[:2], assembler)
 
-            preallocator_kernel = constant_kernel(name="preallocate", on_diag=on_diag)
+            preallocator_kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
             preallocator = lambda P: op2.par_loop(preallocator_kernel,
                                                   Vrow.mesh().cell_set,
                                                   *element_kernel.mat_args(P)[:2],
@@ -622,7 +622,7 @@ class FDMPC(PCBase):
             self.assemblers.setdefault(key[:2]+("preallocator", ), preallocator)
 
         assembler = self.assemblers[key]
-        #assembler.assemble(A, addv=addv, triu=A.getType().endswith("sbaij"))
+        #assembler.assemble(A, addv=addv, triu=A.getType().endswith("preallocator") and mat_type.endswith("sbaij"))
         assembler(A)
 
 
@@ -1238,8 +1238,7 @@ PetscErrorCode {name}(Mat A, Mat B,
     while(irow < n){{
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, &bn, Akk, &bn, &lierr));
-
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, Akk, &bn, &lierr));
 
         irow += bsize;
         Akk += bsize * bsize;
