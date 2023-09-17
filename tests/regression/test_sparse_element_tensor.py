@@ -5,7 +5,7 @@ import ufl
 import numpy
 from pyop2 import op2
 from tsfc.finatinterface import create_element
-from firedrake.preconditioners.fdm import mass_blocks, diff_blocks, petsc_sparse, block_mat, get_base_elements, is_restricted, restricted_dofs, unrestrict_element
+from firedrake.preconditioners.fdm import mass_blocks, diff_blocks, petsc_sparse, block_mat, get_base_elements, is_restricted, restricted_dofs, unrestrict_element, TripleProductKernel
 from firedrake.preconditioners.pmg import evaluate_dual
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.petsc import PETSc
@@ -16,12 +16,10 @@ from pyop2.sparsity import get_preallocation
 
 
 def insert_code(triu=False):
-    if triu:
-        select_cols = "icol -= (icol < irow) * (1 + icol);"
-    else:
-        select_cols = ""
-
+    select_cols = "icol -= (icol < irow) * (1 + icol);" if triu else ""
     return f"""
+#include <petsc.h>
+
 static inline void MatSetValuesSparse(Mat A, Mat B,
                                       PetscInt *rindices,
                                       PetscInt *cindices,
@@ -63,10 +61,7 @@ def constant_kernel(Vrow, Vcol, name, triu=False, addv=None):
     indices = ("rindices",) if Vrow == Vcol else ("rindices", "cindices")
     declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
     return f"""
-#include <petsc.h>
-
 {insert_code(triu=triu)}
-
 PetscErrorCode {name}(Mat A, Mat B, {declare_indices})
 {{
     PetscErrorCode ierr;
@@ -83,10 +78,7 @@ def stiffness_kernel(Vrow, Vcol, name, triu=False, addv=None):
     indices = ("rindices",) if Vrow == Vcol else ("rindices", "cindices")
     declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
     return f"""
-#include <petsc.h>
-
 {insert_code(triu=triu)}
-
 PetscErrorCode {name}(Mat A, Mat B, Mat L, Mat D, Mat R,
                       PetscScalar *values,
                       {declare_indices})
@@ -513,20 +505,21 @@ def test_stiffness():
     cache = {}
     Rtensor = assemble_reference_tensor(V, coefficients, Dtensor, cache=cache)
     Ltensor = assemble_reference_tensor(V, coefficients, Dtensor, transpose=True, cache=cache)
-    Alocal = Ltensor.matMatMult(Dtensor, Rtensor)
     rindices = op2.Dat(V.dof_dset, V.dof_dset.lgmap.indices)
 
     tstart = time.time()
 
-    Aglobal = preallocate(V, V, Alocal)
-    Aglobal.zeroEntries()
-    mats = [Aglobal, Alocal, Ltensor, Dtensor, Rtensor]
-    name = "stiffnessKernel"
-    addv = PETSc.InsertMode.ADD
-    kernel = op2.Kernel(stiffness_kernel(V, V, name, addv=addv), name=name)
+    addv = PETSc.InsertMode.ADD_VALUES
+    element_kernel = TripleProductKernel(Ltensor, Dtensor, Rtensor, *coefficients.subfunctions)
+    kernel = element_kernel.kernel(mat_type="aij", on_diag=True, addv=addv)
 
-    parloop = op2.ParLoop(kernel, mesh.cell_set,
-                          *(op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in mats),
+    Aglobal = preallocate(V, V, element_kernel.result)
+    Aglobal.zeroEntries()
+
+    mats = [Aglobal]
+    mats.extend(element_kernel.mats)
+
+    parloop = op2.ParLoop(kernel, mesh.cell_set, *element_kernel.mat_args(Aglobal),
                           coefficients.dat(op2.READ, Z.cell_node_map()),
                           rindices(op2.READ, V.cell_node_map()))
     parloop()
