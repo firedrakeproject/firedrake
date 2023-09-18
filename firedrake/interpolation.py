@@ -43,13 +43,12 @@ __all__ = (
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v, result_coefficient=None, interp_data=None):
+    def __init__(self, expr, v, interp_data=None):
         r""" Symbolic representation of the interpolation operator.
 
         :arg expr: a UFL expression to interpolate.
         :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
                 defined on the dual of the :class:`.FunctionSpace` to interpolate into.
-        :param result_coefficient: :class:`.Function` representing what is produced by the operator
         """
 
         # Check function space
@@ -75,10 +74,8 @@ class Interpolate(ufl.Interpolate):
     def function_space(self):
         return self._function_space
 
-    def _ufl_expr_reconstruct_(self, expr, v=None, result_coefficient=None, interp_data=None):
-        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v,
-                                                      result_coefficient=result_coefficient,
-                                                      interp_data=interp_data or self.interp_data)
+    def _ufl_expr_reconstruct_(self, expr, v=None, interp_data=None):
+        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, interp_data=interp_data or self.interp_data)
 
 
 # Current behaviour of interpolation in Firedrake:
