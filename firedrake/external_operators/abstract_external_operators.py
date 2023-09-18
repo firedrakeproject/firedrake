@@ -178,7 +178,6 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
 
         # Compatibility check
         if len(self.arguments()) == 1:
-            # TODO: Check result.function_space() == self.arguments()[0].function_space().dual()
             # Will also catch the case where wrong fct space
             if not isinstance(result, (Function, Cofunction)):
                 raise ValueError('External operators with one argument must result in a firedrake.Function or firedrake.Cofunction object!')
@@ -189,9 +188,13 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
 
     # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
+        r"""Helper function for allocating a :class:`firedrake.matrix.MatrixBase` object
+            that can then be populated in the assemble methods provided by the external operator subclass.
+            This function relies on the :func:`firedrake.assemble.allocate_matrix` function.
+        """
         # Remove `diagonal` keyword argument
         opts.pop('diagonal', None)
-        # TODO: Add doc (especialy for integral_types)
+        # Allocate the matrix associated with `self`
         return allocate_matrix(self, bcs=bcs, integral_types=integral_types, **opts)
 
     def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None,
