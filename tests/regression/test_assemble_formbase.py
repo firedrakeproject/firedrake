@@ -235,6 +235,43 @@ def test_cofunction_riesz_representation(a):
             assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
 
 
+def test_function_riesz_representation(f):
+    # Get a Function
+    assert isinstance(f, Function)
+
+    V = f.function_space()
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    # Define Riesz maps
+    riesz_maps = {'L2': inner(u, v) * dx,
+                  'H1': (inner(u, v) + inner(grad(u), grad(v))) * dx,
+                  'l2': None}
+
+    # Check Riesz representation for each map
+    for riesz_map, mass in riesz_maps.items():
+
+        # Get Riesz representation of f
+        r = f.riesz_representation(riesz_map=riesz_map)
+
+        assert isinstance(r, Cofunction)
+        assert r.function_space() == V.dual()
+
+        if mass:
+            M = assemble(mass)
+            Mf = Function(V)
+            with f.dat.vec_ro as v_vec:
+                with Mf.dat.vec as res_vec:
+                    M.petscmat.mult(v_vec, res_vec)
+        else:
+            # l2 mass matrix is identity
+            Mf = Cofunction(V.dual(), val=f.vector())
+
+        # Check residual
+        for a, b in zip(Mf.subfunctions, r.subfunctions):
+            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+
+
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
     if mesh is None:

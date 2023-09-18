@@ -221,7 +221,7 @@ class FunctionMixin(FloatingType):
             return self.copy(deepcopy=True)
 
     def _ad_convert_riesz(self, value, options=None):
-        from firedrake import Function, Cofunction, TrialFunction, TestFunction
+        from firedrake import Function, Cofunction
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
@@ -237,20 +237,9 @@ class FunctionMixin(FloatingType):
             value = value.vector() if isinstance(value, (Cofunction, Function)) else value
             return Function(V, val=value)
 
-        elif riesz_representation == "L2":
+        elif riesz_representation in ("L2", "H1"):
             ret = Function(V)
-            u = TrialFunction(V)
-            v = TestFunction(V)
-            a = firedrake.inner(u, v)*firedrake.dx
-            firedrake.solve(a == value, ret, **solver_options)
-            return ret
-
-        elif riesz_representation == "H1":
-            ret = Function(V)
-            u = TrialFunction(V)
-            v = TestFunction(V)
-            a = firedrake.inner(u, v)*firedrake.dx \
-                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+            a = self._define_riesz_map_form(riesz_representation, V)
             firedrake.solve(a == value, ret, **solver_options)
             return ret
 
@@ -260,6 +249,23 @@ class FunctionMixin(FloatingType):
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
+
+    def _define_riesz_map_form(self, riesz_representation, V):
+        from firedrake import TrialFunction, TestFunction
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        if riesz_representation == "L2":
+            a = firedrake.inner(u, v)*firedrake.dx
+
+        elif riesz_representation == "H1":
+            a = firedrake.inner(u, v)*firedrake.dx \
+                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_representation)
+        return a
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
