@@ -1,12 +1,13 @@
 import pytest
 from firedrake import *
-try:
-    import torch
-    from firedrake.ml.neural_network_operators import neuralnet
-except ImportError:
-    raise ImportError("Try: pip install torch")
 
-import torch.nn.functional as F
+try:
+    from firedrake.ml.pytorch import *
+    import torch
+    import torch.nn.functional as F
+except ImportError:
+    # PyTorch is not installed
+    pass
 
 
 @pytest.fixture(scope='module')
@@ -28,6 +29,7 @@ def model_Identity():
     return Id
 
 
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_PyTorch_operator_model_attribute(mesh, model):
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -130,6 +132,7 @@ def test_pointwise_neuralnet_PyTorch_control(mesh, model):
 """
 
 
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_scalar_check_equality(mesh, model_Identity):
 
     V1 = FunctionSpace(mesh, "CG", 1)
