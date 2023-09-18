@@ -152,7 +152,7 @@ def matrix_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell or interior facet integrals")
@@ -245,7 +245,7 @@ def residual_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell integrals or interior_facet integrals")
