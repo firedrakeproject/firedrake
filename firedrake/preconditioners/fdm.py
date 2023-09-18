@@ -1190,11 +1190,11 @@ PetscErrorCode {name}(Mat A, Mat B,
                       PetscScalar *values,
                       PetscInt *rindices)
 {{
-    PetscBLASInt bn, lierr;
+    PetscBLASInt bn, lierr, lwork;
     PetscInt n, irow, bsize;
-    PetscInt *ai, *aj;
+    PetscInt *ai, *aj *ipiv;
     PetscBool done;
-    PetscScalar *vals, *Akk;
+    PetscScalar *vals, *Akk, *work;
     PetscFunctionBeginUser;
 
     // D11 = diag(values)
@@ -1214,27 +1214,28 @@ PetscErrorCode {name}(Mat A, Mat B,
     PetscCall(MatSeqAIJGetArray(A00, &vals));
     irow = 0;
     while(irow < n && ai[irow + 1] - ai[irow] == 1){{
-        vals[irow] = PetscSqrtReal(PetscAbs(1.0 / vals[irow]));
+        vals[irow] = 1.0 / vals[irow];
         irow++;
     }}
+
+    bsize = ai[n + 1] - ai[n];
+    PetscMalloc1(bsize, &ipiv);
+    PetscMalloc1(bsize * bsize, &work);
 
     Akk = &vals[irow];
     while(irow < n){{
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, Akk, &bn, &lierr));
-
+        lwork = bn * bn;
+        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, Akk, &bn, &ipiv, work, &lwork, &lierr));
         irow += bsize;
         Akk += bsize * bsize;
     }}
     PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscCall(MatMatMult(A00, A01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &W));
+    PetscFree(ipiv);
 
-    PetscCall(MatSeqAIJGetArray(A00, &vals));
-    for(PetscInt i=0; i<nvals; i++) vals[i] = lu[i];
-    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscCall(MatMatMatMult(A10, A00, W, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B));
+    PetscCall(MatMatMatMult(A10, A00, A01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B));
     PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
     PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(0);
