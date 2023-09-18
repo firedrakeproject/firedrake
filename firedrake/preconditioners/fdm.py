@@ -739,39 +739,45 @@ class SparseAssembler(object):
 def common_header(mat_type="aij"):
     select_cols = ""
     if mat_type.endswith("sbaij"):
-        select_cols = "icol -= (icol < irow) * (1 + icol);"
+        select_cols = """
+    PetscInt irow, icol;
+    for (PetscInt i = 0; i < m; i++) {{
+        irow = rindices[i];
+        for (PetscInt j = ai[i]; j < ai[i + 1]; j++) {{
+            icol = indices[j];
+            icol -= (icol < irow) * (1 + icol);
+            indices[j] = icol;
+        }}
+    }}
+    """
     return f"""
 #include <petsc.h>
 static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
-                                      PetscInt *rindices,
-                                      PetscInt *cindices,
-                                      InsertMode addv)
+                                                PetscInt *rindices,
+                                                PetscInt *cindices,
+                                                InsertMode addv)
 {{
-    PetscInt ncols, irow, icol;
-    PetscInt *cols, *indices;
+    PetscInt m, n, ncols, istart;
+    PetscInt *ai, *aj, *indices;
     PetscScalar *vals;
-    PetscInt m, n;
+    PetscBool done;
     PetscFunctionBeginUser;
 
     MatGetSize(B, &m, NULL);
-    n = 0;
+    PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscMalloc1(ai[m], &indices);
+    for (PetscInt j = 0; j < ai[m]; j++)
+        indices[j] = cindices[aj[j]];
+    {select_cols}
+
+    PetscCall(MatSeqAIJGetArray(B, &vals));
     for (PetscInt i = 0; i < m; i++) {{
-        PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
-        if (ncols > n) n = ncols;
-        PetscCall(MatRestoreRow(B, i, &ncols, NULL, NULL));
+        istart = ai[i];
+        ncols = ai[i + 1] - istart;
+        PetscCall(MatSetValues(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
     }}
-    PetscMalloc1(n, &indices);
-    for (PetscInt i = 0; i < m; i++) {{
-        PetscCall(MatGetRow(B, i, &ncols, &cols, &vals));
-        irow = rindices[i];
-        for (PetscInt j = 0; j < ncols; j++) {{
-            icol = cindices[cols[j]];
-            {select_cols}
-            indices[j] = icol;
-        }}
-        PetscCall(MatSetValues(A, 1, &irow, ncols, indices, vals, addv));
-        PetscCall(MatRestoreRow(B, i, &ncols, &cols, &vals));
-    }}
+    PetscCall(MatSeqAIJRestoreArray(B, &vals));
+    PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscFree(indices);
     PetscFunctionReturn(0);
 }}
