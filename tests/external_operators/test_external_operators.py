@@ -53,8 +53,8 @@ def test_assemble(mesh):
     # Check type
     assert isinstance(jac, MatrixBase)
 
-    # Assemble the exact Jacobian, i.e. the interpolation matrix: `Interp(dexpr(u,v,w)/du, V)`
-    jac_exact = assemble(Interp(derivative(expr(u, v, w), u), V))
+    # Assemble the exact Jacobian, i.e. the interpolation matrix: `Interpolate(dexpr(u,v,w)/du, V)`
+    jac_exact = assemble(Interpolate(derivative(expr(u, v, w), u), V))
     np.allclose(jac.petscmat[:, :], jac_exact.petscmat[:, :], rtol=1e-14)
 
     # -- dNdu(u, v, w; δu, v*) (TLM) -- #

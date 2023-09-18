@@ -2,12 +2,9 @@ from functools import partial
 import types
 import sympy as sp
 
-# from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
-
-from pyop2.datatypes import ScalarType
 
 
 class PointexprOperator(AbstractExternalOperator):
@@ -16,8 +13,7 @@ class PointexprOperator(AbstractExternalOperator):
     of f pointwise.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data):
+    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
         r"""
         :param operands: operands on which act the :class:`PointexrOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -25,18 +21,11 @@ class PointexprOperator(AbstractExternalOperator):
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
         :param derivatives: tuple specifiying the derivative multiindex.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
         :param operator_data: dictionary containing the function defining how to evaluate the :class:`PointexprOperator`.
         """
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, dtype=dtype,
-                                          operator_data=operator_data)
+                                          argument_slots=argument_slots, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data, types.FunctionType):
@@ -108,17 +97,19 @@ class PointexprOperator(AbstractExternalOperator):
         return res
 
     def _evaluate(self, *args, **kwargs):
+        from firedrake.interpolation import interpolate
+        from firedrake.function import Function
         operands = self.ufl_operands
         operator = self._symbolic_differentiation()
         expr = as_ufl(operator(*operands))
         if expr.ufl_shape == () and expr != 0:
-            return self.interpolate(expr)
+            return interpolate(expr, self.function_space())
             # var = VariableRuleset(self.ufl_operands[0])
             # expr = expr*var._Id
         elif expr == 0:
-            return self.assign(expr)
+            return Function(self.function_space()).assign(expr)
         # TODO: Clean that once Interp branch got merged to this branch
-        return self.assign(expr)  # self.interpolate(expr)
+        return Function(self.function_space()).assign(expr)  # self.interpolate(expr)
 
 
 # Helper function #

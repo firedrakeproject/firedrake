@@ -1,17 +1,13 @@
 from ufl.core.ufl_type import UFLType
 from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
-from ufl.coefficient import Coefficient
-from ufl.referencevalue import ReferenceValue
 
 import firedrake.ufl_expr as ufl_expr
 from firedrake.assemble import allocate_matrix
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
-from firedrake import utils, functionspaceimpl
-
-from pyop2.datatypes import ScalarType
+from firedrake import functionspaceimpl
 
 
 class RegisteringAssemblyMethods(UFLType):
@@ -35,25 +31,17 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
     Every subclass based on this class must provide the `_compute_derivatives` and '_evaluate' or `_evaluate_action` methods.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data=None):
+    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data=None):
 
         # Check function space
         if not isinstance(function_space, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Function defined on a " + str(type(function_space)))
 
         # -- ExternalOperator inheritance -- #
-        ufl_function_space = function_space.ufl_function_space()
-        ExternalOperator.__init__(self, *operands, function_space=ufl_function_space, derivatives=derivatives,
+        ExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                   argument_slots=argument_slots)
-
-        # Produce the resulting Coefficient: Is that really needed?
-        if result_coefficient is None:
-            result_coefficient = Function(function_space, val, name, dtype)
-            self._val = result_coefficient.topological
-        elif not isinstance(result_coefficient, (Coefficient, ReferenceValue)):
-            raise TypeError('Expecting a Coefficient and not %s', type(result_coefficient))
-        self._result_coefficient = result_coefficient
+        # Set function space
+        self._function_space = function_space
 
         # -- Argument slots -- #
         if len(argument_slots) == 0:
@@ -62,51 +50,11 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
             argument_slots = (v_star,)
         self._argument_slots = argument_slots
 
-        # Do we need these features ?
-        self._val = val
-        self._name = name
-
         # -- Operator data -- #
         self.operator_data = operator_data
 
-    def name(self):
-        return getattr(self.result_coefficient(), '_name', self._name)
-
     def function_space(self):
-        return self.result_coefficient().function_space()
-
-    @property
-    def dat(self):
-        return self.result_coefficient().dat
-
-    @property
-    def topological(self):
-        # When we replace coefficients in _build_coefficient_replace_map
-        # we replace firedrake.Function by ufl.Coefficient and we lose track of val
-        return getattr(self.result_coefficient(), 'topological', self._val)
-
-    def assign(self, *args, **kwargs):
-        assign = self.result_coefficient().assign(*args, **kwargs)
-        # Keep track of the function's value
-        self._val = assign.topological
-        return assign
-
-    def interpolate(self, *args, **kwargs):
-        interpolate = self.result_coefficient().interpolate(*args, **kwargs)
-        # Keep track of the function's value
-        self._val = interpolate.topological
-        return interpolate
-
-    def split(self):
-        return self.result_coefficient().split()
-
-    @property
-    def block_variable(self):
-        return self.result_coefficient().block_variable
-
-    @property
-    def _ad_floating_active(self):
-        self.result_coefficient()._ad_floating_active
+        return self._function_space
 
     def assemble_method(derivs, args=None):
         r"""Decorator helper function for the user to specify his assemble functions.
@@ -213,15 +161,6 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
 
         # --- Get assemble function ---
 
-        """
-        # Get assemble function name
-        assemble_name = self._make_assembly_dict[key]
-
-        # Lookup assemble functions: tells if the assemble function has been overriden by the external operator subclass
-        assemble = type(self).__dict__.get(assemble_name)
-        """
-
-        # Get assemble function
         assembly_registry = self._assembly_registry
         try:
             assemble = assembly_registry[key]
@@ -248,10 +187,6 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
         return result
 
-    def _assemble(self, *args, **kwargs):
-        """Assemble N"""
-        raise NotImplementedError('You need to implement _assemble for `%s`' % type(self).__name__)
-
     # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
         # Remove `diagonal` keyword argument
@@ -259,42 +194,11 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
         # TODO: Add doc (especialy for integral_types)
         return allocate_matrix(self, bcs=bcs, integral_types=integral_types, **opts)
 
-    def copy(self, deepcopy=False):
-        r"""Return a copy of this CoordinatelessFunction.
-
-        :kwarg deepcopy: If ``True``, the new
-            :class:`CoordinatelessFunction` will allocate new space
-            and copy values.  If ``False``, the default, then the new
-            :class:`CoordinatelessFunction` will share the dof values.
-        """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
-        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
-                          name=self.name(), dtype=self.dat.dtype,
-                          derivatives=self.derivatives,
-                          operator_data=self.operator_data)
-
-    @utils.cached_property
-    def _split(self):
-        return tuple(Function(V, val) for (V, val) in zip(self.function_space(), self.topological.split()))
-
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, result_coefficient=None,
-                               argument_slots=None, name=None, operator_data=None, val=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None,
+                               argument_slots=None, operator_data=None, add_kwargs={}):
         "Return a new object of the same type with new operands."
-        deriv_multiindex = derivatives or self.derivatives
-
-        if deriv_multiindex != self.derivatives:
-            # If we are constructing a derivative
-            corresponding_coefficient = None
-        else:
-            corresponding_coefficient = result_coefficient or self._result_coefficient
-
         return type(self)(*operands, function_space=function_space or self.function_space(),
-                          derivatives=deriv_multiindex,
-                          name=name or self.name(),
-                          result_coefficient=corresponding_coefficient,
+                          derivatives=derivatives or self.derivatives,
                           argument_slots=argument_slots or self.argument_slots(),
                           operator_data=operator_data or self.operator_data,
                           **add_kwargs)
@@ -311,8 +215,6 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
         return hash(hashdata)
 
     def __eq__(self, other):
-        if not isinstance(other, AbstractExternalOperator):
-            return False
         if self is other:
             return True
         return (type(self) == type(other) and

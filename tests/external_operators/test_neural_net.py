@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 try:
     import torch
+    from firedrake.ml.neural_network_operators import neuralnet
 except ImportError:
     raise ImportError("Try: pip install torch")
 
