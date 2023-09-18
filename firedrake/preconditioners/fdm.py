@@ -611,27 +611,17 @@ class FDMPC(PCBase):
                                     *mat_args,
                                     self.coef_acc,
                                     *indices)
-
-            #assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
-            self.assemblers.setdefault(key[:2], (assembler, element_kernel))
+            self.assemblers.setdefault(key[:2], assembler)
 
             preallocator_kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
             preallocator = op2.ParLoop(preallocator_kernel,
                                        Vrow.mesh().cell_set,
                                        *mat_args[:2],
                                        *indices)
-            self.assemblers.setdefault(key[:2]+("preallocator", ), (preallocator, element_kernel))
+            self.assemblers.setdefault(key[:2]+("preallocator", ), preallocator)
 
-        assembler, element_kernel = self.assemblers[key]
-        #assembler.assemble(A, addv=addv, triu=A.getType().endswith("preallocator") and mat_type.endswith("sbaij"))
-
-        mats = [A] + element_kernel.mats
-        if A.getType() == "preallocator":
-            mats = mats[:2]
-
-        args = assembler.arguments
-        for i, m in enumerate(mats):
-            args[i] = type(args[i])(m.handle)
+        assembler = self.assemblers[key]
+        assembler.arguments[0].data = A.handle
         assembler()
 
 
@@ -818,12 +808,6 @@ class ElementKernel(object):
     def __call__(self, *args, result=None):
         return result or self.result
 
-    def __del__(self):
-        self.destroy()
-
-    def destroy(self):
-        pass
-
     def mat_args(self, *mats):
         return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
@@ -867,12 +851,6 @@ class TripleProductKernel(ElementKernel):
             numpy.take(c.dat.data_ro, i, axis=0, out=self.data[z])
         self.update()
         return self.product(result=result)
-
-    def destroy(self):
-        if hasattr(self, "result"):
-            self.result.destroy()
-        if isinstance(self.work, PETSc.Object):
-            self.work.destroy()
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
@@ -943,15 +921,6 @@ class SchurComplementKernel(ElementKernel):
         for k in self.children:
             k(*args, result=k.result)
         return self.condense(result=result)
-
-    def destroy(self):
-        for k in self.children:
-            k.destroy()
-        if hasattr(self, "result"):
-            self.result.destroy()
-        for obj in self.work:
-            if isinstance(obj, PETSc.Object):
-                obj.destroy()
 
     def condense(self, result=None):
         return result
@@ -1586,13 +1555,6 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         temp.destroy()
         eye.destroy()
 
-    kernel = constant_kernel(name="exterior_derivative")
-    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
-                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
-    assembler = lambda P: op2.par_loop(kernel,
-                                       Vc.mesh().cell_set,
-                                       *(op2.PassthroughArg(op2.PetscMatType(), m.handle) for m in (P, Dhat)),
-                                       *indices)
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
@@ -1600,15 +1562,24 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
     preallocator.setUp()
-    assembler(preallocator)
-    preallocator.assemble()
 
+    kernel = constant_kernel(name="exterior_derivative")
+    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
+                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
+    assembler = op2.ParLoop(kernel,
+                            Vc.mesh().cell_set,
+                            *(op2.PassthroughArg(op2.PetscMatType(), m.handle) for m in (preallocator, Dhat)),
+                            *indices)
+    assembler()
+    preallocator.assemble()
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
 
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-    assembler(Dmat)
+    assembler.arguments[0].data = Dmat.handle
+    assembler()
+
     Dmat.assemble()
     Dhat.destroy()
     return Dmat
