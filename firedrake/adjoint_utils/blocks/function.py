@@ -38,8 +38,9 @@ class FunctionAssignBlock(Block, Backend):
         return ufl.replace(self.expr, replace_map)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        V = self.get_outputs()[0].output.function_space()
-        adj_input_func = self.compat.function_from_vector(V, adj_inputs[0])
+        adj_input_func, = adj_inputs
+        if isinstance(adj_input_func, self.backend.Cofunction):
+            adj_input_func = adj_input_func.riesz_representation(riesz_map="l2")
 
         if self.expr is None:
             return adj_input_func
@@ -53,7 +54,7 @@ class FunctionAssignBlock(Block, Backend):
             if isinstance(block_variable.output, AdjFloat):
                 try:
                     # Adjoint of a broadcast is just a sum
-                    return adj_inputs[0].sum()
+                    return adj_inputs[0].vector().sum()
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
@@ -68,7 +69,7 @@ class FunctionAssignBlock(Block, Backend):
                 adj_output.assign(prepared)
                 adj_output = self.backend.Cofunction(adj_output.function_space().dual(),
                                                      val=adj_output.vector())
-                return adj_output.vector()
+                return adj_output
         else:
             # Linear combination
             expr, adj_input_func = prepared
@@ -101,7 +102,7 @@ class FunctionAssignBlock(Block, Backend):
                 )
                 return self._adj_assign_constant(adj_output, R)
             else:
-                return adj_output.vector()
+                return adj_output
 
     def _adj_assign_constant(self, adj_output, constant_fs):
         r = self.backend.Function(constant_fs)
@@ -117,7 +118,7 @@ class FunctionAssignBlock(Block, Backend):
             for i in range(shape[0]):
                 values.append(adj_output.sub(i, deepcopy=True).vector().sum())
             r.assign(self.backend.Constant(values))
-        return r.vector()
+        return r
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         if self.expr is None:
@@ -333,7 +334,7 @@ class InterpolateBlock(Block, Backend):
         arg, = extract_arguments(dJdm)
         # Make sure to have a cofunction output
         output = self.backend.Cofunction(arg.function_space().dual())
-        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True).vector()
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True)
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -513,12 +514,14 @@ class InterpolateBlock(Block, Backend):
         d2exprdudu = self.backend.derivative(dexprdu,
                                              block_variable.saved_output)
 
+        # Make sure to have a cofunction output
+        output = self.backend.Cofunction(component.function_space())
         # left multiply by dJ/dv (adj_inputs[0]) - i.e. interpolate using the
         # transpose operator
         component += self.backend.Interpolator(d2exprdudu, self.V).interpolate(
-            adj_inputs[0], transpose=True
+            adj_inputs[0], output=output, transpose=True
         )
-        return component.vector()
+        return component
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -548,7 +551,7 @@ class SubfunctionBlock(Block, Backend):
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:
             eval_adj.sub(self.idx).assign(adj_inputs[0].function)
-        return eval_adj.vector()
+        return eval_adj
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
@@ -558,8 +561,8 @@ class SubfunctionBlock(Block, Backend):
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
         eval_hessian = self.backend.Cofunction(block_variable.output.function_space().dual())
-        eval_hessian.sub(self.idx).assign(hessian_inputs[0].function)
-        return eval_hessian.vector()
+        eval_hessian.sub(self.idx).assign(hessian_inputs[0])
+        return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return maybe_disk_checkpoint(
@@ -581,7 +584,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].subfunctions[self.idx].vector()
+            return adj_inputs[0].subfunctions[self.idx]
         else:
             return adj_inputs[0]
 

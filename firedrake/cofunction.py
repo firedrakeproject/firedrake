@@ -218,9 +218,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         firedrake.function.Function
             Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
         """
-        return self._ad_convert_riesz(self.vector(), options={"function_space": self.function_space().dual(),
-                                                              "riesz_representation": riesz_map,
-                                                              "solver_options": solver_options})
+        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
+                                                     "riesz_representation": riesz_map,
+                                                     "solver_options": solver_options})
 
     @FunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
