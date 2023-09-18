@@ -8,6 +8,52 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
+@pytest.fixture(scope='module', params=['cg1', 'vcg1', 'tcg1',
+                                        'cg1cg1[0]', 'cg1cg1[1]',
+                                        'cg1vcg1[0]', 'cg1vcg1[1]',
+                                        'cg1dg0[0]', 'cg1dg0[1]',
+                                        'cg2dg1[0]', 'cg2dg1[1]'])
+def V(request, mesh):
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    cg2 = FunctionSpace(mesh, "CG", 2)
+    vcg1 = VectorFunctionSpace(mesh, "CG", 1)
+    tcg1 = TensorFunctionSpace(mesh, "CG", 1)
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
+    return {'cg1': cg1,
+            'vcg1': vcg1,
+            'tcg1': tcg1,
+            'cg1cg1[0]': (cg1*cg1)[0],
+            'cg1cg1[1]': (cg1*cg1)[1],
+            'cg1vcg1[0]': (cg1*vcg1)[0],
+            'cg1vcg1[1]': (cg1*vcg1)[1],
+            'cg1dg0[0]': (cg1*dg0)[0],
+            'cg1dg0[1]': (cg1*dg0)[1],
+            'cg2dg1[0]': (cg2*dg1)[0],
+            'cg2dg1[1]': (cg2*dg1)[1]}[request.param]
+
+
+@pytest.fixture
+def f(mesh, V):
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V, name="f")
+    fs = f.subfunctions
+
+    # NOTE: interpolation of UFL expressions into mixed
+    # function spaces is not yet implemented
+    for fi in fs:
+        fs_i = fi.function_space()
+        if fs_i.rank == 1:
+            fi.interpolate(as_vector([(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)] * V.value_size))
+        elif fs_i.rank == 2:
+            fi.interpolate(as_tensor([[(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)
+                                       for _ in range(fs_i.mesh().geometric_dimension())]
+                                      for _ in range(fs_i.rank)]))
+        else:
+            fi.interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))
+    return f
+
+
 @pytest.fixture(params=["normal", "matrix-free"])
 def solver_parameters(request):
     # Return firedrake operator and the corresponding non-control arguments
@@ -17,21 +63,23 @@ def solver_parameters(request):
         return {"ksp_type": "cg", "pc_type": "none", "mat_type": "matfree"}
 
 
-def test_assemble(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
+def test_assemble(V, f):
 
     # Define a random number generator
     pcg = PCG64(seed=123456789)
     rg = Generator(pcg)
 
     # Set operands of the external operator
-    u = Function(V).interpolate(cos(2 * pi * x) * sin(2 * pi * y))
+    u = f
     v = Function(V).assign(1.)
     w = rg.beta(V, 1.0, 2.0)
 
     # Define the external operator N
-    expr = lambda x, y, z: x * y - 2 * z * x ** 2 + z
+    if V.rank == 0:
+        expr = lambda x, y, z: x * y - 2 * z * x ** 2 + z
+    else:
+        # Only linear combinations are supported for V.rank > 0
+        expr = lambda x, y, z: 2 * x + 3 * y - z
     pe = point_expr(expr, function_space=V)
     N = pe(u, v, w)
     # Check type
@@ -111,12 +159,12 @@ def test_solve(mesh, solver_parameters):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
 
+    # Set Dirichlet boundary condition
+    bcs = DirichletBC(V, 0., "on_boundary")
+
     # Set RHS
     x, y = SpatialCoordinate(mesh)
     f = Function(V).interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))
-
-    # Set Dirichlet boundary condition
-    bcs = DirichletBC(V, 0., "on_boundary")
 
     # Solve the Poisson problem without external operators:
     #  - Δu + u = f in Ω
@@ -207,7 +255,7 @@ def test_mixed_function_space(mesh):
     v1, v2 = TestFunctions(W)
 
     x, y = SpatialCoordinate(mesh)
-    u1, u2 = u.split()
+    u1, u2 = u.subfunctions
     u1.interpolate(cos(x))
     u2.interpolate(sin(x))
 
