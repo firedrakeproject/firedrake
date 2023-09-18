@@ -148,8 +148,7 @@ class FDMPC(PCBase):
                 self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
                                          mat_type=mat_type, options_prefix=options_prefix)
                 self._assemble_A = TwoFormAssembler(J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                                    form_compiler_parameters=fcp,
-                                                    mat_type=mat_type).assemble
+                                                    form_compiler_parameters=fcp).assemble
                 self._assemble_A()
                 Amat = self.A.petscmat
 
@@ -579,7 +578,7 @@ class FDMPC(PCBase):
         if A.getType() == "preallocator":
             key = key + (A.getType(),)
         try:
-            assembler = self.assemblers[key]
+            self.assemblers[key]
         except KeyError:
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
@@ -603,27 +602,37 @@ class FDMPC(PCBase):
 
             on_diag = Vrow == Vcol
             assembly_kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
+            mat_args = element_kernel.mat_args(A)
+
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
-            assembler = lambda P: op2.par_loop(assembly_kernel,
-                                               Vrow.mesh().cell_set,
-                                               *element_kernel.mat_args(P),
-                                               self.coef_acc,
-                                               *indices)
+            assembler = op2.ParLoop(assembly_kernel,
+                                    Vrow.mesh().cell_set,
+                                    *mat_args,
+                                    self.coef_acc,
+                                    *indices)
 
             #assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
-            self.assemblers.setdefault(key[:2], assembler)
+            self.assemblers.setdefault(key[:2], (assembler, element_kernel))
 
             preallocator_kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
-            preallocator = lambda P: op2.par_loop(preallocator_kernel,
-                                                  Vrow.mesh().cell_set,
-                                                  *element_kernel.mat_args(P)[:2],
-                                                  *indices)
-            self.assemblers.setdefault(key[:2]+("preallocator", ), preallocator)
+            preallocator = op2.ParLoop(preallocator_kernel,
+                                       Vrow.mesh().cell_set,
+                                       *mat_args[:2],
+                                       *indices)
+            self.assemblers.setdefault(key[:2]+("preallocator", ), (preallocator, element_kernel))
 
-        assembler = self.assemblers[key]
+        assembler, element_kernel = self.assemblers[key]
         #assembler.assemble(A, addv=addv, triu=A.getType().endswith("preallocator") and mat_type.endswith("sbaij"))
-        assembler(A)
+
+        mats = [A] + element_kernel.mats
+        if A.getType() == "preallocator":
+            mats = mats[:2]
+
+        args = assembler.arguments
+        for i, m in enumerate(mats):
+            args[i] = type(args[i])(m.handle)
+        assembler()
 
 
 class SparseAssembler(object):
