@@ -222,11 +222,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
             f"Cannot take the derivative of a {type(form).__name__}"
         )
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if u_is_x or isinstance(u, (Constant, BaseFormOperator)):
+    u_is_bfo = isinstance(u, BaseFormOperator)
+    if u_is_x or u_is_bfo or isinstance(u, Constant):
         uc = u
     else:
         uc, = extract_coefficients(u)
-    if not u_is_x and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
+    if not (u_is_x or u_is_bfo) and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 

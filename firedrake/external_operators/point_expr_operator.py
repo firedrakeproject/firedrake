@@ -1,13 +1,12 @@
 from functools import partial
 import types
-import sympy as sp
 
-# from ufl.algorithms.apply_derivatives import VariableRuleset
 from ufl.constantvalue import as_ufl
 
+import firedrake.ufl_expr as ufl_expr
+from firedrake.assemble import assemble
+from firedrake.interpolation import Interpolate
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
-
-from pyop2.datatypes import ScalarType
 
 
 class PointexprOperator(AbstractExternalOperator):
@@ -16,8 +15,7 @@ class PointexprOperator(AbstractExternalOperator):
     of f pointwise.
     """
 
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data):
+    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
         r"""
         :param operands: operands on which act the :class:`PointexrOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -25,18 +23,11 @@ class PointexprOperator(AbstractExternalOperator):
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
         :param derivatives: tuple specifiying the derivative multiindex.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
         :param operator_data: dictionary containing the function defining how to evaluate the :class:`PointexprOperator`.
         """
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, dtype=dtype,
-                                          operator_data=operator_data)
+                                          argument_slots=argument_slots, operator_data=operator_data)
 
         # Check
         if not isinstance(operator_data, types.FunctionType):
@@ -49,43 +40,43 @@ class PointexprOperator(AbstractExternalOperator):
     def expr(self):
         return self.operator_data
 
-    # --- Symbolic computations ---
-
-    def _symbolic_differentiation(self):
-        symb = sp.symbols('s:%d' % len(self.ufl_operands))
-        r = sp.diff(self.expr(*symb), *zip(symb, self.derivatives))
-        return sp.lambdify(symb, r, dummify=True)
-
     # --- Evaluation ---
 
     @assemble_method(0, (0,))
     def assemble_operator(self, *args, **kwargs):
-        return self._evaluate(*args, **kwargs)
+        V = self.function_space()
+        expr = as_ufl(self.expr(*self.ufl_operands))
+        if len(V) < 2:
+            interp = Interpolate(expr, self.function_space())
+            return assemble(interp)
+        # Interpolation of UFL expressions for mixed functions is not yet supported
+        # -> `Function.assign` might be enough in some cases.
+        try:
+            from firedrake.function import Function
+            return Function(V).assign(expr)
+        except NotImplementedError:
+            raise NotImplementedError("Interpolation of UFL expressions for mixed functions is not yet supported")
 
     @assemble_method(1, (0, None))
     def assemble_Jacobian_action(self, *args, **kwargs):
-        from firedrake.function import Function
-        res = Function(self.function_space())
+        V = self.function_space()
+        expr = as_ufl(self.expr(*self.ufl_operands))
+        interp = Interpolate(expr, V)
+
+        u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
         w = self.argument_slots()[-1]
-        # Get diagonal of the Jacobian
-        dNdu = self._evaluate()
-        # Multiply pointwise dNdu and w since the Jacobian is diagonal
-        with res.dat.vec_wo as res_vec:
-            with w.dat.vec_ro as u_vec:
-                with dNdu.dat.vec_ro as v_vec:
-                    res_vec.pointwiseMult(u_vec, v_vec)
-        return res
+        dinterp = ufl_expr.derivative(interp, u)
+        return assemble(ufl_expr.action(dinterp, w))
 
     @assemble_method(1, (0, 1))
     def assemble_Jacobian(self, *args, assembly_opts, **kwargs):
-        result = self._evaluate()
+        V = self.function_space()
+        expr = as_ufl(self.expr(*self.ufl_operands))
+        interp = Interpolate(expr, V)
 
-        # Construct the Jacobian matrix
-        integral_types = set(['cell'])
-        J = self._matrix_builder((), assembly_opts, integral_types)
-        with result.dat.vec as vec:
-            J.petscmat.setDiagonal(vec)
-        return J
+        u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
+        jac = ufl_expr.derivative(interp, u)
+        return assemble(jac)
 
     @assemble_method(1, (1, 0))
     def assemble_Jacobian_adjoint(self, *args, assembly_opts, **kwargs):
@@ -95,30 +86,14 @@ class PointexprOperator(AbstractExternalOperator):
 
     @assemble_method(1, (None, 0))
     def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
-        from firedrake.cofunction import Cofunction
-        res = Cofunction(self.function_space().dual())
-        ustar = self.argument_slots()[0]
-        # Get diagonal of the Jacobian
-        dNdu = self._evaluate()
-        # Multiply pointwise dNdu and ustar since the Jacobian is diagonal
-        with res.dat.vec_wo as res_vec:
-            with ustar.dat.vec_ro as u_vec:
-                with dNdu.dat.vec_ro as v_vec:
-                    res_vec.pointwiseMult(u_vec, v_vec)
-        return res
+        V = self.function_space()
+        expr = as_ufl(self.expr(*self.ufl_operands))
+        interp = Interpolate(expr, V)
 
-    def _evaluate(self, *args, **kwargs):
-        operands = self.ufl_operands
-        operator = self._symbolic_differentiation()
-        expr = as_ufl(operator(*operands))
-        if expr.ufl_shape == () and expr != 0:
-            return self.interpolate(expr)
-            # var = VariableRuleset(self.ufl_operands[0])
-            # expr = expr*var._Id
-        elif expr == 0:
-            return self.assign(expr)
-        # TODO: Clean that once Interp branch got merged to this branch
-        return self.assign(expr)  # self.interpolate(expr)
+        u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
+        ustar = self.argument_slots()[0]
+        jac = ufl_expr.derivative(interp, u)
+        return assemble(ufl_expr.action(ufl_expr.adjoint(jac), ustar))
 
 
 # Helper function #

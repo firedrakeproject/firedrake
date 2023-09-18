@@ -41,15 +41,17 @@ class AssembleBlock(Block, Backend):
             if dform is None:
                 dc = self.backend.TestFunction(space)
                 dform = self.backend.derivative(form, c_rep, dc)
-            dform_vector = self.compat.assemble_adjoint_value(dform)
-            # Return a Vector scaled by the scalar `adj_input`
-            return dform_vector * adj_input, dform
+            dform_adj = self.compat.assemble_adjoint_value(dform)
+            if dform_adj == 0:
+                # Is returning 0. safe ? (`dform_adj` is a `ZeroBaseForm`)
+                return 0., dform
+            # Return the adjoint model of `form` scaled by the scalar `adj_input`
+            adj_output = dform_adj._ad_mul(adj_input)
+            return adj_output, dform
         elif arity_form == 1:
             if dform is None:
                 dc = self.backend.TrialFunction(space)
                 dform = self.backend.derivative(form, c_rep, dc)
-            # Get the Function
-            adj_input = adj_input.function
             # Symbolic operators such as action/adjoint require derivatives to
             # have been expanded beforehand. However, UFL doesn't support
             # expanding coordinate derivatives of Coefficients in physical
@@ -113,7 +115,7 @@ class AssembleBlock(Block, Backend):
         if self.compat.isconstant(c):
             mesh = self.compat.extract_mesh_from_form(self.form)
             space = c._ad_function_space(mesh)
-        elif isinstance(c, self.backend.Function):
+        elif isinstance(c, (self.backend.Function, self.backend.Cofunction)):
             space = c.function_space()
         elif isinstance(c, self.compat.MeshType):
             c_rep = self.backend.SpatialCoordinate(c_rep)
@@ -131,8 +133,6 @@ class AssembleBlock(Block, Backend):
         form = prepared
         dform = 0.
 
-        from ufl.algorithms.analysis import extract_arguments
-        arity_form = len(extract_arguments(form))
         for bv in self.get_dependencies():
             c_rep = bv.saved_output
             tlm_value = bv.tlm_value
@@ -149,9 +149,6 @@ class AssembleBlock(Block, Backend):
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = self.compat.assemble_adjoint_value(dform)
-            if arity_form == 1 and dform != 0:
-                # Then dform is a Vector (and not a ZeroBaseForm since dform != 0)
-                dform = dform.function
         return dform
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
@@ -175,7 +172,7 @@ class AssembleBlock(Block, Backend):
         if self.compat.isconstant(c1):
             mesh = self.compat.extract_mesh_from_form(form)
             space = c1._ad_function_space(mesh)
-        elif isinstance(c1, self.backend.Function):
+        elif isinstance(c1, (self.backend.Function, self.backend.Cofunction)):
             space = c1.function_space()
         elif isinstance(c1, self.compat.ExpressionType):
             mesh = form.ufl_domain().ufl_cargo()

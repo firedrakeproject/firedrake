@@ -43,9 +43,8 @@ class GenericSolveBlock(Block, Backend):
 
         if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
             self.linear = True
-            if not isinstance(rhs, ufl.Cofunction):
-                for c in self.rhs.coefficients():
-                    self.add_dependency(c, no_duplicates=True)
+            for c in self.rhs.coefficients():
+                self.add_dependency(c, no_duplicates=True)
         else:
             self.linear = False
 
@@ -152,7 +151,7 @@ class GenericSolveBlock(Block, Backend):
             )
         )
         dFdu_form = self.backend.adjoint(dFdu)
-        dJdu = dJdu.copy()
+        dJdu = dJdu.vector().copy()
 
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
@@ -191,10 +190,8 @@ class GenericSolveBlock(Block, Backend):
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self.compat.function_from_vector(
-                self.function_space,
-                dJdu_copy - self.compat.assemble_adjoint_value(
-                    self.backend.action(dFdu_adj_form, adj_sol)
-                )
+                self.function_space.dual(),
+                dJdu_copy - self.compat.assemble_adjoint_value(self.backend.action(dFdu_adj_form, adj_sol)).vector()
             )
 
         return adj_sol, adj_sol_bdy
@@ -215,7 +212,7 @@ class GenericSolveBlock(Block, Backend):
             trial_function = self.backend.TrialFunction(
                 c._ad_function_space(mesh)
             )
-        elif isinstance(c, self.backend.Function):
+        elif isinstance(c, (self.backend.Function, self.backend.Cofunction)):
             trial_function = self.backend.TrialFunction(c.function_space())
         elif isinstance(c, self.compat.ExpressionType):
             mesh = F_form.ufl_domain().ufl_cargo()
@@ -229,7 +226,7 @@ class GenericSolveBlock(Block, Backend):
             )
             return [tmp_bc]
         elif isinstance(c, self.compat.MeshType):
-            # Using CoordianteDerivative requires us to do action before
+            # Using CoordinateDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = self.backend.action(F_form, adj_sol)
             X = self.backend.SpatialCoordinate(c_rep)
@@ -237,6 +234,9 @@ class GenericSolveBlock(Block, Backend):
                 -F_form_tmp, X,
                 self.backend.TestFunction(c._ad_function_space())
             )
+
+            if dFdm == 0:
+                return self.backend.Function(c._ad_function_space().dual())
 
             dFdm = self.compat.assemble_adjoint_value(dFdm,
                                                       **self.assemble_kwargs)
@@ -359,7 +359,7 @@ class GenericSolveBlock(Block, Backend):
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = self.backend.adjoint(dFdu_form)
-        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b,
+        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b.vector(),
                                                                  compute_bdy)
         if self.adj2_cb is not None:
             self.adj2_cb(adj_sol2)
@@ -491,7 +491,8 @@ class GenericSolveBlock(Block, Backend):
         )
         hessian_output = 0
         if not hessian_form.empty():
-            hessian_output -= self.compat.assemble_adjoint_value(hessian_form)
+            hessian_output = self.compat.assemble_adjoint_value(hessian_form)
+            hessian_output *= -1.
 
         if isinstance(c, self.compat.ExpressionType):
             return [(hessian_output, W)]
@@ -661,7 +662,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         F_form = self._create_F_form()
 
         dFdu_form = self.adj_F
-        dJdu = dJdu.copy()
+        dJdu = dJdu.vector().copy()
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdu_form)
@@ -835,10 +836,9 @@ class SupermeshProjectBlock(Block, Backend):
         return maybe_disk_checkpoint(target)
 
     def _recompute_component_transpose(self, inputs):
-        if not isinstance(inputs[0],
-                          (self.backend.Function, self.backend.Vector)):
+        if not isinstance(inputs[0], self.backend.Cofunction):
             raise NotImplementedError(
-                f"Source function must be a Function, not {type(inputs[0])}."
+                f"Source function must be a Cofunction, not {type(inputs[0])}."
             )
         out = self.backend.Cofunction(self.source_space.dual())
         tmp = self.backend.Function(self.target_space)
@@ -863,7 +863,7 @@ class SupermeshProjectBlock(Block, Backend):
             raise NotImplementedError(
                 "SupermeshProjectBlock must have a single output"
             )
-        return self._recompute_component_transpose(adj_inputs).vector()
+        return self._recompute_component_transpose(adj_inputs)
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
@@ -888,7 +888,7 @@ class SupermeshProjectBlock(Block, Backend):
                 "SupermeshProjectBlock must have a single output"
             )
         return self.evaluate_adj_component(inputs, hessian_inputs,
-                                           block_variable, idx).vector()
+                                           block_variable, idx)
 
     def __str__(self):
         target_string = f"〈{str(self.target_space.ufl_element().shortstr())}〉"

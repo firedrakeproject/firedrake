@@ -34,22 +34,21 @@ from pyadjoint import stop_annotating
 __all__ = (
     "interpolate",
     "Interpolator",
-    "Interp",
+    "Interpolate",
     "DofNotDefinedError",
     "CrossMeshInterpolator",
     "SameMeshInterpolator",
 )
 
 
-class Interp(ufl.Interp):
+class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v, result_coefficient=None, interp_data=None):
+    def __init__(self, expr, v, interp_data=None):
         r""" Symbolic representation of the interpolation operator.
 
         :arg expr: a UFL expression to interpolate.
         :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
                 defined on the dual of the :class:`.FunctionSpace` to interpolate into.
-        :param result_coefficient: :class:`.Function` representing what is produced by the operator
         """
 
         # Check function space
@@ -58,7 +57,7 @@ class Interp(ufl.Interp):
             v2 = extract_arguments(expr)
             if v2 and v2[0].number() == 0:
                 # Cope with the different convention of Interp and Inteprolator:
-                #  -> Interp(Argument(V1, 1), Argument(V2.dual(), 0))
+                #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
                 #  -> Interpolator(Argument(V1, 0), V2)
                 expr = replace(expr, {v2[0]: Argument(v2[0].function_space(),
                                                       number=1,
@@ -67,18 +66,16 @@ class Interp(ufl.Interp):
         # Get the primal space (V** = V)
         vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
         self._function_space = vv.function_space().dual()
-        ufl.Interp.__init__(self, expr, v)
+        ufl.Interpolate.__init__(self, expr, v)
 
-        # Interp data (e.g. subset or access)
+        # Interpolate data (e.g. subset or access)
         self.interp_data = interp_data if interp_data else {}
 
     def function_space(self):
         return self._function_space
 
-    def _ufl_expr_reconstruct_(self, expr, v=None, result_coefficient=None, interp_data=None):
-        return ufl.Interp._ufl_expr_reconstruct_(self, expr, v=v,
-                                                 result_coefficient=result_coefficient,
-                                                 interp_data=interp_data or self.interp_data)
+    def _ufl_expr_reconstruct_(self, expr, v=None, interp_data=None):
+        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, interp_data=interp_data or self.interp_data)
 
 
 # Current behaviour of interpolation in Firedrake:
@@ -281,7 +278,7 @@ class Interpolator(abc.ABC):
                        'access': self.access, 'bcs': self.bcs,
                        'allow_missing_dofs': self._allow_missing_dofs,
                        'default_missing_val': default_missing_val}
-        interp = Interp(self.expr, V, interp_data=interp_data)
+        interp = Interpolate(self.expr, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)
 
@@ -650,11 +647,9 @@ class CrossMeshInterpolator(Interpolator):
             # VOM. This has the parallel decomposition V_dest on our orinally
             # specified dest_mesh. We can therefore safely create a P0DG
             # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values. NOTE: we
-            # can't yet use actual cofunctions, so we use Functions in their
-            # place.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolator.V
+            # decomposition and ordering) and assign the dat values.
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
+                self.to_input_ordering_interpolator.V.dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :

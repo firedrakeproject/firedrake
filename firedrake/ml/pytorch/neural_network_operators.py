@@ -9,16 +9,14 @@ from firedrake.constant import Constant
 from firedrake import utils
 from firedrake.ml.pytorch import to_torch, from_torch
 
-from pyop2.datatypes import ScalarType
-
 
 class PointnetOperator(AbstractExternalOperator):
     r"""A :class:`PointnetOperator`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
+    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(),
+                 operator_data, params_version=None):
         r"""
         :param operands: operands on which act the :class:`PointnetOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -26,11 +24,6 @@ class PointnetOperator(AbstractExternalOperator):
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
         :param derivatives: tuple specifiying the derivative multiindex.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
         :param operator_data: dictionary containing the:
                 - model: the machine learning model
                 - framework: it specifies wich machine learning framework we are dealing with (e.g. Pytorch or Tensorflow)
@@ -56,9 +49,7 @@ class PointnetOperator(AbstractExternalOperator):
                     derivatives += (0,)
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                          result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                          val=val, name=name, dtype=dtype,
-                                          operator_data=operator_data)
+                                          argument_slots=argument_slots, operator_data=operator_data)
 
         if params_version is not None:
             self._params_version = params_version
@@ -106,33 +97,11 @@ class PointnetOperator(AbstractExternalOperator):
             return tuple(np.ravel(e) if len(e.shape) > 2 else e for e in params)
         return tuple(np.reshape(e, s.shape) if len(s.shape) > 2 else e for e, s in zip(params, self.model.parameters()))
 
-    def copy(self, deepcopy=False):
-        r"""Return a copy of this CoordinatelessFunction.
-
-        :kwarg deepcopy: If ``True``, the new
-            :class:`CoordinatelessFunction` will allocate new space
-            and copy values.  If ``False``, the default, then the new
-            :class:`CoordinatelessFunction` will share the dof values.
-        """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
-        return type(self)(*self.ufl_operands, function_space=self.function_space(), val=val,
-                          name=self.name(), dtype=self.dat.dtype,
-                          derivatives=self.derivatives,
-                          operator_data=self.operator_data,
-                          params_version=self._params_version)
-
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, result_coefficient=None,
-                               argument_slots=(), name=None, operator_data=None, val=None, add_kwargs={}):
+    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, argument_slots=(), operator_data=None, add_kwargs={}):
         "Overwrite _ufl_expr_reconstruct to pass on params_version"
         add_kwargs['params_version'] = self._params_version
-        add_kwargs['nparams'] = self.nparams
         return AbstractExternalOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
                                                                derivatives=derivatives,
-                                                               val=val, name=name,
-                                                               result_coefficient=result_coefficient,
                                                                argument_slots=argument_slots,
                                                                operator_data=operator_data,
                                                                add_kwargs=add_kwargs)
@@ -154,8 +123,8 @@ class PytorchOperator(PointnetOperator):
         its inputs.
      """
 
-    def __init__(self, *operands, function_space, derivatives=None, result_coefficient=None, argument_slots=(),
-                 val=None, name=None, dtype=ScalarType, operator_data, params_version=None, nparams=None):
+    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(),
+                 operator_data, params_version=None):
         r"""
         :param operands: operands on which act the :class:`PytorchOperator`.
         :param function_space: the :class:`.FunctionSpace`,
@@ -163,20 +132,14 @@ class PytorchOperator(PointnetOperator):
         Alternatively, another :class:`Function` may be passed here and its function space
         will be used to build this :class:`Function`.  In this case, the function values are copied.
         :param derivatives: tuple specifiying the derivative multiindex.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
         :param operator_data: dictionary containing the:
                 - model: the Pytorch model
         :param params_version: a dictionary keeping track of the model parameters version, to inform if whether we need to update them.
         """
 
         PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                  result_coefficient=result_coefficient, argument_slots=argument_slots,
-                                  val=val, name=name, dtype=dtype,
-                                  operator_data=operator_data, params_version=params_version, nparams=nparams)
+                                  argument_slots=argument_slots, operator_data=operator_data,
+                                  params_version=params_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
@@ -327,20 +290,10 @@ class PytorchOperator(PointnetOperator):
         self._assign_params(params)
 
 
-class TensorFlowOperator(PointnetOperator):
-    r"""A :class:`TensorFlowOperator` ... TODO :
-     """
-
-    def __init__(self, *operands, function_space, derivatives=None, val=None, name=None, dtype=ScalarType, operator_data):
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives, val=val, name=name, dtype=dtype, operator_data=operator_data)
-        raise NotImplementedError('TensorFlowOperator not implemented yet!')
-
-
 # Helper functions #
 def neuralnet(model, function_space, inputs_format=0):
 
     torch_module = type(None)
-    tensorflow_module = type(None)
 
     # Checks
     try:
@@ -354,9 +307,6 @@ def neuralnet(model, function_space, inputs_format=0):
     if isinstance(model, torch_module):
         operator_data = {'framework': 'PyTorch', 'model': model, 'inputs_format': inputs_format}
         return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
-    elif isinstance(model, tensorflow_module):
-        operator_data = {'framework': 'TensorFlow', 'model': model, 'inputs_format': inputs_format}
-        return partial(TensorFlowOperator, function_space=function_space, operator_data=operator_data)
     else:
         raise ValueError("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
 

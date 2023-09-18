@@ -30,12 +30,11 @@ def test_abstract_external_operator(mesh):
     f = lambda x, y: x*y
     args = (Argument(V, 0), ghat)
     p = TestAbstractExternalOperator(u, w, g, function_space=V, derivatives=(0, 0, 1), argument_slots=args,
-                                     name='abstract_po', operator_data=f)
+                                     operator_data={"f": f})
 
     _check_extop_attributes_(p, (u, w, g), V, (0, 0, 1), ())
 
-    assert p.operator_data == f
-    assert p._name == 'abstract_po'
+    assert p.operator_data == {"f": f}
 
 
 def test_derivation_wrt_externaloperator(mesh):
@@ -44,19 +43,11 @@ def test_derivation_wrt_externaloperator(mesh):
 
     u = Function(V)
     g = Function(V)
-    v = TestFunction(V)
     u_hat = Function(V)
 
     p = TestAbstractExternalOperator(u, g, function_space=V)
 
     from ufl.algorithms.apply_derivatives import apply_derivatives
-
-    """
-    l = sin(p**2)*v
-    dl_dp = p*2.*cos(p**2)*v
-    dl = diff(l, p)
-    assert apply_derivatives(dl) == dl_dp
-    """
 
     L = p*u*dx
     dL_dp = u*u_hat*dx
