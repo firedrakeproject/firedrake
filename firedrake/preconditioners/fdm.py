@@ -241,7 +241,6 @@ class FDMPC(PCBase):
         self.index_acc = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices)(op2.READ, Vsub.cell_node_map()) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
-
         Z = self.coefficients.function_space()
         self.coef_acc = self.coefficients.dat(op2.READ, Z.cell_node_map())
 
@@ -575,10 +574,9 @@ class FDMPC(PCBase):
         :arg triu: are we assembling only the upper triangular part?
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
-        if A.getType() == "preallocator":
-            key = key + (A.getType(),)
+        on_diag = Vrow == Vcol
         try:
-            self.assemblers[key]
+            assembler = self.assemblers[key]
         except KeyError:
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
@@ -600,27 +598,28 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
 
-            on_diag = Vrow == Vcol
-            assembly_kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
+            kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             mat_args = element_kernel.mat_args(A)
 
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
-            assembler = op2.ParLoop(assembly_kernel,
+            assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
                                     *mat_args,
                                     self.coef_acc,
                                     *indices)
-            self.assemblers.setdefault(key[:2], assembler)
+            self.assemblers.setdefault(key, assembler)
 
-            preallocator_kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
-            preallocator = op2.ParLoop(preallocator_kernel,
-                                       Vrow.mesh().cell_set,
-                                       *mat_args[:2],
-                                       *indices)
-            self.assemblers.setdefault(key[:2]+("preallocator", ), preallocator)
+        if A.getType() == "preallocator":
+            args = assembler.arguments[:2]
+            spaces = (Vrow, Vcol)[on_diag:]
+            indices = tuple(self.index_acc[V] for V in spaces)
+            kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
+            assembler = op2.ParLoop(kernel,
+                                    Vrow.mesh().cell_set,
+                                    *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
+                                    *indices)
 
-        assembler = self.assemblers[key]
         assembler.arguments[0].data = A.handle
         assembler()
 
