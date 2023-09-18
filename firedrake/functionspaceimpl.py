@@ -29,8 +29,8 @@ class WithGeometryBase(object):
     Users should not instantiate a :class:`WithGeometryBase` object
     explicitly except in a small number of cases.
 
-    When instantiating a :class:`WithGeometry`, users should call
-    :meth:`WithGeometry.create` rather than ``__init__``.
+    When instantiating a :class:`WithGeometryBase`, users should call
+    :meth:`WithGeometryBase.create` rather than ``__init__``.
 
     :arg mesh: The mesh with geometric information to use.
     :arg element: The UFL element.
