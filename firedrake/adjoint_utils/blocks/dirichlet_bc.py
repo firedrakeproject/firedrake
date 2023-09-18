@@ -39,7 +39,7 @@ class DirichletBCBlock(Block, Backend):
         adj_output = None
         for adj_input in adj_inputs:
             if self.compat.isconstant(c):
-                adj_value = self.backend.Function(self.parent_space)
+                adj_value = self.backend.Function(self.parent_space.dual())
                 adj_input.apply(adj_value.vector())
                 if self.function_space != self.parent_space:
                     vec = self.compat.extract_bc_subvector(
@@ -77,13 +77,13 @@ class DirichletBCBlock(Block, Backend):
                 #       you can even use the Function outside its domain.
                 # For now we will just assume the FunctionSpace is the same for
                 # the BC and the Function.
-                adj_value = self.backend.Function(self.parent_space)
+                adj_value = self.backend.Function(self.parent_space.dual())
                 adj_input.apply(adj_value.vector())
                 r = self.compat.extract_bc_subvector(
                     adj_value, c.function_space(), bc
                 )
             elif isinstance(c, self.compat.Expression):
-                adj_value = self.backend.Function(self.parent_space)
+                adj_value = self.backend.Function(self.parent_space.dual())
                 adj_input.apply(adj_value.vector())
                 output = self.compat.extract_bc_subvector(
                     adj_value, self.collapsed_space, bc
@@ -93,6 +93,7 @@ class DirichletBCBlock(Block, Backend):
                 adj_output = r
             else:
                 adj_output += r
+
         return adj_output
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
