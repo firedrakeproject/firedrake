@@ -1739,6 +1739,12 @@ run_pip(["install", "-U", "wheel==0.37.0"])
 # Pin Cython because it's causing multiple packages to fail to build
 run_pip(["install", "-U", "Cython==0.29.36"])
 
+# Loopy has additional build dependencies
+run_pip(["install", "-U", "scikit-build"])
+run_pip(["install", "-U", "nanobind"])
+run_pip(["install", "-U", "make"])
+run_pip(["install", "-U", "pcpp"])
+
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
     slepc_dir, _ = get_slepc_dir()
