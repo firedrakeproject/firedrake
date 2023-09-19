@@ -94,7 +94,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         self.name = name or 'constant_%d' % self.uid
 
         super().__init__()
-        Counted.__init__(self, count)
+        Counted.__init__(self, count, Counted)
 
     def __repr__(self):
         return f"Constant({self.dat.data_ro}, {self.count()})"

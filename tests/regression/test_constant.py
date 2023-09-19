@@ -189,5 +189,17 @@ def test_constants_are_renumbered_in_form_signature():
 def test_constant_names_are_not_used_in_generated_code():
     mesh = UnitIntervalMesh(1)
     c = Constant(1.0, name="()")
-    # should not fail to compile
+    # should run without error
     assemble(c * dx(mesh))
+
+
+def test_constant_subclasses_are_correctly_numbered():
+    class CustomConstant(Constant):
+        pass
+
+    const1 = CustomConstant(1.0)
+    const2 = Constant(1.0)
+    const3 = CustomConstant(1.0)
+
+    assert const2.count() == const1.count() + 1
+    assert const3.count() == const1.count() + 2
