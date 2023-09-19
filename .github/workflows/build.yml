@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch tsfc connorjward/gen-constant-names \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
