@@ -310,8 +310,9 @@ def gather_integer_subdomain_ids(knls):
     """
     all_integer_subdomain_ids = collections.defaultdict(list)
     for _, kinfo in knls:
-        if kinfo.subdomain_id != "otherwise":
-            all_integer_subdomain_ids[kinfo.integral_type].append(kinfo.subdomain_id)
+        for subdomain_id in kinfo.subdomain_id:
+            if subdomain_id != "otherwise":
+                all_integer_subdomain_ids[kinfo.integral_type].append(subdomain_id)
 
     for k, v in all_integer_subdomain_ids.items():
         all_integer_subdomain_ids[k] = tuple(sorted(v))

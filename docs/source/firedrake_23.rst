@@ -3,45 +3,35 @@
 .. title:: Firedrake '23
 
 .. image:: images/missenden_abbey.jpg
-   :width: 45%
+   :width: 100%
    :alt: Missenden Abbey
-   :align: right
+   :align: center
 
 Firedrake '23
 -------------
                
-The seventh Firedrake user and developer workshop will
-be held at `Missenden Abbey <https://missendenabbey.co.uk>`__ from 13-15 September 2023. The event is
-hosted by Imperial College London.
+The seventh Firedrake user and developer workshop was
+held at `Missenden Abbey <https://missendenabbey.co.uk>`__ from 13-15
+September 2023. The event was hosted by Imperial College London.
 
-The workshop is an opportunity for Firedrake users and
+The workshop was an opportunity for Firedrake users and
 developers to engage with each other to communicate the ways that
 Firedrake can be used in simulation science, the latest developments
 in the project, and the future developments anticipated. The event
-provides Firedrake users with the opportunity to interact directly
+provided Firedrake users with the opportunity to interact directly
 with developers and other users.
 
-Key Dates
+Programme
 ---------
 
-* 21/7/2023 Abstract submission
-* 23/7/2023 Registration
-* 13-15/9/2023 Workshop. The workshop will run from midday on 13
-  September until before lunch on 15 September.
+Click here for `the programme
+<https://easychair.org/smart-program/Firedrake'23/>`__
 
-Abstracts
----------
 
-We welcome presentations by anyone working on or using Firedrake. Come and show
-your results, present us with your problems, and show us your plans. Please
-submit your abstract on
-`EasyChair <https://easychair.org/conferences/?conf=firedrake23>`__. The
-deadline is 21 July.
+Talk videos
+-----------
 
-Registration
-------------
-
-Registration for the workshop has now closed.
+Most of the talks presented at Firedrake '23 are now available `on YouTube <https://www.youtube.com/playlist?list=PLz9uieREhSLPlPUMuCvwm3JmemyFrV9vT>`__.
 
 Organising committee
 --------------------

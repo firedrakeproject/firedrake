@@ -211,3 +211,15 @@ def test_correct_constants_are_used_in_split_form():
     solve(H == 0, uh, bcs=bcs)
     u, lambda_ = uh.subfunctions
     assert np.allclose(lambda_.dat.data, 1)
+    
+
+def test_constant_subclasses_are_correctly_numbered():
+    class CustomConstant(Constant):
+        pass
+
+    const1 = CustomConstant(1.0)
+    const2 = Constant(1.0)
+    const3 = CustomConstant(1.0)
+
+    assert const2.count() == const1.count() + 1
+    assert const3.count() == const1.count() + 2

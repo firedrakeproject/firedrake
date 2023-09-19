@@ -108,6 +108,120 @@ in the dual space to `V` to assembled 1-forms in the dual space to
 `W`.
 
 
+Interpolation across meshes
+---------------------------
+
+The interpolation API supports interpolation between meshes where the target
+function space has finite elements (as given in the list of
+:ref:`supported elements <supported_elements>`)
+
+* **Lagrange/CG** (also known a Continuous Galerkin or P elements),
+* **Q** (i.e. Lagrange/CG on lines, quadrilaterals and hexahedra),
+* **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements) and
+* **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra).
+
+Vector, tensor and mixed function spaces can also be interpolated into from
+other meshes as long as they are constructed from these spaces.
+
+.. note::
+
+   The list of supported elements above is only for *target* function spaces.
+   Function spaces on the *source* mesh can be built from most of the supported
+   elements.
+
+There are few constraints on the meshes involved: the target mesh can have a
+different cell shape, topological dimension, or resolution to the source mesh.
+There are many use cases for this: For example, two solutions to the same
+problem calculated on meshes with different resolutions or cell shapes can be
+interpolated onto one another, or onto a third, finer mesh, and be directly
+compared.
+
+
+Interpolating onto sub-domain meshes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The target mesh for a cross-mesh interpolation need not cover the full domain
+of the source mesh. Volume, surface and line integrals can therefore be
+calculated by interpolating onto the mesh or
+:ref:`immersed manifold <immersed_manifolds>` which defines the volume,
+surface or line of interest in the domain. The integral itself is calculated
+by calling :py:func:`~.assemble` on an approriate form over the target mesh
+function space:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 11-18, 31-40
+
+For more on forms, see :ref:`this section of the manual <more_complicated_forms>`.
+
+
+Interpolating onto other meshes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+
+   Interpolation *from* :ref:`high-order meshes <changing_coordinate_fs>` is
+   currently not supported.
+
+If the target mesh extends outside the source mesh domain, then cross-mesh
+interpolation will raise a :py:class:`~.DofNotDefinedError`.
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 46-58, 64-65
+
+This can be overriden with the optional ``allow_missing_dofs`` keyword
+argument:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 72-73, 80
+
+By default the missing degrees of freedom (DoFs, the global basis function
+coefficients which could not be set) are zero:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 85
+
+We can optionally specify a value to use for our missing DoFs. Here
+we set them to be ``nan`` ('not a number') for easy identification:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 90-93
+
+When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
+argument is set at construction:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 100
+
+The ``default_missing_val`` keyword argument is then set whenever we call
+:py:meth:`~.Interpolator.interpolate`:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 103
+
+If we supply an output :py:class:`~.Function` and don't set
+``default_missing_val`` then any missing DoFs are left as they were prior to
+interpolation:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :lines: 107-110, 113-115, 124-126
+
+
 Interpolation from external data
 --------------------------------
 

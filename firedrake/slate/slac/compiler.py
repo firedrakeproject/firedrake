@@ -185,7 +185,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
                        oriented=builder.bag.needs_cell_orientations,
-                       subdomain_id="otherwise",
+                       subdomain_id=("otherwise",),
                        domain_number=0,
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
