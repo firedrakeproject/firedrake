@@ -184,3 +184,10 @@ def test_constants_are_renumbered_in_form_signature():
 
     assert c.count() != d.count()
     assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
+
+
+def test_constant_names_are_not_used_in_generated_code():
+    mesh = UnitIntervalMesh(1)
+    c = Constant(1.0, name="()")
+    # should not fail to compile
+    assemble(c * dx(mesh))
