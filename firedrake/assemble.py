@@ -480,17 +480,25 @@ class FormAssembler(abc.ABC):
 
     @cached_property
     def global_kernels(self):
-        return tuple(_make_global_kernel(self._form, tsfc_knl, self.all_integer_subdomain_ids,
-                                         diagonal=self.diagonal,
-                                         unroll=self.needs_unrolling(tsfc_knl, self._bcs))
-                     for tsfc_knl in self.local_kernels)
+        return tuple(
+            _make_global_kernel(
+                self._form, tsfc_knl, subdomain_id, self.all_integer_subdomain_ids,
+                diagonal=self.diagonal, unroll=self.needs_unrolling(tsfc_knl, self._bcs)
+            )
+            for tsfc_knl in self.local_kernels
+            for subdomain_id in tsfc_knl.kinfo.subdomain_id
+        )
 
     @cached_property
     def parloops(self):
-        return tuple(ParloopBuilder(self._form, lknl, gknl, self._tensor,
-                                    self.all_integer_subdomain_ids, diagonal=self.diagonal,
-                                    lgmaps=self.collect_lgmaps(lknl, self._bcs)).build()
-                     for lknl, gknl in zip(self.local_kernels, self.global_kernels))
+        return tuple(
+            ParloopBuilder(
+                self._form, lknl, gknl, self._tensor, subdomain_id,
+                self.all_integer_subdomain_ids, diagonal=self.diagonal,
+                lgmaps=self.collect_lgmaps(lknl, self._bcs)).build()
+            for lknl, gknl in zip(self.local_kernels, self.global_kernels)
+            for subdomain_id in lknl.kinfo.subdomain_id
+        )
 
     def needs_unrolling(self, local_knl, bcs):
         """Do we need to address matrix elements directly rather than in
@@ -723,7 +731,7 @@ class MatrixFreeAssembler:
         return self._tensor
 
 
-def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwargs):
+def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
     # N.B. Generating the global kernel is not a collective operation so the
     # communicator does not need to be a part of this cache key.
 
@@ -746,7 +754,7 @@ def _global_kernel_cache_key(form, local_knl, all_integer_subdomain_ids, **kwarg
                 else:
                     subdomain_key.append((k, i))
 
-    return ((sig,)
+    return ((sig, subdomain_id)
             + tuple(subdomain_key)
             + tuplify(all_integer_subdomain_ids)
             + cachetools.keys.hashkey(local_knl, **kwargs))
@@ -763,6 +771,7 @@ class _GlobalKernelBuilder:
     :param form: The variational form.
     :param local_knl: :class:`tsfc_interface.SplitKernel` compiled by either
         TSFC or Slate.
+    :param subdomain_id: The subdomain of the mesh to iterate over.
     :param all_integer_subdomain_ids: See :func:`tsfc_interface.gather_integer_subdomain_ids`.
     :param diagonal: Are we assembling the diagonal of a 2-form?
     :param unroll: If ``True``, address matrix elements directly rather than in
@@ -774,9 +783,10 @@ class _GlobalKernelBuilder:
         use any data structures (i.e. a stripped form should be sufficient).
     """
 
-    def __init__(self, form, local_knl, all_integer_subdomain_ids, diagonal=False, unroll=False):
+    def __init__(self, form, local_knl, subdomain_id, all_integer_subdomain_ids, diagonal=False, unroll=False):
         self._form = form
         self._indices, self._kinfo = local_knl
+        self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids.get(self._kinfo.integral_type, None)
         self._diagonal = diagonal
         self._unroll = unroll
@@ -826,9 +836,9 @@ class _GlobalKernelBuilder:
         if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
             return True
 
-        if self._kinfo.subdomain_id == "everywhere":
+        if self._subdomain_id == "everywhere":
             return False
-        elif self._kinfo.subdomain_id == "otherwise":
+        elif self._subdomain_id == "otherwise":
             return self._all_integer_subdomain_ids is not None
         else:
             return True
@@ -1041,17 +1051,19 @@ class ParloopBuilder:
         TSFC or Slate.
     :param global_knl: A :class:`pyop2.GlobalKernel` instance.
     :param tensor: The output tensor to write to (cannot be ``None``).
+    :param subdomain_id: The subdomain of the mesh to iterate over.
     :param all_integer_subdomain_ids: See :func:`tsfc_interface.gather_integer_subdomain_ids`.
     :param diagonal: Are we assembling the diagonal of a 2-form?
     :param lgmaps: Optional iterable of local-to-global maps needed for applying
         boundary conditions to 2-forms.
     """
 
-    def __init__(self, form, local_knl, global_knl, tensor,
+    def __init__(self, form, local_knl, global_knl, tensor, subdomain_id,
                  all_integer_subdomain_ids, diagonal=False, lgmaps=None):
         self._form = form
         self._local_knl = local_knl
         self._global_knl = global_knl
+        self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._tensor = tensor
         self._diagonal = diagonal
@@ -1109,11 +1121,11 @@ class ParloopBuilder:
                 raise NotImplementedError("Assembly with multiple subdomain data values is not supported")
             if self._integral_type != "cell":
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
-            if self._kinfo.subdomain_id not in ["everywhere", "otherwise"]:
+            if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._mesh.measure_set(self._integral_type, self._kinfo.subdomain_id,
+            return self._mesh.measure_set(self._integral_type, self._subdomain_id,
                                           self._all_integer_subdomain_ids)
 
     def _get_map(self, V):
