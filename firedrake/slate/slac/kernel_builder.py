@@ -158,6 +158,7 @@ class LocalLoopyKernelBuilder:
                             kernel_data.append((c_, info[0]))
 
         # Pick the constants associated with a Tensor()/TSFC kernel
+        tsfc_constants = tuple(tsfc_constants[i] for i in kinfo.constant_numbers)
         kernel_data.extend([(c, c.name) for c in wrapper_constants if c in tsfc_constants])
         return kernel_data
 
