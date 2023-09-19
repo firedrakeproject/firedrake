@@ -235,7 +235,6 @@ class FDMPC(PCBase):
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockQR
-                self.schur_kernel[Vfacet] = SchurComplementBlockInverse
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -599,14 +598,12 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
 
-            kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
-            mat_args = element_kernel.mat_args(A)
-
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
+            kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
-                                    *mat_args,
+                                    *element_kernel.mat_args(A),
                                     self.coef_acc,
                                     *indices)
             self.assemblers.setdefault(key, assembler)
@@ -818,7 +815,7 @@ class ElementKernel(object):
         return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         return constant_kernel(name, on_diag=on_diag, addv=addv)
 
 
@@ -861,7 +858,7 @@ class TripleProductKernel(ElementKernel):
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         indices = ("rindices", "cindices")[:2-on_diag]
         declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
         code = f"""
@@ -879,7 +876,7 @@ PetscErrorCode {name}(Mat A,
     MatGetSize(D, &n, NULL);
     MatGetBlockSize(D, &bsize);
     PetscCall(MatSeqAIJGetArray(D, &vals));
-    for(PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(D, &vals));
 
     PetscCall(MatMatMatMult(L, D, R, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B));
@@ -951,7 +948,7 @@ class SchurComplementPattern(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         code = f"""
 {common_header(mat_type=mat_type)}
 PetscErrorCode {name}(Mat A, Mat B,
@@ -970,7 +967,7 @@ PetscErrorCode {name}(Mat A, Mat B,
     MatGetSize(D11, &n, NULL);
     MatGetBlockSize(D11, &bsize);
     PetscCall(MatSeqAIJGetArray(D11, &vals));
-    for(PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(D11, &vals));
 
     // Aij = Li * D * Rj
@@ -999,7 +996,7 @@ class SchurComplementDiagonal(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         code = f"""
 {common_header(mat_type=mat_type)}
 PetscErrorCode {name}(Mat A, Mat B,
@@ -1019,7 +1016,7 @@ PetscErrorCode {name}(Mat A, Mat B,
     MatGetSize(D11, &n, NULL);
     MatGetBlockSize(D11, &bsize);
     PetscCall(MatSeqAIJGetArray(D11, &vals));
-    for(PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(D11, &vals));
 
     // Aij = Li * D * Rj
@@ -1078,7 +1075,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
 {common_header(mat_type=mat_type)}
@@ -1094,41 +1091,38 @@ PetscErrorCode {name}(Mat A, Mat B,
     PetscInt n, irow, bsize;
     PetscInt *ai, *aj;
     PetscBool done;
-    PetscScalar *vals, *Akk;
+    PetscScalar *vals, *U;
     PetscFunctionBeginUser;
 
     // D11 = diag(values)
     MatGetSize(D11, &n, NULL);
     MatGetBlockSize(D11, &bsize);
     PetscCall(MatSeqAIJGetArray(D11, &vals));
-    for(PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(D11, &vals));
 
     // Aij = Lij * Dij * Rij
     PetscCall(MatMatMatMult(L11, D11, R11, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A11));
     PetscCall(MatMatMatMult(L01, D01, R01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A01));
     PetscCall(MatMatMatMult(L00, D00, R00, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A00));
-
     PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJGetArray(A00, &vals));
     irow = 0;
-    while(irow < n && ai[irow + 1] - ai[irow] == 1){{
-        vals[irow] = PetscSqrtReal(PetscAbs(1.0 / vals[irow]));
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
+        vals[irow] = PetscSqrtReal(1.0 / vals[irow]);
         irow++;
     }}
-
-    Akk = &vals[irow];
-    while(irow < n){{
+    U = &vals[irow];
+    while (irow < n) {{
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, Akk, &bn, &lierr));
-        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, Akk, &bn, &lierr));
-        for(PetscInt k = 0; k < bsize - 1; k++)
-            for(PetscInt l = k + 1; l < bsize; l++)
-                Akk[k * bsize + l] = 0.0;
-
+        PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+        for (PetscInt j = 0; j < bsize - 1; j++)
+            for (PetscInt i = j + 1; i < bsize; i++)
+                U[i + bsize * j] = 0.0;
+        U += bsize * bsize;
         irow += bsize;
-        Akk += bsize * bsize;
     }}
     PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
@@ -1159,7 +1153,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
             zlice = self.slices[k]
             A = R[zlice].reshape((-1, k, k))
             q, r = numpy.linalg.qr(A, mode="complete")
-            numpy.copyto(Q[zlice], q.flat)
+            numpy.copyto(Q[zlice], numpy.transpose(q, axes=(0, 2, 1)).flat)
             rinv = numpy.linalg.inv(r)
             numpy.copyto(R[zlice], rinv.flat)
             flops += A.shape[0] * ((4*k**3)//3 + k**3)
@@ -1167,13 +1161,118 @@ class SchurComplementBlockQR(SchurComplementKernel):
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, Q)
         A00.assemble()
-        self.work[0] = A00.transposeMatMult(A01, result=self.work[0])
+        self.work[0] = A00.matMult(A01, result=self.work[0])
         A00.setValuesCSR(indptr, indices, R)
         A00.assemble()
         A00.scale(-1.0)
         result = A10.matMatMult(A00, self.work[0], result=result)
         result.axpy(1.0, A11, structure=structure)
         return result
+
+    def kernel(self, mat_type="aij", on_diag=True, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT_VALUES
+        name = type(self).__name__
+        code = f"""
+#include <petscblaslapack.h>
+#include <assert.h>
+#include <stdio.h>
+{common_header(mat_type=mat_type)}
+PetscErrorCode {name}(Mat A, Mat B,
+                      Mat A11, Mat L11, Mat D11, Mat R11,
+                      Mat A10, Mat L10, Mat D10, Mat R10,
+                      Mat A01, Mat L01, Mat D01, Mat R01,
+                      Mat A00, Mat L00, Mat D00, Mat R00,
+                      Mat W,
+                      PetscScalar *values,
+                      PetscInt *rindices)
+{{
+    PetscBLASInt bn, lierr, lwork;
+    PetscInt n, irow, icol, bsize, nnz, q;
+    PetscInt *ai, *aj, *ipiv, *perm;
+    PetscBool done;
+    PetscScalar *vals, *work, *L, *U;
+    PetscFunctionBeginUser;
+
+    // D11 = diag(values)
+    MatGetSize(D11, &n, NULL);
+    MatGetBlockSize(D11, &bsize);
+    PetscCall(MatSeqAIJGetArray(D11, &vals));
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    PetscCall(MatSeqAIJRestoreArray(D11, &vals));
+
+    // Aij = Lij * Dij * Rij
+    PetscCall(MatMatMatMult(L11, D11, R11, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A11));
+    PetscCall(MatMatMatMult(L10, D10, R10, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A10));
+    PetscCall(MatMatMatMult(L01, D01, R01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A01));
+    PetscCall(MatMatMatMult(L00, D00, R00, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A00));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+
+    // A00 = (U^T) * (L^T)
+    nnz = ai[n];
+    bsize = ai[n] - ai[n - 1];
+    PetscMalloc2(bsize, &ipiv, bsize, &perm);
+    PetscMalloc1(nnz, &work);
+    for (PetscInt j = 0; j < nnz; j++) work[j] = 0.0;
+
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
+        work[irow] = 1.0;
+        vals[irow] = 1.0 / vals[irow];
+        irow++;
+    }}
+    L = &work[irow];
+    U = &vals[irow];
+    while (irow < n) {{
+        bsize = ai[irow + 1] - ai[irow];
+        PetscCall(PetscBLASIntCast(bsize, &bn));
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, U, &bn, ipiv, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("L", "U", &bn, U, &bn, &lierr));
+
+        for (PetscInt j = 0; j < bsize; j++) perm[j] = j;
+        for (PetscInt j = 0; j < bsize; j++) {{
+            icol = ipiv[j] - 1;
+            if (icol != j) {{
+                q = perm[icol];
+                perm[icol] = perm[j];
+                perm[j] = q;
+            }}
+        }}
+
+        for (PetscInt j = 0; j < bsize; j++) {{
+            L[j + bsize * perm[j]] = 1.0;
+            for (PetscInt i = j + 1; i < bsize; i++) {{
+                L[i + bsize * perm[j]] = U[i + bsize * j];
+                U[i + bsize * j] = 0.0;
+            }}
+        }}
+        L += bsize * bsize;
+        U += bsize * bsize;
+        irow += bsize;
+    }}
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+
+    // A00 = inv(U^T)
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    // W = inv(U^T) * A01
+    PetscCall(MatMatMult(A00, A01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &W));
+
+    // A00 = -inv(L^T)
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    for (PetscInt i = 0; i < nnz; i++) vals[i] = -work[i];
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscFree3(ipiv, perm, work);
+
+    // B = A11 - A10 * inv(L^T) * W
+    PetscCall(MatMatMatMult(A10, A00, W, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
+    PetscFunctionReturn(0);
+}}
+"""
+        return op2.Kernel(code, name=name)
 
 
 class SchurComplementBlockSVD(SchurComplementKernel):
@@ -1242,7 +1341,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = str(self.__class__.__name__)
+        name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
 {common_header(mat_type=mat_type)}
@@ -1265,7 +1364,7 @@ PetscErrorCode {name}(Mat A, Mat B,
     MatGetSize(D11, &n, NULL);
     MatGetBlockSize(D11, &bsize);
     PetscCall(MatSeqAIJGetArray(D11, &vals));
-    for(PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(D11, &vals));
 
     // Aij = Lij * Dij * Rij
@@ -1273,41 +1372,39 @@ PetscErrorCode {name}(Mat A, Mat B,
     PetscCall(MatMatMatMult(L10, D10, R10, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A10));
     PetscCall(MatMatMatMult(L01, D01, R01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A01));
     PetscCall(MatMatMatMult(L00, D00, R00, MAT_REUSE_MATRIX, PETSC_DEFAULT, &A00));
-
     PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJGetArray(A00, &vals));
-    irow = 0;
-    while(irow < n && ai[irow + 1] - ai[irow] == 1){{
-        vals[irow] = 1.0 / vals[irow];
-        irow++;
-    }}
 
     lwork = -1;
-    bsize = ai[n + 1] - ai[n];
+    bsize = ai[n] - ai[n - 1];
     PetscMalloc1(bsize, &ipiv);
     PetscCall(PetscBLASIntCast(bsize, &bn));
     PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, Akk, &bn, ipiv, &q, &lwork, &lierr));
-
     bsize = (PetscInt)q;
     PetscCall(PetscBLASIntCast(bsize, &lwork));
     PetscMalloc1(bsize, &work);
 
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
+        vals[irow] = 1.0 / vals[irow];
+        irow++;
+    }}
     Akk = &vals[irow];
-    while(irow < n){{
+    while (irow < n) {{
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
         PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, Akk, &bn, ipiv, &lierr));
         PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, Akk, &bn, ipiv, work, &lwork, &lierr));
-        irow += bsize;
         Akk += bsize * bsize;
+        irow += bsize;
     }}
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscFree2(ipiv, work);
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscFree(ipiv);
-    PetscFree(work);
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
 
+    PetscCall(MatScale(A00, -1.0));
     PetscCall(MatMatMatMult(A10, A00, A01, MAT_REUSE_MATRIX, PETSC_DEFAULT, &B));
-    PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
     PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(0);
 }}
