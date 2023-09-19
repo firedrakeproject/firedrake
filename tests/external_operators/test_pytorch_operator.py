@@ -6,15 +6,16 @@ from firedrake import *
 
 try:
     from firedrake.ml.pytorch import *
+    import torch
     import torch.nn.functional as F
     import torch.autograd.functional as torch_func
     from torch.nn import Module, Linear
 
-    class AutoEncoder(Module):
+    class EncoderDecoder(Module):
         """Build a simple toy model"""
 
         def __init__(self, n):
-            super(AutoEncoder, self).__init__()
+            super(EncoderDecoder, self).__init__()
             self.n1 = n
             self.n2 = int(2*n/3)
             self.n3 = int(n/2)
@@ -66,13 +67,13 @@ def nn(model, V):
     return neuralnet(model, function_space=V)
 
 
-@pytest.fixture(params=['linear', 'auto_encoder'])
+@pytest.fixture(params=['linear', 'encoder_decoder'])
 def model(request, V):
     n = V.dim()
     if request.param == 'linear':
         return Linear(n, n)
-    elif request.param == 'auto_encoder':
-        f = AutoEncoder(n)
+    elif request.param == 'encoder_decoder':
+        f = EncoderDecoder(n)
         f.double()
         return f
 
@@ -192,6 +193,35 @@ def test_jacobian_adjoint(u, nn):
 
     # Check
     assert np.allclose(dN_adj.petscmat[:, :], J_adj.numpy())
+
+
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
+def test_solve(mesh, V):
+
+    x, y = SpatialCoordinate(mesh)
+
+    w = TestFunction(V)
+    u = Function(V)
+    f = Function(V).interpolate(cos(x)*sin(y))
+
+    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    solve(F == 0, u)
+
+    # Define the identity model
+    n = V.dim()
+    model = Linear(n, n)
+    model.weight.data = torch.eye(n)
+    model.bias.data = torch.zeros(n)
+
+    u2 = Function(V)
+    p = neuralnet(model, function_space=V, inputs_format=1)
+    tau2 = p(u2)
+
+    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    solve(F2 == 0, u2)
+
+    err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
+    assert err_point_expr < 1.0e-09
 
 
 """
