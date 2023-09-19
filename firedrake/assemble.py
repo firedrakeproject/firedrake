@@ -1238,9 +1238,11 @@ def get_form_assembler(form, tensor, *args, **kwargs):
 
     # Don't expand derivatives if `mat_type` is 'matfree'
     mat_type = kwargs.pop('mat_type', None)
-    fc_params = kwargs.get('form_compiler_parameters')
-    # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-    form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+    if not isinstance(form, slate.TensorBase):
+        fc_params = kwargs.get('form_compiler_parameters')
+        # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
+        form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 1 or diagonal:
