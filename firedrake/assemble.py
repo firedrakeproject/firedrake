@@ -12,6 +12,7 @@ import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
+from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 from ufl.domain import extract_unique_domain
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
@@ -23,7 +24,7 @@ from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
-from firedrake.utils import ScalarType, tuplify
+from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from pyop2.utils import cached_property
@@ -795,6 +796,10 @@ class _GlobalKernelBuilder:
         kernel_args = [self._as_global_kernel_arg(arg)
                        for arg in self._kinfo.arguments]
 
+        # we should use up all of the coefficients and constants
+        assert_empty(self._active_coefficients)
+        assert_empty(self._constants)
+
         iteration_regions = {"exterior_facet_top": op2.ON_TOP,
                              "exterior_facet_bottom": op2.ON_BOTTOM,
                              "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
@@ -1241,21 +1246,21 @@ class _FormHandler:
     @staticmethod
     def iter_active_coefficients(form, kinfo):
         """Yield the form coefficients referenced in ``kinfo``."""
-        for idx, subidxs in kinfo.coefficient_map:
+        all_coefficients = form.coefficients()
+        for idx, subidxs in kinfo.coefficient_numbers:
             for subidx in subidxs:
-                yield form.coefficients()[idx].subfunctions[subidx]
+                yield all_coefficients[idx].subfunctions[subidx]
 
     @staticmethod
     def iter_constants(form, kinfo):
         """Yield the form constants"""
-        # Is kinfo really needed?
-        from tsfc.ufl_utils import extract_firedrake_constants
         if isinstance(form, slate.TensorBase):
             for const in form.constants():
                 yield const
         else:
-            for const in extract_firedrake_constants(form):
-                yield const
+            all_constants = extract_firedrake_constants(form)
+            for constant_index in kinfo.constant_numbers:
+                yield all_constants[constant_index]
 
     @staticmethod
     def index_function_spaces(form, indices):

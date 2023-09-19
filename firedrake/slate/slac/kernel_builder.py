@@ -143,7 +143,7 @@ class LocalLoopyKernelBuilder:
             kernel_data.append((mesh.cell_sizes, self.cell_sizes_arg_name))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
-        tsfc_coefficients = {tsfc_coefficients[i]: indices for i, indices in kinfo.coefficient_map}
+        tsfc_coefficients = {tsfc_coefficients[i]: indices for i, indices in kinfo.coefficient_numbers}
         for c, cinfo in wrapper_coefficients.items():
             if c in tsfc_coefficients:
                 if isinstance(cinfo, tuple):
