@@ -134,7 +134,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
     else:
         expr = expression
 
-    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node as we go.
+    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
     stack = [expr]
     visited = visited or {}
     while stack:
@@ -376,8 +376,8 @@ def base_form_operands(expr):
     return []
 
 
-def preprocess_form(form, fc_params):
-    """Preprocess ufl.BaseForm objects
+def expand_derivatives_form(form, fc_params):
+    """Expand derivatives of ufl.BaseForm objects
     :arg form: a :class:`~ufl.classes.BaseForm`
     :arg fc_params:: Dictionary of parameters to pass to the form compiler.
 
@@ -413,7 +413,7 @@ def preprocess_form(form, fc_params):
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
     if mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
-        expr = preprocess_form(expr, form_compiler_parameters)
+        expr = expand_derivatives_form(expr, form_compiler_parameters)
     # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
     if not isinstance(expr, ufl.form.BaseForm):
         return assemble(expr)
@@ -1254,7 +1254,7 @@ class MatrixFreeAssembler:
 def get_form_assembler(form, tensor, *args, **kwargs):
     """Provide the assemble method for `form`"""
 
-    # Don't expand derivatives if mat_type is 'matfree'
+    # Don't expand derivatives if `mat_type` is 'matfree'
     mat_type = kwargs.pop('mat_type', None)
     fc_params = kwargs.get('form_compiler_parameters')
     # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
@@ -1268,8 +1268,7 @@ def get_form_assembler(form, tensor, *args, **kwargs):
         else:
             raise ValueError('Expecting a 1-form or 2-form and not %s' % (form))
     elif isinstance(form, ufl.form.BaseForm):
-        return functools.partial(assemble_base_form, form, *args, tensor=tensor,
-                                 mat_type=mat_type,
+        return functools.partial(assemble_base_form, form, *args, tensor=tensor, mat_type=mat_type,
                                  is_base_form_preprocessed=True, **kwargs)
     else:
         raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
