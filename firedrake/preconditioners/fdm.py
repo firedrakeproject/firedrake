@@ -1175,8 +1175,6 @@ class SchurComplementBlockQR(SchurComplementKernel):
         name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
-#include <assert.h>
-#include <stdio.h>
 {common_header(mat_type=mat_type)}
 PetscErrorCode {name}(Mat A, Mat B,
                       Mat A11, Mat L11, Mat D11, Mat R11,
