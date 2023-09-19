@@ -22,6 +22,7 @@ def annotate_assemble(assemble):
         from firedrake.cofunction import Cofunction
         form = args[0]
         if isinstance(output, (numbers.Complex, Function, Cofunction)):
+            # Assembling a 0-form or 1-form (e.g. Form)
             if not annotate:
                 return output
 
@@ -35,7 +36,7 @@ def annotate_assemble(assemble):
 
             block.add_output(output.block_variable)
         else:
-            # Assembled a matrix
+            # Assembled a 2-form
             output.form = form
 
         return output
