@@ -873,8 +873,8 @@ class TripleProductKernel(ElementKernel):
         declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
         code = f"""
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A,
-                      Mat B, Mat L, Mat D, Mat R,
+PetscErrorCode {name}(Mat A, Mat B,
+                      Mat L, Mat D, Mat R,
                       PetscScalar *coefficients,
                       {declare_indices})
 {{
