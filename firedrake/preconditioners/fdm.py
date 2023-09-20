@@ -612,7 +612,7 @@ class FDMPC(PCBase):
             args = assembler.arguments[:2]
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
-            kernel = constant_kernel(name="preallocate", mat_type=mat_type, on_diag=on_diag)
+            kernel = ElementKernel(None, name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
                                     *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
@@ -698,30 +698,15 @@ static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *v
 }}
 """
 
-def constant_kernel(name, mat_type="aij", on_diag=False, addv=None):
-    if addv is None:
-        addv = PETSc.InsertMode.INSERT
-    indices = ("rindices", "cindices")[:2-on_diag]
-    declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
-    code = f"""
-{common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, {declare_indices})
-{{
-    PetscFunctionBeginUser;
-    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
-    PetscFunctionReturn(0);
-}}
-"""
-    return op2.Kernel(code, name=name)
-
 
 class ElementKernel(object):
     """
     A constant element kernel
     """
-    def __init__(self, A):
+    def __init__(self, A, name=None):
         self.result = A
         self.mats = [self.result]
+        self.name = name or type(self).__name__
 
     def __call__(self, *args, result=None):
         return result or self.result
@@ -730,20 +715,29 @@ class ElementKernel(object):
         return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
-        name = type(self).__name__
-        return constant_kernel(name, on_diag=on_diag, addv=addv)
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT
+        indices = ("rindices", "cindices")[:2-on_diag]
+        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
+        code = f"""
+{common_header(mat_type=mat_type)}
+PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
+    PetscFunctionReturn(0);
+}}
+"""
+        return op2.Kernel(code, name=self.name)
+
 
 
 class TripleProductKernel(ElementKernel):
-    """
-    An element kernel to compute a triple matrix product A * B * C, where A and
-    C are constant matrices and B is a block diagonal matrix with entries given
-    by coefficients.
-    """
-    def __init__(self, A, B, C):
+
+    def __init__(self, A, B, C, name=None):
         self.data_mat = B
         self.product = partial(A.matMatMult, B, C)
-        super().__init__(self.product())
+        super().__init__(self.product(), name=name)
         self.mats.append(self.data_mat)
 
     def __call__(self, *args, result=None):
@@ -752,14 +746,13 @@ class TripleProductKernel(ElementKernel):
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         indices = ("rindices", "cindices")[:2-on_diag]
         declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
         code = f"""
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      PetscScalar *coefficients,
-                      {declare_indices})
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           PetscScalar *coefficients,
+                           {declare_indices})
 {{
     PetscInt n, bsize;
     PetscFunctionBeginUser;
@@ -771,7 +764,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 class SchurComplementKernel(ElementKernel):
@@ -779,7 +772,7 @@ class SchurComplementKernel(ElementKernel):
     An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
-    def __init__(self, *kernels):
+    def __init__(self, *kernels, name=None):
         self.children = kernels
         self.submats = [k.result for k in kernels]
 
@@ -796,7 +789,7 @@ class SchurComplementKernel(ElementKernel):
         self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
         self.work = [None for _ in range(2)]
-        super().__init__(self.condense())
+        super().__init__(self.condense(), name=name)
         self.data_mat = self.children[0].data_mat
         self.mats.append(self.data_mat)
         self.mats.extend(c.result for c in self.children)
@@ -833,13 +826,12 @@ class SchurComplementPattern(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         code = f"""
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      Mat A11, Mat A10, Mat A01, Mat A00,
-                      PetscScalar *coefficients,
-                      PetscInt *rindices)
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
 {{
     PetscInt n, bsize;
     PetscFunctionBeginUser;
@@ -852,7 +844,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
@@ -871,13 +863,12 @@ class SchurComplementDiagonal(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         code = f"""
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      Mat A11, Mat A10, Mat A01, Mat A00,
-                      PetscScalar *coefficients,
-                      PetscInt *rindices)
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
 {{
     Vec vec;
     PetscInt n, bsize;
@@ -904,7 +895,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
@@ -940,15 +931,14 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      Mat A11, Mat A01, Mat A00,
-                      Mat W0,
-                      PetscScalar *coefficients,
-                      PetscInt *rindices)
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A01, Mat A00,
+                           Mat W0,
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
 {{
     PetscBLASInt bn, lierr;
     PetscInt n, bsize, irow;
@@ -992,7 +982,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 class SchurComplementBlockLU(SchurComplementKernel):
@@ -1029,15 +1019,14 @@ class SchurComplementBlockLU(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      Mat A11, Mat A10, Mat A01, Mat A00,
-                      Mat W0,
-                      PetscScalar *coefficients,
-                      PetscInt *rindices)
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           Mat W0,
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
 {{
     PetscBLASInt bn, lierr, lwork;
     PetscInt n, bsize, irow, icol, nnz, iswap;
@@ -1114,7 +1103,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 class SchurComplementBlockSVD(SchurComplementKernel):
@@ -1183,14 +1172,13 @@ class SchurComplementBlockInverse(SchurComplementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        name = type(self).__name__
         code = f"""
 #include <petscblaslapack.h>
 {common_header(mat_type=mat_type)}
-PetscErrorCode {name}(Mat A, Mat B, Mat C,
-                      Mat A11, Mat A10, Mat A01, Mat A00,
-                      PetscScalar *coefficients,
-                      PetscInt *rindices)
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
 {{
     PetscBLASInt bn, lierr, lwork;
     PetscInt n, irow, bsize;
@@ -1242,7 +1230,7 @@ PetscErrorCode {name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=name)
+        return op2.Kernel(code, name=self.name)
 
 
 
@@ -1508,7 +1496,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     preallocator.setSizes(sizes)
     preallocator.setUp()
 
-    kernel = constant_kernel(name="exterior_derivative")
+    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel()
     indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
                     for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
     assembler = op2.ParLoop(kernel,
