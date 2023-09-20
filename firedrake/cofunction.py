@@ -165,13 +165,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
             return self
-        elif isinstance(expr, ufl.classes.ConstantValue):
-            from firedrake.function import Function
-            # Workaround to avoid using `assemble_expressions` directly
-            # since cofunctions are not `ufl.Expr`.
-            f = Function(self.function_space().dual()).assign(expr)
-            f.dat.copy(self.dat, subset=subset)
-            return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             expr.dat.copy(self.dat, subset=subset)
