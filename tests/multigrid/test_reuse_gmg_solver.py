@@ -6,13 +6,11 @@ def run_helmholtz(typ):
     if typ == "mg":
         parameters = {"ksp_type": "cg",
                       "pc_type": "mg",
-                      "ksp_monitor": None,
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
     elif typ == "mgmatfree":
         parameters = {"ksp_type": "cg",
-                      "ksp_monitor": None,
                       "mat_type": "matfree",
                       "pc_type": "mg",
                       "mg_coarse_ksp_type": "preonly",
