@@ -41,7 +41,7 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
-    :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
+    :arg expr: a :class:`~ufl.classes.BaseForm`, :class:`~ufl.classes.Expr` or
         a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
@@ -116,6 +116,48 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        zero_bc_nodes=False,
                        is_base_form_preprocessed=False,
                        weight=1.0):
+    r"""Evaluate expression.
+
+    :arg expression: a :class:`~ufl.classes.BaseForm`
+    :kwarg tensor: Existing tensor object to place the result in.
+    :kwarg bcs: Iterable of boundary conditions to apply.
+    :kwarg diagonal: If assembling a matrix is it diagonal?
+    :kwarg mat_type: String indicating how a 2-form (matrix) should be
+        assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
+        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
+        matrix-free actions (``'matfree'``). If not supplied, the default value in
+        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
+        from AIJ in that only the block sparsity rather than the dof
+        sparsity is constructed.  This can result in some memory
+        savings, but does not work with all PETSc preconditioners.
+        BAIJ matrices only make sense for non-mixed matrices.
+    :kwarg sub_mat_type: String indicating the matrix type to
+        use *inside* a nested block matrix.  Only makes sense if
+        ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
+        not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
+    :kwarg form_compiler_parameters: Dictionary of parameters to pass to
+        the form compiler. Ignored if not assembling a :class:`~ufl.classes.Form`.
+        Any parameters provided here will be overridden by parameters set on the
+        :class:`~ufl.classes.Measure` in the form. For example, if a
+        ``quadrature_degree`` of 4 is specified in this argument, but a degree of
+        3 is requested in the measure, the latter will be used.
+    :kwarg appctx: Additional information to hang on the assembled
+        matrix if an implicit matrix is requested (mat_type ``"matfree"``).
+    :kwarg options_prefix: PETSc options prefix to apply to matrices.
+    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
+        output tensor to zero rather than to the values prescribed by the
+        boundary condition. Default is ``False``.
+    :kwarg is_base_form_preprocessed: If ``True``, skip preprocessing of the form.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
+
+    :returns: a :class:`float` for 0-forms, a :class:`.Cofunction` or a :class:`.Function` for 1-forms,
+              and a :class:`.MatrixBase` for 2-forms.
+
+    This function assembles a :class:`~ufl.classes.BaseForm` object by traversing the corresponding DAG
+    in a post-order fashion and evaluating the nodes on the fly.
+    """
 
     # Preprocess the DAG and restructure the DAG
     if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
@@ -221,6 +263,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
                                zero_bc_nodes, weight, *args):
+    r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
+
+        This functions contains the assembly handlers corresponding to the different nodes that
+        can arise in a `~ufl.classes.BaseForm` object. It is called by :func:`assemble_base_form`
+        in a post-order fashion.
+    """
+
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         return _assemble_form(expr, tensor=tensor, bcs=bcs,
                               diagonal=diagonal,
@@ -258,7 +307,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             elif isinstance(rhs, matrix.MatrixBase):
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
-                res = PETSc.Mat().create()
                 res = petsc_mat.matMult(rhs.petscmat)
                 return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
@@ -280,14 +328,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
-        if all([isinstance(op, float) for op in args]):
+        if all(isinstance(op, float) for op in args):
             return sum(args)
-        elif all([isinstance(op, firedrake.Cofunction) for op in args]):
-            # TODO check all are in same function space
+        elif all(isinstance(op, firedrake.Cofunction) for op in args):
+            V, = set(a.function_space() for a in args)
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
-            return firedrake.Cofunction(args[0].function_space(), res)
-        elif all([isinstance(op, ufl.Matrix) for op in args]):
-            res = PETSc.Mat().create()
+            return firedrake.Cofunction(V, res)
+        elif all(isinstance(op, ufl.Matrix) for op in args):
             is_set = False
             for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.petscmat

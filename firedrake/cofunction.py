@@ -4,15 +4,9 @@ from ufl.form import BaseForm
 from pyop2 import op2, mpi
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake.logging import warning
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
-try:
-    import cachetools
-except ImportError:
-    warning("cachetools not available, expression assembly will be slowed down")
-    cachetools = None
 
 
 class Cofunction(ufl.Cofunction, FunctionMixin):
