@@ -474,6 +474,7 @@ class _SNESContext(object):
         :arg P: the preconditioner matrix (a Mat)
         """
         from firedrake.bcs import DirichletBC
+        from firedrake.mg.utils import get_level
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
@@ -484,14 +485,44 @@ class _SNESContext(object):
             return
         ctx._jacobian_assembled = True
 
-        fine = ctx._fine
-        if fine is not None:
-            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
-            manager.inject(fine._x, ctx._x)
+        # Since the finest space is not the first to be assembled, we cannot
+        # inject coefficients from the parent level without ensuring them
+        # to be in agreement with the finest level.
 
-            for bc in chain(*ctx._problem.bcs):
-                if isinstance(bc, DirichletBC):
-                    bc.apply(ctx._x)
+        def get_coefficients(problem):
+            coefficients = []
+            for form in (problem.F, problem.Jp):
+                if form is not None:
+                    coefficients.extend(form.coefficients())
+            return coefficients
+
+        # TODO determine whether we are the first level to be assembled,
+        # but typically level 1 will be the first one to be assembled
+        _, l = get_level(ctx._x.function_space().mesh())
+        if l == 1:
+            # Go to the finest space
+            fine = ctx
+            while fine._fine is not None:
+                fine = fine._fine
+
+            # Inject all coefficients across the hierarchy
+            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
+            while fine._coarse is not None:
+                coarse = fine._coarse
+
+                fine_coefficients = get_coefficients(fine._problem)
+                coarse_coefficients = get_coefficients(coarse._problem)
+                seen = set()
+                for xf, xc in zip(fine_coefficients, coarse_coefficients):
+                    if xf not in seen:
+                        manager.inject(xf, xc)
+                        seen.add(xf)
+
+                # Apply the bcs to the state
+                for bc in chain(*coarse._problem.bcs):
+                    if isinstance(bc, DirichletBC):
+                        bc.apply(coarse._x)
+                fine = coarse
 
         ctx._assemble_jac()
         if ctx.Jp is not None:
