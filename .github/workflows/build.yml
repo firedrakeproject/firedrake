@@ -74,9 +74,6 @@ jobs:
             --torch \
             --netgen \
             --slepc \
-            --package-branch fiat bdmc \
-            --package-branch tsfc bdmc \
-            --package-branch FInAT bdmc \
             --install thetis \
             --install gusto \
             --install icepack \
