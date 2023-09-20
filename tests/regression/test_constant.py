@@ -186,6 +186,7 @@ def test_constants_are_renumbered_in_form_signature():
     assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
 
 
+@pytest.mark.skipcomplex
 def test_correct_constants_are_used_in_split_form():
     # see https://github.com/firedrakeproject/firedrake/issues/3091
     mesh = UnitSquareMesh(3, 3)
