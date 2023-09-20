@@ -10,14 +10,12 @@ def at(function, point):
 def vertex_only_mesh(function, point):
     vom = VertexOnlyMesh(function.function_space().mesh(), point)
     vom_fs = VectorFunctionSpace(vom, "DG", 0)
-    return interpolate(function, vom_fs).dat.data_ro[0, :]
+    return interpolate(function, vom_fs).dat.data_ro
 
 
 @pytest.mark.parametrize("point_eval", [
     at,
-    pytest.param(vertex_only_mesh, marks=pytest.mark.xfail(
-        reason="Immersed manifold VertexOnlyMesh not implemented."
-    ))
+    vertex_only_mesh,
 ])
 def test_convergence_rate(point_eval):
     """Check points on immersed manifold projects to the correct point

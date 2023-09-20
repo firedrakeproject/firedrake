@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
+SPHINXBUILD   = FIREDRAKE_BUILDING_DOCS=1 sphinx-build
 PAPER         =
 BUILDDIR      = build
 

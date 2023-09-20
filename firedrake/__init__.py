@@ -58,7 +58,7 @@ from ufl import *
 firedrake_configuration.setup_cache_dirs()
 
 # By default we disable pyadjoint annotation.
-# To enable annotation, the user has to import firedrake_adjoint
+# To enable annotation, the user has to call continue_annotation().
 import pyadjoint
 pyadjoint.pause_annotation()
 del pyadjoint

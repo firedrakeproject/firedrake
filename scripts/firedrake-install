@@ -1044,10 +1044,9 @@ def install(package):
     elif package == "slepc/":
         build_and_install_slepc()
     elif package == "petsc4py/":
-        build_and_install_petsc4py()
+        build_and_install_x4py("petsc4py")
     elif package == "slepc4py/":
-        # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
-        run_pip_install(["--ignore-installed", get_slepc4py_dir()])
+        build_and_install_x4py("slepc4py")
     elif package == "h5py/":
         # h5py tries to build against ancient version of numpy additional flag avoids this
         run_pip_install(["--no-build-isolation", package])
@@ -1165,26 +1164,32 @@ def build_and_install_petsc():
                 check_call(["rm", "-f", deletefile])
 
 
-def build_and_install_petsc4py():
+def build_and_install_x4py(package="petsc4py"):
+    if package == "petsc4py":
+        x4py_dir = get_petsc4py_dir()
+    elif package == "slepc4py":
+        x4py_dir = get_slepc4py_dir()
+    else:
+        raise ValueError("build_and_install_x4py() should be called with 'petsc4py' or 'slepc4py' only")
     with environment(**blas):
         if args.honour_petsc_dir:
-            log.info("Copying petsc4py to virtualenv to install")
-            petsc4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', 'petsc4py')
-            if not os.path.exists(petsc4py_copy):
-                shutil.copytree(get_petsc4py_dir(), petsc4py_copy, dirs_exist_ok=True)
-            pipargs = ["-vvv", "--ignore-installed", petsc4py_copy]
+            log.info("Copying {} to virtualenv to install".format(package))
+            x4py_copy = os.path.join(os.environ['VIRTUAL_ENV'], 'src', package)
+            if not os.path.exists(x4py_copy):
+                shutil.copytree(x4py_dir, x4py_copy, dirs_exist_ok=True)
+            pipargs = ["-vvv", "--ignore-installed", x4py_copy]
             try:
                 check_output(pipinstall + pipargs)
             except subprocess.CalledProcessError:
-                with open(os.path.join(petsc4py_copy, "README.md")) as fh:
-                    fh.write("# Unable to install petsc4py\n")
-                    fh.write("This is just a copy of the petsc4py source for debugging\n")
+                with open(os.path.join(x4py_copy, "README.md")) as fh:
+                    fh.write("# Unable to install {}\n".format(package))
+                    fh.write("This is just a copy of the {} source for debugging\n".format(package))
                     fh.write("See `firedrake-install.log` for the error")
                 raise
             else:
-                shutil.rmtree(petsc4py_copy)
+                shutil.rmtree(x4py_copy)
         else:
-            pipargs = ["-vvv", "--ignore-installed", get_petsc4py_dir()]
+            pipargs = ["-vvv", "--ignore-installed", x4py_dir]
             check_output(pipinstall + pipargs)
 
 
@@ -1734,6 +1739,23 @@ run_pip(["install", "-U", "wheel==0.37.0"])
 # Pin Cython because it's causing multiple packages to fail to build
 run_pip(["install", "-U", "Cython==0.29.36"])
 
+# Loopy has additional build dependencies
+run_pip(["install", "-U", "scikit-build"])
+run_pip(["install", "-U", "nanobind"])
+run_pip(["install", "-U", "make"])
+run_pip(["install", "-U", "pcpp"])
+
+# See build failure caused by pybind11==2.10.0 at https://github.com/firedrakeproject/firedrake/runs/7370283417?check_suite_focus=true.
+log.info("We use pybind11==2.9.2 until the issue with pybind11==2.10.0 is resolved.\n")
+run_pip(["install", "pybind11==2.9.2"])
+# Tarball of islpy==2023.2 appears to be broken
+run_pip([
+    "install",
+    "--no-build-isolation",
+    "--no-binary", ",".join(wheel_blacklist),
+    "islpy!=2023.2"
+])
+
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
     slepc_dir, _ = get_slepc_dir()
@@ -1815,15 +1837,12 @@ if mode == "install":
 
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
-    # See build failure caused by pybind11==2.10.0 at https://github.com/firedrakeproject/firedrake/runs/7370283417?check_suite_focus=true.
-    log.info("We use pybind11==2.9.2 until the issue with pybind11==2.10.0 is resolved.\n")
-    run_pip_install(["pybind11==2.9.2"])
 
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
-            run_pip_install_wrap(package.split())
+            run_pip_install_wrap(package.split(), {})
 
     # "Temporary" workaround for missing VTK wheel on Python 3.11
     if sys.version_info[:2] == (3, 11):

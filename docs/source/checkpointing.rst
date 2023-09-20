@@ -241,11 +241,11 @@ results in forward evaluations of the tape which have type
 bulk of the data stored on the tape so this largely alleviates the memory
 problem, at the cost of the time taken to read to and write from disk.
 
-Having imported `firedrake_adjoint`, there are two steps required to enable
+Having imported `firedrake.adjoint`, there are two steps required to enable
 disk checkpointing of the forward tape state.
 
-1. Call :func:`~firedrake.adjoint.checkpointing.enable_disk_checkpointing`.
-2. Wrap all mesh constructors in :func:`~firedrake.adjoint.checkpointing.checkpointable_mesh`.
+1. Call :func:`~firedrake.adjoint_utils.checkpointing.enable_disk_checkpointing`.
+2. Wrap all mesh constructors in :func:`~firedrake.adjoint_utils.checkpointing.checkpointable_mesh`.
 
 See the documentation of those functions for more detail.
 
