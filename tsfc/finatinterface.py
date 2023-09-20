@@ -59,6 +59,8 @@ supported_elements = {
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
     "Raviart-Thomas": finat.RaviartThomas,
     "Regge": finat.Regge,
+    "BDMCE": finat.BrezziDouglasMariniCubeEdge,
+    "BDMCF": finat.BrezziDouglasMariniCubeFace,
     # These require special treatment below
     "DQ": None,
     "Q": None,
