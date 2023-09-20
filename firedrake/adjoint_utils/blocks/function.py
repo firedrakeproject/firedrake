@@ -54,7 +54,7 @@ class FunctionAssignBlock(Block, Backend):
             if isinstance(block_variable.output, AdjFloat):
                 try:
                     # Adjoint of a broadcast is just a sum
-                    return adj_inputs[0].vector().sum()
+                    return adj_inputs[0].dat.data_ro.sum()
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
@@ -67,8 +67,7 @@ class FunctionAssignBlock(Block, Backend):
                 adj_output = self.backend.Function(
                     block_variable.output.function_space())
                 adj_output.assign(prepared)
-                adj_output = self.backend.Cofunction(adj_output.function_space().dual(),
-                                                     val=adj_output.vector())
+                adj_output = adj_output.riesz_representation(riesz_map="l2")
                 return adj_output
         else:
             # Linear combination
@@ -82,8 +81,7 @@ class FunctionAssignBlock(Block, Backend):
                 )
                 # Firedrake does not support assignment of conjugate functions
                 adj_output.interpolate(ufl.conj(diff_expr))
-                adj_output = self.backend.Cofunction(adj_output.function_space().dual(),
-                                                     val=adj_output.vector())
+                adj_output = adj_output.riesz_representation(riesz_map="l2")
             else:
                 mesh = adj_output.function_space().mesh()
                 diff_expr = ufl.algorithms.expand_derivatives(
@@ -94,7 +92,7 @@ class FunctionAssignBlock(Block, Backend):
                     )
                 )
                 adj_output.assign(diff_expr)
-                return adj_output.vector().inner(adj_input_func.vector())
+                return adj_output.dat.inner(adj_input_func.dat)
 
             if self.compat.isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
@@ -109,14 +107,14 @@ class FunctionAssignBlock(Block, Backend):
         shape = r.ufl_shape
         if shape == () or shape[0] == 1:
             # Scalar Constant
-            r.vector()[:] = adj_output.vector().sum()
+            r.dat.data[:] = adj_output.dat.data_ro.sum()
         else:
             # We assume the shape of the constant == shape of the output
             # function if not scalar. This assumption is due to FEniCS not
             # supporting products with non-scalar constants in assign.
             values = []
             for i in range(shape[0]):
-                values.append(adj_output.sub(i, deepcopy=True).vector().sum())
+                values.append(adj_output.sub(i, deepcopy=True).dat.data_ro.sum())
             r.assign(self.backend.Constant(values))
         return r
 
@@ -139,7 +137,7 @@ class FunctionAssignBlock(Block, Backend):
                 dudmi.assign(ufl.algorithms.expand_derivatives(
                     ufl.derivative(expr, dep.saved_output,
                                    dep.tlm_value)))
-                dudm.vector().axpy(1.0, dudmi.vector())
+                dudm.dat += 1.0 * dudmi.dat
 
         return dudm
 

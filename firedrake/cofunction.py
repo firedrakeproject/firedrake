@@ -47,7 +47,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             V = V.function_space()
             # Deep copy prevents modifications to Vector copies.
             # Also, this discard the value of `val` if it was specified (consistent with Function)
-            val = function_space.copy(deepcopy=True).vector()
+            val = function_space.copy(deepcopy=True).dat
         elif not isinstance(V, functionspaceimpl.FiredrakeDualSpace):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
@@ -79,12 +79,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if hasattr(self, "_comm"):
             mpi.decref(self._comm)
 
-    def copy(self, deepcopy=False):
+    def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
-        :kwarg deepcopy: If ``True``, the new
+        :kwarg deepcopy: If ``True``, the default, the new
             :class:`firedrake.function.CoordinatelessFunction` will allocate new space
-            and copy values.  If ``False``, the default, then the new
+            and copy values.  If ``False``, then the new
             :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
         if deepcopy:

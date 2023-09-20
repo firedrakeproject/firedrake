@@ -151,7 +151,7 @@ class GenericSolveBlock(Block, Backend):
             )
         )
         dFdu_form = self.backend.adjoint(dFdu)
-        dJdu = dJdu.vector().copy()
+        dJdu = dJdu.copy()
 
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
@@ -184,14 +184,14 @@ class GenericSolveBlock(Block, Backend):
 
         adj_sol = self.compat.create_function(self.function_space)
         self.compat.linalg_solve(
-            dFdu, adj_sol.vector(), dJdu, *self.adj_args, **self.adj_kwargs
+            dFdu, adj_sol, dJdu, *self.adj_args, **self.adj_kwargs
         )
 
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = self.compat.function_from_vector(
+            adj_sol_bdy = self.backend.Function(
                 self.function_space.dual(),
-                dJdu_copy - self.compat.assemble_adjoint_value(self.backend.action(dFdu_adj_form, adj_sol)).vector()
+                dJdu_copy.dat - self.compat.assemble_adjoint_value(self.backend.action(dFdu_adj_form, adj_sol)).dat
             )
 
         return adj_sol, adj_sol_bdy
@@ -359,8 +359,7 @@ class GenericSolveBlock(Block, Backend):
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = self.backend.adjoint(dFdu_form)
-        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b.vector(),
-                                                                 compute_bdy)
+        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b, compute_bdy)
         if self.adj2_cb is not None:
             self.adj2_cb(adj_sol2)
         if self.adj2_bdy_cb is not None and compute_bdy:
@@ -523,7 +522,7 @@ class GenericSolveBlock(Block, Backend):
         for bc in bcs:
             bc.apply(rhs_func)
         rhs.assign(rhs_func.riesz_representation(riesz_map="l2"))
-        self.backend.solve(lhs, func.vector(), rhs, **kwargs)
+        self.backend.solve(lhs, func, rhs, **kwargs)
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
@@ -662,7 +661,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         F_form = self._create_F_form()
 
         dFdu_form = self.adj_F
-        dJdu = dJdu.vector().copy()
+        dJdu = dJdu.copy()
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdu_form)
