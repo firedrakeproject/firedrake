@@ -171,7 +171,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
 
     @cached_property
     def residual(self):
-        return firedrake.Function(self.target.function_space())
+        return firedrake.Cofunction(self.target.function_space().dual())
 
     @abc.abstractproperty
     def rhs(self):

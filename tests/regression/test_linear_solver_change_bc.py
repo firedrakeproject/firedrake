@@ -16,7 +16,7 @@ def test_linear_solver_change_bc():
     bc = DirichletBC(V, bcval, "on_boundary")
 
     A = assemble(a, bcs=bc)
-    b = Function(V)
+    b = Cofunction(V.dual())
 
     solver = LinearSolver(A)
 

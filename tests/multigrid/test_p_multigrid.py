@@ -324,7 +324,11 @@ def test_p_multigrid_mixed(mat_type):
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
 
-    basis = VectorSpaceBasis([assemble(TestFunction(Z.sub(1))*dx)])
+    # Make the Function spanning the nullspace
+    c_basis = assemble(TestFunction(Z.sub(1))*dx)
+    f_basis = Function(c_basis.function_space().dual(), val=c_basis.dat)
+
+    basis = VectorSpaceBasis([f_basis])
     basis.orthonormalize()
     nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), basis])
     problem = NonlinearVariationalProblem(F, z, bcs)

@@ -1,15 +1,16 @@
 import ufl
 import ufl.argument
+from ufl.duals import is_dual
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Argument', 'TestFunction', 'TrialFunction',
+__all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
            'action', 'CellSize', 'FacetNormal']
@@ -29,6 +30,12 @@ class Argument(ufl.argument.Argument):
        :func:`TestFunction`, with a number of ``1`` it is used as
        a :func:`TrialFunction`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Coargument(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
     def __init__(self, function_space, number, part=None):
         super(Argument, self).__init__(function_space.ufl_function_space(),
                                        number, part=part)
@@ -68,6 +75,76 @@ class Argument(ufl.argument.Argument):
         if function_space.ufl_element().value_shape() != self.ufl_element().value_shape():
             raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
+
+
+class Coargument(ufl.argument.Coargument):
+    """Representation of an argument to a form in a dual space.
+
+    :arg function_space: the :class:`.FunctionSpace` the argument
+        corresponds to.
+    :arg number: the number of the argument being constructed.
+    :kwarg part: optional index (mostly ignored).
+    """
+
+    def __init__(self, function_space, number, part=None):
+        super(Coargument, self).__init__(function_space.ufl_function_space(),
+                                         number, part=part)
+        self._function_space = function_space
+
+    @utils.cached_property
+    def cell_node_map(self):
+        return self.function_space().cell_node_map
+
+    @utils.cached_property
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map
+
+    @utils.cached_property
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map
+
+    def function_space(self):
+        return self._function_space
+
+    def make_dat(self):
+        return self.function_space().make_dat()
+
+    def _analyze_form_arguments(self, outer_form=None):
+        # Returns the argument found in the Coargument object
+        self._coefficients = ()
+        # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
+        # So they have one argument in the primal space and one in the dual space.
+        # However, when they are composed with linear forms with dual arguments, such as BaseFormOperators,
+        # the primal argument is discarded when analysing the argument as Coarguments.
+        if not outer_form:
+            self._arguments = (Argument(self.function_space().dual(), 0), self)
+        else:
+            self._arguments = (self,)
+
+    def reconstruct(self, function_space=None,
+                    number=None, part=None):
+        if function_space is None or function_space == self.function_space():
+            function_space = self.function_space()
+        if number is None or number == self._number:
+            number = self._number
+        if part is None or part == self._part:
+            part = self._part
+        if number is self._number and part is self._part \
+           and function_space is self.function_space():
+            return self
+        if not isinstance(number, int):
+            raise TypeError(f"Expecting an int, not {number}")
+        if function_space.ufl_element().value_shape() != self.ufl_element().value_shape():
+            raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
+        return Coargument(function_space, number, part=part)
+
+    def equals(self, other):
+        if type(other) is not Coargument:
+            return False
+        if self is other:
+            return True
+        return (self._function_space == other._function_space
+                and self._number == other._number and self._part == other._part)
 
 
 @PETSc.Log.EventDecorator()
@@ -170,7 +247,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-    elif isinstance(uc, firedrake.Function):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
         if uc.ufl_shape != ():
@@ -277,3 +354,41 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+def extract_domains(func):
+    """Extract the domain from `func`.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return ufl.domain.extract_domains(func)
+
+
+def extract_unique_domain(func):
+    """Extract the single unique domain `func` is defined on.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return func.function_space().mesh()
+    else:
+        return ufl.domain.extract_unique_domain(func)
