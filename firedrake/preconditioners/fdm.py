@@ -9,7 +9,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
 from firedrake_citations import Citations
@@ -241,8 +241,6 @@ class FDMPC(PCBase):
         self.index_acc = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices)(op2.READ, Vsub.cell_node_map()) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
-        Z = self.coefficients.function_space()
-        self.coef_acc = self.coefficients.dat(op2.READ, Z.cell_node_map())
 
         Pmats = {}
         addv = PETSc.InsertMode.ADD_VALUES
@@ -264,7 +262,6 @@ class FDMPC(PCBase):
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
                 preallocator.setUp()
                 self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
-
                 preallocator.assemble()
                 d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
                 if on_diag:
@@ -356,11 +353,9 @@ class FDMPC(PCBase):
         :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
         :arg block_diagonal: are we assembling the block diagonal of the mass matrices?
 
-        :returns: a 2-tuple of a `dict` with the zero-th order and second
-                  order coefficients keyed on ``"beta"`` and ``"alpha"``,
-                  and a list of assembly callables.
+        :returns: a 2-tuple of a mixed `Function` with the zero-th order and second
+                  order coefficients and a list of assembly callables.
         """
-        coefficients = {}
         assembly_callables = []
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
@@ -432,14 +427,16 @@ class FDMPC(PCBase):
 
         # Return coefficients and assembly callables
         if block_diagonal and V.shape:
-            raise NotImplementedError("FIXME need to return mixed function")
             from firedrake.assemble import assemble
+            bdiags = []
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
             for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
                 sub = M.petscmat.createSubMatrix(iset, iset)
                 ctx = sub.getPythonContext()
-                coefficients[name] = ctx._block_diagonal
+                bdiags.append(ctx._block_diagonal)
                 assembly_callables.append(ctx._assemble_block_diagonal)
+            W = MixedFunctionSpace([c.function_space() for c in bdiags])
+            coefficients = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
             from firedrake.assemble import OneFormAssembler
             coefficients = Function(Z)
@@ -571,7 +568,7 @@ class FDMPC(PCBase):
         :arg Vrow: the :class:`.FunctionSpace` test space
         :arg Vcol: the :class:`.FunctionSpace` trial space
         :arg addv: a `PETSc.Mat.InsertMode`
-        :arg triu: are we assembling only the upper triangular part?
+        :arg mat_type: a `PETSc.Mat.Type`
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
@@ -585,9 +582,7 @@ class FDMPC(PCBase):
             # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
             element_kernel = TripleProductKernel(R1, M, C1)
 
-            schur_kernel = None
-            if Vrow == Vcol:
-                schur_kernel = self.schur_kernel.get(Vrow)
+            schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
             if schur_kernel is not None:
                 V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
@@ -600,11 +595,12 @@ class FDMPC(PCBase):
 
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
+            coefficients_acc = self.coefficients.dat(op2.READ, self.coefficients.cell_node_map())
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
                                     *element_kernel.mat_args(A),
-                                    self.coef_acc,
+                                    coefficients_acc,
                                     *indices)
             self.assemblers.setdefault(key, assembler)
 
@@ -637,7 +633,8 @@ class ElementKernel(object):
     def mat_args(self, *mats):
         return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
-    def header(self, mat_type="aij"):
+    @staticmethod
+    def header(mat_type="aij"):
         select_cols = ""
         if mat_type.endswith("sbaij"):
             select_cols = """
@@ -656,7 +653,6 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscScalar *vals;
     PetscBool done;
     PetscFunctionBeginUser;
-
     MatGetSize(B, &m, NULL);
     PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscMalloc1(ai[m], &indices);
@@ -678,14 +674,16 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
 
 static inline PetscErrorCode MatSetValuesArray(Mat A, PetscScalar *values)
 {{
-    PetscInt n, bsize;
+    PetscInt m, n, *ai, *aj;
+    PetscBool done;
     PetscScalar *vals;
     PetscFunctionBeginUser;
-    MatGetSize(A, &n, NULL);
-    MatGetBlockSize(A, &bsize);
+    MatGetSize(A, &m, NULL);
+    PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJGetArray(A, &vals));
-    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < ai[m]; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscFunctionReturn(0);
 }}"""
 
@@ -1423,7 +1421,7 @@ class SparseAssembler(object):
         try:
             return cache[key]
         except KeyError:
-            return cache.setdefault(key, load_setSubMatCSR(comm, triu))
+            return cache.setdefault(key, SparseAssembler.load_setSubMatCSR(comm, triu))
 
     @staticmethod
     def load_c_code(code, name, **kwargs):
@@ -1482,8 +1480,8 @@ class SparseAssembler(object):
     """
         argtypes = [ctypes.c_voidp, ctypes.c_voidp,
                     ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-        funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
-                             restype=ctypes.c_int)
+        funptr = SparseAssembler.load_c_code(code, name, comm=comm, argtypes=argtypes,
+                                             restype=ctypes.c_int)
 
         @PETSc.Log.EventDecorator(name)
         def wrapper(A, B, rows, cols, addv):
@@ -1556,7 +1554,7 @@ class PoissonFDMPC(FDMPC):
         :arg Vrow: the :class:`.FunctionSpace` test space
         :arg Vcol: the :class:`.FunctionSpace` trial space
         :arg addv: a `PETSc.Mat.InsertMode`
-        :arg triu: are we assembling only the upper triangular part?
+        :arg mat_type: a `PETSc.Mat.Type`
         """
         triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
         set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
