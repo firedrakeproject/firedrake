@@ -840,10 +840,12 @@ class OneFormAssembler(FormAssembler):
 
     def _apply_dirichlet_bc(self, bc):
         if not self._zero_bc_nodes:
+            tensor_func = self._tensor.riesz_representation(riesz_map="l2")
             if self._diagonal:
-                bc.set(self._tensor, 1)
+                bc.set(tensor_func, 1)
             else:
-                bc.apply(self._tensor)
+                bc.apply(tensor_func)
+            self._tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
         else:
             bc.zero(self._tensor)
 
