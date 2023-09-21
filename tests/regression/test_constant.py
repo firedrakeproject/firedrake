@@ -193,6 +193,34 @@ def test_constant_names_are_not_used_in_generated_code():
     assemble(c * dx(mesh))
 
 
+@pytest.mark.skipcomplex
+def test_correct_constants_are_used_in_split_form():
+    # see https://github.com/firedrakeproject/firedrake/issues/3091
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    W = V * R
+    uh, vh = Function(W), TestFunction(W)
+    uh.sub(0).assign(Constant(1.0))
+    u, lmbda = split(uh)
+    v, tau = split(vh)
+    L = Constant(0.5) * v
+
+    G = (
+        Constant(1.0) * inner(grad(u), grad(v)) * dx
+        + Constant(10.0) * u * u * v * dx
+        - L * dx
+    )
+    const_1 = Constant(1.0)
+    H = G + (exp(const_1 - lmbda) - const_1) * tau * dx
+
+    bcs = [DirichletBC(W.sub(0), Constant(0.0), "on_boundary")]
+
+    solve(H == 0, uh, bcs=bcs)
+    u, lambda_ = uh.subfunctions
+    assert np.allclose(lambda_.dat.data, 1)
+
+
 def test_constant_subclasses_are_correctly_numbered():
     class CustomConstant(Constant):
         pass
