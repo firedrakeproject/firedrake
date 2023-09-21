@@ -115,3 +115,25 @@ def split_by(condition, items):
         else:
             result[1].append(item)
     return tuple(result[0]), tuple(result[1])
+
+
+def assert_empty(iterator):
+    """Check that an iterator has been fully consumed.
+
+    Raises
+    ------
+    AssertionError
+        If the provided iterator is not empty.
+
+    Notes
+    -----
+    This function should only be used for assertions (where the program is
+    immediately terminated on failure). If the iterator is not empty then the
+    latest value is discarded.
+
+    """
+    try:
+        next(iterator)
+        raise AssertionError("Iterator is not empty")
+    except StopIteration:
+        pass
