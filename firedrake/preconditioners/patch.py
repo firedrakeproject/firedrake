@@ -199,7 +199,7 @@ def matrix_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -212,8 +212,9 @@ def matrix_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
-        for constant in extract_firedrake_constants(form):
-            args.append(constant.dat(op2.READ))
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
@@ -292,7 +293,7 @@ def residual_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -305,8 +306,9 @@ def residual_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
-        for constant in extract_firedrake_constants(form):
-            args.append(constant.dat(op2.READ))
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
@@ -517,7 +519,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(form.ufl_domain().cell_sizes)
-    for n, indices in kernel.kinfo.coefficient_map:
+    for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:
             if indices != (0, ):
@@ -543,8 +545,9 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                     map_args.append(k)
                     seen.add(k)
 
-    for constant in extract_firedrake_constants(form):
-        data_args.extend(constant.dat._kernel_args_)
+    all_constants = extract_firedrake_constants(form)
+    for constant_index in kernel.kinfo.constant_numbers:
+        data_args.extend(all_constants[constant_index].dat._kernel_args_)
 
     if require_facet_number:
         data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
