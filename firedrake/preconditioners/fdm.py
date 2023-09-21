@@ -676,12 +676,15 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscFunctionReturn(0);
 }}
 
-static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *values)
+static inline PetscErrorCode MatSetValuesArray(Mat A, PetscScalar *values)
 {{
+    PetscInt n, bsize;
     PetscScalar *vals;
     PetscFunctionBeginUser;
+    MatGetSize(A, &n, NULL);
+    MatGetBlockSize(A, &bsize);
     PetscCall(MatSeqAIJGetArray(A, &vals));
-    for (PetscInt i = 0; i < n; i++) vals[i] = values[i];
+    for (PetscInt i = 0; i < n * bsize; i++) vals[i] = values[i];
     PetscCall(MatSeqAIJRestoreArray(A, &vals));
     PetscFunctionReturn(0);
 }}"""
@@ -726,11 +729,8 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            PetscScalar *coefficients,
                            {declare_indices})
 {{
-    PetscInt n, bsize;
     PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
+    PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
     PetscFunctionReturn(0);
@@ -798,11 +798,8 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            PetscScalar *coefficients,
                            PetscInt *rindices)
 {{
-    PetscInt n, bsize;
     PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
+    PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatCondense(B, A11, A10, A01, A00, {work}));
     PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(0);
