@@ -1,7 +1,7 @@
 import numpy
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
 from functools import singledispatch, partial

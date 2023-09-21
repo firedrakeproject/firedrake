@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  Solve, Inverse, Variable, view, Delta, Index, Division)
