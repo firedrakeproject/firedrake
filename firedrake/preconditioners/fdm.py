@@ -637,49 +637,15 @@ class ElementKernel(object):
     def mat_args(self, *mats):
         return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
-    def kernel(self, mat_type="aij", on_diag=False, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT
-        indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
-        code = f"""
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
-{{
-    PetscFunctionBeginUser;
-    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
-    PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
-
     def header(self, mat_type="aij"):
         select_cols = ""
         if mat_type.endswith("sbaij"):
             select_cols = """
-        PetscInt irow, icol;
-        for (PetscInt i = 0; i < m; i++) {{
-            irow = rindices[i];
-            for (PetscInt j = ai[i]; j < ai[i + 1]; j++) {{
-                icol = indices[j];
-                icol -= (icol < irow) * (1 + icol);
-                indices[j] = icol;
-            }}
-        }}
-        """
+    for (PetscInt i = 0; i < m; i++)
+        for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
+            indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);
+    """
         return f"""
-#include <petsc.h>
-
-static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *values)
-{{
-    PetscScalar *vals;
-    PetscFunctionBeginUser;
-    PetscCall(MatSeqAIJGetArray(A, &vals));
-    for (PetscInt i = 0; i < n; i++) vals[i] = values[i];
-    PetscCall(MatSeqAIJRestoreArray(A, &vals));
-    PetscFunctionReturn(0);
-}}
-
 static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
                                                 PetscInt *rindices,
                                                 PetscInt *cindices,
@@ -709,7 +675,32 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscFree(indices);
     PetscFunctionReturn(0);
 }}
-"""
+
+static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *values)
+{{
+    PetscScalar *vals;
+    PetscFunctionBeginUser;
+    PetscCall(MatSeqAIJGetArray(A, &vals));
+    for (PetscInt i = 0; i < n; i++) vals[i] = values[i];
+    PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscFunctionReturn(0);
+}}"""
+
+    def kernel(self, mat_type="aij", on_diag=False, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT
+        indices = ("rindices", "cindices")[:2-on_diag]
+        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
+        code = f"""
+{self.header(mat_type=mat_type)}
+
+PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
+    PetscFunctionReturn(0);
+}}"""
+        return op2.Kernel(code, self.name)
 
 
 class TripleProductKernel(ElementKernel):
@@ -730,6 +721,7 @@ class TripleProductKernel(ElementKernel):
         declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
         code = f"""
 {self.header(mat_type=mat_type)}
+
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            PetscScalar *coefficients,
                            {declare_indices})
@@ -742,8 +734,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscCall(MatProductNumeric(B));
     PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
     PetscFunctionReturn(0);
-}}
-"""
+}}"""
         return op2.Kernel(code, self.name)
 
 
@@ -752,6 +743,8 @@ class SchurComplementKernel(ElementKernel):
     An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
+    condense_code = ""
+
     def __init__(self, *kernels, name=None):
         self.children = kernels
         self.submats = [k.result for k in kernels]
@@ -770,10 +763,10 @@ class SchurComplementKernel(ElementKernel):
 
         self.work = [None for _ in range(2)]
         super().__init__(self.condense(), name=name)
+
         self.data_mat = self.children[0].data_mat
         self.mats.append(self.data_mat)
         self.mats.extend(c.result for c in self.children)
-
         for w in self.work:
             if isinstance(w, PETSc.Mat):
                 self.mats.append(w)
@@ -786,13 +779,46 @@ class SchurComplementKernel(ElementKernel):
     def condense(self, result=None):
         return result
 
+    def kernel(self, mat_type="aij", on_diag=True, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT_VALUES
+        work = "NULL"
+        declare_work = ""
+        if isinstance(self.work[0], PETSc.Mat):
+            work = "W0"
+            declare_work = f"Mat {work},"
+        code = f"""
+#include <petscblaslapack.h>
+{self.header(mat_type=mat_type)}
+{self.condense_code}
+
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           {declare_work}
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
+{{
+    PetscInt n, bsize;
+    PetscFunctionBeginUser;
+    MatGetSize(C, &n, NULL);
+    MatGetBlockSize(C, &bsize);
+    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
+    PetscCall(MatCondense(B, A11, A10, A01, A00, {work}));
+    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
+    PetscFunctionReturn(0);
+}}"""
+        return op2.Kernel(code, self.name)
+
 
 class SchurComplementPattern(SchurComplementKernel):
 
-    def __call__(self, *args, result=None):
-        k = self.children[0]
-        k(*args, result=k.result)
-        return self.condense(result=result)
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W) {
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
 
     def condense(self, result=None):
         """By default pad with zeros the statically condensed pattern"""
@@ -803,59 +829,19 @@ class SchurComplementPattern(SchurComplementKernel):
         result.aypx(0.0, self.submats[0], structure=structure)
         return result
 
-    def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT_VALUES
-        code = f"""
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
-                           Mat A11, Mat A10, Mat A01, Mat A00,
-                           PetscScalar *coefficients,
-                           PetscInt *rindices)
-{{
-    PetscInt n, bsize;
-    PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
-    PetscCall(MatProductNumeric(A11));
-    PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
-    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
-    PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
+    def __call__(self, *args, result=None):
+        k = self.children[0]
+        k(*args, result=k.result)
+        return self.condense(result=result)
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
 
-    def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
-        self.work[0] = A00.getDiagonal(result=self.work[0])
-        self.work[0].reciprocal()
-        self.work[0].scale(-1)
-        A01.diagonalScale(L=self.work[0])
-        result = A10.matMult(A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
-        return result
-
-    def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT_VALUES
-        code = f"""
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
-                           Mat A11, Mat A10, Mat A01, Mat A00,
-                           PetscScalar *coefficients,
-                           PetscInt *rindices)
-{{
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W) {
     Vec vec;
-    PetscInt n, bsize;
+    PetscInt n;
     PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A10));
     PetscCall(MatProductNumeric(A01));
@@ -871,22 +857,65 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
 
     PetscCall(MatProductNumeric(B));
     PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
-    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
+}"""
+
+    def condense(self, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A11, A10, A01, A00 = self.submats
+        self.work[0] = A00.getDiagonal(result=self.work[0])
+        self.work[0].reciprocal()
+        self.work[0].scale(-1)
+        A01.diagonalScale(L=self.work[0])
+        result = A10.matMult(A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
-    def __init__(self, K11, K10, K01, K00):
-        # asssume that K10 = K01^T
-        super().__init__(K11, K01, K00)
+    condense_code =  """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
+    PetscBLASInt bn, lierr;
+    PetscInt n, bsize, irow;
+    PetscInt *ai, *aj;
+    PetscBool done;
+    PetscScalar *vals, *U;
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A01));
+    PetscCall(MatProductNumeric(A00));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
+        vals[irow] = PetscSqrtReal(1.0 / vals[irow]);
+        irow++;
+    }
+    U = &vals[irow];
+    while (irow < n) {
+        bsize = ai[irow + 1] - ai[irow];
+        PetscCall(PetscBLASIntCast(bsize, &bn));
+        PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+        for (PetscInt j = 0; j < bsize - 1; j++)
+            for (PetscInt i = j + 1; i < bsize; i++)
+                U[i + bsize * j] = 0.0;
+        U += bsize * bsize;
+        irow += bsize;
+    }
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscCall(MatProductNumeric(W0));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
 
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A01, A00 = self.submats
+        # asssume that K10 = K01^T
+        A11, _, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
@@ -908,64 +937,80 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         result.aypx(-1.0, A11, structure=structure)
         return result
 
-    def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT_VALUES
-        code = f"""
-#include <petscblaslapack.h>
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
-                           Mat A11, Mat A01, Mat A00,
-                           Mat W0,
-                           PetscScalar *coefficients,
-                           PetscInt *rindices)
-{{
-    PetscBLASInt bn, lierr;
-    PetscInt n, bsize, irow;
-    PetscInt *ai, *aj;
+class SchurComplementBlockLU(SchurComplementKernel):
+
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
+    PetscBLASInt bn, lierr, lwork;
+    PetscInt n, bsize, irow, icol, nnz, iswap;
+    PetscInt *ai, *aj, *ipiv, *perm;
     PetscBool done;
-    PetscScalar *vals, *U;
+    PetscScalar *vals, *work, *L, *U;
     PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
     PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A10));
     PetscCall(MatProductNumeric(A01));
     PetscCall(MatProductNumeric(A00));
-
     PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
     PetscCall(MatSeqAIJGetArray(A00, &vals));
+
+    // A00 = (U^T) * (L^T)
+    nnz = ai[n];
+    bsize = ai[n] - ai[n - 1];
+    PetscMalloc2(bsize, &ipiv, bsize, &perm);
+    PetscMalloc1(nnz, &work);
+    for (PetscInt j = 0; j < nnz; j++) work[j] = 0.0;
+
     irow = 0;
-    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
-        vals[irow] = PetscSqrtReal(1.0 / vals[irow]);
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
+        work[irow] = 1.0;
+        vals[irow] = 1.0 / vals[irow];
         irow++;
-    }}
+    }
+    L = &work[irow];
     U = &vals[irow];
     while (irow < n) {{
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, U, &bn, ipiv, &lierr));
         PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
-        for (PetscInt j = 0; j < bsize - 1; j++)
-            for (PetscInt i = j + 1; i < bsize; i++)
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("L", "U", &bn, U, &bn, &lierr));
+        for (PetscInt j = 0; j < bsize; j++) perm[j] = j;
+        for (PetscInt j = 0; j < bsize; j++) {
+            icol = ipiv[j] - 1;
+            iswap = perm[icol];
+            perm[icol] = perm[j];
+            perm[j] = iswap;
+        }
+        for (PetscInt j = 0; j < bsize; j++) {
+            L[j + bsize * perm[j]] = 1.0;
+            for (PetscInt i = j + 1; i < bsize; i++) {
+                L[i + bsize * perm[j]] = U[i + bsize * j];
                 U[i + bsize * j] = 0.0;
+            }
+        }
+        L += bsize * bsize;
         U += bsize * bsize;
         irow += bsize;
     }}
     PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+
+    // A00 = inv(U^T)
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-
+    // W0 = inv(U^T) * A01
     PetscCall(MatProductNumeric(W0));
+
+    // A00 = -inv(L^T)
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    for (PetscInt i = 0; i < nnz; i++) vals[i] = -work[i];
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscFree3(ipiv, perm, work);
+
+    // B = A11 - A10 * inv(L^T) * W0
     PetscCall(MatProductNumeric(B));
-    PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
-    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
     PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
-
-
-class SchurComplementBlockLU(SchurComplementKernel):
+}"""
 
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
@@ -996,94 +1041,79 @@ class SchurComplementBlockLU(SchurComplementKernel):
         result.axpy(1.0, A11, structure=structure)
         return result
 
-    def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT_VALUES
-        code = f"""
-#include <petscblaslapack.h>
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
-                           Mat A11, Mat A10, Mat A01, Mat A00,
-                           Mat W0,
-                           PetscScalar *coefficients,
-                           PetscInt *rindices)
-{{
+
+class SchurComplementBlockInverse(SchurComplementKernel):
+
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
     PetscBLASInt bn, lierr, lwork;
-    PetscInt n, bsize, irow, icol, nnz, iswap;
-    PetscInt *ai, *aj, *ipiv, *perm;
+    PetscInt n, irow, bsize;
+    PetscInt *ai, *aj, *ipiv;
     PetscBool done;
-    PetscScalar *vals, *work, *L, *U;
+    PetscScalar *vals, *ainv, *work, swork;
     PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A10));
     PetscCall(MatProductNumeric(A01));
     PetscCall(MatProductNumeric(A00));
     PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
-    PetscCall(MatSeqAIJGetArray(A00, &vals));
 
-    // A00 = (U^T) * (L^T)
-    nnz = ai[n];
+    lwork = -1;
     bsize = ai[n] - ai[n - 1];
-    PetscMalloc2(bsize, &ipiv, bsize, &perm);
-    PetscMalloc1(nnz, &work);
-    for (PetscInt j = 0; j < nnz; j++) work[j] = 0.0;
+    PetscMalloc1(bsize, &ipiv);
+    PetscCall(PetscBLASIntCast(bsize, &bn));
+    PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, &swork, &lwork, &lierr));
+    bsize = (PetscInt)swork;
+    PetscCall(PetscBLASIntCast(bsize, &lwork));
+    PetscMalloc1(bsize, &work);
 
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
     irow = 0;
-    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
-        work[irow] = 1.0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
         vals[irow] = 1.0 / vals[irow];
         irow++;
-    }}
-    L = &work[irow];
-    U = &vals[irow];
-    while (irow < n) {{
+    }
+    ainv = &vals[irow];
+    while (irow < n) {
         bsize = ai[irow + 1] - ai[irow];
         PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, U, &bn, ipiv, &lierr));
-        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
-        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("L", "U", &bn, U, &bn, &lierr));
-        for (PetscInt j = 0; j < bsize; j++) perm[j] = j;
-        for (PetscInt j = 0; j < bsize; j++) {{
-            icol = ipiv[j] - 1;
-            iswap = perm[icol];
-            perm[icol] = perm[j];
-            perm[j] = iswap;
-        }}
-        for (PetscInt j = 0; j < bsize; j++) {{
-            L[j + bsize * perm[j]] = 1.0;
-            for (PetscInt i = j + 1; i < bsize; i++) {{
-                L[i + bsize * perm[j]] = U[i + bsize * j];
-                U[i + bsize * j] = 0.0;
-            }}
-        }}
-        L += bsize * bsize;
-        U += bsize * bsize;
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, ainv, &bn, ipiv, &lierr));
+        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, work, &lwork, &lierr));
+        ainv += bsize * bsize;
         irow += bsize;
-    }}
+    }
+    PetscFree2(ipiv, work);
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
     PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
 
-    // A00 = inv(U^T)
-    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    // W0 = inv(U^T) * A01
-    PetscCall(MatProductNumeric(W0));
-
-    // A00 = -inv(L^T)
-    PetscCall(MatSeqAIJGetArray(A00, &vals));
-    for (PetscInt i = 0; i < nnz; i++) vals[i] = -work[i];
-    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscFree3(ipiv, perm, work);
-
-    // B = A11 - A10 * inv(L^T) * W0
+    PetscCall(MatScale(A00, -1.0));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
-    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
+}"""
+
+    def condense(self, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A11, A10, A01, A00 = self.submats
+        indptr, indices, R = A00.getValuesCSR()
+
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in self.blocks:
+            Rk = R[self.slices[k]]
+            A = Rk.reshape((-1, k, k))
+            rinv = numpy.linalg.inv(A)
+            numpy.copyto(Rk, rinv.flat)
+            flops += A.shape[0] * (k**3)
+
+        PETSc.Log.logFlops(flops)
+        A00.setValuesCSR(indptr, indices, R)
+        A00.assemble()
+        A00.scale(-1.0)
+        result = A10.matMatMult(A00, A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
 
 
 class SchurComplementBlockSVD(SchurComplementKernel):
@@ -1122,95 +1152,6 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         result = self.work[1].matMatMult(A00, A01, result=result)
         result.axpy(1.0, A11, structure=structure)
         return result
-
-
-class SchurComplementBlockInverse(SchurComplementKernel):
-
-    def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
-        indptr, indices, R = A00.getValuesCSR()
-
-        zlice = self.slices[1]
-        numpy.reciprocal(R[zlice], out=R[zlice])
-        flops = zlice.stop - zlice.start
-        for k in self.blocks:
-            Rk = R[self.slices[k]]
-            A = Rk.reshape((-1, k, k))
-            rinv = numpy.linalg.inv(A)
-            numpy.copyto(Rk, rinv.flat)
-            flops += A.shape[0] * (k**3)
-
-        PETSc.Log.logFlops(flops)
-        A00.setValuesCSR(indptr, indices, R)
-        A00.assemble()
-        A00.scale(-1.0)
-        result = A10.matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
-        return result
-
-    def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT_VALUES
-        code = f"""
-#include <petscblaslapack.h>
-{self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
-                           Mat A11, Mat A10, Mat A01, Mat A00,
-                           PetscScalar *coefficients,
-                           PetscInt *rindices)
-{{
-    PetscBLASInt bn, lierr, lwork;
-    PetscInt n, irow, bsize;
-    PetscInt *ai, *aj, *ipiv;
-    PetscBool done;
-    PetscScalar *vals, *ainv, *work, swork;
-    PetscFunctionBeginUser;
-    MatGetSize(C, &n, NULL);
-    MatGetBlockSize(C, &bsize);
-    PetscCall(MatSetValuesArray(C, n * bsize, coefficients));
-    PetscCall(MatProductNumeric(A11));
-    PetscCall(MatProductNumeric(A10));
-    PetscCall(MatProductNumeric(A01));
-    PetscCall(MatProductNumeric(A00));
-    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
-
-    lwork = -1;
-    bsize = ai[n] - ai[n - 1];
-    PetscMalloc1(bsize, &ipiv);
-    PetscCall(PetscBLASIntCast(bsize, &bn));
-    PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, &swork, &lwork, &lierr));
-    bsize = (PetscInt)swork;
-    PetscCall(PetscBLASIntCast(bsize, &lwork));
-    PetscMalloc1(bsize, &work);
-
-    PetscCall(MatSeqAIJGetArray(A00, &vals));
-    irow = 0;
-    while (irow < n && ai[irow + 1] - ai[irow] == 1) {{
-        vals[irow] = 1.0 / vals[irow];
-        irow++;
-    }}
-    ainv = &vals[irow];
-    while (irow < n) {{
-        bsize = ai[irow + 1] - ai[irow];
-        PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, ainv, &bn, ipiv, &lierr));
-        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, work, &lwork, &lierr));
-        ainv += bsize * bsize;
-        irow += bsize;
-    }}
-    PetscFree2(ipiv, work);
-    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
-
-    PetscCall(MatScale(A00, -1.0));
-    PetscCall(MatProductNumeric(B));
-    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
-    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
-    PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, self.name)
 
 
 def is_restricted(finat_element):
@@ -1515,14 +1456,11 @@ class SparseAssembler(object):
                           PetscInt *cindices,
                           InsertMode addv)
     {{
-        PetscInt ncols, irow, icol;
+        PetscInt m, n, ncols, irow, icol;
         PetscInt *cols, *indices;
         PetscScalar *vals;
-
-        PetscInt m, n;
         PetscFunctionBeginUser;
         MatGetSize(B, &m, NULL);
-
         n = 0;
         for (PetscInt i = 0; i < m; i++) {{
             PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
