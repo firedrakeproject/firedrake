@@ -622,41 +622,64 @@ class FDMPC(PCBase):
         assembler()
 
 
-class SparseAssembler(object):
-
-    _cache = {}
-
-    @staticmethod
-    def setSubMatCSR(comm, triu=False):
-        """
-        Compile C code to insert sparse submatrices and store in class cache
-        :arg triu: are we inserting onto the upper triangular part of the matrix?
-        :returns: a python wrapper for the matrix insertion function
-        """
-        cache = SparseAssembler._cache.setdefault("setSubMatCSR", {})
-        key = triu
-        try:
-            return cache[key]
-        except KeyError:
-            return cache.setdefault(key, load_setSubMatCSR(comm, triu))
-
-
-def common_header(mat_type="aij"):
-    select_cols = ""
-    if mat_type.endswith("sbaij"):
-        select_cols = """
-    PetscInt irow, icol;
-    for (PetscInt i = 0; i < m; i++) {{
-        irow = rindices[i];
-        for (PetscInt j = ai[i]; j < ai[i + 1]; j++) {{
-            icol = indices[j];
-            icol -= (icol < irow) * (1 + icol);
-            indices[j] = icol;
-        }}
-    }}
+class ElementKernel(object):
     """
-    return f"""
+    A constant element kernel
+    """
+    def __init__(self, A, name=None):
+        self.result = A
+        self.mats = [self.result]
+        self.name = name or type(self).__name__
+
+    def __call__(self, *args, result=None):
+        return result or self.result
+
+    def mat_args(self, *mats):
+        return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
+
+    def kernel(self, mat_type="aij", on_diag=False, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT
+        indices = ("rindices", "cindices")[:2-on_diag]
+        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
+        code = f"""
+{self.header(mat_type=mat_type)}
+PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
+    PetscFunctionReturn(0);
+}}
+"""
+        return op2.Kernel(code, self.name)
+
+    def header(self, mat_type="aij"):
+        select_cols = ""
+        if mat_type.endswith("sbaij"):
+            select_cols = """
+        PetscInt irow, icol;
+        for (PetscInt i = 0; i < m; i++) {{
+            irow = rindices[i];
+            for (PetscInt j = ai[i]; j < ai[i + 1]; j++) {{
+                icol = indices[j];
+                icol -= (icol < irow) * (1 + icol);
+                indices[j] = icol;
+            }}
+        }}
+        """
+        return f"""
 #include <petsc.h>
+
+static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *values)
+{{
+    PetscScalar *vals;
+    PetscFunctionBeginUser;
+    PetscCall(MatSeqAIJGetArray(A, &vals));
+    for (PetscInt i = 0; i < n; i++) vals[i] = values[i];
+    PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscFunctionReturn(0);
+}}
+
 static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
                                                 PetscInt *rindices,
                                                 PetscInt *cindices,
@@ -686,50 +709,7 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscFree(indices);
     PetscFunctionReturn(0);
 }}
-
-static inline PetscErrorCode MatSetValuesArray(Mat A, PetscInt n, PetscScalar *values)
-{{
-    PetscScalar *vals;
-    PetscFunctionBeginUser;
-    PetscCall(MatSeqAIJGetArray(A, &vals));
-    for (PetscInt i = 0; i < n; i++) vals[i] = values[i];
-    PetscCall(MatSeqAIJRestoreArray(A, &vals));
-    PetscFunctionReturn(0);
-}}
 """
-
-
-class ElementKernel(object):
-    """
-    A constant element kernel
-    """
-    def __init__(self, A, name=None):
-        self.result = A
-        self.mats = [self.result]
-        self.name = name or type(self).__name__
-
-    def __call__(self, *args, result=None):
-        return result or self.result
-
-    def mat_args(self, *mats):
-        return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
-
-    def kernel(self, mat_type="aij", on_diag=False, addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT
-        indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
-        code = f"""
-{common_header(mat_type=mat_type)}
-PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
-{{
-    PetscFunctionBeginUser;
-    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
-    PetscFunctionReturn(0);
-}}
-"""
-        return op2.Kernel(code, name=self.name)
-
 
 
 class TripleProductKernel(ElementKernel):
@@ -749,7 +729,7 @@ class TripleProductKernel(ElementKernel):
         indices = ("rindices", "cindices")[:2-on_diag]
         declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
         code = f"""
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            PetscScalar *coefficients,
                            {declare_indices})
@@ -764,7 +744,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementKernel(ElementKernel):
@@ -827,7 +807,7 @@ class SchurComplementPattern(SchurComplementKernel):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            Mat A11, Mat A10, Mat A01, Mat A00,
                            PetscScalar *coefficients,
@@ -844,7 +824,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
@@ -864,7 +844,7 @@ class SchurComplementDiagonal(SchurComplementKernel):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            Mat A11, Mat A10, Mat A01, Mat A00,
                            PetscScalar *coefficients,
@@ -895,7 +875,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
@@ -933,7 +913,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
 #include <petscblaslapack.h>
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            Mat A11, Mat A01, Mat A00,
                            Mat W0,
@@ -982,7 +962,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementBlockLU(SchurComplementKernel):
@@ -1021,7 +1001,7 @@ class SchurComplementBlockLU(SchurComplementKernel):
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
 #include <petscblaslapack.h>
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            Mat A11, Mat A10, Mat A01, Mat A00,
                            Mat W0,
@@ -1103,7 +1083,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementBlockSVD(SchurComplementKernel):
@@ -1174,7 +1154,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
 #include <petscblaslapack.h>
-{common_header(mat_type=mat_type)}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
                            Mat A11, Mat A10, Mat A01, Mat A00,
                            PetscScalar *coefficients,
@@ -1230,78 +1210,7 @@ PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
     PetscFunctionReturn(0);
 }}
 """
-        return op2.Kernel(code, name=self.name)
-
-
-
-@PETSc.Log.EventDecorator("LoadCode")
-def load_c_code(code, name, **kwargs):
-    petsc_dir = get_petsc_dir()
-    cppargs = ["-I%s/include" % d for d in petsc_dir]
-    ldargs = (["-L%s/lib" % d for d in petsc_dir]
-              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
-              + ["-lpetsc", "-lm"])
-    return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
-
-
-def load_setSubMatCSR(comm, triu=False):
-    """Insert one sparse matrix into another sparse matrix.
-       Done in C for efficiency, since it loops over rows."""
-    if triu:
-        name = "setSubMatCSR_SBAIJ"
-        select_cols = "icol -= (icol < irow) * (1 + icol);"
-    else:
-        name = "setSubMatCSR_AIJ"
-        select_cols = ""
-    code = f"""
-#include <petsc.h>
-
-PetscErrorCode {name}(Mat A,
-                      Mat B,
-                      PetscInt *rindices,
-                      PetscInt *cindices,
-                      InsertMode addv)
-{{
-    PetscInt ncols, irow, icol;
-    PetscInt *cols, *indices;
-    PetscScalar *vals;
-
-    PetscInt m, n;
-    PetscFunctionBeginUser;
-    MatGetSize(B, &m, NULL);
-
-    n = 0;
-    for (PetscInt i = 0; i < m; i++) {{
-        PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
-        n = ncols > n ? ncols : n;
-        PetscCall(MatRestoreRow(B, i, &ncols, NULL, NULL));
-    }}
-    PetscMalloc1(n, &indices);
-    for (PetscInt i = 0; i < m; i++) {{
-        PetscCall(MatGetRow(B, i, &ncols, &cols, &vals));
-        irow = rindices[i];
-        for (PetscInt j = 0; j < ncols; j++) {{
-            icol = cindices[cols[j]];
-            {select_cols}
-            indices[j] = icol;
-        }}
-        PetscCall(MatSetValues(A, 1, &irow, ncols, indices, vals, addv));
-        PetscCall(MatRestoreRow(B, i, &ncols, &cols, &vals));
-    }}
-    PetscFree(indices);
-    PetscFunctionReturn(0);
-}}
-"""
-    argtypes = [ctypes.c_voidp, ctypes.c_voidp,
-                ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-    funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
-                         restype=ctypes.c_int)
-
-    @PETSc.Log.EventDecorator(name)
-    def wrapper(A, B, rows, cols, addv):
-        return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
-
-    return wrapper
+        return op2.Kernel(code, self.name)
 
 
 def is_restricted(finat_element):
@@ -1488,7 +1397,6 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         temp.destroy()
         eye.destroy()
 
-
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     block_size = Vf.dof_dset.layout_vec.getBlockSize()
     preallocator = PETSc.Mat().create(comm=comm)
@@ -1561,6 +1469,95 @@ def get_base_elements(e):
     return [e]
 
 
+class SparseAssembler(object):
+
+    _cache = {}
+
+    @staticmethod
+    def setSubMatCSR(comm, triu=False):
+        """
+        Compile C code to insert sparse submatrices and store in class cache
+        :arg triu: are we inserting onto the upper triangular part of the matrix?
+        :returns: a python wrapper for the matrix insertion function
+        """
+        cache = SparseAssembler._cache.setdefault("setSubMatCSR", {})
+        key = triu
+        try:
+            return cache[key]
+        except KeyError:
+            return cache.setdefault(key, load_setSubMatCSR(comm, triu))
+
+    @staticmethod
+    def load_c_code(code, name, **kwargs):
+        petsc_dir = get_petsc_dir()
+        cppargs = ["-I%s/include" % d for d in petsc_dir]
+        ldargs = (["-L%s/lib" % d for d in petsc_dir]
+                  + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
+                  + ["-lpetsc", "-lm"])
+        return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
+
+    @staticmethod
+    def load_setSubMatCSR(comm, triu=False):
+        """Insert one sparse matrix into another sparse matrix.
+           Done in C for efficiency, since it loops over rows."""
+        if triu:
+            name = "setSubMatCSR_SBAIJ"
+            select_cols = "icol -= (icol < irow) * (1 + icol);"
+        else:
+            name = "setSubMatCSR_AIJ"
+            select_cols = ""
+        code = f"""
+    #include <petsc.h>
+
+    PetscErrorCode {name}(Mat A,
+                          Mat B,
+                          PetscInt *rindices,
+                          PetscInt *cindices,
+                          InsertMode addv)
+    {{
+        PetscInt ncols, irow, icol;
+        PetscInt *cols, *indices;
+        PetscScalar *vals;
+
+        PetscInt m, n;
+        PetscFunctionBeginUser;
+        MatGetSize(B, &m, NULL);
+
+        n = 0;
+        for (PetscInt i = 0; i < m; i++) {{
+            PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
+            n = ncols > n ? ncols : n;
+            PetscCall(MatRestoreRow(B, i, &ncols, NULL, NULL));
+        }}
+        PetscMalloc1(n, &indices);
+        for (PetscInt i = 0; i < m; i++) {{
+            PetscCall(MatGetRow(B, i, &ncols, &cols, &vals));
+            irow = rindices[i];
+            for (PetscInt j = 0; j < ncols; j++) {{
+                icol = cindices[cols[j]];
+                {select_cols}
+                indices[j] = icol;
+            }}
+            PetscCall(MatSetValues(A, 1, &irow, ncols, indices, vals, addv));
+            PetscCall(MatRestoreRow(B, i, &ncols, &cols, &vals));
+        }}
+        PetscFree(indices);
+        PetscFunctionReturn(0);
+    }}
+    """
+        argtypes = [ctypes.c_voidp, ctypes.c_voidp,
+                    ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
+        funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
+                             restype=ctypes.c_int)
+
+        @PETSc.Log.EventDecorator(name)
+        def wrapper(A, B, rows, cols, addv):
+            return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
+
+        return wrapper
+
+
+
 class PoissonFDMPC(FDMPC):
     """
     A preconditioner for tensor-product elements that changes the shape
@@ -1626,10 +1623,10 @@ class PoissonFDMPC(FDMPC):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg triu: are we assembling only the upper triangular part?
         """
+        triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
         set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
-        triu = mat_type.getType().endswith("sbaij")
 
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             # Be careful not to create new arrays
