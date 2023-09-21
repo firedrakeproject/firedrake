@@ -50,7 +50,7 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    return tsfc_interface.TSFCKernel(mass, 'mass', parameters["form_compiler"], {}, None).cache_key
+    return tsfc_interface.TSFCKernel(mass, 'mass', parameters["form_compiler"], (), None).cache_key
 
 
 class TestTSFCCache:
@@ -64,7 +64,7 @@ mesh = UnitSquareMesh(1, 1)
 V = FunctionSpace(mesh, "CG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
-key = tsfc_interface.TSFCKernel(inner(u,v)*dx, "mass", parameters["form_compiler"], {{}}, None).cache_key
+key = tsfc_interface.TSFCKernel(inner(u,v)*dx, "mass", parameters["form_compiler"], (), None).cache_key
 with open("{file}", "w") as f:
     f.write(key)
         """

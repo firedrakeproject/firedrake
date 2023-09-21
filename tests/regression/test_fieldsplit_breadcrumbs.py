@@ -34,6 +34,6 @@ def test_fieldsplit_breadcrumbs():
         u_source.assign(g*i)
         solver.solve()
 
-        u, eta = solution.split()
+        u, eta = solution.subfunctions
         assert numpy.allclose(u.dat.data_ro, u_source.dat.data_ro)
         assert numpy.allclose(eta.dat.data_ro, 0)

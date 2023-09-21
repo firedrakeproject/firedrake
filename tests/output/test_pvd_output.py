@@ -99,7 +99,7 @@ def test_bad_cell(pvd):
 
 
 def test_not_function(mesh, pvd):
-    c = Constant(1, domain=mesh)
+    c = Constant(1)
     with pytest.raises(ValueError):
         pvd.write(c)
 

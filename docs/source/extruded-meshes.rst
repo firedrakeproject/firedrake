@@ -103,13 +103,13 @@ same effect:
 
 The base mesh and extruded mesh are shown below.
 
-.. figure:: images/UnitSquare44.png
-  :scale: 60 %
-  :align: left
+.. |square| image:: images/UnitSquare44.png
+  :width: 49 %
 
-.. figure:: images/UnifExt.png
-  :scale: 54 %
-  :align: right
+.. |cube| image:: images/UnifExt.png
+  :width: 49 %
+
+|square| |cube|
 
 Radial Extrusion
 ~~~~~~~~~~~~~~~~
@@ -125,13 +125,13 @@ which a circle is extruded into an annulus, is:
 
 The base mesh and extruded mesh are shown below.
 
-.. figure:: images/CircleMM20.png
-  :scale: 64 %
-  :align: left
+.. |circle| image:: images/CircleMM20.png
+  :width: 49 %
 
-.. figure:: images/RadExt2D.png
-  :scale: 65 %
-  :align: right
+.. |annulus| image:: images/RadExt2D.png
+  :width: 49 %
+
+|circle| |annulus|
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
@@ -143,13 +143,13 @@ annulus, is:
 
 The base mesh and part of the extruded mesh are shown below.
 
-.. figure:: images/Icos3.png
-  :scale: 65 %
-  :align: left
+.. |isocahedralsphere| image:: images/Icos3.png
+  :width: 49 %
 
-.. figure:: images/RadExt3D.png
-  :scale: 69 %
-  :align: right
+.. |isocahedralshell| image:: images/RadExt3D.png
+  :width: 49 %
+
+|isocahedralsphere| |isocahedralshell|
 
 Hedgehog Extrusion
 ~~~~~~~~~~~~~~~~~~
@@ -173,13 +173,13 @@ annulus, is:
 
 The 2D and 3D hedgehog-extruded meshes are shown below.
 
-.. figure:: images/HedgeExt2D.png
-  :scale: 62 %
-  :align: left
+.. |hedge2d| image:: images/HedgeExt2D.png
+  :width: 49 %
 
-.. figure:: images/HedgeExt3D.png
-  :scale: 67 %
-  :align: right
+.. |hedge3d| image:: images/HedgeExt3D.png
+  :width: 49 %
+
+|hedge2d| |hedge3d|
 
 Custom Extrusion
 ~~~~~~~~~~~~~~~~
@@ -258,7 +258,7 @@ offset cells must, at least, share a vertex with some other cell.
    the parallel distribution).
 
 For more details on the implementation, see
-:mod:`firedrake.extrusion_numbering`.
+:mod:`firedrake.cython.extrusion_numbering`.
 
 
 Function Spaces on Extruded Meshes
@@ -368,7 +368,7 @@ The ``HDivElement`` and ``HCurlElement`` operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
-:py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
+:py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of

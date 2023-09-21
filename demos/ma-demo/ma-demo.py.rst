@@ -168,6 +168,7 @@ and use GAMG to approximate the inverse of the Schur complement matrix. ::
   #
      "fieldsplit_1_ksp_type": "preonly",
      "fieldsplit_1_pc_type": "gamg",
+     "fieldsplit_1_mg_levels_pc_type": "sor",
 
 Finally, we'd like to see some output to check things are working, and
 to limit the KSP solver to 20 iterations. ::
@@ -185,7 +186,7 @@ We then put all of these options into the iterative solver, ::
 
 and output the solution to a file. ::
 
-  u, sigma = w.split()
+  u, sigma = w.subfunctions
   u_solv.solve()
   File("u.pvd").write(u)
 
@@ -194,8 +195,8 @@ An image of the solution is shown below.
 .. figure:: ma.png
    :align: center
 
-A python script version of this demo can be found `here
-<ma-demo.py>`__.
+A python script version of this demo can be found :demo:`here
+<ma-demo.py>`.
 
 .. rubric:: References
 

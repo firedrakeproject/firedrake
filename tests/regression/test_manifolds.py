@@ -43,7 +43,7 @@ def run_no_manifold():
     solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x[0] - 0.5)
 
-    u, p = up.split()
+    u, p = up.subfunctions
     assert errornorm(exact, p, degree_rise=0) < 1e-8
 
 
@@ -85,7 +85,7 @@ def run_manifold():
     solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters=params)
     exact = Function(V1).interpolate(x_n[0] - 0.5)
 
-    u, p = up.split()
+    u, p = up.subfunctions
     assert errornorm(exact, p, degree_rise=0) < 1e-8
 
 

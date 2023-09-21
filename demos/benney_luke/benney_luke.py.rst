@@ -10,8 +10,7 @@ Benney-Luke equations: a reduced water wave model
     The work is based on the article "Variational water wave
     modelling: from continuum to experiment" by Onno Bokhove and Anna
     Kalogirou :cite:`2015:lmscup`. The authors gratefully
-    acknowledge funding from EPSRC grant no. `EP/L025388/1
-    <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/L025388/1>`__
+    acknowledge funding from EPSRC grant no. EP/L025388/1
     with a link to the Dutch Technology Foundation STW for the project
     "FastFEM: behavior of fast ships in waves".
 
@@ -53,10 +52,18 @@ Note that the Neumann boundary conditions have been used to remove every surface
 
 .. math::
 
-  \int_{\Omega} \frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\right)\cdot\nabla v + \eta^n\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\
-  \int_{\Omega} q^{n+1/2}\,v - \frac{2}{3}\nabla\phi^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\
-  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v - \frac{1}{2}\Bigl( \left(1+\epsilon\eta^{n+1}\right) + \left(1+\epsilon\eta^n\right) \Bigr)\nabla\phi^{n+1/2}\cdot\nabla v - \mu\nabla q^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\
-  \int_{\Omega} \frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\right)\cdot\nabla v + \eta^{n+1}\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\
+  \int_{\Omega} \frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1/2}-\phi^n}{\frac{1}{2}\!dt}\right)\cdot\nabla v \hspace{8em}\\
+  + \eta^n\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} q^{n+1/2}\,v - \frac{2}{3}\nabla\phi^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v \hspace{8em}\\
+  - \frac{1}{2}\Bigl( \left(1+\epsilon\eta^{n+1}\right) + \left(1+\epsilon\eta^n\right) \Bigr)\nabla\phi^{n+1/2}\cdot\nabla v \hspace{4em}\\
+  - \mu\nabla q^{n+1/2}\cdot\nabla v \,dx\,dy &= 0 \\\\
+  %
+  \int_{\Omega} \frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\right)\cdot\nabla v \hspace{8em}\\
+  + \eta^{n+1}\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\\\
+  %
   \int_{\Omega} q^{n+1}\,v - \frac{2}{3}\nabla\phi^{n+1}\cdot\nabla v \,dx\,dy &= 0.
 
 Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (correct up to order :math:`\epsilon`). The "exact" solutions can be found by assuming one-dimensional travelling waves of the type
@@ -214,7 +221,7 @@ We are now ready to enter the main time iteration loop::
 
 The output can be visualised using `paraview <http://www.paraview.org/>`__.
 
-A python script version of this demo can be found `here <benney_luke.py>`__.
+A python script version of this demo can be found :demo:`here <benney_luke.py>`.
 
 The Benney-Luke system and weak formulations presented in this demo have also been used to model extreme waves that occur due to Mach reflection through the intersection of two obliquely incident solitary waves. More information can be found in :cite:`Gidel:2017`.
 

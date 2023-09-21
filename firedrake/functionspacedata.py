@@ -37,6 +37,7 @@ from firedrake.petsc import PETSc
 __all__ = ("get_shared_data", )
 
 
+@PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")
 def create_element(ufl_element):
     finat_element = _create_element(ufl_element)
     if isinstance(finat_element, finat.TensorFiniteElement):
@@ -67,7 +68,7 @@ def cached(f, mesh, key, *args, **kwargs):
 
 
 @cached
-def get_global_numbering(mesh, key):
+def get_global_numbering(mesh, key, global_numbering=None):
     """Get a PETSc Section describing the global numbering.
 
     This numbering associates function space nodes with topological
@@ -80,6 +81,8 @@ def get_global_numbering(mesh, key):
         degenerate fs x Real tensorproduct.
     :returns: A new PETSc Section.
     """
+    if global_numbering:
+        return global_numbering
     nodes_per_entity, real_tensorproduct = key
     return mesh.create_section(nodes_per_entity, real_tensorproduct)
 
@@ -98,7 +101,7 @@ def get_node_set(mesh, key):
     nodes_per_entity, real_tensorproduct = key
     global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
-    halo = halo_mod.Halo(mesh.topology_dm, global_numbering)
+    halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = mesh.cell_set._extruded
 
@@ -195,23 +198,6 @@ def get_map_cache(mesh, key):
 
 
 @cached
-def get_dof_offset(mesh, key, entity_dofs, ndof):
-    """Get the dof offsets.
-
-    :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct) tuple where
-        entity_dofs_key is Canonicalised entity_dofs
-        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
-        function space is a degenerate fs x Real tensorproduct.
-    :arg entity_dofs: The FInAT entity_dofs dict.
-    :arg ndof: The number of dofs (the FInAT space_dimension).
-    :returns: A numpy array of dof offsets (extruded) or ``None``.
-    """
-    _, real_tensorproduct = key
-    return mesh.make_offset(entity_dofs, ndof, real_tensorproduct=real_tensorproduct)
-
-
-@cached
 def get_boundary_masks(mesh, key, finat_element):
     """Get masks for facet dofs.
 
@@ -297,6 +283,8 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
                                                 offset,
                                                 sub_domain)
     else:
+        if mesh.extruded_periodic and sub_domain == "top":
+            raise ValueError("Invalid subdomain 'top': 'top' boundary is identified as 'bottom' boundary in periodic extrusion")
         idx = {"bottom": -2, "top": -1}[sub_domain]
         section, indices, facet_points = V.cell_boundary_masks
         facet = facet_points[idx]
@@ -402,30 +390,6 @@ def entity_permutations_key(entity_permutations):
     return key
 
 
-def preprocess_ufl_element(mesh, ufl_element):
-    """Preprocess a UFL element for descretised representation
-
-    :arg mesh: The MeshTopology object
-    :arg ufl_element: The UFL element
-    :returns: A tuple of the FInAT element, entity_dofs, nodes_per_entity,
-        and real_tensorproduct derived from ufl_element.
-    """
-    if type(ufl_element) is ufl.MixedElement:
-        raise ValueError("Can't create FunctionSpace for MixedElement")
-    finat_element = create_element(ufl_element)
-    # Support foo x Real tensorproduct elements
-    real_tensorproduct = False
-    scalar_element = ufl_element
-    if isinstance(ufl_element, (ufl.VectorElement, ufl.TensorElement)):
-        scalar_element = ufl_element.sub_elements()[0]
-    if isinstance(scalar_element, ufl.TensorProductElement):
-        a, b = scalar_element.sub_elements()
-        real_tensorproduct = b.family() == 'Real'
-    entity_dofs = finat_element.entity_dofs()
-    nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-    return (finat_element, entity_dofs, nodes_per_entity, real_tensorproduct)
-
-
 class FunctionSpaceData(object):
     """Function spaces with the same entity dofs share data.  This class
     stores that shared data.  It is cached on the mesh.
@@ -435,16 +399,23 @@ class FunctionSpaceData(object):
     """
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
-                 "interior_facet_boundary_masks", "offset",
+                 "interior_facet_boundary_masks", "offset", "offset_quotient",
                  "extruded", "mesh", "global_numbering")
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element):
-        finat_element, entity_dofs, nodes_per_entity, real_tensorproduct = preprocess_ufl_element(mesh, ufl_element)
+        if type(ufl_element) is ufl.MixedElement:
+            raise ValueError("Can't create FunctionSpace for MixedElement")
+
+        finat_element = create_element(ufl_element)
+        real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
+        entity_dofs = finat_element.entity_dofs()
+        nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
         try:
             entity_permutations = finat_element.entity_permutations
         except NotImplementedError:
             entity_permutations = None
+
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct)
@@ -462,7 +433,16 @@ class FunctionSpaceData(object):
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
         self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key))
-        self.offset = get_dof_offset(mesh, (edofs_key, real_tensorproduct), entity_dofs, finat_element.space_dimension())
+
+        if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
+            self.offset = eutils.calculate_dof_offset(finat_element)
+        else:
+            self.offset = None
+        if isinstance(mesh, mesh_mod.ExtrudedMeshTopology) and mesh.extruded_periodic:
+            self.offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
+        else:
+            self.offset_quotient = None
+
         self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
@@ -504,7 +484,7 @@ class FunctionSpaceData(object):
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
-    def get_map(self, V, entity_set, map_arity, name, offset):
+    def get_map(self, V, entity_set, map_arity, name, offset, offset_quotient):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -512,18 +492,19 @@ class FunctionSpaceData(object):
         :arg entity_set: The :class:`pyop2.Set` of entities to map from.
         :arg map_arity: The arity of the resulting map.
         :arg name: A name for the resulting map.
-        :arg offset: Map offset (for extruded)."""
+        :arg offset: Map offset (for extruded).
+        :arg offset_quotient: Map offset_quotient (for extruded)."""
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
-
         val = self.map_cache[entity_set]
         if val is None:
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           entity_node_list,
                           ("%s_"+name) % (V.name),
-                          offset=offset)
+                          offset=offset,
+                          offset_quotient=offset_quotient)
 
             self.map_cache[entity_set] = val
         return val
@@ -531,13 +512,13 @@ class FunctionSpaceData(object):
 
 @PETSc.Log.EventDecorator()
 def get_shared_data(mesh, ufl_element):
-    """Return the :class:`FunctionSpaceData` for the given
+    """Return the ``FunctionSpaceData`` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
     :raises ValueError: if mesh or ufl_element are invalid.
-    :returns: a :class:`FunctionSpaceData` object with the shared
+    :returns: a ``FunctionSpaceData`` object with the shared
         data.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):

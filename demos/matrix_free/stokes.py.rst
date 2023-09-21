@@ -126,7 +126,7 @@ visualisation.  We split the function into its velocity and pressure
 parts and give them reasonable names, then write them to a paraview
 file.::
 
-  u, p = up.split()
+  u, p = up.subfunctions
   u.rename("Velocity")
   p.rename("Pressure")
 
@@ -151,4 +151,4 @@ matrix using unpreconditioned conjugate gradients. ::
   solve(a == L, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
 
 A runnable python script implementing this demo file is available
-`here <stokes.py>`__.
+:demo:`here <stokes.py>`.

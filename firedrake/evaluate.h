@@ -34,12 +34,12 @@ struct Function {
 	 */
 };
 
-typedef int (*inside_predicate)(void *data_,
+typedef PetscReal (*ref_cell_l1_dist)(void *data_,
 				struct Function *f,
 				int cell,
 				double *x);
 
-typedef int (*inside_predicate_xtr)(void *data_,
+typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
 				struct Function *f,
 				int cell,
 				int layer,
@@ -48,9 +48,11 @@ typedef int (*inside_predicate_xtr)(void *data_,
 extern int locate_cell(struct Function *f,
 		       double *x,
 		       int dim,
-		       inside_predicate try_candidate,
-		       inside_predicate_xtr try_candidate_xtr,
-		       void *data_);
+		       ref_cell_l1_dist try_candidate,
+		       ref_cell_l1_dist_xtr try_candidate_xtr,
+		       void *temp_ref_coords,
+		       void *found_ref_coords,
+		       double *found_ref_cell_dist_l1);
 
 extern int evaluate(struct Function *f,
 		    double *x,

@@ -117,6 +117,19 @@ def test_real_mixed_monolithic_two_form_assembly():
 
 
 @pytest.mark.skipcomplex
+def test_real_mixed_empty_component_assembly():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, 'CG', 1)
+    R = FunctionSpace(mesh, 'R', 0)
+    W = V * R
+    w = Function(W)
+    v, _ = split(w)
+    # This assembly has an empty block since the R component doesn't appear.
+    # The test passes if the empty block doesn't cause the assembly to fail.
+    assemble(derivative(inner(grad(v), grad(v)) * dx, w))
+
+
+@pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
     mesh = ExtrudedMesh(m, 10)
@@ -161,7 +174,7 @@ def test_real_mixed_solve():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.split()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -194,7 +207,7 @@ def test_real_mixed_solve_split_comms():
         f = Function(mfs)
         x = SpatialCoordinate(mesh)
 
-        f0, _ = f.split()
+        f0, _ = f.subfunctions
 
         f0.interpolate(cos(x[0]))
 
@@ -230,7 +243,7 @@ def test_real_space_mixed_assign():
 
     f = Function(W)
 
-    q, v = f.split()
+    q, v = f.subfunctions
 
     q.assign(2)
     g = Function(V)
@@ -241,6 +254,20 @@ def test_real_space_mixed_assign():
     assert np.allclose(float(g), 1.0)
     assert np.allclose(float(g), float(v))
     assert np.allclose(q.dat.data_ro, 2.0)
+
+    a = Function(W)
+    b = Function(W).assign(2)
+
+    with pytest.raises(ValueError):
+        a.assign(b, subset="not None")
+
+    a.assign(2*b)  # a = 2*2
+    b += 3*a  # b = 2 + 3*4
+
+    assert np.allclose(a.dat.split[0].data_ro, 4.0)
+    assert np.allclose(a.dat.split[1].data_ro, 4.0)
+    assert np.allclose(b.dat.split[0].data_ro, 14.0)
+    assert np.allclose(b.dat.split[1].data_ro, 14.0)
 
 
 @pytest.mark.skipcomplex
@@ -258,11 +285,11 @@ def test_real_space_assign():
     f = Function(V)
     f.assign(2)
     g = Function(V)
-    g.assign(2*f + f**3)
+    g.assign(2*f)
     h = Function(V)
     h.assign(0.0)
     assert np.allclose(float(f), 2.0)
-    assert np.allclose(float(g), 12.0)
+    assert np.allclose(float(g), 4.0)
     assert np.allclose(float(h), 0.0)
 
 

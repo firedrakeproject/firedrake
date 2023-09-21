@@ -85,7 +85,7 @@ def test_nested_split_multigrid(parameters):
     F += inner(s, r)*dx - inner(x, r)*dx
 
     expect = Function(W)
-    u_expect, p_expect, s_expect = expect.split()
+    u_expect, p_expect, s_expect = expect.subfunctions
 
     u_expect.interpolate(x**2 + y**2)
     p_expect.interpolate(sin(pi*x)*tan(pi*x*0.25)*sin(pi*y))
@@ -98,7 +98,7 @@ def test_nested_split_multigrid(parameters):
     solver = NonlinearVariationalSolver(problem, options_prefix="",
                                         solver_parameters=parameters)
     solver.solve()
-    u, p, s = w.split()
+    u, p, s = w.subfunctions
 
     assert norm(assemble(u_expect - u)) < 5e-5
     assert norm(assemble(p_expect - p)) < 1e-6

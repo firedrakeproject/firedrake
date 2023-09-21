@@ -118,3 +118,14 @@ def test_randomfunc_parallel_philox():
         f = rg_wrap.beta(V, 0.3, 0.5)
         with f.dat.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
+
+
+@pytest.mark.skip(reason="Require numpy>=1.25.0")
+def test_randomfunc_generator_spawn():
+    parent = randomfunctiongen.Generator()
+    children = parent.spawn(4)
+    assert all([isinstance(child, type(parent))] for child in children)
+    assert all([isinstance(child.bit_generator, type(parent.bit_generator)) for child in children])
+    assert all([child.bit_generator._seed_seq.entropy == parent.bit_generator._seed_seq.entropy for child in children])
+    assert all([child.bit_generator._seed_seq.spawn_key == parent.bit_generator._seed_seq.spawn_key + (i, ) for i, child in enumerate(children)])
+    assert all([child.bit_generator._seed_seq.pool_size == parent.bit_generator._seed_seq.pool_size for child in children])

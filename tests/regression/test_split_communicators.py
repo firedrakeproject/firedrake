@@ -35,7 +35,8 @@ def test_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        solve(inner(u, v) * dx == inner(Constant((1, 0)), v) * dx, f)
+        const = Constant((1, 0), domain=m)
+        solve(inner(u, v) * dx == inner(const, v) * dx, f)
 
-        expect = Function(V).interpolate(Constant((1, 0)))
+        expect = Function(V).interpolate(const)
         assert np.allclose(expect.dat.data, f.dat.data)

@@ -1,10 +1,11 @@
 import pytest
 import numpy as np
 from firedrake import *
+from itertools import product
 
 
-@pytest.mark.parametrize('degree', [1, 2])
-def test_lvp_equiv_hdg(degree):
+@pytest.mark.parametrize(('degree', 'nested', 'elimination'), list(product([1, 2], [True, False], ['0,1', '1,0'])))
+def test_lvp_equiv_hdg(degree, nested, elimination):
     """Runs an HDG problem and checks that passing
     a Slate-defined problem into a variational problem
     produces the same result for the traces as solving
@@ -46,16 +47,21 @@ def test_lvp_equiv_hdg(degree):
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': '0, 1',
+              'pc_sc_eliminate_fields': elimination,
               'condensed_field': {'ksp_type': 'preonly',
                                   'pc_type': 'lu',
                                   'pc_factor_mat_solver_type': 'mumps',
                                   'mat_mumps_icntl_14': 200}}
+
+    if nested:
+        params['condensed_field']['localsolve'] = {'ksp_type': 'preonly',
+                                                   'pc_type': 'fieldsplit',
+                                                   'pc_fieldsplit_type': 'schur'}
     ref_problem = LinearVariationalProblem(a, L, s)
     ref_solver = LinearVariationalSolver(ref_problem, solver_parameters=params)
     ref_solver.solve()
 
-    _, __, uhat_ref = s.split()
+    _, __, uhat_ref = s.subfunctions
 
     # Now using Slate expressions only
     _O = Tensor(a)

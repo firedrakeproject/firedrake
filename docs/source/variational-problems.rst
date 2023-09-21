@@ -77,6 +77,7 @@ of standard shapes.  1-dimensional intervals may be constructed with
 example to build unit square meshes).  See
 :mod:`~firedrake.utility_meshes` for full details.
 
+.. _immersed_manifolds:
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -96,7 +97,7 @@ dimension.  For example, for the surface of a sphere embedded in 3D we
 use:
 
 .. code-block:: python3
-   
+
    sphere_mesh = Mesh('sphere_mesh.node', dim=3)
 
 Firedrake provides utility meshes for the surfaces of spheres immersed
@@ -129,7 +130,7 @@ is used by Firedrake to ensure that the cell normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
-:py:meth:`~.Mesh.init_cell_orientations`, which
+``~.Mesh.init_cell_orientations``, which
 takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
@@ -259,6 +260,9 @@ extruded ("vertical") space.  Firedrake allows us to separately choose
 the horizontal and vertical spaces when building a function space on
 an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
+
+
+.. _supported_elements:
 
 Supported finite elements
 -------------------------
@@ -632,6 +636,8 @@ we can write:
        t += dt
        c.assign(t)
 
+.. _more_complicated_forms:
+
 More complicated forms
 ----------------------
 
@@ -650,8 +656,8 @@ problems.
 .. _triangle: http://www.cs.cmu.edu/~quake/triangle.html
 .. _Gmsh: http://gmsh.info/
 .. _CGNS: http://cgns.github.io/
-.. _Exodus: https://gsjaardema.github.io/seacas/exodusII-new.pdf
-.. _UFL: http://arxiv.org/abs/1211.4047
+.. _Exodus: https://sandialabs.github.io/seacas-docs/sphinx/html/
+.. _UFL: https://arxiv.org/abs/1211.4047
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold

@@ -25,26 +25,32 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     if mesh is None:
         mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
-
     # Define variational problem
+    dim = mesh.ufl_cell().topological_dimension()
     lmbda = 1
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Function(V)
+    expect = Function(V)
     x = SpatialCoordinate(mesh)
-    f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
+    if dim == 2:
+        f.interpolate((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
+        expect.interpolate(cos(x[0]*pi*2)*cos(x[1]*pi*2))
+    elif dim == 3:
+        r = 2.0
+        f.interpolate((1+12*pi*pi/r/r)*cos(x[0]*pi*2/r)*cos(x[1]*pi*2/r)*cos(x[2]*pi*2/r))
+        expect.interpolate(cos(x[0]*pi*2/r)*cos(x[1]*pi*2/r)*cos(x[2]*pi*2/r))
+    else:
+        raise NotImplementedError(f"Not for dim = {dim}")
     a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
     L = inner(f, v) * dx
-
     # Compute solution
     assemble(a)
     assemble(L)
     sol = Function(V)
     solve(a == L, sol, solver_parameters={'ksp_type': 'cg'})
-
     # Analytical solution
-    f.interpolate(cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    return sqrt(assemble(inner(sol - f, sol - f) * dx)), sol, f
+    return sqrt(assemble(inner(sol - expect, sol - expect) * dx)), sol, expect
 
 
 def run_firedrake_helmholtz():

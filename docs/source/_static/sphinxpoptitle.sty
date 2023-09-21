@@ -1,0 +1,93 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{sphinxpoptitle}[2023/01/18 Firedrake manual title page.]
+
+%\RequirePackage{fontspec}
+%\setsansfont{TeX Gyre Heros}
+\RequirePackage[british]{babel}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[absolute]{textpos}
+\RequirePackage{xcolor}
+\RequirePackage{graphicx}
+\RequirePackage{etoolbox}
+\RequirePackage[
+    type={CC},
+    modifier={by},
+    version={4.0},
+]{doclicense}
+\RequirePackage{fmtcount}
+\RequirePackage{hyperref}
+\RequirePackage{titling}
+\RequirePackage{multicol}
+\RequirePackage{sphinx}
+
+\newcommand{\editions}{}
+\newcommand{\edition}[1]{\listadd{\editions}{#1}}
+\makeatletter
+\providecommand\subtitle[1]{\renewcommand\thesubtitle{#1}}
+\newcommand\thesubtitle{\@latex@error{No \noexpand\subtitle given}\@ehc}
+\makeatother
+
+\setlength{\TPHorizModule}{1mm}
+\setlength{\TPVertModule}{\TPHorizModule}
+\textblockorigin{0mm}{0mm}
+
+
+\definecolor{imperialblue}{cmyk}{1,.61,0,.45}
+
+\newcommand{\sphinxpoptitlepages}{
+\clearpage
+\thispagestyle{empty}
+    \newcounter{edcnt}
+    \setcounter{edcnt}{0}
+    \renewcommand*{\do}[1]{\stepcounter{edcnt}
+\ifdefined\thisedition
+    \renewcommand{\thisedition}{\Ordinalstring{edcnt} edition}
+\else
+    \newcommand{\thisedition}{}
+\fi
+}
+    \dolistloop{\editions}
+
+\begin{textblock}{116}(17.5,17.5)
+    \sphinxlogo
+\end{textblock}
+
+\begin{textblock}{154}(17.5,74.25)
+    {\sffamily\fontsize{25}{30}\selectfont\noindent\thetitle}
+
+    {\sffamily\fontsize{17}{20}\selectfont\noindent\thesubtitle
+    \vspace{\parskip}
+
+    {\noindent\Large
+    \begin{multicols}{2}
+        \theauthor
+    \end{multicols}
+    }
+    \vspace{7\parskip}
+
+    \noindent{\itshape\thisedition}}
+\end{textblock}
+
+\mbox{}
+\pagebreak
+
+\begin{textblock}{146}[0,1](17.5,230.5)
+    {
+    \sffamily\fontsize{12}{14}\selectfont
+    \setcounter{edcnt}{0}
+    \renewcommand*{\do}[1]{\stepcounter{edcnt}\noindent\Ordinalstring{edcnt} edition: ##1
+    \vspace{1ex}
+
+    }
+    \dolistloop{\editions}
+    \vspace{2ex}
+    \noindent\copyright\ \theauthor
+    \doclicenseThis
+    }
+\end{textblock}
+
+\mbox{}
+\setcounter{page}{0}
+\thispagestyle{empty}
+\clearpage
+}

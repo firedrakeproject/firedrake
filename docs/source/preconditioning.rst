@@ -10,7 +10,7 @@
 Firedrake has tight coupling with the `PETSc <https://petsc.org>`__
 library which provides support for a wide range of preconditioning
 strategies, see the relevant `PETSc documentation
-<https://petsc.org/release/docs/manual/ksp/#preconditioners>`__ for an
+<https://petsc.org/release/manual/ksp/#preconditioners>`__ for an
 overview.
 
 In addition to these algebraic approaches, Firedrake offers a flexible
@@ -27,7 +27,7 @@ Additive Schwarz methods
 
 Small-block overlapping additive Schwarz preconditioners built on top
 of `PCASM
-<https://petsc.org/release/docs/manualpages/PC/PCASM.html>`__ that can
+<https://petsc.org/release/manualpages/PC/PCASM.html>`__ that can
 be used as components of robust multigrid schemes when using geometric
 multigrid.
 
@@ -50,7 +50,7 @@ multigrid.
 
 In addition to these algebraic approaches to constructing patches,
 Firedrake also interfaces with `PCPATCH
-<https://petsc.org/release/docs/manualpages/PC/PCPATCH.html>`__ for
+<https://petsc.org/release/manualpages/PC/PCPATCH.html>`__ for
 both linear and nonlinear overlapping Schwarz methods. The approach is
 described in detail in :cite:`Farrell2019d`. These preconditioners can
 be used with both sparse matrices and Firedrake's :doc:`matrix-free
@@ -135,7 +135,7 @@ operator instead.
    An auxiliary operator that uses piecewise-constant coefficients
    that is assembled in the basis of shape functions that diagonalize
    separable problems in the interior of each cell. Currently
-   implemented for quadilateral and hexahedral cells. The assembled
+   implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
    :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2021`.

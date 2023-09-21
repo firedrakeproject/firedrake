@@ -81,9 +81,8 @@ def test_3d(func3d):
 
 def test_cylinder(cylinder_mesh):
     f = cylinder_mesh.coordinates
-    with pytest.raises(NotImplementedError):
-        # Manifold point location not implemented
-        f([0.70710678118, +0.70710678118, 0.0])
+    point = [0.70710678118, +0.70710678118, 0.0]
+    assert np.allclose(f(point), point)
 
 
 def test_spherical_shell(spherical_shell_mesh):

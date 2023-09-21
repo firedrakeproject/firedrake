@@ -245,7 +245,7 @@ execute the time loop. ::
           v.project(gradperp(psi0))
           output.write(q0, psi0, v, time=t)
 
-A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
+A python script version of this demo can be found :demo:`here <qg_1layer_wave.py>`.
 
 .. rubric:: References
 

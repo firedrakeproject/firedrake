@@ -99,8 +99,7 @@ class VertexBasedLimiter(Limiter):
                  dx,
                  {"maxq": (self.max_field, MAX),
                   "minq": (self.min_field, MIN),
-                  "q": (self.centroids, READ)},
-                 is_loopy_kernel=True)
+                  "q": (self.centroids, READ)})
 
     def apply_limiter(self, field):
         """
@@ -110,8 +109,7 @@ class VertexBasedLimiter(Limiter):
                  {"qbar": (self.centroids, READ),
                   "q": (field, RW),
                   "qmax": (self.max_field, READ),
-                  "qmin": (self.min_field, READ)},
-                 is_loopy_kernel=True)
+                  "qmin": (self.min_field, READ)})
 
     def apply(self, field):
         """

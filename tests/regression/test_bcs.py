@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.mesh import _from_cell_list as create_dm
+from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
 
@@ -276,7 +276,10 @@ def test_overlapping_bc_nodes(quad):
     assert np.allclose(A, np.identity(V.dof_dset.size))
 
 
-def test_mixed_bcs():
+@pytest.mark.parametrize("diagonal",
+                         [False, True],
+                         ids=["matrix", "diagonal"])
+def test_mixed_bcs(diagonal):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     W = V*V
@@ -285,11 +288,12 @@ def test_mixed_bcs():
 
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
-    A = assemble(inner(u, v)*dx, bcs=bc)
-
-    A11 = A.M[1, 1].values
-
-    assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+    A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    if diagonal:
+        data = A.dat[1].data
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
@@ -321,16 +325,18 @@ def test_bc_nodes_cover_ghost_dofs():
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
-    dm = create_dm(2, [[0, 1, 2],
-                       [1, 2, 3],
-                       [1, 3, 4]],
-                   [[0, 0],
-                    [1, 0],
-                    [0, 1],
-                    [0.5, 1],
-                    [1, 1]],
-                   COMM_WORLD)
-
+    dm = plex_from_cell_list(
+        2,
+        [[0, 1, 2],
+         [1, 2, 3],
+         [1, 3, 4]],
+        [[0, 0],
+         [1, 0],
+         [0, 1],
+         [0.5, 1],
+         [1, 1]],
+        comm=COMM_WORLD
+    )
     dm.createLabel("Face Sets")
 
     if dm.comm.rank == 0:
@@ -377,3 +383,31 @@ def test_bcs_string_bc_list():
     DirichletBC(V, Constant(1), "bottom").apply(u1)
 
     assert np.allclose(u0.dat.data, u1.dat.data)
+
+
+def test_bcs_mixed_real():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "R", 0)
+    V = V0 * V1
+    v0, v1 = TestFunctions(V)
+    u0, u1 = TrialFunctions(V)
+    bc = DirichletBC(V.sub(0), 0.0, 1)
+    a = inner(u1, v0) * dx + inner(u0, v1) * dx
+    A = assemble(a, bcs=[bc, ])
+    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
+    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+
+
+def test_bcs_mixed_real_vector():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V0 = VectorFunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "R", 0)
+    V = V0 * V1
+    v0, v1 = TestFunctions(V)
+    u0, u1 = TrialFunctions(V)
+    bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
+    a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
+    A = assemble(a, bcs=[bc, ])
+    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
+    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])

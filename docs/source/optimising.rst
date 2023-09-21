@@ -38,8 +38,8 @@ informative flame graphs giving a lot of insight into the internals of
 Firedrake and PETSc.
 
 As an example, here is a flame graph showing the performance of the
-`scalar wave equation with higher-order mass lumping demo
-<https://firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
+:demo:`scalar wave equation with higher-order mass lumping demo
+<higher_order_mass_lumping.py>`.
 It is interactive and you can zoom in on functions by clicking.
 
 .. raw:: html
@@ -70,7 +70,7 @@ To generate a flame graph from your Firedrake script you need to:
    called ``foo.txt`` containing the profiling information.
 
 2. Visualise the results. This can be done in one of two ways:
-    
+
    * Generate an SVG file using the ``flamegraph.pl`` script from
      `this repository <https://github.com/brendangregg/FlameGraph>`_
      with the command:
@@ -92,7 +92,7 @@ are a few different ways of doing it. The simplest methods are:
 * With a context manager:
 
   .. code-block:: python
-      
+
       from firedrake.petsc import PETSc
 
       with PETSc.Log.Event("foo"):
@@ -135,10 +135,10 @@ Caveats
   This issue can be avoided with the simple guard:
 
   .. code-block:: python
-  
+
     from firedrake.petsc import OptionsManager
 
-    # If the -log_view flag is passed you don't need to call 
+    # If the -log_view flag is passed you don't need to call
     # PETSc.Log.begin because it is done automatically.
     if "log_view" not in OptionsManager.commandline_options:
         PETSc.Log.begin()

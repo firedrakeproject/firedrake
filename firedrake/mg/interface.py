@@ -4,6 +4,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from . import utils
 from . import kernels
+from ufl.domain import extract_unique_domain
 
 
 __all__ = ["prolong", "restrict", "inject"]
@@ -32,7 +33,7 @@ def prolong(coarse, fine):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(coarse.split(), fine.split()):
+        for in_, out in zip(coarse.subfunctions, fine.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.prolong(in_, out)
         return fine
@@ -44,8 +45,8 @@ def prolong(coarse, fine):
             src.copy(dest)
         return fine
 
-    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
-    _, fine_level = utils.get_level(fine.ufl_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
+    _, fine_level = utils.get_level(extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
@@ -93,7 +94,7 @@ def restrict(fine_dual, coarse_dual):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(fine_dual.split(), coarse_dual.split()):
+        for in_, out in zip(fine_dual.subfunctions, coarse_dual.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.restrict(in_, out)
         return coarse_dual
@@ -105,8 +106,8 @@ def restrict(fine_dual, coarse_dual):
             src.copy(dest)
         return coarse_dual
 
-    hierarchy, coarse_level = utils.get_level(coarse_dual.ufl_domain())
-    _, fine_level = utils.get_level(fine_dual.ufl_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse_dual))
+    _, fine_level = utils.get_level(extract_unique_domain(fine_dual))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
@@ -155,7 +156,7 @@ def inject(fine, coarse):
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
-        for in_, out in zip(fine.split(), coarse.split()):
+        for in_, out in zip(fine.subfunctions, coarse.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.inject(in_, out)
         return
@@ -179,10 +180,10 @@ def inject(fine, coarse):
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
-    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-    _, fine_level = utils.get_level(fine.ufl_domain())
+    _, fine_level = utils.get_level(extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level

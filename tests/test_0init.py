@@ -2,7 +2,8 @@ from firedrake import *
 
 
 def test_pyop2_not_initialised():
-    """Check that PyOP2 has not been initialised yet."""
+    """Check that PyOP2 has not been initialised yet.
+       The test fails if another test builds a firedrake object not in a fixture."""
     assert not op2.initialised()
 
 

@@ -41,7 +41,7 @@ def test_multiple_poisson_Pn(quadrilateral, degree):
 
     wexact = Function(W)
 
-    u, p = wexact.split()
+    u, p = wexact.subfunctions
 
     xs = SpatialCoordinate(mesh)
     u.interpolate(1 + 9*xs[2])
@@ -88,7 +88,7 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
 
     wexact = Function(W)
 
-    u, p = wexact.split()
+    u, p = wexact.subfunctions
 
     xs = SpatialCoordinate(mesh)
     u.interpolate(11 - xs[2])
@@ -134,7 +134,7 @@ def test_stokes_taylor_hood(mat_type):
 
     w = Function(W)
 
-    u, p = w.split()
+    u, p = w.subfunctions
     solve(a == L, w, bcs=bcs,
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'schur',

@@ -63,7 +63,7 @@ def setup_poisson_3D():
     W = V * U
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    V, U = W.split()
+    V, U = W.subfunctions
     f = Function(U)
     x, y, z = SpatialCoordinate(mesh)
     expr = (1+12*pi*pi)*cos(100*pi*x)*cos(100*pi*y)*cos(100*pi*z)
@@ -109,7 +109,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu'}}
     solve(a == L, w, solver_parameters=params)
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # (Non-hybrid) Need to slam it with preconditioning due to the
     # system's indefiniteness
@@ -122,7 +122,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
                              'pc_fieldsplit_schur_fact_type': 'FULL',
                              'fieldsplit_0_ksp_type': 'cg',
                              'fieldsplit_1_ksp_type': 'cg'})
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
@@ -186,7 +186,7 @@ def test_slate_hybridization_nested_schur():
                 'preonly_Shat': False, 'jacobi_Shat': False}
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     w2 = Function(W)
     solve(a == L, w2, solver_parameters={'ksp_type': 'preonly',
@@ -195,7 +195,7 @@ def test_slate_hybridization_nested_schur():
                                          'pc_python_type': 'firedrake.HybridizationPC',
                                          'hybridization': {'ksp_type': 'preonly',
                                                            'pc_type': 'lu'}})
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
@@ -289,7 +289,7 @@ def test_mixed_poisson_approximated_schur():
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
 
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # setup second solver
     w2 = Function(W)
@@ -302,7 +302,7 @@ def test_mixed_poisson_approximated_schur():
                                     'ksp_rtol': 1e-8,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
-    _sigma, _u = w2.split()
+    _sigma, _u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, _sigma)
@@ -354,7 +354,7 @@ def test_slate_hybridization_jacobi_prec_A00():
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
 
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # setup second solver
     w2 = Function(W)
@@ -367,7 +367,7 @@ def test_slate_hybridization_jacobi_prec_A00():
                                                'pc_type': 'none',
                                                'ksp_rtol': 1e-8,
                                                'mat_type': 'matfree'}})
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
@@ -418,7 +418,7 @@ def test_slate_hybridization_jacobi_prec_schur():
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
 
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # setup second solver
     w2 = Function(W)
@@ -431,7 +431,7 @@ def test_slate_hybridization_jacobi_prec_schur():
                                                'pc_type': 'none',
                                                'ksp_rtol': 1e-8,
                                                'mat_type': 'matfree'}})
-    nh_sigma, nh_u = w2.split()
+    nh_sigma, nh_u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, nh_sigma)
@@ -484,7 +484,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
     builder = solver.snes.ksp.pc.getPythonContext().getSchurComplementBuilder()
     assert options_check(builder, expected), "Some solver options have not ended up in the PC as wanted."
 
-    sigma_h, u_h = w.split()
+    sigma_h, u_h = w.subfunctions
 
     # setup second solver
     w2 = Function(W)
@@ -497,7 +497,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
                                     'ksp_rtol': 1e-8,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
-    _sigma, _u = w2.split()
+    _sigma, _u = w2.subfunctions
 
     # Return the L2 error
     sigma_err = errornorm(sigma_h, _sigma)

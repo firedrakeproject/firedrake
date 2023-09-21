@@ -387,7 +387,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
                                                            for f in fields]),
-                                        comm=W.comm)
+                                        comm=W._comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
             add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),

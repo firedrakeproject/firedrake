@@ -129,7 +129,7 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
     expected = Function(W)
 
-    u, p, r = expected.split()
+    u, p, r = expected.subfunctions
 
     x = SpatialCoordinate(V.mesh())
     u.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
@@ -189,7 +189,7 @@ def test_stokes_component_all():
     Ucmp = Function(W)
     solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters=params)
 
-    for a, b in zip(Uall.split(), Ucmp.split()):
+    for a, b in zip(Uall.subfunctions, Ucmp.subfunctions):
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 

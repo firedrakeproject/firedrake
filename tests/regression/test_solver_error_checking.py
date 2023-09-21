@@ -24,7 +24,7 @@ def L(V, f):
 
 @pytest.fixture
 def c(V):
-    return Constant(1, domain=V.mesh())
+    return Constant(1)
 
 
 def test_too_few_arguments(a, L):

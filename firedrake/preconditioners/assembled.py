@@ -1,12 +1,11 @@
 import abc
-import functools
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
-from firedrake.dmhooks import get_function_space, get_appctx
+from firedrake.dmhooks import get_function_space
 
 __all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 
@@ -21,7 +20,7 @@ class AssembledPC(PCBase):
     _prefix = "assembled_"
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, assemble
+        from firedrake.assemble import allocate_matrix, TwoFormAssembler
         _, P = pc.getOperators()
 
         if pc.getType() != "python":
@@ -56,13 +55,8 @@ class AssembledPC(PCBase):
                                  form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = functools.partial(assemble,
-                                             a,
-                                             tensor=self.P,
-                                             bcs=bcs,
-                                             form_compiler_parameters=fcp,
-                                             mat_type=mat_type,
-                                             assembly_type="residual")
+        self._assemble_P = TwoFormAssembler(a, tensor=self.P, bcs=bcs,
+                                            form_compiler_parameters=fcp).assemble
         self._assemble_P()
 
         # Transfer nullspace over
@@ -81,13 +75,9 @@ class AssembledPC(PCBase):
 
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. multigrid or patch solves.
-        from firedrake.variational_solver import NonlinearVariationalProblem
-        from firedrake.solving_utils import _SNESContext
         dm = opc.getDM()
-        octx = get_appctx(dm)
-        oproblem = octx._problem
-        nproblem = NonlinearVariationalProblem(oproblem.F, oproblem.u, bcs, J=a, form_compiler_parameters=fcp)
-        self._ctx_ref = _SNESContext(nproblem, mat_type, mat_type, octx.appctx, options_prefix=options_prefix)
+        self._ctx_ref = self.new_snes_ctx(opc, a, bcs, mat_type,
+                                          fcp=fcp, options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

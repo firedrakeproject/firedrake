@@ -3,6 +3,7 @@ import pytest
 
 import numpy as np
 import numpy.random as randomgen
+import inspect
 
 
 @pytest.mark.parametrize("brng", ['MT19937', 'PCG64', 'Philox', 'SFC64'])
@@ -82,3 +83,14 @@ def test_randomgen_brng(brng, meth_args_kwargs):
 
     for i in range(1, 10):
         assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), getattr(rg_wrap, meth)(*args, **kwargs))
+
+
+def test_randomgen_known_attributes():
+    _found_attributes = [name for name, _ in inspect.getmembers(randomgen) if not name.startswith('_')]
+    _found_generator_attributes = [name for name, _ in inspect.getmembers(randomgen.Generator) if not name.startswith('_')]
+    A = set(_found_attributes)
+    B = set(randomfunctiongen._known_attributes)
+    assert A.issubset(B)
+    A = set(_found_generator_attributes)
+    B = set(randomfunctiongen._known_generator_attributes)
+    assert A.issubset(B)

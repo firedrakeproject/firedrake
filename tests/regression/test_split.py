@@ -28,7 +28,7 @@ def test_function_split_raises():
 
     f = Function(W)
 
-    u, p = f.split()
+    u, p = f.subfunctions
 
     phi = u*dx + p*dx
 
@@ -45,7 +45,7 @@ def test_split_function_derivative():
 
     f = Function(W)
 
-    u, p = f.split()
+    u, p = f.subfunctions
 
     f.assign(1)
 

@@ -22,21 +22,25 @@ domain :math:`\Omega` satisfying
 
 .. math::
 
+   \begin{aligned}
    \sigma - \nabla u &= 0 \quad &\textrm{on}\ \Omega\\
    \nabla \cdot \sigma &= -f \quad &\textrm{on}\ \Omega\\
    u &= u_0 \quad &\textrm{on}\ \Gamma_D\\
    \sigma \cdot n &= g \quad &\textrm{on}\ \Gamma_N
+   \end{aligned}
 
 for some specified function :math:`f`.  We now seek :math:`(u, \sigma)
 \in V \times \Sigma` such that
 
 .. math::
 
+   \begin{aligned}
    \int_\Omega \sigma \cdot \tau + (\nabla \cdot \tau)\, u\,\mathrm{d}x
    &= \int_\Gamma (\tau \cdot n)\,u\,\mathrm{d}s &\quad \forall\ \tau
    \in \Sigma, \\
    \int_\Omega (\nabla \cdot \sigma)\,v\,\mathrm{d}x
    &= -\int_\Omega f\,v\,\mathrm{d}x &\quad \forall\ v \in V.
+   \end{aligned}
 
 A stable choice of discrete spaces for this problem is to pick
 :math:`\Sigma_h \subset \Sigma` to be the lowest order Raviart-Thomas
@@ -82,10 +86,10 @@ problem.  We will need some trial and test functions for the spaces::
     #
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
- 
+
 along with a function to hold the forcing term, living in the
 discontinuous space. ::
-    
+
     #
         f = Function(V)
 
@@ -125,7 +129,7 @@ a :class:`~.LinearSolver` object from this function, so we preassemble
 the operators to build it.  It is here that we must specify whether we
 want a monolithic matrix or not, by setting the matrix type
 parameter to :func:`~.assemble`.  ::
-  
+
     #
         if block_matrix:
             mat_type = 'nest'
@@ -170,12 +174,12 @@ GMRES with a restart length of 100, ::
         "ksp_gmres_restart": 100,
 
 solve to a relative tolerance of 1e-8, ::
-     
-    #    
+
+    #
         "ksp_rtol": 1e-8,
 
 and precondition with ILU(0). ::
- 
+
     #
         "pc_type": "ilu",
         }
@@ -217,7 +221,7 @@ Schur complement approaches
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A better approach is to use a Schur complement preconditioner,
-described in :ref:`mixed_preconditioning`.  The system we are trying
+described in :ref:`mixed-preconditioning`.  The system we are trying
 to solve is conceptually a :math:`2\times 2` block matrix.
 
 .. math::
@@ -278,7 +282,7 @@ the preconditioned operator will have at most three distinct
 eigenvalues :cite:`Murphy:2000` and hence GMRES should converge in at
 most three iterations.  To try this, we start out by exactly
 inverting :math:`A` and :math:`S` to check the convergence. ::
-       
+
         "fieldsplit_0_ksp_type": "cg",
         "fieldsplit_0_pc_type": "ilu",
         "fieldsplit_0_ksp_rtol": 1e-12,
@@ -480,7 +484,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
                 + (gamma/h)*inner(u, v)*ds)
             bcs = None
             return (a_dg, bcs)
-  
+
     parameters = {
         "ksp_type": "gmres",
         "ksp_rtol": 1e-8,
@@ -494,7 +498,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
         "fieldsplit_1_pc_python_type": __name__+ ".DGLaplacian",
         "fieldsplit_1_aux_pc_type": "hypre"
     }
-    
+
     print("DG approximation for S_p")
     for n in range(8):
         solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
@@ -538,7 +542,7 @@ providing a function that constructs this operator to our
     def riesz(W):
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
-    
+
         return (dot(sigma, tau) + div(sigma)*div(tau) + u*v)*dx
 
 Now we set up the solver parameters.  We will still use a
@@ -608,8 +612,8 @@ geometric multigrid method with overlapping Schwarz smoothers (using
 preconditioners ``AMS`` and ``ADS``. See the separate manual page on
 :doc:`../preconditioning`.
 
-A runnable python script version of this demo is available `here
-<saddle_point_systems.py>`__.
+A runnable python script version of this demo is available :demo:`here
+<saddle_point_systems.py>`.
 
 .. rubric:: References
 
@@ -618,6 +622,6 @@ A runnable python script version of this demo is available `here
 
 .. _PETSc: https://petsc.org/
 .. _hypre: https://hypre.readthedocs.io/en/latest/
-.. _PyOP2: http://github.com/OP2/PyOP2/
-.. _numpy: http://www.numpy.org
-.. _MUMPS: http://mumps.enseeiht.fr
+.. _PyOP2: https://github.com/OP2/PyOP2/
+.. _numpy: https://www.numpy.org
+.. _MUMPS: https://mumps-solver.org/index.php

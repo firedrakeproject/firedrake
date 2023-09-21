@@ -40,7 +40,7 @@ def run_stokes_mini(mat_type, n):
 
     w = Function(W)
 
-    u, p = w.split()
+    u, p = w.subfunctions
 
     solve(a == L, w, bcs=bcs,
           solver_parameters={'pc_type': 'fieldsplit',

@@ -41,7 +41,7 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -61,7 +61,7 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    ones = one.split()
+    ones = one.subfunctions
 
     # NOTE: interpolation of UFL expressions into mixed
     # function spaces is not yet implemented
@@ -87,7 +87,7 @@ def M(fs):
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
-    for f in one_form.split():
+    for f in one_form.subfunctions:
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
@@ -144,3 +144,125 @@ def test_assemble_diagonal_bcs(mesh):
     M = assemble(a, mat_type="aij", bcs=bc)
     Mdiag = assemble(a, bcs=bc, diagonal=True)
     assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)
+
+
+def test_zero_bc_nodes(mesh):
+    V = FunctionSpace(mesh, "P", 3)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(sin(x + y))
+    v = TestFunction(V)
+    bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
+    a = inner(grad(f), grad(v))*dx
+
+    b1 = assemble(a)
+    for bc in bcs:
+        bc.zero(b1)
+    b2 = assemble(a, bcs=bcs, zero_bc_nodes=True)
+    assert np.allclose(b1.dat.data, b2.dat.data)
+
+
+@pytest.mark.xfail(reason="Assembler caching not currently supported for zero forms")
+def test_zero_form_assembler_cache(mesh):
+    from firedrake.assemble import _FORM_CACHE_KEY
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    f = Function(V)
+    zero_form = action(conj(v)*dx, f)
+
+    assert _FORM_CACHE_KEY not in zero_form._cache.keys()
+
+    assemble(zero_form)
+    assert len(zero_form._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing form_compiler_parameters should increase the cache size
+    assemble(zero_form, form_compiler_parameters={"quadrature_degree": 2})
+    assert len(zero_form._cache[_FORM_CACHE_KEY]) == 2
+
+
+def test_one_form_assembler_cache(mesh):
+    from firedrake.assemble import _FORM_CACHE_KEY
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    L = conj(v) * dx
+
+    assert _FORM_CACHE_KEY not in L._cache.keys()
+
+    assemble(L)
+    assert len(L._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing tensor should not increase the cache size
+    tensor = Function(V)
+    assemble(L, tensor=tensor)
+    assert len(L._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing bcs should increase the cache size
+    bc = DirichletBC(V, 0, (1, 4))
+    assemble(L, bcs=bc)
+    assert len(L._cache[_FORM_CACHE_KEY]) == 2
+
+    # changing form_compiler_parameters should increase the cache size
+    assemble(L, form_compiler_parameters={"quadrature_degree": 2})
+    assert len(L._cache[_FORM_CACHE_KEY]) == 3
+
+    # changing zero_bc_nodes should increase the cache size
+    assemble(L, zero_bc_nodes=True)
+    assert len(L._cache[_FORM_CACHE_KEY]) == 4
+
+
+@pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
+def test_two_form_assembler_cache(mesh):
+    from firedrake.assemble import _FORM_CACHE_KEY
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx
+
+    assert _FORM_CACHE_KEY not in a._cache.keys()
+
+    M = assemble(a)
+    assert len(a._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing tensor should not increase the cache size
+    assemble(a, tensor=M.copy())
+    assert len(a._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing mat_type should not increase the cache size
+    assemble(a, mat_type="nest")
+    assert len(a._cache[_FORM_CACHE_KEY]) == 1
+
+    # changing bcs should increase the cache size
+    bc = DirichletBC(V, 0, (1, 4))
+    assemble(a, bcs=bc)
+    assert len(a._cache[_FORM_CACHE_KEY]) == 2
+
+    # specifying diagonal should increase the cache size
+    assemble(a, diagonal=True)
+    assert len(a._cache[_FORM_CACHE_KEY]) == 3
+
+    # changing form_compiler_parameters should increase the cache size
+    assemble(a, form_compiler_parameters={"quadrature_degree": 2})
+    assert len(a._cache[_FORM_CACHE_KEY]) == 4
+
+
+def test_assemble_only_valid_with_floats(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V, dtype=np.int32)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = dot(f*u, v) * dx
+    with pytest.raises(ValueError):
+        assemble(a)
+
+
+def test_assemble_mixed_function_sparse():
+    mesh = UnitSquareMesh(1, 1)
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V = V0 * V0 * V0 * V0 * V0 * V0 * V0 * V0
+    f = Function(V)
+    f.sub(1).interpolate(Constant(2.0))
+    f.sub(4).interpolate(Constant(3.0))
+    v = assemble((inner(f[1], f[1]) + inner(f[4], f[4])) * dx)
+    assert np.allclose(v, 13.0)

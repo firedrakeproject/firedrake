@@ -34,7 +34,7 @@ def degree(request):
                 ids=lambda x: "%s" % x)
 def V(request, mesh, degree):
     space = request.param
-    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant="integral")
+    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=f"integral({5*degree})")
     return FunctionSpace(mesh, V_el)
 
 

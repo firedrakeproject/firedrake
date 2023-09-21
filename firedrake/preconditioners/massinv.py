@@ -77,3 +77,7 @@ class MassInvPC(PCBase):
         super(MassInvPC, self).view(pc, viewer)
         viewer.printfASCII("KSP solver for M^-1\n")
         self.ksp.view(viewer)
+
+    def destroy(self, pc):
+        if hasattr(self, "ksp"):
+            self.ksp.destroy()
