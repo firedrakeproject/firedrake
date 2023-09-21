@@ -27,7 +27,6 @@ import FIAT
 import finat
 import numpy
 import ctypes
-import operator
 
 Citations().add("Brubeck2022a", """
 @article{Brubeck2022a,
@@ -252,7 +251,6 @@ class FDMPC(PCBase):
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
                 on_diag = Vrow == Vcol
-                triu = on_diag and symmetric
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
 
@@ -638,7 +636,6 @@ class ElementKernel(object):
         select_cols = ""
         if mat_type.endswith("sbaij"):
             select_cols = """
-    for (PetscInt i = 0; i < m; i++)
         for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
             indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);
     """
@@ -658,12 +655,12 @@ static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
     PetscMalloc1(ai[m], &indices);
     for (PetscInt j = 0; j < ai[m]; j++)
         indices[j] = cindices[aj[j]];
-    {select_cols}
 
     PetscCall(MatSeqAIJGetArray(B, &vals));
     for (PetscInt i = 0; i < m; i++) {{
         istart = ai[i];
         ncols = ai[i + 1] - istart;
+        {select_cols}
         PetscCall(MatSetValues(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
     }}
     PetscCall(MatSeqAIJRestoreArray(B, &vals));
@@ -869,7 +866,7 @@ static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
-    condense_code =  """
+    condense_code = """
 static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
     PetscBLASInt bn, lierr;
     PetscInt n, bsize, irow;
@@ -931,6 +928,7 @@ static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A
         result = self.work[0].transposeMatMult(self.work[0], result=result)
         result.aypx(-1.0, A11, structure=structure)
         return result
+
 
 class SchurComplementBlockLU(SchurComplementKernel):
 
@@ -1488,7 +1486,6 @@ class SparseAssembler(object):
             return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
 
         return wrapper
-
 
 
 class PoissonFDMPC(FDMPC):

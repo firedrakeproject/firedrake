@@ -420,9 +420,8 @@ def test_assemble_div():
     print("Time dense", tdense)
     Dgold = chop(Dgold, tol=1E-10)
 
-    #Dgold.view()
-
-    #Dlocal.view()
+    # Dgold.view()
+    # Dlocal.view()
 
     tstart = time.time()
     Dlocal = local_exterior_derivative(V0, V1)
@@ -445,7 +444,7 @@ def test_assemble_div():
     tsparse = time.time() - tstart
     print("Time sparse", tsparse)
 
-    #Dglobal.view()
+    # Dglobal.view()
     B = chop(Dgold - Dglobal, tol=1E-10)
 
     Z = B.copy()
@@ -470,7 +469,7 @@ def test_stiffness():
             family = "NCF"
             mesh = ExtrudedMesh(mesh, N)
 
-    #family = "Lagrange"
+    # family = "Lagrange"
     cell = mesh.ufl_cell()
     variant = "fdm"
     e = FiniteElement(family, cell, degree=degree, variant=variant)
@@ -488,7 +487,7 @@ def test_stiffness():
     Agold = chop(assemble(a).petscmat)
     tdense = time.time() - tstart
     print("Time dense", tdense)
-    #Agold.view()
+    # Agold.view()
 
     fcp = None
     coefficients, assembly_callables = assemble_coefficients(a, fcp)
@@ -528,9 +527,9 @@ def test_stiffness():
     tsparse = time.time() - tstart
     print("Time sparse", tsparse)
 
-    #Aglobal.view()
+    # Aglobal.view()
     B = Agold - Aglobal
-    #B.view()
+    # B.view()
     assert B.norm(norm_type=PETSc.NormType.FROBENIUS)/numpy.prod(B.getSize()) < tol
 
 
