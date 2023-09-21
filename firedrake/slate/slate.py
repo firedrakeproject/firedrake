@@ -28,7 +28,7 @@ from itertools import chain, count
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
