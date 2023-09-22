@@ -92,7 +92,6 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
-from firedrake.plot import *
 from firedrake.projection import *
 from firedrake.slate import *
 from firedrake.slope_limiter import *
