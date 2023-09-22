@@ -78,7 +78,7 @@ class Mixin(object):
     def math_function(self, o, expr):
         return MathFunction(o._name, expr)
 
-    def atan_2(self, o, y, x):
+    def atan2(self, o, y, x):
         return MathFunction("atan2", y, x)
 
     def bessel_i(self, o, nu, arg):
