@@ -1,6 +1,14 @@
+import pytest
+import os
 from firedrake import *
 
 
+# See https://pytest-xdist.readthedocs.io/en/stable/how-to.html#identifying-the-worker-process-during-a-test
+@pytest.mark.skipif(
+    "PYTEST_XDIST_WORKER_COUNT" in os.environ.keys()
+    and int(os.environ["PYTEST_XDIST_WORKER_COUNT"]) > 1,
+    reason="Must be run first"
+)
 def test_pyop2_not_initialised():
     """Check that PyOP2 has not been initialised yet.
        The test fails if another test builds a firedrake object not in a fixture."""
