@@ -45,10 +45,10 @@ def test_fml():
     mass_form = time_derivative(subject(inner(u0, w)*dx + subject(inner(h0, phi)*dx), X))
 
     # Height field transport form
-    transport_form = transport(subject(H*phi*div(u0)*dx, X))
+    transport_form = transport(subject(H*inner(div(u0), phi)*dx, X))
 
     # Pressure gradient term -- integrate by parts once
-    pressure_gradient_form = pressure_gradient(subject(-g*div(w)*h0*dx, X))
+    pressure_gradient_form = pressure_gradient(subject(-g*inner(h0, div(w))*dx, X))
 
     # Define IMEX scheme. Transport term explicit and pressure gradient implict.
     # This is not necessarily a sensible scheme -- it's just a simple demo for
