@@ -191,7 +191,7 @@ class HiptmairPC(TwoLevelPC):
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
-        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+        coarse_operator = beta(dminus(test), dminus(trial))
 
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)

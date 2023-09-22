@@ -75,7 +75,7 @@ class FacetSplitPC(PCBase):
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
 
-        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)))
         mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in bcs)
 
         self.perm = None
