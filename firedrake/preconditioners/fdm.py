@@ -8,10 +8,10 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.functionspace import FunctionSpace
-from firedrake.ufl_expr import TestFunction, TrialFunction, TestFunctions, TrialFunctions
+from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
 from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
@@ -20,6 +20,7 @@ from tsfc.finatinterface import create_element
 from pyop2.compilation import load
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir
+from pyop2 import op2
 
 import firedrake.dmhooks as dmhooks
 import ufl
@@ -27,7 +28,6 @@ import FIAT
 import finat
 import numpy
 import ctypes
-import operator
 
 Citations().add("Brubeck2022a", """
 @article{Brubeck2022a,
@@ -101,7 +101,7 @@ class FDMPC(PCBase):
         if Pmat.getType() == "python":
             ctx = Pmat.getPythonContext()
             J = ctx.a
-            bcs = tuple(ctx.row_bcs)
+            bcs = tuple(ctx.bcs)
             mat_type = "matfree"
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
@@ -234,15 +234,15 @@ class FDMPC(PCBase):
             elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
             else:
-                self.schur_kernel[Vfacet] = SchurComplementBlockQR
+                self.schur_kernel[Vfacet] = SchurComplementBlockLU
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        self.index_acc = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices)(op2.READ, Vsub.cell_node_map()) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
 
         Pmats = {}
-        diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
@@ -252,7 +252,6 @@ class FDMPC(PCBase):
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
                 on_diag = Vrow == Vcol
-                triu = on_diag and symmetric
                 ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
                 sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
 
@@ -261,13 +260,12 @@ class FDMPC(PCBase):
                 preallocator.setSizes(sizes)
                 preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
                 preallocator.setUp()
-                self.set_values(preallocator, Vrow, Vcol, addv, triu=triu)
-
+                self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
                 preallocator.assemble()
                 d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
-                preallocator.destroy()
                 if on_diag:
                     numpy.maximum(d_nnz, 1, out=d_nnz)
+                preallocator.destroy()
 
                 P = PETSc.Mat().create(comm=self.comm)
                 P.setType(ptype)
@@ -279,9 +277,10 @@ class FDMPC(PCBase):
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
                 P.setUp()
+
                 # append callables to zero entries, insert element matrices, and apply BCs
                 assembly_callables.append(P.zeroEntries)
-                assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv))
+                assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, mat_type=ptype))
                 if on_diag:
                     own = Vrow.dof_dset.layout_vec.getLocalSize()
                     bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
@@ -289,11 +288,6 @@ class FDMPC(PCBase):
                     if len(bdofs) > 0:
                         vals = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
                         assembly_callables.append(partial(P.setValuesRCV, bdofs, bdofs, vals, addv))
-
-                    gamma = self.coefficients.get("gamma")
-                    if gamma is not None and gamma.function_space() == Vrow:
-                        with gamma.dat.vec_ro as diag:
-                            diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -301,7 +295,6 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
         assembly_callables.append(Pmat.assemble)
-        assembly_callables.extend(diagonal_terms)
         return Pmat, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")
@@ -348,58 +341,6 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
-    def scale_coefficients(self, mixed_form, coefficients, fcp):
-        """
-        Assemble low-order mass matrices, apply diagonal scaling, and compute eigenvalues.
-        Then scale the high-order coefficients accordingly
-        """
-        from firedrake.preconditioners.pmg import PMGPC
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
-
-        def scaling_callable(mat, diag, data, nc):
-            diag = mat.getDiagonal(result=diag)
-            diag.reciprocal()
-            diag.sqrtabs()
-            mat.diagonalScale(L=diag, R=diag)
-            vals = mat.getValuesCSR()[-1]
-            vals = vals.reshape((-1, nc, nc))
-            lam = numpy.linalg.eigvalsh(vals)
-            omega = 0.25
-            scale = omega * lam[:, :1] + (1.0-omega) * lam[:, -1:]
-            scale = numpy.mean(lam, axis=1)[:, None]
-            numpy.multiply(scale, data, out=data)
-
-        assembly_callables = []
-        splitter = ExtractSubBlock()
-        for index, key in enumerate(("beta", "alpha")):
-            form = splitter.split(mixed_form, argument_indices=(index, index))
-            coef = coefficients[key]
-            V = coef.function_space()
-            degree = 1
-            element = PMGPC.reconstruct_degree(V.ufl_element(), degree)
-            Vc = FunctionSpace(V.mesh(), element)
-
-            qdegree = 2 * degree + 1
-            md = {"degree": qdegree}
-            cargs = (TestFunction(Vc), TrialFunction(Vc))
-            cform = form(*cargs, coefficients={})
-            cform = ufl.Form([i.reconstruct(metadata=md) for i in cform.integrals()])
-
-            tensor = allocate_matrix(cform, form_compiler_parameters=fcp,
-                                     mat_type="aij", options_prefix=None)
-            _assemble = TwoFormAssembler(cform, tensor=tensor,
-                                         form_compiler_parameters=fcp).assemble
-
-            mat = tensor.petscmat
-            diag = mat.createVecRight()
-            n = V.finat_element.space_dimension() * V.value_size
-            nc = Vc.finat_element.space_dimension() * Vc.value_size
-            data = coef.dat.data.reshape((-1, n))
-            assembly_callables.append(_assemble)
-            assembly_callables.append(partial(scaling_callable, mat, diag, data, nc))
-
-        return assembly_callables
-
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
@@ -411,11 +352,9 @@ class FDMPC(PCBase):
         :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
         :arg block_diagonal: are we assembling the block diagonal of the mass matrices?
 
-        :returns: a 2-tuple of a `dict` with the zero-th order and second
-                  order coefficients keyed on ``"beta"`` and ``"alpha"``,
-                  and a list of assembly callables.
+        :returns: a 2-tuple of a mixed `Function` with the zero-th order and second
+                  order coefficients and a list of assembly callables.
         """
-        coefficients = {}
         assembly_callables = []
         # Basic idea: take the original bilinear form and
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
@@ -488,28 +427,20 @@ class FDMPC(PCBase):
         # Return coefficients and assembly callables
         if block_diagonal and V.shape:
             from firedrake.assemble import assemble
+            bdiags = []
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
             for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
                 sub = M.petscmat.createSubMatrix(iset, iset)
                 ctx = sub.getPythonContext()
-                coefficients[name] = ctx._block_diagonal
+                bdiags.append(ctx._block_diagonal)
                 assembly_callables.append(ctx._assemble_block_diagonal)
+            W = MixedFunctionSpace([c.function_space() for c in bdiags])
+            coefficients = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
             from firedrake.assemble import OneFormAssembler
-            tensor = Function(Z.dual())
-            coefficients["beta"] = tensor.subfunctions[0]
-            coefficients["alpha"] = tensor.subfunctions[1]
-            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
+            coefficients = Function(Z.dual())
+            assembly_callables.append(OneFormAssembler(mixed_form, tensor=coefficients, diagonal=True,
                                                        form_compiler_parameters=fcp).assemble)
-
-        facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
-        J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
-        if len(J_facet.integrals()) > 0:
-            tensor = coefficients.setdefault("gamma", Function(V))
-            assembly_callables.append(OneFormAssembler(J_facet, tensor=tensor, diagonal=True,
-                                                       form_compiler_parameters=fcp).assemble)
-
-        # assembly_callables.extend(self.scale_coefficients(mixed_form, coefficients, fcp=fcp))
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -545,7 +476,7 @@ class FDMPC(PCBase):
             result = PETSc.Mat().createTranspose(result).convert(result.getType())
             return cache.setdefault(key, result)
 
-        if sort_interior:
+        if sort_interior and is_interior:
             assert is_interior and not is_facet and not transpose
             # Sort DOFs to make A00 block diagonal with blocks of increasing dimension along the diagonal
             result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
@@ -579,12 +510,13 @@ class FDMPC(PCBase):
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
             # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
-            Q0 = self.coefficients["beta"].function_space().finat_element.element
+            Z = self.coefficients.function_space()
+            Q0 = Z[0].finat_element.element
             elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
             q0 = elements[0] if elements[0].formdegree == 0 else None
             q1 = elements[-1]
             if q1.formdegree != 1:
-                Q1 = self.coefficients["alpha"].function_space().finat_element.element
+                Q1 = Z[1].finat_element.element
                 q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
 
             # Interpolate V * d(V) -> space(beta) * space(alpha)
@@ -597,8 +529,8 @@ class FDMPC(PCBase):
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
             result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
             A00.destroy()
-            A10.destroy()
             A11.destroy()
+            A10.destroy()
             if value_size != 1:
                 eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
                 temp = result
@@ -613,7 +545,7 @@ class FDMPC(PCBase):
 
     @cached_property
     def _element_mass_matrix(self):
-        Z = [self.coefficients[name].function_space() for name in ("beta", "alpha")]
+        Z = self.coefficients.function_space()
         shape = (sum(V.finat_element.space_dimension() for V in Z),) + Z[0].shape
         data = numpy.ones(shape, dtype=PETSc.RealType)
         shape += (1,) * (3-len(shape))
@@ -626,7 +558,7 @@ class FDMPC(PCBase):
         return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, triu=False):
+    def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
         """
         Assemble the stiffness matrix in the FDM basis using sparse reference
         tensors and diagonal mass matrices.
@@ -635,9 +567,10 @@ class FDMPC(PCBase):
         :arg Vrow: the :class:`.FunctionSpace` test space
         :arg Vcol: the :class:`.FunctionSpace` trial space
         :arg addv: a `PETSc.Mat.InsertMode`
-        :arg triu: are we assembling only the upper triangular part?
+        :arg mat_type: a `PETSc.Mat.Type`
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
+        on_diag = Vrow == Vcol
         try:
             assembler = self.assemblers[key]
         except KeyError:
@@ -646,11 +579,9 @@ class FDMPC(PCBase):
             R1 = self.assemble_reference_tensor(Vrow, transpose=True)
             M = self._element_mass_matrix
             # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
-            element_kernel = TripleProductKernel(R1, M, C1, self.coefficients["beta"], self.coefficients["alpha"])
+            element_kernel = TripleProductKernel(R1, M, C1)
 
-            schur_kernel = None
-            if Vrow == Vcol:
-                schur_kernel = self.schur_kernel.get(Vrow)
+            schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
             if schur_kernel is not None:
                 V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
@@ -660,185 +591,147 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R1, M, C0),
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
-            assembler = SparseAssembler(element_kernel, Vrow, Vcol, self.lgmaps[Vrow], self.lgmaps[Vcol])
+
+            spaces = (Vrow, Vcol)[on_diag:]
+            indices = tuple(self.index_acc[V] for V in spaces)
+            coefficients_acc = self.coefficients.dat(op2.READ, self.coefficients.cell_node_map())
+            kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
+            assembler = op2.ParLoop(kernel,
+                                    Vrow.mesh().cell_set,
+                                    *element_kernel.mat_args(A),
+                                    coefficients_acc,
+                                    *indices)
             self.assemblers.setdefault(key, assembler)
 
-        assembler.assemble(A, addv=addv, triu=triu)
+        if A.getType() == "preallocator":
+            args = assembler.arguments[:2]
+            spaces = (Vrow, Vcol)[on_diag:]
+            indices = tuple(self.index_acc[V] for V in spaces)
+            kernel = ElementKernel(None, name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
+            assembler = op2.ParLoop(kernel,
+                                    Vrow.mesh().cell_set,
+                                    *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
+                                    *indices)
 
-
-class SparseAssembler(object):
-
-    _cache = {}
-
-    @staticmethod
-    def setSubMatCSR(comm, triu=False):
-        """
-        Compile C code to insert sparse submatrices and store in class cache
-
-        :arg triu: are we inserting onto the upper triangular part of the matrix?
-
-        :returns: a python wrapper for the matrix insertion function
-        """
-        cache = SparseAssembler._cache.setdefault("setSubMatCSR", {})
-        key = triu
-        try:
-            return cache[key]
-        except KeyError:
-            return cache.setdefault(key, load_setSubMatCSR(comm, triu))
-
-    def __init__(self, kernel, Vrow, Vcol, rmap, cmap):
-        self.kernel = kernel
-        m, n = kernel.result.getSize()
-
-        spaces = [Vrow]
-        row_shape = tuple() if Vrow.value_size == 1 else (Vrow.value_size,)
-        map_rows = (self.map_block_indices, rmap) if row_shape else (rmap.apply,)
-        rows = numpy.empty((m, ), dtype=PETSc.IntType).reshape((-1,) + row_shape)
-        if Vcol == Vrow:
-            cols = rows
-            map_cols = (lambda *args, result=None: result, )
-        else:
-            spaces.append(Vcol)
-            col_shape = tuple() if Vcol.value_size == 1 else (Vcol.value_size,)
-            map_cols = (self.map_block_indices, cmap) if col_shape else (cmap.apply, )
-            cols = numpy.empty((n, ), dtype=PETSc.IntType).reshape((-1,) + col_shape)
-        spaces.extend(c.function_space() for c in kernel.coefficients)
-
-        integral_type = kernel.integral_type
-        if integral_type in ["cell", "interior_facet_horiz"]:
-            get_map = operator.methodcaller("cell_node_map")
-        elif integral_type in ["interior_facet", "interior_facet_vert"]:
-            get_map = operator.methodcaller("interior_facet_node_map")
-        else:
-            raise NotImplementedError("Only for cell or interior facet integrals")
-        self.node_maps = tuple(map(get_map, spaces))
-
-        ncell = 2 if integral_type.startswith("interior_facet") else 1
-        self.indices = tuple(numpy.empty((V.finat_element.space_dimension() * ncell,), dtype=PETSc.IntType) for V in spaces)
-        self.map_rows = partial(*map_rows, self.indices[spaces.index(Vrow)], result=rows)
-        self.map_cols = partial(*map_cols, self.indices[spaces.index(Vcol)], result=cols)
-        self.kernel_args = self.indices[-len(kernel.coefficients):]
-        self.set_indices = self.copy_indices
-
-        node_map = self.node_maps[0]
-        self.nel = node_map.values.shape[0]
-        if node_map.offset is None:
-            layers = None
-        else:
-            layers = node_map.iterset.layers_array
-            layers = layers[:, 1]-layers[:, 0]-1
-            if integral_type.endswith("horiz"):
-                layers -= 1
-                self.set_indices = self.copy_indices_horiz
-            if layers.shape[0] != self.nel:
-                layers = numpy.repeat(layers, self.nel)
-        self.layers = layers
-
-    def map_block_indices(self, lgmap, indices, result=None):
-        bsize = result.shape[-1]
-        numpy.copyto(result[:, 0], indices)
-        result[:, 0] *= bsize
-        numpy.add.outer(result[:, 0], numpy.arange(1, bsize, dtype=indices.dtype), out=result[:, 1:])
-        return lgmap.apply(result, result=result)
-
-    def copy_indices_horiz(self, e):
-        for index, node_map in zip(self.indices, self.node_maps):
-            index = index.reshape((2, -1))
-            numpy.copyto(index, node_map.values_with_halo[e])
-            index[1] += node_map.offset
-
-    def copy_indices(self, e):
-        for index, node_map in zip(self.indices, self.node_maps):
-            numpy.copyto(index, node_map.values_with_halo[e])
-
-    def add_offsets(self):
-        for index, node_map in zip(self.indices, self.node_maps):
-            index += node_map.offset
-
-    def assemble(self, A, addv=None, triu=False):
-        if A.getType() == PETSc.Mat.Type.PREALLOCATOR:
-            kernel = lambda *args, result=None: result
-        else:
-            kernel = self.kernel
-        result = self.kernel.result
-        insert = self.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
-
-        # Core assembly loop
-        if self.layers is None:
-            for e in range(self.nel):
-                self.set_indices(e)
-                insert(A, kernel(*self.kernel_args, result=result),
-                       self.map_rows(), self.map_cols(), addv)
-        else:
-            for e in range(self.nel):
-                self.set_indices(e)
-                for _ in range(self.layers[e]):
-                    insert(A, kernel(*self.kernel_args, result=result),
-                           self.map_rows(), self.map_cols(), addv)
-                    self.add_offsets()
+        assembler.arguments[0].data = A.handle
+        assembler()
 
 
 class ElementKernel(object):
     """
     A constant element kernel
     """
-    def __init__(self, A, *coefficients):
+    def __init__(self, A, name=None):
         self.result = A
-        self.coefficients = coefficients
-        self.integral_type = "cell"
+        self.mats = [self.result]
+        self.name = name or type(self).__name__
 
     def __call__(self, *args, result=None):
         return result or self.result
 
-    def diagonal(self, result=None):
-        return self.result.getDiagonal(result=result)
+    def mat_args(self, *mats):
+        return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
 
-    def __del__(self):
-        self.destroy()
+    @staticmethod
+    def header(mat_type="aij"):
+        select_cols = ""
+        if mat_type.endswith("sbaij"):
+            select_cols = """
+        for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
+            indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);
+    """
+        return f"""
+static inline PetscErrorCode MatSetValuesSparse(Mat A, Mat B,
+                                                PetscInt *rindices,
+                                                PetscInt *cindices,
+                                                InsertMode addv)
+{{
+    PetscInt m, n, ncols, istart;
+    PetscInt *ai, *aj, *indices;
+    PetscScalar *vals;
+    PetscBool done;
+    PetscFunctionBeginUser;
+    MatGetSize(B, &m, NULL);
+    PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscMalloc1(ai[m], &indices);
+    for (PetscInt j = 0; j < ai[m]; j++)
+        indices[j] = cindices[aj[j]];
 
-    def destroy(self):
-        pass
+    PetscCall(MatSeqAIJGetArray(B, &vals));
+    for (PetscInt i = 0; i < m; i++) {{
+        istart = ai[i];
+        ncols = ai[i + 1] - istart;
+        {select_cols}
+        PetscCall(MatSetValues(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
+    }}
+    PetscCall(MatSeqAIJRestoreArray(B, &vals));
+    PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscFree(indices);
+    PetscFunctionReturn(0);
+}}
+
+static inline PetscErrorCode MatSetValuesArray(Mat A, PetscScalar *values)
+{{
+    PetscInt m, n, *ai, *aj;
+    PetscBool done;
+    PetscScalar *vals;
+    PetscFunctionBeginUser;
+    MatGetSize(A, &m, NULL);
+    PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArray(A, &vals));
+    for (PetscInt i = 0; i < ai[m]; i++) vals[i] = values[i];
+    PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscFunctionReturn(0);
+}}"""
+
+    def kernel(self, mat_type="aij", on_diag=False, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT
+        indices = ("rindices", "cindices")[:2-on_diag]
+        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
+        code = f"""
+{self.header(mat_type=mat_type)}
+
+PetscErrorCode {self.name}(Mat A, Mat B, {declare_indices})
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
+    PetscFunctionReturn(0);
+}}"""
+        return op2.Kernel(code, self.name)
 
 
 class TripleProductKernel(ElementKernel):
-    """
-    An element kernel to compute a triple matrix product A * B * C, where A and
-    C are constant matrices and B is a block diagonal matrix with entries given
-    by coefficients.
-    """
-    def __init__(self, A, B, C, *coefficients):
-        self.work = None
-        if len(coefficients) == 0:
-            self.data = numpy.array([])
-            self.update = lambda *args: args
-        else:
-            dshape = (-1, ) + coefficients[0].dat.data_ro.shape[1:]
-            if numpy.prod(dshape[1:]) == 1:
-                self.work = B.getDiagonal()
-                self.data = self.work.array_w.reshape(dshape)
-                self.update = partial(B.setDiagonal, self.work)
-            else:
-                indptr, indices, data = B.getValuesCSR()
-                self.data = data.reshape(dshape)
-                self.update = lambda *args: (B.setValuesCSR(indptr, indices, self.data), B.assemble())
 
-        stops = numpy.zeros((len(coefficients) + 1,), dtype=PETSc.IntType)
-        numpy.cumsum([c.function_space().finat_element.space_dimension() for c in coefficients], out=stops[1:])
-        self.slices = [slice(*stops[k:k+2]) for k in range(len(coefficients))]
-
+    def __init__(self, A, B, C, name=None):
+        self.data_mat = B
         self.product = partial(A.matMatMult, B, C)
-        super().__init__(self.product(), *coefficients)
+        super().__init__(self.product(), name=name)
+        self.mats.append(self.data_mat)
 
-    def __call__(self, *indices, result=None):
-        for c, i, z in zip(self.coefficients, indices, self.slices):
-            numpy.take(c.dat.data_ro, i, axis=0, out=self.data[z])
-        self.update()
+    def __call__(self, *args, result=None):
         return self.product(result=result)
 
-    def destroy(self):
-        self.result.destroy()
-        if isinstance(self.work, PETSc.Object):
-            self.work.destroy()
+    def kernel(self, mat_type="aij", on_diag=False, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT_VALUES
+        indices = ("rindices", "cindices")[:2-on_diag]
+        declare_indices = ", ".join(["PetscInt *%s" % s for s in indices])
+        code = f"""
+{self.header(mat_type=mat_type)}
+
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           PetscScalar *coefficients,
+                           {declare_indices})
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesArray(C, coefficients));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
+    PetscFunctionReturn(0);
+}}"""
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementKernel(ElementKernel):
@@ -846,7 +739,9 @@ class SchurComplementKernel(ElementKernel):
     An element kernel to compute Schur complements that reuses work matrices and the
     symbolic factorization of the interior block.
     """
-    def __init__(self, *kernels):
+    condense_code = ""
+
+    def __init__(self, *kernels, name=None):
         self.children = kernels
         self.submats = [k.result for k in kernels]
 
@@ -863,41 +758,61 @@ class SchurComplementKernel(ElementKernel):
         self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
         self.work = [None for _ in range(2)]
-        coefficients = []
-        for k in self.children:
-            coefficients.extend(k.coefficients)
-        coefficients = list(dict.fromkeys(coefficients))
-        super().__init__(self.condense(), *coefficients)
+        super().__init__(self.condense(), name=name)
+
+        self.data_mat = self.children[0].data_mat
+        self.mats.append(self.data_mat)
+        self.mats.extend(c.result for c in self.children)
+        for w in self.work:
+            if isinstance(w, PETSc.Mat):
+                self.mats.append(w)
 
     def __call__(self, *args, result=None):
         for k in self.children:
             k(*args, result=k.result)
         return self.condense(result=result)
 
-    def diagonal(self, result=None):
-        return self.children[0].diagonal(result=result)
-
-    def destroy(self):
-        for k in self.children:
-            k.destroy()
-        self.result.destroy()
-        for obj in self.work:
-            if isinstance(obj, PETSc.Object):
-                obj.destroy()
-
-    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         return result
+
+    def kernel(self, mat_type="aij", on_diag=True, addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT_VALUES
+        work = "NULL"
+        declare_work = ""
+        if isinstance(self.work[0], PETSc.Mat):
+            work = "W0"
+            declare_work = f"Mat {work},"
+        code = f"""
+#include <petscblaslapack.h>
+{self.header(mat_type=mat_type)}
+{self.condense_code}
+
+PetscErrorCode {self.name}(Mat A, Mat B, Mat C,
+                           Mat A11, Mat A10, Mat A01, Mat A00,
+                           {declare_work}
+                           PetscScalar *coefficients,
+                           PetscInt *rindices)
+{{
+    PetscFunctionBeginUser;
+    PetscCall(MatSetValuesArray(C, coefficients));
+    PetscCall(MatCondense(B, A11, A10, A01, A00, {work}));
+    PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
+    PetscFunctionReturn(0);
+}}"""
+        return op2.Kernel(code, self.name)
 
 
 class SchurComplementPattern(SchurComplementKernel):
 
-    def __call__(self, *args, result=None):
-        k = self.children[0]
-        k(*args, result=k.result)
-        return self.condense(result=result)
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W) {
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
 
-    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         """By default pad with zeros the statically condensed pattern"""
         structure = PETSc.Mat.Structure.SUBSET if result else None
@@ -907,10 +822,37 @@ class SchurComplementPattern(SchurComplementKernel):
         result.aypx(0.0, self.submats[0], structure=structure)
         return result
 
+    def __call__(self, *args, result=None):
+        k = self.children[0]
+        k(*args, result=k.result)
+        return self.condense(result=result)
+
 
 class SchurComplementDiagonal(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W) {
+    Vec vec;
+    PetscInt n;
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A10));
+    PetscCall(MatProductNumeric(A01));
+    PetscCall(MatProductNumeric(A00));
+
+    MatGetSize(A00, &n, NULL);
+    PetscCall(VecCreateSeq(PETSC_COMM_SELF, n, &vec));
+    PetscCall(MatGetDiagonal(A00, vec));
+    PetscCall(VecReciprocal(vec));
+    PetscCall(VecScale(vec, -1.0));
+    PetscCall(MatDiagonalScale(A01, vec, NULL));
+    PetscCall(VecDestroy(&vec));
+
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
+
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -925,14 +867,48 @@ class SchurComplementDiagonal(SchurComplementKernel):
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
-    def __init__(self, K11, K10, K01, K00):
-        # asssume that K10 = K01^T
-        super().__init__(K11, K01, K00)
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
+    PetscBLASInt bn, lierr;
+    PetscInt n, bsize, irow;
+    PetscInt *ai, *aj;
+    PetscBool done;
+    PetscScalar *vals, *U;
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A01));
+    PetscCall(MatProductNumeric(A00));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
+        vals[irow] = PetscSqrtReal(1.0 / vals[irow]);
+        irow++;
+    }
+    U = &vals[irow];
+    while (irow < n) {
+        bsize = ai[irow + 1] - ai[irow];
+        PetscCall(PetscBLASIntCast(bsize, &bn));
+        PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+        for (PetscInt j = 0; j < bsize - 1; j++)
+            for (PetscInt i = j + 1; i < bsize; i++)
+                U[i + bsize * j] = 0.0;
+        U += bsize * bsize;
+        irow += bsize;
+    }
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscCall(MatProductNumeric(W0));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
 
-    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A01, A00 = self.submats
+        # asssume that K10 = K01^T
+        A11, _, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
         zlice = self.slices[1]
@@ -955,9 +931,81 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         return result
 
 
-class SchurComplementBlockQR(SchurComplementKernel):
+class SchurComplementBlockLU(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
+    PetscBLASInt bn, lierr, lwork;
+    PetscInt n, bsize, irow, icol, nnz, iswap;
+    PetscInt *ai, *aj, *ipiv, *perm;
+    PetscBool done;
+    PetscScalar *vals, *work, *L, *U;
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A10));
+    PetscCall(MatProductNumeric(A01));
+    PetscCall(MatProductNumeric(A00));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+
+    // A00 = (U^T) * (L^T)
+    nnz = ai[n];
+    bsize = ai[n] - ai[n - 1];
+    PetscMalloc2(bsize, &ipiv, bsize, &perm);
+    PetscMalloc1(nnz, &work);
+    for (PetscInt j = 0; j < nnz; j++) work[j] = 0.0;
+
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
+        work[irow] = 1.0;
+        vals[irow] = 1.0 / vals[irow];
+        irow++;
+    }
+    L = &work[irow];
+    U = &vals[irow];
+    while (irow < n) {{
+        bsize = ai[irow + 1] - ai[irow];
+        PetscCall(PetscBLASIntCast(bsize, &bn));
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, U, &bn, ipiv, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+        PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("L", "U", &bn, U, &bn, &lierr));
+        for (PetscInt j = 0; j < bsize; j++) perm[j] = j;
+        for (PetscInt j = 0; j < bsize; j++) {
+            icol = ipiv[j] - 1;
+            iswap = perm[icol];
+            perm[icol] = perm[j];
+            perm[j] = iswap;
+        }
+        for (PetscInt j = 0; j < bsize; j++) {
+            L[j + bsize * perm[j]] = 1.0;
+            for (PetscInt i = j + 1; i < bsize; i++) {
+                L[i + bsize * perm[j]] = U[i + bsize * j];
+                U[i + bsize * j] = 0.0;
+            }
+        }
+        L += bsize * bsize;
+        U += bsize * bsize;
+        irow += bsize;
+    }}
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+
+    // A00 = inv(U^T)
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    // W0 = inv(U^T) * A01
+    PetscCall(MatProductNumeric(W0));
+
+    // A00 = -inv(L^T)
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    for (PetscInt i = 0; i < nnz; i++) vals[i] = -work[i];
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscFree3(ipiv, perm, work);
+
+    // B = A11 - A10 * inv(L^T) * W0
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
+
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -971,7 +1019,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
             zlice = self.slices[k]
             A = R[zlice].reshape((-1, k, k))
             q, r = numpy.linalg.qr(A, mode="complete")
-            numpy.copyto(Q[zlice], q.flat)
+            numpy.copyto(Q[zlice], numpy.transpose(q, axes=(0, 2, 1)).flat)
             rinv = numpy.linalg.inv(r)
             numpy.copyto(R[zlice], rinv.flat)
             flops += A.shape[0] * ((4*k**3)//3 + k**3)
@@ -979,7 +1027,7 @@ class SchurComplementBlockQR(SchurComplementKernel):
         PETSc.Log.logFlops(flops)
         A00.setValuesCSR(indptr, indices, Q)
         A00.assemble()
-        self.work[0] = A00.transposeMatMult(A01, result=self.work[0])
+        self.work[0] = A00.matMult(A01, result=self.work[0])
         A00.setValuesCSR(indptr, indices, R)
         A00.assemble()
         A00.scale(-1.0)
@@ -988,9 +1036,82 @@ class SchurComplementBlockQR(SchurComplementKernel):
         return result
 
 
+class SchurComplementBlockInverse(SchurComplementKernel):
+
+    condense_code = """
+static inline PetscErrorCode MatCondense(Mat B, Mat A11, Mat A10, Mat A01, Mat A00, Mat W0) {
+    PetscBLASInt bn, lierr, lwork;
+    PetscInt n, irow, bsize;
+    PetscInt *ai, *aj, *ipiv;
+    PetscBool done;
+    PetscScalar *vals, *ainv, *work, swork;
+    PetscFunctionBeginUser;
+    PetscCall(MatProductNumeric(A11));
+    PetscCall(MatProductNumeric(A10));
+    PetscCall(MatProductNumeric(A01));
+    PetscCall(MatProductNumeric(A00));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+
+    lwork = -1;
+    bsize = ai[n] - ai[n - 1];
+    PetscMalloc1(bsize, &ipiv);
+    PetscCall(PetscBLASIntCast(bsize, &bn));
+    PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, &swork, &lwork, &lierr));
+    bsize = (PetscInt)swork;
+    PetscCall(PetscBLASIntCast(bsize, &lwork));
+    PetscMalloc1(bsize, &work);
+
+    PetscCall(MatSeqAIJGetArray(A00, &vals));
+    irow = 0;
+    while (irow < n && ai[irow + 1] - ai[irow] == 1) {
+        vals[irow] = 1.0 / vals[irow];
+        irow++;
+    }
+    ainv = &vals[irow];
+    while (irow < n) {
+        bsize = ai[irow + 1] - ai[irow];
+        PetscCall(PetscBLASIntCast(bsize, &bn));
+        PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, ainv, &bn, ipiv, &lierr));
+        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, work, &lwork, &lierr));
+        ainv += bsize * bsize;
+        irow += bsize;
+    }
+    PetscFree2(ipiv, work);
+    PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &n, &ai, &aj, &done));
+
+    PetscCall(MatScale(A00, -1.0));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
+    PetscFunctionReturn(0);
+}"""
+
+    def condense(self, result=None):
+        structure = PETSc.Mat.Structure.SUBSET if result else None
+        A11, A10, A01, A00 = self.submats
+        indptr, indices, R = A00.getValuesCSR()
+
+        zlice = self.slices[1]
+        numpy.reciprocal(R[zlice], out=R[zlice])
+        flops = zlice.stop - zlice.start
+        for k in self.blocks:
+            Rk = R[self.slices[k]]
+            A = Rk.reshape((-1, k, k))
+            rinv = numpy.linalg.inv(A)
+            numpy.copyto(Rk, rinv.flat)
+            flops += A.shape[0] * (k**3)
+
+        PETSc.Log.logFlops(flops)
+        A00.setValuesCSR(indptr, indices, R)
+        A00.assemble()
+        A00.scale(-1.0)
+        result = A10.matMatMult(A00, A01, result=result)
+        result.axpy(1.0, A11, structure=structure)
+        return result
+
+
 class SchurComplementBlockSVD(SchurComplementKernel):
 
-    @PETSc.Log.EventDecorator("FDMCondense")
     def condense(self, result=None):
         structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
@@ -1025,104 +1146,6 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         result = self.work[1].matMatMult(A00, A01, result=result)
         result.axpy(1.0, A11, structure=structure)
         return result
-
-
-class SchurComplementBlockInverse(SchurComplementKernel):
-
-    @PETSc.Log.EventDecorator("FDMCondense")
-    def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
-        indptr, indices, R = A00.getValuesCSR()
-
-        zlice = self.slices[1]
-        numpy.reciprocal(R[zlice], out=R[zlice])
-        flops = zlice.stop - zlice.start
-        for k in self.blocks:
-            Rk = R[self.slices[k]]
-            A = Rk.reshape((-1, k, k))
-            rinv = numpy.linalg.inv(A)
-            numpy.copyto(Rk, rinv.flat)
-            flops += A.shape[0] * (k**3)
-
-        PETSc.Log.logFlops(flops)
-        A00.setValuesCSR(indptr, indices, R)
-        A00.assemble()
-        A00.scale(-1.0)
-        result = A10.matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
-        return result
-
-
-@PETSc.Log.EventDecorator("LoadCode")
-def load_c_code(code, name, **kwargs):
-    petsc_dir = get_petsc_dir()
-    cppargs = ["-I%s/include" % d for d in petsc_dir]
-    ldargs = (["-L%s/lib" % d for d in petsc_dir]
-              + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
-              + ["-lpetsc", "-lm"])
-    return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
-
-
-def load_setSubMatCSR(comm, triu=False):
-    """Insert one sparse matrix into another sparse matrix.
-       Done in C for efficiency, since it loops over rows."""
-    if triu:
-        name = "setSubMatCSR_SBAIJ"
-        select_cols = "icol -= (icol < irow) * (1 + icol);"
-    else:
-        name = "setSubMatCSR_AIJ"
-        select_cols = ""
-    code = f"""
-#include <petsc.h>
-
-PetscErrorCode {name}(Mat A,
-                      Mat B,
-                      PetscInt *rindices,
-                      PetscInt *cindices,
-                      InsertMode addv)
-{{
-    PetscInt ncols, irow, icol;
-    PetscInt *cols, *indices;
-    PetscScalar *vals;
-
-    PetscInt m, n;
-    PetscErrorCode ierr;
-    PetscFunctionBeginUser;
-    MatGetSize(B, &m, NULL);
-
-    n = 0;
-    for (PetscInt i = 0; i < m; i++) {{
-        ierr = MatGetRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
-        n = ncols > n ? ncols : n;
-        ierr = MatRestoreRow(B, i, &ncols, NULL, NULL);CHKERRQ(ierr);
-    }}
-    PetscMalloc1(n, &indices);
-    for (PetscInt i = 0; i < m; i++) {{
-        ierr = MatGetRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
-        irow = rindices[i];
-        for (PetscInt j = 0; j < ncols; j++) {{
-            icol = cindices[cols[j]];
-            {select_cols}
-            indices[j] = icol;
-        }}
-        ierr = MatSetValues(A, 1, &irow, ncols, indices, vals, addv);CHKERRQ(ierr);
-        ierr = MatRestoreRow(B, i, &ncols, &cols, &vals);CHKERRQ(ierr);
-    }}
-    PetscFree(indices);
-    PetscFunctionReturn(0);
-}}
-"""
-    argtypes = [ctypes.c_voidp, ctypes.c_voidp,
-                ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
-    funptr = load_c_code(code, name, comm=comm, argtypes=argtypes,
-                         restype=ctypes.c_int)
-
-    @PETSc.Log.EventDecorator(name)
-    def wrapper(A, B, rows, cols, addv):
-        return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
-
-    return wrapper
 
 
 def is_restricted(finat_element):
@@ -1286,8 +1309,9 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     A10 = petsc_sparse(evaluate_dual(c0, f1, alpha=(1,)), comm=PETSc.COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
-    A10.destroy()
     A11.destroy()
+    if Dhat != A10:
+        A10.destroy()
 
     if any(is_restricted(ec)) or any(is_restricted(ef)):
         scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
@@ -1315,19 +1339,23 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     preallocator.setSizes(sizes)
     preallocator.setUp()
 
-    insert = PETSc.InsertMode.INSERT
-    rmap = Vf.local_to_global_map(fbcs)
-    cmap = Vc.local_to_global_map(cbcs)
-    assembler = SparseAssembler(ElementKernel(Dhat), Vf, Vc, rmap, cmap)
-    assembler.assemble(preallocator, addv=insert)
+    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel()
+    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
+                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
+    assembler = op2.ParLoop(kernel,
+                            Vc.mesh().cell_set,
+                            *(op2.PassthroughArg(op2.PetscMatType(), m.handle) for m in (preallocator, Dhat)),
+                            *indices)
+    assembler()
     preallocator.assemble()
-
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
+
     Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    assembler.arguments[0].data = Dmat.handle
+    assembler()
 
-    assembler.assemble(Dmat, addv=insert)
     Dmat.assemble()
     Dhat.destroy()
     return Dmat
@@ -1374,6 +1402,91 @@ def get_base_elements(e):
     elif isinstance(e, FIAT.RestrictedElement):
         return get_base_elements(e._element)
     return [e]
+
+
+class SparseAssembler(object):
+
+    _cache = {}
+
+    @staticmethod
+    def setSubMatCSR(comm, triu=False):
+        """
+        Compile C code to insert sparse submatrices and store in class cache
+        :arg triu: are we inserting onto the upper triangular part of the matrix?
+        :returns: a python wrapper for the matrix insertion function
+        """
+        cache = SparseAssembler._cache.setdefault("setSubMatCSR", {})
+        key = triu
+        try:
+            return cache[key]
+        except KeyError:
+            return cache.setdefault(key, SparseAssembler.load_setSubMatCSR(comm, triu))
+
+    @staticmethod
+    def load_c_code(code, name, **kwargs):
+        petsc_dir = get_petsc_dir()
+        cppargs = ["-I%s/include" % d for d in petsc_dir]
+        ldargs = (["-L%s/lib" % d for d in petsc_dir]
+                  + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
+                  + ["-lpetsc", "-lm"])
+        return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
+
+    @staticmethod
+    def load_setSubMatCSR(comm, triu=False):
+        """Insert one sparse matrix into another sparse matrix.
+           Done in C for efficiency, since it loops over rows."""
+        if triu:
+            name = "setSubMatCSR_SBAIJ"
+            select_cols = "icol -= (icol < irow) * (1 + icol);"
+        else:
+            name = "setSubMatCSR_AIJ"
+            select_cols = ""
+        code = f"""
+    #include <petsc.h>
+
+    PetscErrorCode {name}(Mat A,
+                          Mat B,
+                          PetscInt *rindices,
+                          PetscInt *cindices,
+                          InsertMode addv)
+    {{
+        PetscInt m, n, ncols, irow, icol;
+        PetscInt *cols, *indices;
+        PetscScalar *vals;
+        PetscFunctionBeginUser;
+        MatGetSize(B, &m, NULL);
+        n = 0;
+        for (PetscInt i = 0; i < m; i++) {{
+            PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
+            n = ncols > n ? ncols : n;
+            PetscCall(MatRestoreRow(B, i, &ncols, NULL, NULL));
+        }}
+        PetscMalloc1(n, &indices);
+        for (PetscInt i = 0; i < m; i++) {{
+            PetscCall(MatGetRow(B, i, &ncols, &cols, &vals));
+            irow = rindices[i];
+            for (PetscInt j = 0; j < ncols; j++) {{
+                icol = cindices[cols[j]];
+                {select_cols}
+                indices[j] = icol;
+            }}
+            PetscCall(MatSetValues(A, 1, &irow, ncols, indices, vals, addv));
+            PetscCall(MatRestoreRow(B, i, &ncols, &cols, &vals));
+        }}
+        PetscFree(indices);
+        PetscFunctionReturn(0);
+    }}
+    """
+        argtypes = [ctypes.c_voidp, ctypes.c_voidp,
+                    ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int]
+        funptr = SparseAssembler.load_c_code(code, name, comm=comm, argtypes=argtypes,
+                                             restype=ctypes.c_int)
+
+        @PETSc.Log.EventDecorator(name)
+        def wrapper(A, B, rows, cols, addv):
+            return funptr(A.handle, B.handle, rows.ctypes.data, cols.ctypes.data, addv)
+
+        return wrapper
 
 
 class PoissonFDMPC(FDMPC):
@@ -1431,7 +1544,7 @@ class PoissonFDMPC(FDMPC):
         return Afdm, Dfdm, bdof, axes_shifts
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, triu=False):
+    def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
         """
         Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
 
@@ -1439,8 +1552,9 @@ class PoissonFDMPC(FDMPC):
         :arg Vrow: the :class:`.FunctionSpace` test space
         :arg Vcol: the :class:`.FunctionSpace` trial space
         :arg addv: a `PETSc.Mat.InsertMode`
-        :arg triu: are we assembling only the upper triangular part?
+        :arg mat_type: a `PETSc.Mat.Type`
         """
+        triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
         set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x

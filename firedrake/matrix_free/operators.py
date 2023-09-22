@@ -215,13 +215,13 @@ class ImplicitMatrixContext(object):
                 raise NotImplementedError("Block diagonal assembly not implemented")
         tensor_element = TensorElement(scalar_element, shape=(bs, bs))
         W = FunctionSpace(V.mesh(), tensor_element)
-        return Function(W)
+        return Function(W.dual())
 
     @cached_property
     def _assemble_block_diagonal(self):
         from firedrake.ufl_expr import TestFunction, TrialFunction
         from firedrake.assemble import OneFormAssembler
-        W = self._block_diagonal.function_space()
+        W = self._block_diagonal.function_space().dual()
         v = TestFunction(W)
         u = TrialFunction(W)
         v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
