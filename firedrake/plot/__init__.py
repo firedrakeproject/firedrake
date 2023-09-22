@@ -4,6 +4,7 @@ from .mpl import (
 )
 from .pgf import pgfplot
 
-__all__ = ["plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
-           "quiver", "streamplot", "FunctionPlotter",
-           "pgfplot"]
+__all__ = [
+    "plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
+    "quiver", "streamplot", "FunctionPlotter", "pgfplot"
+]
