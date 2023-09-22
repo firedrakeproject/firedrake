@@ -86,7 +86,7 @@ def M(fs):
 
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
-    assert isinstance(one_form, Function)
+    assert isinstance(one_form, Cofunction)
     for f in one_form.subfunctions:
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12

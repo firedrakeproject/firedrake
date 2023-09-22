@@ -19,18 +19,18 @@ from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
 
-class WithGeometry(ufl.FunctionSpace):
+class WithGeometryBase(object):
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
     Function spaces on meshes with different geometry but the same
     topology can share data, except for their UFL cell.  This class
     facilitates that.
 
-    Users should not instantiate a :class:`WithGeometry` object
+    Users should not instantiate a :class:`WithGeometryBase` object
     explicitly except in a small number of cases.
 
-    When instantiating a :class:`WithGeometry`, users should call
-    :meth:`WithGeometry.create` rather than ``__init__``.
+    When instantiating a :class:`WithGeometryBase`, users should call
+    :meth:`WithGeometryBase.create` rather than ``__init__``.
 
     :arg mesh: The mesh with geometric information to use.
     :arg element: The UFL element.
@@ -72,7 +72,7 @@ class WithGeometry(ufl.FunctionSpace):
         component = function_space.component
 
         if function_space.parent is not None:
-            parent = WithGeometry.create(function_space.parent, mesh)
+            parent = cls.create(function_space.parent, mesh)
         else:
             parent = None
 
@@ -102,7 +102,7 @@ class WithGeometry(ufl.FunctionSpace):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(WithGeometry.create(subspace, self.mesh())
+        return tuple(type(self).create(subspace, self.mesh())
                      for subspace in self.topological.subfunctions)
 
     mesh = ufl.FunctionSpace.ufl_domain
@@ -128,7 +128,7 @@ class WithGeometry(ufl.FunctionSpace):
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
-            return tuple(WithGeometry.create(self.topological.sub(i), self.mesh())
+            return tuple(type(self).create(self.topological.sub(i), self.mesh())
                          for i in range(self.value_size))
         else:
             return self.subfunctions
@@ -265,10 +265,10 @@ class WithGeometry(ufl.FunctionSpace):
         return len(self.topological)
 
     def __repr__(self):
-        return "WithGeometry(%r, %r)" % (self.topological, self.mesh())
+        return "%s(%r, %r)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __str__(self):
-        return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
+        return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __iter__(self):
         return iter(self.subfunctions)
@@ -288,11 +288,11 @@ class WithGeometry(ufl.FunctionSpace):
         return val
 
     def __dir__(self):
-        current = super(WithGeometry, self).__dir__()
+        current = super(type(self), self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def boundary_nodes(self, sub_domain):
-        r"""Return the boundary nodes for this :class:`~.WithGeometry`.
+        r"""Return the boundary nodes for this :class:`~.WithGeometryBase`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
         :returns: A numpy array of the unique function space nodes on
@@ -306,6 +306,28 @@ class WithGeometry(ufl.FunctionSpace):
 
     def collapse(self):
         return type(self).create(self.topological.collapse(), self.mesh())
+
+
+class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
+
+    def __init__(self, mesh, element, component=None, cargo=None):
+        super(WithGeometry, self).__init__(mesh, element,
+                                           component=component,
+                                           cargo=cargo)
+
+    def dual(self):
+        return FiredrakeDualSpace.create(self.topological, self.mesh())
+
+
+class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
+
+    def __init__(self, mesh, element, component=None, cargo=None):
+        super(FiredrakeDualSpace, self).__init__(mesh, element,
+                                                 component=component,
+                                                 cargo=cargo)
+
+    def dual(self):
+        return WithGeometry.create(self.topological, self.mesh())
 
 
 class FunctionSpace(object):
@@ -1040,7 +1062,7 @@ class RealFunctionSpace(FunctionSpace):
 
 @dataclass
 class FunctionSpaceCargo:
-    """Helper class carrying data for a :class:`WithGeometry`.
+    """Helper class carrying data for a :class:`WithGeometryBase`.
 
     It is required because it permits Firedrake to have stripped forms
     that still know Firedrake-specific information (e.g. that they are a
@@ -1048,4 +1070,4 @@ class FunctionSpaceCargo:
     """
 
     topological: FunctionSpace
-    parent: Optional[WithGeometry]
+    parent: Optional[WithGeometryBase]

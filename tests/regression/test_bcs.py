@@ -299,8 +299,10 @@ def test_mixed_bcs(diagonal):
 def test_bcs_rhs_assemble(a, V):
     bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
     b1 = assemble(a)
+    b1_func = b1.riesz_representation(riesz_map="l2")
     for bc in bcs:
-        bc.apply(b1)
+        bc.apply(b1_func)
+    b1.assign(b1_func.riesz_representation(riesz_map="l2"))
     b2 = assemble(a, bcs=bcs)
     assert np.allclose(b1.dat.data, b2.dat.data)
 

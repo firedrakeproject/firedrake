@@ -2,7 +2,7 @@ import ufl
 from ufl import replace
 from ufl.corealg.traversal import traverse_unique_terminals
 from ufl.formatting.ufl2unicode import ufl2unicode
-from ufl.algorithms.analysis import extract_arguments_and_coefficients
+from ufl.algorithms.analysis import extract_arguments, extract_arguments_and_coefficients
 from pyadjoint import Block, OverloadedType, AdjFloat
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
@@ -38,8 +38,9 @@ class FunctionAssignBlock(Block, Backend):
         return ufl.replace(self.expr, replace_map)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        V = self.get_outputs()[0].output.function_space()
-        adj_input_func = self.compat.function_from_vector(V, adj_inputs[0])
+        adj_input_func, = adj_inputs
+        if isinstance(adj_input_func, self.backend.Cofunction):
+            adj_input_func = adj_input_func.riesz_representation(riesz_map="l2")
 
         if self.expr is None:
             return adj_input_func
@@ -53,7 +54,7 @@ class FunctionAssignBlock(Block, Backend):
             if isinstance(block_variable.output, AdjFloat):
                 try:
                     # Adjoint of a broadcast is just a sum
-                    return adj_inputs[0].sum()
+                    return adj_inputs[0].dat.data_ro.sum()
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
@@ -66,7 +67,8 @@ class FunctionAssignBlock(Block, Backend):
                 adj_output = self.backend.Function(
                     block_variable.output.function_space())
                 adj_output.assign(prepared)
-                return adj_output.vector()
+                adj_output = adj_output.riesz_representation(riesz_map="l2")
+                return adj_output
         else:
             # Linear combination
             expr, adj_input_func = prepared
@@ -77,7 +79,9 @@ class FunctionAssignBlock(Block, Backend):
                         expr, block_variable.saved_output, adj_input_func
                     )
                 )
-                adj_output.assign(diff_expr)
+                # Firedrake does not support assignment of conjugate functions
+                adj_output.interpolate(ufl.conj(diff_expr))
+                adj_output = adj_output.riesz_representation(riesz_map="l2")
             else:
                 mesh = adj_output.function_space().mesh()
                 diff_expr = ufl.algorithms.expand_derivatives(
@@ -88,7 +92,7 @@ class FunctionAssignBlock(Block, Backend):
                     )
                 )
                 adj_output.assign(diff_expr)
-                return adj_output.vector().inner(adj_input_func.vector())
+                return adj_output.dat.inner(adj_input_func.dat)
 
             if self.compat.isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
@@ -96,23 +100,23 @@ class FunctionAssignBlock(Block, Backend):
                 )
                 return self._adj_assign_constant(adj_output, R)
             else:
-                return adj_output.vector()
+                return adj_output
 
     def _adj_assign_constant(self, adj_output, constant_fs):
         r = self.backend.Function(constant_fs)
         shape = r.ufl_shape
         if shape == () or shape[0] == 1:
             # Scalar Constant
-            r.vector()[:] = adj_output.vector().sum()
+            r.dat.data[:] = adj_output.dat.data_ro.sum()
         else:
             # We assume the shape of the constant == shape of the output
             # function if not scalar. This assumption is due to FEniCS not
             # supporting products with non-scalar constants in assign.
             values = []
             for i in range(shape[0]):
-                values.append(adj_output.sub(i, deepcopy=True).vector().sum())
+                values.append(adj_output.sub(i, deepcopy=True).dat.data_ro.sum())
             r.assign(self.backend.Constant(values))
-        return r.vector()
+        return r
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         if self.expr is None:
@@ -133,7 +137,7 @@ class FunctionAssignBlock(Block, Backend):
                 dudmi.assign(ufl.algorithms.expand_derivatives(
                     ufl.derivative(expr, dep.saved_output,
                                    dep.tlm_value)))
-                dudm.vector().axpy(1.0, dudmi.vector())
+                dudm.dat += 1.0 * dudmi.dat
 
         return dudm
 
@@ -322,10 +326,13 @@ class InterpolateBlock(Block, Backend):
             raise NotImplementedError(
                 "Interpolate block must have a single output"
             )
-        dJdm = self.backend.derivative(prepared, inputs[idx])
-        return self.backend.Interpolator(dJdm, self.V).interpolate(
-            adj_inputs[0], transpose=True
-        ).vector()
+        input = inputs[idx]
+        dJdm = self.backend.derivative(prepared, input)
+        # Get the function space from `dJdm` argument
+        arg, = extract_arguments(dJdm)
+        # Make sure to have a cofunction output
+        output = self.backend.Cofunction(arg.function_space().dual())
+        return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True)
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -505,12 +512,14 @@ class InterpolateBlock(Block, Backend):
         d2exprdudu = self.backend.derivative(dexprdu,
                                              block_variable.saved_output)
 
+        # Make sure to have a cofunction output
+        output = self.backend.Cofunction(component.function_space())
         # left multiply by dJ/dv (adj_inputs[0]) - i.e. interpolate using the
         # transpose operator
         component += self.backend.Interpolator(d2exprdudu, self.V).interpolate(
-            adj_inputs[0], transpose=True
+            adj_inputs[0], output=output, transpose=True
         )
-        return component.vector()
+        return component
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return replace(self.expr, self._replace_map())
@@ -535,14 +544,12 @@ class SubfunctionBlock(Block, Backend):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = self.backend.Function(
-            block_variable.output.function_space()
-        )
-        if type(adj_inputs[0]) is self.backend.Function:
+        eval_adj = self.backend.Cofunction(block_variable.output.function_space().dual())
+        if type(adj_inputs[0]) is self.backend.Cofunction:
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:
             eval_adj.sub(self.idx).assign(adj_inputs[0].function)
-        return eval_adj.vector()
+        return eval_adj
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
@@ -551,11 +558,9 @@ class SubfunctionBlock(Block, Backend):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = self.backend.Function(
-            block_variable.output.function_space()
-        )
-        eval_hessian.sub(self.idx).assign(hessian_inputs[0].function)
-        return eval_hessian.vector()
+        eval_hessian = self.backend.Cofunction(block_variable.output.function_space().dual())
+        eval_hessian.sub(self.idx).assign(hessian_inputs[0])
+        return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return maybe_disk_checkpoint(
@@ -577,7 +582,7 @@ class FunctionMergeBlock(Block, Backend):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].subfunctions[self.idx].vector()
+            return adj_inputs[0].subfunctions[self.idx]
         else:
             return adj_inputs[0]
 

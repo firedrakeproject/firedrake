@@ -4,7 +4,7 @@ non-finite element operations such as slope limiters."""
 import collections
 
 from ufl.indexed import Indexed
-from ufl.domain import join_domains, extract_domains
+from ufl.domain import join_domains
 
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 import loopy
@@ -12,6 +12,7 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
 
 from firedrake import constant
+from firedrake.ufl_expr import extract_domains
 from firedrake.petsc import PETSc
 from cachetools import LRUCache
 

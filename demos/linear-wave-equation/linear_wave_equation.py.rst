@@ -107,7 +107,7 @@ options at this point, we may either `lump` the mass, which reduces
 the inversion to a pointwise division::
 
       if lump_mass:
-          p += interpolate(assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx) / assemble(v*dx), V)
+          p.dat.data[:] += assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx).dat.data_ro / assemble(v*dx).dat.data_ro
 
 In the mass lumped case, we must now ensure that the resulting
 solution for :math:`p` satisfies the boundary conditions::

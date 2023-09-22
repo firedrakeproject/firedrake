@@ -8,7 +8,7 @@ def test_hand_specified_quadrature():
 
     a = conj(v) * dx
 
-    norm_q0 = norm(assemble(a, form_compiler_parameters={'quadrature_degree': 0}))
-    norm_q2 = norm(assemble(a, form_compiler_parameters={'quadrature_degree': 2}))
+    a_q0 = assemble(a, form_compiler_parameters={'quadrature_degree': 0})
+    a_q2 = assemble(a, form_compiler_parameters={'quadrature_degree': 2})
 
-    assert norm_q0 != norm_q2
+    assert not np.allclose(a_q0.dat.data, a_q2.dat.data)

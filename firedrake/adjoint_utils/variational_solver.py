@@ -24,7 +24,7 @@ class NonlinearVariationalProblemMixin:
                                   self.u,
                                   TrialFunction(self.u.function_space()))
                 self._ad_adj_F = adjoint(dFdu)
-            except TypeError:
+            except (TypeError, NotImplementedError):
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}

@@ -140,6 +140,45 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
 
 @PETSc.Log.EventDecorator()
+def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
+              vdegree=None):
+    """Create a :class:`.FunctionSpace`.
+
+    :arg mesh: The mesh to determine the cell from.
+    :arg family: The finite element family.
+    :arg degree: The degree of the finite element.
+    :arg name: An optional name for the function space.
+    :arg vfamily: The finite element in the vertical dimension
+        (extruded meshes only).
+    :arg vdegree: The degree of the element in the vertical dimension
+        (extruded meshes only).
+
+    The ``family`` argument may be an existing
+    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    are ignored and the appropriate :class:`.FunctionSpace` is returned.
+    """
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
+
+    # Support FunctionSpace(mesh, MixedElement)
+    if type(element) is ufl.MixedElement:
+        return MixedFunctionSpace(element, mesh=mesh, name=name)
+
+    # Check that any Vector/Tensor/Mixed modifiers are outermost.
+    check_element(element)
+
+    # Otherwise, build the FunctionSpace.
+    topology = mesh.topology
+    if element.family() == "Real":
+        new = impl.RealFunctionSpace(topology, element, name=name)
+    else:
+        new = impl.FunctionSpace(topology, element, name=name)
+    if mesh is not topology:
+        return impl.FiredrakeDualSpace.create(new, mesh)
+    else:
+        return new
+
+
+@PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
     """Create a rank-1 :class:`.FunctionSpace`.

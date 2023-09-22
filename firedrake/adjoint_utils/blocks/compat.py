@@ -77,7 +77,7 @@ def compat(backend):
             for idx in bc._indices:
                 r = r.sub(idx)
             assert Vtarget == r.function_space()
-            return r.vector()
+            return r
         compat.extract_bc_subvector = extract_bc_subvector
 
         def extract_mesh_from_form(form):
@@ -115,15 +115,7 @@ def compat(backend):
             return value.dat.data
         compat.constant_function_firedrake_compat = constant_function_firedrake_compat
 
-        def assemble_adjoint_value(*args, **kwargs):
-            """A wrapper around Firedrake's assemble that returns a Vector
-            instead of a Function when assembling a 1-form."""
-            result = backend.assemble(*args, **kwargs)
-            if isinstance(result, backend.Function):
-                return result.vector()
-            else:
-                return result
-        compat.assemble_adjoint_value = assemble_adjoint_value
+        compat.assemble_adjoint_value = backend.assemble
 
         def gather(vec):
             return vec.gather()

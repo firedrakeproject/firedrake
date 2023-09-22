@@ -18,16 +18,16 @@ __all__ = ["LinearVariationalProblem",
 
 
 def check_pde_args(F, J, Jp):
-    if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
+    if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
-    if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+    if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
     if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
-    if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and not isinstance(Jp, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
 
@@ -311,10 +311,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)) and L == 0:
+        if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)) and L == 0:
             F = ufl_expr.action(J, u)
         else:
-            if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1:
                 raise ValueError("Provided RHS is not a linear form")

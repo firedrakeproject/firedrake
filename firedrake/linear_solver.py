@@ -1,5 +1,6 @@
 from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
+import firedrake.cofunction as cofunction
 import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
@@ -52,7 +53,7 @@ class LinearSolver(OptionsManager):
 
         solver_parameters = flatten_parameters(solver_parameters or {})
         solver_parameters = solving_utils.set_defaults(solver_parameters,
-                                                       A.a.arguments(),
+                                                       A.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
@@ -107,18 +108,18 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def test_space(self):
-        return self.A.a.arguments()[0].function_space()
+        return self.A.arguments()[0].function_space()
 
     @cached_property
     def trial_space(self):
-        return self.A.a.arguments()[1].function_space()
+        return self.A.arguments()[1].function_space()
 
     @cached_property
     def _rhs(self):
         from firedrake.assemble import OneFormAssembler
 
         u = function.Function(self.trial_space)
-        b = function.Function(self.test_space)
+        b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
         return u, OneFormAssembler(expr, tensor=b).assemble, b
 
@@ -130,19 +131,25 @@ class LinearSolver(OptionsManager):
         update()
         # blift contains -A u_bc
         blift += b
-        for bc in self.A.bcs:
-            bc.apply(blift)
+        if isinstance(blift, cofunction.Cofunction):
+            blift_func = blift.riesz_representation(riesz_map="l2")
+            for bc in self.A.bcs:
+                bc.apply(blift_func)
+            blift.assign(blift_func.riesz_representation(riesz_map="l2"))
+        else:
+            for bc in self.A.bcs:
+                bc.apply(blift)
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
     @PETSc.Log.EventDecorator()
     def solve(self, x, b):
-        if not isinstance(x, (function.Function, vector.Vector)):
-            raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
+        if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
+            raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)
         if isinstance(b, vector.Vector):
             b = b.function
-        if not isinstance(b, function.Function):
-            raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
+        if not isinstance(b, (function.Function, cofunction.Cofunction)):
+            raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
 
         if len(self.trial_space) > 1 and self.nullspace is not None:
             self.nullspace._apply(self.trial_space.dof_dset.field_ises)

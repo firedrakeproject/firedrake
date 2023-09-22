@@ -1,5 +1,4 @@
 from firedrake import *
-import numpy
 
 
 def test_unary_minus():
@@ -21,6 +20,8 @@ def test_unary_minus():
 
     expr = action(A, uh) - B
 
-    assert numpy.allclose(norm(assemble(expr)), 0)
+    assembled_expr = assemble(expr)
+    assert assembled_expr.dat.norm < 1e-9
 
-    assert numpy.allclose(norm(assemble(-expr)), 0)
+    assembled_expr = assemble(-expr)
+    assert assembled_expr.dat.norm < 1e-9

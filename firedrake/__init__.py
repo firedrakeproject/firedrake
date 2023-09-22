@@ -72,6 +72,7 @@ from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 from firedrake.assemble import *
 from firedrake.bcs import *
 from firedrake.checkpointing import *
+from firedrake.cofunction import *
 from firedrake.constant import *
 from firedrake.exceptions import *
 from firedrake.function import *

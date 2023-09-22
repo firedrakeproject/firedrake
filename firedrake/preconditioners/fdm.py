@@ -8,8 +8,9 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            get_permutation_to_line_elements)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
 from firedrake_citations import Citations
@@ -437,7 +438,7 @@ class FDMPC(PCBase):
             coefficients = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
             from firedrake.assemble import OneFormAssembler
-            coefficients = Function(Z)
+            coefficients = Function(Z.dual())
             assembly_callables.append(OneFormAssembler(mixed_form, tensor=coefficients, diagonal=True,
                                                        form_compiler_parameters=fcp).assemble)
         return coefficients, assembly_callables
@@ -1814,7 +1815,7 @@ class PoissonFDMPC(FDMPC):
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=alpha.ufl_shape))
-            tensor = coefficients.setdefault("alpha", Function(Q))
+            tensor = coefficients.setdefault("alpha", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1836,7 +1837,7 @@ class PoissonFDMPC(FDMPC):
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
             Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
-            tensor = coefficients.setdefault("beta", Function(Q))
+            tensor = coefficients.setdefault("beta", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1859,12 +1860,12 @@ class PoissonFDMPC(FDMPC):
             G = G * abs(ufl.JacobianDeterminant(mesh))
 
             Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=G.ufl_shape))
-            tensor = coefficients.setdefault("Gq_facet", Function(Q))
+            tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
             PT = Piola.T
             Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=PT.ufl_shape))
-            tensor = coefficients.setdefault("PT_facet", Function(Q))
+            tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
@@ -1888,7 +1889,7 @@ class PoissonFDMPC(FDMPC):
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
                 forms.append(ufl.inner(test, beta)*ds_ext)
 
-        tensor = coefficients.setdefault("bcflags", Function(Q))
+        tensor = coefficients.setdefault("bcflags", Function(Q.dual()))
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
@@ -2006,7 +2007,7 @@ def extrude_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    if isinstance(V, Function):
+    if isinstance(V, (Function, Cofunction)):
         V = V.function_space()
     mesh = V.mesh()
     intfacets = mesh.interior_facets
