@@ -17,6 +17,7 @@ def ipynb_file(request):
     return os.path.abspath(request.param)
 
 
+@pytest.mark.skipplot  # All notebooks contain plotting
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
