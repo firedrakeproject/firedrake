@@ -131,14 +131,15 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
 
     Parameters
     ----------
-    new_test : :class:`TestFunction`
+    new_test : :func:`.TestFunction`
         The new test function.
 
     Returns
     -------
-    func
-        A function that takes in t, a :class:`Term`, and returns a new
-        :class:`Term` with form containing the new_test and labels=t.labels
+    :obj:`callable`
+        A function that takes in t, a :class:`.Term`, and returns a new
+        :class:`.Term` with form containing the ``new_test`` and
+        ``labels=t.labels``
     """
 
     def repl(t):
@@ -148,12 +149,12 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t : :class:`Term`
+        t : :class:`.Term`
             The original term.
 
         Returns
         -------
-        :class:`Term`
+        :class:`.Term`
             The new term.
         """
         old_test = t.form.arguments()[0]
@@ -179,14 +180,15 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
     Parameters
     ----------
-    new : :class:`TrialFunction` or :class:`Function`
+    new : :func:`.TrialFunction` or :class:`.Function`
         The new function.
 
     Returns
     -------
-    func
-        A function that takes in t, a :class:`Term`, and returns a new
-        :class:`Term` with form containing the new_test and labels=t.labels
+    :obj:`callable`
+        A function that takes in t, a :class:`.Term`, and returns a new
+        :class:`.Term` with form containing the ``new_test`` and
+        ``labels=t.labels``
     """
 
     def repl(t):
@@ -196,7 +198,7 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t (:class:`Term`)
+        t (:class:`.Term`)
             The original term.
 
         Raises
@@ -206,7 +208,7 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
         Returns
         -------
-        :class:`Term`
+        :class:`.Term`
             The new term.
         """
         if len(t.form.arguments()) != 2:
@@ -236,8 +238,8 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
     ----------
     new : :class:`ufl.Expr`
         The new expression to replace the subject.
-    idx : int, optional
-        Index of the subject in the equation's :class:`MixedFunctionSpace`.
+    idx : :obj:`int`, optional
+        Index of the subject in the equation's :class:`.MixedFunctionSpace`.
         Defaults to None.
     """
     def repl(t):
@@ -247,7 +249,7 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t : :class:`Term`
+        t : :class:`.Term`
             The original term.
 
         Raises
@@ -258,7 +260,7 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
         Returns
         -------
-        :class:`Term`:
+        :class:`.Term`:
             The new term.
         """
 

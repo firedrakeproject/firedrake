@@ -32,7 +32,7 @@ class Term(object):
         ----------
         form : :class:`ufl.Form`
             The form for this terms.
-        label_dict : dict, optional
+        label_dict : :obj:`dict`, optional
             Dictionary of key-value pairs corresponding to current form labels.
             Defaults to None.
         """
@@ -50,7 +50,7 @@ class Term(object):
 
         Returns
         -------
-        Any type
+        Any
             The value of a label.
         """
         return self.labels.get(label.label)
@@ -64,7 +64,7 @@ class Term(object):
         *labels : :class:`Label`
             A label or series of labels. A tuple is automatically returned if
             multiple labels are provided as arguments.
-        return_tuple : bool, optional
+        return_tuple : :obj:`bool`, optional
             If True, forces a tuple to be returned even if only one label is
             provided as an argument. Defaults to False.
 
@@ -167,9 +167,10 @@ class LabelledForm(object):
     """
     A form, broken down into terms that pair individual forms with labels.
 
-    The `LabelledForm` object holds a list of terms, which pair :class:`Form`
-    objects with :class:`Label`s. The `label_map` routine allows the terms to be
-    manipulated or selected based on particular filters.
+    The `LabelledForm` object holds a list of terms, which pair
+    :class:`ufl.Form` objects with :class:`.Label`\\ s. The :meth:`label_map`
+    routine allows the terms to be manipulated or selected based on particular
+    filters.
     """
     __slots__ = ["terms"]
 
@@ -292,12 +293,12 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        term_filter : func
+        term_filter : :obj:`callable`
             A function to filter the labelled form's terms.
-        map_if_true : func, optional
+        map_if_true : :obj:`callable`, optional
             How to map the terms for which the term_filter returns True.
             Defaults to identity.
-        map_if_false : func, optional
+        map_if_false : :obj:`callable`, optional
             How to map the terms for which the term_filter returns False.
             Defaults to identity.
 
@@ -358,10 +359,10 @@ class Label(object):
         ----------
         label : str
             The name of the label.
-        value : Any, optional
+        value : :obj:`Any`, optional
             The value for the label to take. Can be any type (subject to the
             validator). Defaults to True.
-        validator : func, optional
+        validator : :obj:`callable`, optional
             Function to check the validity of any value later passed to the
             label. Defaults to None.
         """
