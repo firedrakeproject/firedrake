@@ -314,9 +314,9 @@ def test_interpolate_hessian_linear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -372,9 +372,9 @@ def test_interpolate_hessian_nonlinear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -434,9 +434,9 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -638,9 +638,9 @@ def test_supermesh_project_hessian(vector):
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(source.block_variable.adj_value, Vector)
-    assert isinstance(source.block_variable.hessian_value, Vector)
-    Hm = source.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(source.block_variable.adj_value, Cofunction)
+    assert isinstance(source.block_variable.hessian_value, Cofunction)
+    Hm = source.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 

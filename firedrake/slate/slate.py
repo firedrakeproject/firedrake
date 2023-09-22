@@ -18,9 +18,10 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict, namedtuple, defaultdict
 
-from ufl import Coefficient, Constant
+from ufl import Constant
+from ufl.coefficient import BaseCoefficient
 
-from firedrake.function import Function
+from firedrake.function import Function, Cofunction
 from firedrake.utils import cached_property
 
 from itertools import chain, count
@@ -28,7 +29,7 @@ from itertools import chain, count
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
@@ -236,7 +237,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) or isinstance(c, Cofunction) else tuple(range(1))
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -434,12 +435,12 @@ class AssembledVector(TensorBase):
     def __new__(cls, function):
         if isinstance(function, AssembledVector):
             return function
-        elif isinstance(function, Coefficient):
+        elif isinstance(function, BaseCoefficient):
             self = super().__new__(cls)
             self._function = function
             return self
         else:
-            raise TypeError("Expecting a Coefficient or AssembledVector (not a %r)" %
+            raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
 
     @cached_property
@@ -514,7 +515,7 @@ class BlockAssembledVector(AssembledVector):
         block = Block(expr, indices)
         split_functions = block.form
         if isinstance(split_functions, tuple) \
-           and all(isinstance(f, Coefficient) for f in split_functions):
+           and all(isinstance(f, BaseCoefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
@@ -522,7 +523,7 @@ class BlockAssembledVector(AssembledVector):
             self._block = block
             return self
         else:
-            raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
+            raise TypeError("Expecting a tuple of BaseCoefficients (not a %r)" %
                             type(split_functions))
 
     @cached_property
