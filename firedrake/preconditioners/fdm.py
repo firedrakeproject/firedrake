@@ -243,6 +243,7 @@ class FDMPC(PCBase):
         self.assemblers = {}
 
         Pmats = {}
+        diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
         # Store only off-diagonal blocks with more columns than rows to save memory
         Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
@@ -288,6 +289,11 @@ class FDMPC(PCBase):
                     if len(bdofs) > 0:
                         vals = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
                         assembly_callables.append(partial(P.setValuesRCV, bdofs, bdofs, vals, addv))
+
+                    gamma = self.coefficients.get("facet")
+                    if gamma is not None and gamma.function_space() == Vrow.dual():
+                        with gamma.dat.vec_ro as diag:
+                            diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
         if len(V) == 1:
@@ -295,6 +301,7 @@ class FDMPC(PCBase):
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
         assembly_callables.append(Pmat.assemble)
+        assembly_callables.extend(diagonal_terms)
         return Pmat, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMAssemble")
@@ -352,8 +359,7 @@ class FDMPC(PCBase):
         :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
         :arg block_diagonal: are we assembling the block diagonal of the mass matrices?
 
-        :returns: a 2-tuple of a mixed `Function` with the zero-th order and second
-                  order coefficients and a list of assembly callables.
+        :returns: a 2-tuple of a dict of coefficients and a list of assembly callables.
         """
         assembly_callables = []
         # Basic idea: take the original bilinear form and
@@ -435,11 +441,18 @@ class FDMPC(PCBase):
                 bdiags.append(ctx._block_diagonal)
                 assembly_callables.append(ctx._assemble_block_diagonal)
             W = MixedFunctionSpace([c.function_space() for c in bdiags])
-            coefficients = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
+            tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
             from firedrake.assemble import OneFormAssembler
-            coefficients = Function(Z.dual())
-            assembly_callables.append(OneFormAssembler(mixed_form, tensor=coefficients, diagonal=True,
+            tensor = Function(Z.dual())
+            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
+                                                       form_compiler_parameters=fcp).assemble)
+        coefficients = {"cell": tensor}
+        facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
+        J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
+        if len(J_facet.integrals()) > 0:
+            gamma = coefficients.set_default("facet", Function(V.dual()))
+            assembly_callables.append(OneFormAssembler(J_facet, tensor=gamma, diagonal=True,
                                                        form_compiler_parameters=fcp).assemble)
         return coefficients, assembly_callables
 
@@ -510,7 +523,7 @@ class FDMPC(PCBase):
                 e0 = FIAT.RestrictedElement(e0, restriction_domain="interior")
 
             # Get broken(CG(k)) and DG(k-1) 1D elements from the coefficient spaces
-            Z = self.coefficients.function_space()
+            Z = self.coefficients["cell"].function_space()
             Q0 = Z[0].finat_element.element
             elements = sorted(get_base_elements(Q0), key=lambda e: e.formdegree)
             q0 = elements[0] if elements[0].formdegree == 0 else None
@@ -545,7 +558,7 @@ class FDMPC(PCBase):
 
     @cached_property
     def _element_mass_matrix(self):
-        Z = self.coefficients.function_space()
+        Z = self.coefficients["cell"].function_space()
         shape = (sum(V.finat_element.space_dimension() for V in Z),) + Z[0].shape
         data = numpy.ones(shape, dtype=PETSc.RealType)
         shape += (1,) * (3-len(shape))
@@ -594,7 +607,7 @@ class FDMPC(PCBase):
 
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
-            coefficients_acc = self.coefficients.dat(op2.READ, self.coefficients.cell_node_map())
+            coefficients_acc = self.coefficients["cell"].dat(op2.READ, self.coefficients["cell"].cell_node_map())
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
