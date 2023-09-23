@@ -241,7 +241,7 @@ def test_cofunction_riesz_representation(a):
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
-            Mr = Function(V, val=r.vector())
+            Mr = Function(V, val=r.dat)
 
         # Check residual
         for a, b in zip(Mr.subfunctions, c.subfunctions):
@@ -278,7 +278,7 @@ def test_function_riesz_representation(f):
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
-            Mf = Cofunction(V.dual(), val=f.vector())
+            Mf = Cofunction(V.dual(), val=f.dat)
 
         # Check residual
         for a, b in zip(Mf.subfunctions, r.subfunctions):

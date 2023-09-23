@@ -234,7 +234,7 @@ class FunctionMixin(FloatingType):
             raise TypeError("Expected a Cofunction, Function or a float")
 
         if riesz_representation == "l2":
-            value = value.vector() if isinstance(value, (Cofunction, Function)) else value
+            value = value.dat if isinstance(value, (Cofunction, Function)) else value
             return Function(V, val=value)
 
         elif riesz_representation in ("L2", "H1"):
@@ -308,7 +308,7 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
         if riesz_representation == "l2":
-            return self.vector().inner(other.vector())
+            return self.dat.inner(other.dat)
         elif riesz_representation == "L2":
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":

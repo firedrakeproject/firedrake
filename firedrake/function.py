@@ -486,7 +486,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         V = self.function_space()
         if riesz_map == "l2":
-            return Cofunction(V.dual(), val=self.vector())
+            return Cofunction(V.dual(), val=self.dat)
 
         elif riesz_map in ("L2", "H1"):
             a = self._define_riesz_map_form(riesz_map, V)

@@ -4,15 +4,9 @@ from ufl.form import BaseForm
 from pyop2 import op2, mpi
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake.logging import warning
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
-try:
-    import cachetools
-except ImportError:
-    warning("cachetools not available, expression assembly will be slowed down")
-    cachetools = None
 
 
 class Cofunction(ufl.Cofunction, FunctionMixin):
@@ -53,7 +47,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             V = V.function_space()
             # Deep copy prevents modifications to Vector copies.
             # Also, this discard the value of `val` if it was specified (consistent with Function)
-            val = function_space.copy(deepcopy=True).vector()
+            val = function_space.copy(deepcopy=True).dat
         elif not isinstance(V, functionspaceimpl.FiredrakeDualSpace):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
@@ -85,12 +79,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if hasattr(self, "_comm"):
             mpi.decref(self._comm)
 
-    def copy(self, deepcopy=False):
+    def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
-        :kwarg deepcopy: If ``True``, the new
+        :kwarg deepcopy: If ``True``, the default, the new
             :class:`firedrake.function.CoordinatelessFunction` will allocate new space
-            and copy values.  If ``False``, the default, then the new
+            and copy values.  If ``False``, then the new
             :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
         if deepcopy:
@@ -170,13 +164,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             self.dat.zero(subset=subset)
-            return self
-        elif isinstance(expr, ufl.classes.ConstantValue):
-            from firedrake.function import Function
-            # Workaround to avoid using `assemble_expressions` directly
-            # since cofunctions are not `ufl.Expr`.
-            f = Function(self.function_space().dual()).assign(expr)
-            f.dat.copy(self.dat, subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -274,9 +261,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         :param expression: a UFL expression to interpolate
         :returns: this :class:`Function` object"""
-        from firedrake.ufl_expr import Argument
         from firedrake import interpolation
-        interp = interpolation.Interpolate(Argument(self.function_space().dual(), 0), expression)
+        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp)
 
     def vector(self):

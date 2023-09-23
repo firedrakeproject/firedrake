@@ -89,10 +89,8 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         # Convert PyTorch gradient to Firedrake
         V_adj = V.dual() if V else V
         adj_input = from_torch(grad_output, V_adj)
-        if isinstance(adj_input, (Function, Cofunction)):
-            adj_input = adj_input.vector()
-        elif isinstance(adj_input, Constant) and adj_input.ufl_shape == ():
-            # Replace the scalar constant by an adjfloat
+        if isinstance(adj_input, Constant) and adj_input.ufl_shape == ():
+            # This will later on result in an `AdjFloat` adjoint input instead of a Constant
             adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional

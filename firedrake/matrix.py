@@ -190,14 +190,6 @@ class AssembledMatrix(MatrixBase):
         conditions to apply.
 
     :arg petscmat: the already constructed petsc matrix this object represents.
-
-
-    .. note::
-
-        This object acts to the right on an assembled :class:`.Function`
-        and to the left on an assembled cofunction (currently represented
-        by a :class:`.Function`).
-
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")

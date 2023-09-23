@@ -132,10 +132,10 @@ class LinearSolver(OptionsManager):
         # blift contains -A u_bc
         blift += b
         if isinstance(blift, cofunction.Cofunction):
-            blift_func = function.Function(blift.function_space().dual(), val=blift.vector())
+            blift_func = blift.riesz_representation(riesz_map="l2")
             for bc in self.A.bcs:
                 bc.apply(blift_func)
-            blift.assign(cofunction.Cofunction(blift.function_space(), val=blift_func.vector()))
+            blift.assign(blift_func.riesz_representation(riesz_map="l2"))
         else:
             for bc in self.A.bcs:
                 bc.apply(blift)
