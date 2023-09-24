@@ -264,15 +264,15 @@ class FDMPC(PCBase):
                 preallocator.setUp()
                 self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
                 preallocator.assemble()
-                d_nnz, o_nnz = get_preallocation(preallocator, sizes[0][0])
+                dnz, onz = get_preallocation(preallocator, sizes[0][0])
                 if on_diag:
-                    numpy.maximum(d_nnz, 1, out=d_nnz)
+                    numpy.maximum(dnz, 1, out=dnz)
                 preallocator.destroy()
 
                 P = PETSc.Mat().create(comm=self.comm)
                 P.setType(ptype)
                 P.setSizes(sizes)
-                P.setPreallocationNNZ((d_nnz, o_nnz))
+                P.setPreallocationNNZ((dnz, onz))
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
                 if on_diag:
                     P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, True)
@@ -627,7 +627,7 @@ class FDMPC(PCBase):
                                     *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
                                     *indices)
 
-            kernel = element_kernel.preallocator_kernel(Vrow, Vcol, mat_type=mat_type)
+            #kernel = element_kernel.preallocator_kernel(Vrow, Vcol, mat_type=mat_type)
             #dnz = Function(Vrow, dtype=PETSc.IntType)
             #onz = Function(Vrow, dtype=PETSc.IntType)
             #preallocator = op2.ParLoop(kernel,
@@ -637,8 +637,8 @@ class FDMPC(PCBase):
             #                           onz.dat(op2.INC, onz.cell_node_map()),
             #                           *indices)
             #preallocator()
-            #dnz = dnz.dat.data.astype(PETSc.IntType)
-            #onz = onz.dat.data.astype(PETSc.IntType)
+            #print("kernel", dnz.dat.data, flush=True)
+            #print(list(onz.dat.data), flush=True)
 
         assembler.arguments[0].data = A.handle
         assembler()
@@ -728,10 +728,10 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
 
     def entity_nonzeros(self, Vrow, Vcol):
         A = self.result
-        nz = numpy.diff(A.getValuesCSR()[0])
         comm = A.getComm()
 
         ises = {}
+        big_ises = {}
         for V in (Vrow, Vcol):
             if V in ises:
                 continue
@@ -742,14 +742,15 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
                 for entity in sorted(edofs[dim]):
                     ises[V].append(PETSc.IS().createBlock(bsize, edofs[dim][entity], comm=comm))
 
-        dnz = nz.copy()
+        zero = PETSc.Mat()
         submats = A.createSubMatrices(isrows=ises[Vrow], iscols=ises[Vcol])
-        for Asub, i, j in zip(submats, ises[Vrow], ises[Vcol]):
-            dnz[i.indices] = numpy.diff(Asub.getValuesCSR()[0])
-            Asub.destroy()
-            i.destroy()
-            j.destroy()
+        m = len(submats)
+        blocks = [[submats[i] if i == j else zero for j in range(m)] for i in range(m)]
+        Adiag = PETSc.Mat().createNest(blocks, isrows=ises[Vrow], iscols=ises[Vcol]).convert(A.getType())
+        dnz = numpy.diff(Adiag.getValuesCSR()[0])
 
+        A.axpy(-1.0, Adiag, structure=PETSc.Mat.Structure.SUBSET)
+        nz = numpy.diff(A.getValuesCSR()[0])
         onz = nz
         onz -= dnz
         return dnz, onz
@@ -758,7 +759,7 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
         if addv is None:
             addv = PETSc.InsertMode.INSERT
         dnz, onz = self.entity_nonzeros(Vrow, Vcol)
-        print(dnz, onz, flush=True)
+
         on_diag = Vrow == Vcol
         select_cols = ""
         if mat_type.endswith("sbaij"):
@@ -766,12 +767,12 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
         cindices = "rindices"
         declare_cindices = ""
         if not on_diag:
-            cindices = "cidices"
+            cindices = "cindices"
             declare_cindices = ", PetscInt const *restrict %s" % cindices
         name = "preallocate_" + self.name
         code = f"""
 PetscErrorCode {name}(const Mat A, const Mat B,
-                      PetscScalar *dnz, PetscScalar *onz,
+                      PetscInt *dnz, PetscInt *onz,
                       PetscInt const *restrict rindices {declare_cindices})
 {{
     MPI_Comm comm;
@@ -786,7 +787,6 @@ PetscErrorCode {name}(const Mat A, const Mat B,
     PetscCallMPI(MPI_Comm_rank(comm, &owner));
     PetscCall(MatGetOwnershipRanges(A, &rranges));
     PetscCall(MatGetOwnershipRangesColumn(A, &cranges));
-
     PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
     PetscCall(MatSeqAIJGetArrayRead(B, &vals));
     for (PetscInt i = 0; i < m; i++) {{
@@ -799,7 +799,8 @@ PetscErrorCode {name}(const Mat A, const Mat B,
             for (PetscInt j = ai[i]; j < ai[i+1]; j++) {{
                 icol = aj[j];
                 c = {cindices}[icol];
-                v = (vals[icol] != 0) & (r >= 0) & (c >= 0);
+                v = (PetscAbsReal(vals[icol]) > 1E-10) & (r >= 0) & (c >= 0);
+
                 {select_cols}
                 on_diag = (c >= cStart) && (c < cEnd);
                 dnz[i] += on_diag * v;
