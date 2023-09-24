@@ -627,46 +627,21 @@ class FDMPC(PCBase):
                                     *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
                                     *indices)
 
-            #dnz = Function(Vrow)
-            #onz = Function(Vrow)
-            #weights = (self.dof_multiplicity(V) for V in spaces)
-            #weights_acc = [w.dat(op2.READ, w.cell_node_map()) for w in weights]
-            #kernel = PreallocatorKernel(None).kernel(mat_type=mat_type, on_diag=on_diag)
+            kernel = element_kernel.preallocator_kernel(Vrow, Vcol, mat_type=mat_type)
+            #dnz = Function(Vrow, dtype=PETSc.IntType)
+            #onz = Function(Vrow, dtype=PETSc.IntType)
             #preallocator = op2.ParLoop(kernel,
             #                           Vrow.mesh().cell_set,
             #                           *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
             #                           dnz.dat(op2.INC, dnz.cell_node_map()),
             #                           onz.dat(op2.INC, onz.cell_node_map()),
-            #                           *weights_acc,
             #                           *indices)
             #preallocator()
             #dnz = dnz.dat.data.astype(PETSc.IntType)
             #onz = onz.dat.data.astype(PETSc.IntType)
-            #print(dnz, flush=True)
-
 
         assembler.arguments[0].data = A.handle
         assembler()
-
-    def dof_multiplicity(self, V):
-        try:
-            return self.cache_multiplicity[V]
-        except KeyError:
-            w = Function(V, dtype=PETSc.IntType)
-            is_interior, _ = is_restricted(V.finat_element)
-            if is_interior:
-                w.assign(1)
-            else:
-                size = V.finat_element.space_dimension() * V.value_size
-                name = "multiplicity"
-                code = f"""
-                void {name}(PetscInt *w) {{
-                    for (PetscInt i = 0; i < {size}; i++) w[i]++;
-                }}"""
-                k = op2.Kernel(code, name)
-                op2.parloop(k, V.mesh().cell_set, w.dat(op2.INC, w.cell_node_map()))
-            return self.cache_multiplicity.setdefault(V, w)
-
 
 class ElementKernel(object):
     """
@@ -750,6 +725,94 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
         return op2.Kernel(code, self.name)
+
+    def entity_nonzeros(self, Vrow, Vcol):
+        A = self.result
+        nz = numpy.diff(A.getValuesCSR()[0])
+        comm = A.getComm()
+
+        ises = {}
+        for V in (Vrow, Vcol):
+            if V in ises:
+                continue
+            ises[V] = []
+            bsize = V.value_size
+            edofs = V.finat_element.entity_dofs()
+            for dim in sorted(edofs):
+                for entity in sorted(edofs[dim]):
+                    ises[V].append(PETSc.IS().createBlock(bsize, edofs[dim][entity], comm=comm))
+
+        dnz = nz.copy()
+        submats = A.createSubMatrices(isrows=ises[Vrow], iscols=ises[Vcol])
+        for Asub, i, j in zip(submats, ises[Vrow], ises[Vcol]):
+            dnz[i.indices] = numpy.diff(Asub.getValuesCSR()[0])
+            Asub.destroy()
+            i.destroy()
+            j.destroy()
+
+        onz = nz
+        onz -= dnz
+        return dnz, onz
+
+    def preallocator_kernel(self, Vrow, Vcol, mat_type="aij", addv=None):
+        if addv is None:
+            addv = PETSc.InsertMode.INSERT
+        dnz, onz = self.entity_nonzeros(Vrow, Vcol)
+        print(dnz, onz, flush=True)
+        on_diag = Vrow == Vcol
+        select_cols = ""
+        if mat_type.endswith("sbaij"):
+            select_cols = "v *= (c >= r);"
+        cindices = "rindices"
+        declare_cindices = ""
+        if not on_diag:
+            cindices = "cidices"
+            declare_cindices = ", PetscInt const *restrict %s" % cindices
+        name = "preallocate_" + self.name
+        code = f"""
+PetscErrorCode {name}(const Mat A, const Mat B,
+                      PetscScalar *dnz, PetscScalar *onz,
+                      PetscInt const *restrict rindices {declare_cindices})
+{{
+    MPI_Comm comm;
+    PetscMPIInt owner = 0;
+    PetscBool done, on_diag;
+    PetscInt m, r, c, v, icol, cStart, cEnd;
+    const PetscInt *ai, *aj, *rranges, *cranges;
+    const PetscScalar *vals;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscObjectGetComm(A, &comm));
+    PetscCallMPI(MPI_Comm_rank(comm, &owner));
+    PetscCall(MatGetOwnershipRanges(A, &rranges));
+    PetscCall(MatGetOwnershipRangesColumn(A, &cranges));
+
+    PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatSeqAIJGetArrayRead(B, &vals));
+    for (PetscInt i = 0; i < m; i++) {{
+        r = rindices[i];
+        if (r >= 0) {{
+            while (r < rranges[owner]) owner--;
+            while (r >= rranges[owner+1]) owner++;
+            cStart = cranges[owner];
+            cEnd = cranges[owner+1];
+            for (PetscInt j = ai[i]; j < ai[i+1]; j++) {{
+                icol = aj[j];
+                c = {cindices}[icol];
+                v = (vals[icol] != 0) & (r >= 0) & (c >= 0);
+                {select_cols}
+                on_diag = (c >= cStart) && (c < cEnd);
+                dnz[i] += on_diag * v;
+                onz[i] += (!on_diag) * v;
+            }}
+        }}
+    }}
+    PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
+    PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}}"""
+        return op2.Kernel(code, name)
+
 
 
 class TripleProductKernel(ElementKernel):
@@ -1203,66 +1266,6 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         result.axpy(1.0, A11, structure=structure)
         return result
 
-class PreallocatorKernel(ElementKernel):
-
-    def kernel(self, on_diag=True, mat_type="aij", addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT
-        select_cols = ""
-        if mat_type.endswith("sbaij"):
-            select_cols = "v *= (c >= r);"
-        cweights = "rweights" if on_diag else "cweights"
-        cindices = "rindices" if on_diag else "cindices"
-        declare_cweights = "" if on_diag else ", PetscInt const *restrict %s" % cweights
-        declare_cindices = "" if on_diag else ", PetscInt const *restrict %s" % cindices
-        code = f"""
-PetscErrorCode {self.name}(const Mat A, const Mat B,
-                           PetscScalar *dnz, PetscScalar *onz,
-                           PetscInt const *restrict rweights {declare_cweights},
-                           PetscInt const *restrict rindices {declare_cindices})
-{{
-    MPI_Comm comm;
-    PetscMPIInt owner = 0;
-    PetscBool done, on_diag;
-    PetscInt m, r, c, wr, wc, icol, cStart, cEnd, *rranges, *cranges;
-    PetscScalar v;
-    const PetscInt *ai, *aj;
-    const PetscScalar *vals;
-    PetscFunctionBeginUser;
-    PetscCall(PetscObjectGetComm(A, &comm));
-    PetscCallMPI(MPI_Comm_rank(comm, &owner));
-    PetscCall(MatGetOwnershipRanges(A, &rranges));
-    PetscCall(MatGetOwnershipRangesColumn(A, &cranges));
-    PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
-    PetscCall(MatSeqAIJGetArrayRead(B, &vals));
-    for (PetscInt i = 0; i < m; i++) {{
-        wr = rweights[i];
-        r = rindices[i];
-        if (r >= 0) {{
-            while (r < rranges[owner]) owner--;
-            while (r >= rranges[owner+1]) owner++;
-            cStart = cranges[owner];
-            cEnd = cranges[owner+1];
-            for (PetscInt j = ai[i]; j < ai[i+1]; j++) {{
-                icol = aj[j];
-                c = {cindices}[icol];
-                on_diag = (c >= cStart) && (c < cEnd);
-                wc = {cweights}[j];
-                wc += (wr < wc) * (wr - wc)
-                v = values[icol];
-                v += (v <= 0.0) * (1.0 / wc - v);
-                v *= (r >= 0) & (c >= 0);
-                {select_cols}
-                dnz[i] += on_diag * v;
-                onz[i] += (!on_diag) * v;
-            }}
-        }}
-    }}
-    PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
-    PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
-    PetscFunctionReturn(PETSC_SUCCESS);
-}}"""
-        return op2.Kernel(code, self.name)
 
 
 def is_restricted(finat_element):
