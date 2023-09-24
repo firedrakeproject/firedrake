@@ -79,8 +79,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch pyadjoint dualspace \
-            --package-branch ufl interp_dual \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
