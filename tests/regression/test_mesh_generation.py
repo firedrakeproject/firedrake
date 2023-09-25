@@ -67,6 +67,13 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+def test_tensor_box():
+    xcoords = [0.0, 0.2, 0.8, 1.2]
+    ycoords = [1.0, 1.4, 2.0]
+    zcoords = [0.5, 0.6, 0.7, 1.0]
+    assert abs(integrate_one(TensorBoxMesh(xcoords, ycoords, zcoords)) - 0.6) < 1e-3
+
+
 def run_one_element_advection():
     nx = 20
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
@@ -222,6 +229,14 @@ def test_tensor_rectangle_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_tensor_box_parallel():
+    xcoords = [0.0, 0.2, 0.8, 1.2]
+    ycoords = [1.0, 1.4, 2.0]
+    zcoords = [0.5, 0.6, 0.7, 1.0]
+    assert abs(integrate_one(TensorBoxMesh(xcoords, ycoords, zcoords)) - 0.6) < 1e-3
 
 
 @pytest.mark.parallel
