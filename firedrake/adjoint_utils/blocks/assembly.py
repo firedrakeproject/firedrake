@@ -1,7 +1,7 @@
 import ufl
 import firedrake
 from ufl.formatting.ufl2unicode import ufl2unicode
-from pyadjoint import Block, create_overloaded_object
+from pyadjoint import Block, AdjFloat, create_overloaded_object
 from .backend import Backend
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
@@ -43,8 +43,8 @@ class AssembleBlock(Block, Backend):
                 dform = self.backend.derivative(form, c_rep, dc)
             dform_adj = self.compat.assemble_adjoint_value(dform)
             if dform_adj == 0:
-                # Is returning 0. safe ? (`dform_adj` is a `ZeroBaseForm`)
-                return 0., dform
+                # `dform_adj` is a `ZeroBaseForm`
+                return AdjFloat(0.), dform
             # Return the adjoint model of `form` scaled by the scalar `adj_input`
             adj_output = dform_adj._ad_mul(adj_input)
             return adj_output, dform

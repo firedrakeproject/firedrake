@@ -12,6 +12,7 @@ import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
+from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
@@ -23,7 +24,7 @@ from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
-from firedrake.utils import ScalarType, tuplify
+from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from pyop2.utils import cached_property
@@ -41,7 +42,7 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 def assemble(expr, *args, **kwargs):
     r"""Evaluate expr.
 
-    :arg expr: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
+    :arg expr: a :class:`~ufl.classes.BaseForm`, :class:`~ufl.classes.Expr` or
         a :class:`~.slate.TensorBase` expression.
     :arg tensor: Existing tensor object to place the result in.
     :arg bcs: Iterable of boundary conditions to apply.
@@ -117,12 +118,54 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        is_base_form_preprocessed=False,
                        visited=None,
                        weight=1.0):
+    r"""Evaluate expression.
+
+    :arg expression: a :class:`~ufl.classes.BaseForm`
+    :kwarg tensor: Existing tensor object to place the result in.
+    :kwarg bcs: Iterable of boundary conditions to apply.
+    :kwarg diagonal: If assembling a matrix is it diagonal?
+    :kwarg mat_type: String indicating how a 2-form (matrix) should be
+        assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
+        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
+        matrix-free actions (``'matfree'``). If not supplied, the default value in
+        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
+        from AIJ in that only the block sparsity rather than the dof
+        sparsity is constructed.  This can result in some memory
+        savings, but does not work with all PETSc preconditioners.
+        BAIJ matrices only make sense for non-mixed matrices.
+    :kwarg sub_mat_type: String indicating the matrix type to
+        use *inside* a nested block matrix.  Only makes sense if
+        ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
+        not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
+    :kwarg form_compiler_parameters: Dictionary of parameters to pass to
+        the form compiler. Ignored if not assembling a :class:`~ufl.classes.Form`.
+        Any parameters provided here will be overridden by parameters set on the
+        :class:`~ufl.classes.Measure` in the form. For example, if a
+        ``quadrature_degree`` of 4 is specified in this argument, but a degree of
+        3 is requested in the measure, the latter will be used.
+    :kwarg appctx: Additional information to hang on the assembled
+        matrix if an implicit matrix is requested (mat_type ``"matfree"``).
+    :kwarg options_prefix: PETSc options prefix to apply to matrices.
+    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
+        output tensor to zero rather than to the values prescribed by the
+        boundary condition. Default is ``False``.
+    :kwarg is_base_form_preprocessed: If ``True``, skip preprocessing of the form.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
+
+    :returns: a :class:`float` for 0-forms, a :class:`.Cofunction` or a :class:`.Function` for 1-forms,
+              and a :class:`.MatrixBase` for 2-forms.
+
+    This function assembles a :class:`~ufl.classes.BaseForm` object by traversing the corresponding DAG
+    in a post-order fashion and evaluating the nodes on the fly.
+    """
 
     # Preprocess the DAG and restructure the DAG
     if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `expression`'s cache so we need
-        # to transmit the cache. All of this only holds when `expression` if a `ufl.Form`
+        # to transmit the cache. All of this only holds when `expression` is a `ufl.Form`
         # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
         if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
@@ -156,21 +199,6 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                                                     appctx, options_prefix,
                                                     zero_bc_nodes, weight,
                                                     *(visited[arg] for arg in operands))
-
-    # Update tensor with the assembled result value
-    # assembled_base_form = visited[expr]
-    # Doesn't need to update `tensor` with `assembled_base_form`
-    # for assembled 1-form (Cofunction) because both underlying
-    # Dat objects are the same (they automatically update).
-    # if tensor and isinstance(assembled_base_form, matrix.MatrixBase):
-    #     Uses the PETSc copy method.
-    #    assembled_base_form.petscmat.copy(tensor.petscmat)
-
-    # What about cases where expanding derivatives produce a non-Form object ?
-    # if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
-    #    expression._cache = expr._cache
-    # return assembled_base_form
-
     if tensor:
         update_tensor(visited[expr], tensor)
     return visited[expr]
@@ -411,6 +439,7 @@ def expand_derivatives_form(form, fc_params):
 
 
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
+    """Preprocess ufl.BaseForm objects"""
     if mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
         expr = expand_derivatives_form(expr, form_compiler_parameters)
@@ -429,6 +458,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
                                zero_bc_nodes, weight, *args):
+    r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
+
+        This functions contains the assembly handlers corresponding to the different nodes that
+        can arise in a `~ufl.classes.BaseForm` object. It is called by :func:`assemble_base_form`
+        in a post-order fashion.
+    """
+
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
 
         if args and mat_type != "matfree":
@@ -445,11 +481,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                               options_prefix=options_prefix,
                               form_compiler_parameters=form_compiler_parameters,
                               zero_bc_nodes=zero_bc_nodes, weight=weight)
-
-        # if isinstance(res, firedrake.Function):
-        #   # TODO: Remove once MatrixImplicitContext is Cofunction safe.
-        #   res = firedrake.Cofunction(res.function_space().dual(), val=res.vector())
-        # return res
 
     elif isinstance(expr, ufl.Adjoint):
         if len(args) != 1:
@@ -478,7 +509,6 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             elif isinstance(rhs, matrix.MatrixBase):
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
-                res = PETSc.Mat().create()
                 res = petsc_mat.matMult(rhs.petscmat)
                 return matrix.AssembledMatrix(expr, bcs, res,
                                               appctx=appctx,
@@ -500,14 +530,13 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
             raise TypeError("Mismatching weights and operands in FormSum")
         if len(args) == 0:
             raise TypeError("Empty FormSum")
-        if all([isinstance(op, float) for op in args]):
+        if all(isinstance(op, float) for op in args):
             return sum(args)
-        elif all([isinstance(op, firedrake.Cofunction) for op in args]):
-            # TODO check all are in same function space
+        elif all(isinstance(op, firedrake.Cofunction) for op in args):
+            V, = set(a.function_space() for a in args)
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
-            return firedrake.Cofunction(args[0].function_space(), res)
-        elif all([isinstance(op, ufl.Matrix) for op in args]):
-            res = PETSc.Mat().create()
+            return firedrake.Cofunction(V, res)
+        elif all(isinstance(op, ufl.Matrix) for op in args):
             is_set = False
             for (op, w) in zip(args, expr.weights()):
                 petsc_mat = op.petscmat
@@ -1114,10 +1143,12 @@ class OneFormAssembler(FormAssembler):
 
     def _apply_dirichlet_bc(self, bc):
         if not self._zero_bc_nodes:
+            tensor_func = self._tensor.riesz_representation(riesz_map="l2")
             if self._diagonal:
-                bc.set(self._tensor, 1)
+                bc.set(tensor_func, 1)
             else:
-                bc.apply(self._tensor)
+                bc.apply(tensor_func)
+            self._tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
         else:
             bc.zero(self._tensor)
 
@@ -1256,9 +1287,11 @@ def get_form_assembler(form, tensor, *args, **kwargs):
 
     # Don't expand derivatives if `mat_type` is 'matfree'
     mat_type = kwargs.pop('mat_type', None)
-    fc_params = kwargs.get('form_compiler_parameters')
-    # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-    form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+    if not isinstance(form, slate.TensorBase):
+        fc_params = kwargs.get('form_compiler_parameters')
+        # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
+        form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 1 or diagonal:
@@ -1347,6 +1380,10 @@ class _GlobalKernelBuilder:
         """Build the global kernel."""
         kernel_args = [self._as_global_kernel_arg(arg)
                        for arg in self._kinfo.arguments]
+
+        # we should use up all of the coefficients and constants
+        assert_empty(self._active_coefficients)
+        assert_empty(self._constants)
 
         iteration_regions = {"exterior_facet_top": op2.ON_TOP,
                              "exterior_facet_bottom": op2.ON_BOTTOM,
@@ -1796,21 +1833,21 @@ class _FormHandler:
     @staticmethod
     def iter_active_coefficients(form, kinfo):
         """Yield the form coefficients referenced in ``kinfo``."""
-        for idx, subidxs in kinfo.coefficient_map:
+        all_coefficients = form.coefficients()
+        for idx, subidxs in kinfo.coefficient_numbers:
             for subidx in subidxs:
-                yield form.coefficients()[idx].subfunctions[subidx]
+                yield all_coefficients[idx].subfunctions[subidx]
 
     @staticmethod
     def iter_constants(form, kinfo):
         """Yield the form constants"""
-        # Is kinfo really needed?
-        from tsfc.ufl_utils import extract_firedrake_constants
         if isinstance(form, slate.TensorBase):
             for const in form.constants():
                 yield const
         else:
-            for const in extract_firedrake_constants(form):
-                yield const
+            all_constants = extract_firedrake_constants(form)
+            for constant_index in kinfo.constant_numbers:
+                yield all_constants[constant_index]
 
     @staticmethod
     def index_function_spaces(form, indices):

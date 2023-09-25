@@ -316,7 +316,7 @@ def test_interpolate_hessian_linear_expr():
     dJdm = J.block_variable.tlm_value
     assert isinstance(f.block_variable.adj_value, Cofunction)
     assert isinstance(f.block_variable.hessian_value, Cofunction)
-    Hm = f.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -374,7 +374,7 @@ def test_interpolate_hessian_nonlinear_expr():
     dJdm = J.block_variable.tlm_value
     assert isinstance(f.block_variable.adj_value, Cofunction)
     assert isinstance(f.block_variable.hessian_value, Cofunction)
-    Hm = f.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -436,7 +436,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     dJdm = J.block_variable.tlm_value
     assert isinstance(f.block_variable.adj_value, Cofunction)
     assert isinstance(f.block_variable.hessian_value, Cofunction)
-    Hm = f.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -640,7 +640,7 @@ def test_supermesh_project_hessian(vector):
     dJdm = J.block_variable.tlm_value
     assert isinstance(source.block_variable.adj_value, Cofunction)
     assert isinstance(source.block_variable.hessian_value, Cofunction)
-    Hm = source.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = source.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 

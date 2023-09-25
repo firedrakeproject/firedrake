@@ -188,9 +188,11 @@ class ImplicitMatrixContext(object):
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal()
+        diagonal_func = self._diagonal.riesz_representation(riesz_map="l2")
         for bc in self.bcs:
             # Operator is identity on boundary nodes
-            bc.set(self._diagonal, 1)
+            bc.set(diagonal_func, 1)
+        self._diagonal.assign(diagonal_func.riesz_representation(riesz_map="l2"))
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 
