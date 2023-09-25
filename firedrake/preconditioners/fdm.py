@@ -237,7 +237,6 @@ class FDMPC(PCBase):
                 self.schur_kernel[Vfacet] = SchurComplementBlockLU
 
         # Create data structures needed for assembly
-        self.cache_multiplicity = {}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.index_acc = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices)(op2.READ, Vsub.cell_node_map()) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
@@ -246,10 +245,8 @@ class FDMPC(PCBase):
         Pmats = {}
         diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
-        # Store only off-diagonal blocks with more columns than rows to save memory
-        Vsort = sorted(V, key=lambda Vsub: Vsub.dim())
         # Loop over all pairs of subspaces
-        for Vrow, Vcol in product(Vsort, Vsort):
+        for Vrow, Vcol in product(V, V):
             if symmetric and (Vcol, Vrow) in Pmats:
                 P = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
             else:
@@ -273,11 +270,15 @@ class FDMPC(PCBase):
                 P.setType(ptype)
                 P.setSizes(sizes)
                 P.setPreallocationNNZ((dnz, onz))
+                P.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
                 P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+                P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
                 if on_diag:
                     P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, True)
                 if ptype.endswith("sbaij"):
                     P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+                if ptype == "is":
+                    P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
                 P.setUp()
 
                 # append callables to zero entries, insert element matrices, and apply BCs
@@ -618,27 +619,15 @@ class FDMPC(PCBase):
             self.assemblers.setdefault(key, assembler)
 
         if A.getType() == "preallocator":
+            # element_kernel.remove_diagonal_block(Vrow, Vcol)
             args = assembler.arguments[:2]
             spaces = (Vrow, Vcol)[on_diag:]
             indices = tuple(self.index_acc[V] for V in spaces)
-            kernel = ElementKernel(None, name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
+            kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
                                     *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
                                     *indices)
-
-            #kernel = element_kernel.preallocator_kernel(Vrow, Vcol, mat_type=mat_type)
-            #dnz = Function(Vrow, dtype=PETSc.IntType)
-            #onz = Function(Vrow, dtype=PETSc.IntType)
-            #preallocator = op2.ParLoop(kernel,
-            #                           Vrow.mesh().cell_set,
-            #                           *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
-            #                           dnz.dat(op2.INC, dnz.cell_node_map()),
-            #                           onz.dat(op2.INC, onz.cell_node_map()),
-            #                           *indices)
-            #preallocator()
-            #print("kernel", dnz.dat.data, flush=True)
-            #print(list(onz.dat.data), flush=True)
 
         assembler.arguments[0].data = A.handle
         assembler()
@@ -726,94 +715,51 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
 }}"""
         return op2.Kernel(code, self.name)
 
-    def entity_nonzeros(self, Vrow, Vcol):
+    def remove_diagonal_block(self, Vrow, Vcol):
         A = self.result
         comm = A.getComm()
 
         ises = {}
-        big_ises = {}
         for V in (Vrow, Vcol):
             if V in ises:
                 continue
             ises[V] = []
             bsize = V.value_size
-            edofs = V.finat_element.entity_dofs()
+            edofs = V.finat_element.entity_closure_dofs()
+            tdim = V.mesh().topological_dimension()
             for dim in sorted(edofs):
+                edim = sum(dim) if type(dim) == tuple else dim
+                if edim != tdim - 1:
+                    continue
                 for entity in sorted(edofs[dim]):
                     ises[V].append(PETSc.IS().createBlock(bsize, edofs[dim][entity], comm=comm))
 
-        zero = PETSc.Mat()
+        size = A.getSize()
+        rmap = PETSc.LGMap().createIS(PETSc.IS().createStride(size[0], step=1, comm=comm))
+        cmap = PETSc.LGMap().createIS(PETSc.IS().createStride(size[1], step=1, comm=comm))
+        A.setLGMap(rmap, cmap)
         submats = A.createSubMatrices(isrows=ises[Vrow], iscols=ises[Vcol])
-        m = len(submats)
-        blocks = [[submats[i] if i == j else zero for j in range(m)] for i in range(m)]
-        Adiag = PETSc.Mat().createNest(blocks, isrows=ises[Vrow], iscols=ises[Vcol]).convert(A.getType())
-        dnz = numpy.diff(Adiag.getValuesCSR()[0])
-
-        A.axpy(-1.0, Adiag, structure=PETSc.Mat.Structure.SUBSET)
-        nz = numpy.diff(A.getValuesCSR()[0])
-        onz = nz
-        onz -= dnz
-        return dnz, onz
-
-    def preallocator_kernel(self, Vrow, Vcol, mat_type="aij", addv=None):
-        if addv is None:
-            addv = PETSc.InsertMode.INSERT
-        dnz, onz = self.entity_nonzeros(Vrow, Vcol)
-
-        on_diag = Vrow == Vcol
-        select_cols = ""
-        if mat_type.endswith("sbaij"):
-            select_cols = "v *= (c >= r);"
-        cindices = "rindices"
-        declare_cindices = ""
-        if not on_diag:
-            cindices = "cindices"
-            declare_cindices = ", const PetscInt *restrict %s" % cindices
-        name = "preallocate_" + self.name
-        code = f"""
-PetscErrorCode {name}(const Mat A, const Mat B,
-                      PetscInt *dnz, PetscInt *onz,
-                      const PetscInt *restrict rindices {declare_cindices})
-{{
-    MPI_Comm comm;
-    PetscMPIInt owner = 0;
-    PetscBool done, on_diag;
-    PetscInt m, r, c, v, icol, cStart, cEnd;
-    const PetscInt *ai, *aj, *rranges, *cranges;
-    const PetscScalar *vals;
-
-    PetscFunctionBeginUser;
-    PetscCall(PetscObjectGetComm(A, &comm));
-    PetscCallMPI(MPI_Comm_rank(comm, &owner));
-    PetscCall(MatGetOwnershipRanges(A, &rranges));
-    PetscCall(MatGetOwnershipRangesColumn(A, &cranges));
-    PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
-    PetscCall(MatSeqAIJGetArrayRead(B, &vals));
-    for (PetscInt i = 0; i < m; i++) {{
-        r = rindices[i];
-        if (r >= 0) {{
-            while (r < rranges[owner]) owner--;
-            while (r >= rranges[owner+1]) owner++;
-            cStart = cranges[owner];
-            cEnd = cranges[owner+1];
-            for (PetscInt j = ai[i]; j < ai[i+1]; j++) {{
-                icol = aj[j];
-                c = {cindices}[icol];
-                v = (PetscAbsReal(vals[icol]) > 1E-10) & (r >= 0) & (c >= 0);
-
-                {select_cols}
-                on_diag = (c >= cStart) && (c < cEnd);
-                dnz[i] += on_diag * v;
-                onz[i] += (!on_diag) * v;
-            }}
-        }}
-    }}
-    PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
-    PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
-    PetscFunctionReturn(PETSC_SUCCESS);
-}}"""
-        return op2.Kernel(code, name)
-
+        for submat, isrow, iscol in zip(submats, ises[Vrow], ises[Vcol]):
+            indptr, indices, values = submat.getValuesCSR()
+            values.fill(0.0)
+            ref = A.getLocalSubMatrix(isrow, iscol)
+            for r in range(len(indptr)-1):
+                z = slice(*indptr[r:r+2])
+                ref.setValuesLocal(r, indices[z], values[z])
+            A.restoreLocalSubMatrix(isrow, iscol, ref)
+            submat.destroy()
+            isrow.destroy()
+            iscol.destroy()
+        A.assemble()
+        B = PETSc.Mat().create(comm=A.comm)
+        B.setType(A.getType())
+        B.setSizes(A.getSizes())
+        B.setBlockSize(A.getBlockSize())
+        B.setUp()
+        B.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+        B.setPreallocationCSR(A.getValuesCSR())
+        B.assemble()
+        return B
 
 
 class TripleProductKernel(ElementKernel):
