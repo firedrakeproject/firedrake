@@ -239,25 +239,18 @@ def get_permutation_map(V, W):
         val = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
         wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
-
-    sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
+    wdat = op2.MixedDat(wdats)
+    size = sum(Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
     kernel_code = f"""
-    void permutation(PetscInt *restrict x,
-                     const PetscInt *restrict xi,
-                     const PetscInt *restrict xf){{
-        for(PetscInt i=0; i<{sizes[0]}; i++) x[i] = xi[i];
-        for(PetscInt i=0; i<{sizes[1]}; i++) x[i+{sizes[0]}] = xf[i];
-        return;
-    }}
-    """
+    void permutation(PetscInt *restrict x, const PetscInt *restrict w) {{
+        memcpy(x, w, {size}*sizeof(*w));
+    }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, V.mesh().cell_set,
-                 vdat(op2.WRITE, pmap),
-                 wdats[0](op2.READ, W[0].cell_node_map()),
-                 wdats[1](op2.READ, W[1].cell_node_map()))
+                 vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
 
     own = V.dof_dset.layout_vec.sizes[0]
     perm = perm.reshape((-1, ))

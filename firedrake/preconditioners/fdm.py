@@ -668,8 +668,8 @@ class ElementKernel(object):
     """
         return f"""
 static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
-                                                PetscInt const *restrict rindices,
-                                                PetscInt const *restrict cindices,
+                                                const PetscInt *restrict rindices,
+                                                const PetscInt *restrict cindices,
                                                 InsertMode addv)
 {{
     PetscBool done;
@@ -714,7 +714,7 @@ static inline PetscErrorCode MatSetValuesArray(const Mat A, const PetscScalar *v
         if addv is None:
             addv = PETSc.InsertMode.INSERT
         indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["PetscInt const *restrict %s" % s for s in indices])
+        declare_indices = ", ".join(["const PetscInt *restrict %s" % s for s in indices])
         code = f"""
 {self.header(mat_type=mat_type)}
 
@@ -768,12 +768,12 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
         declare_cindices = ""
         if not on_diag:
             cindices = "cindices"
-            declare_cindices = ", PetscInt const *restrict %s" % cindices
+            declare_cindices = ", const PetscInt *restrict %s" % cindices
         name = "preallocate_" + self.name
         code = f"""
 PetscErrorCode {name}(const Mat A, const Mat B,
                       PetscInt *dnz, PetscInt *onz,
-                      PetscInt const *restrict rindices {declare_cindices})
+                      const PetscInt *restrict rindices {declare_cindices})
 {{
     MPI_Comm comm;
     PetscMPIInt owner = 0;
@@ -831,12 +831,12 @@ class TripleProductKernel(ElementKernel):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
         indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["PetscInt const *restrict %s" % s for s in indices])
+        declare_indices = ", ".join(["const PetscInt *restrict %s" % s for s in indices])
         code = f"""
 {self.header(mat_type=mat_type)}
 
 PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
-                           PetscScalar const *restrict coefficients,
+                           const PetscScalar *restrict coefficients,
                            {declare_indices})
 {{
     PetscFunctionBeginUser;
@@ -905,8 +905,8 @@ class SchurComplementKernel(ElementKernel):
 PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
                            const Mat A11, const Mat A10, const Mat A01, const Mat A00,
                            {declare_work}
-                           PetscScalar const *restrict coefficients,
-                           PetscInt const *restrict rindices)
+                           const PetscScalar *restrict coefficients,
+                           const PetscInt *restrict rindices)
 {{
     PetscFunctionBeginUser;
     PetscCall(MatSetValuesArray(C, coefficients));
