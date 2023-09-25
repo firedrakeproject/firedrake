@@ -127,7 +127,7 @@ class FDMPC(PCBase):
         else:
             # Reconstruct Jacobian and bcs with variant element
             V_fdm = FunctionSpace(V.mesh(), e_fdm)
-            J_fdm = J(*(t.reconstruct(function_space=V_fdm) for t in J.arguments()), coefficients={})
+            J_fdm = J(*(t.reconstruct(function_space=V_fdm) for t in J.arguments()))
             bcs_fdm = []
             for bc in bcs:
                 W = V_fdm

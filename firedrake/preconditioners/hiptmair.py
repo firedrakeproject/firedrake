@@ -196,7 +196,7 @@ class HiptmairPC(TwoLevelPC):
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                shift = beta(test, shift*trial, coefficients={})
+                shift = beta(test, shift*trial)
                 coarse_operator += ufl.Form(shift.integrals_by_type("cell"))
 
         if G_callback is None:
