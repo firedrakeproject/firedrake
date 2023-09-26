@@ -14,6 +14,7 @@ from mpi4py import MPI
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -32,6 +33,10 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
+        m = UnitIcosahedralSphereMesh(refinement_level=2, name='immersedsphere')
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
         m = UnitIcosahedralSphereMesh(refinement_level=2, name='immersedsphere')
         m.init_cell_orientations(SpatialCoordinate(m))
         return m
