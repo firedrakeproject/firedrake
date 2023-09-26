@@ -9,7 +9,7 @@ from FIAT.quadrature import make_quadrature
 from FIAT.polynomial_set import ONPolynomialSet
 from finat.fiat_elements import ScalarFiatElement
 from tsfc.finatinterface import convert, as_fiat_cell
-import ufl
+import ufl.legacy
 
 ufcint = UFCInterval()
 
@@ -91,7 +91,7 @@ class FInAT_P3IntMoments(ScalarFiatElement):
 # Replace the old tsfc.finatinterface.convert dispatch with a new one that
 # gives the the new FInAT element for P3 on an interval with variant
 # "interior-moment"
-old_convert = convert.dispatch(ufl.FiniteElement)
+old_convert = convert.dispatch(ufl.legacy.FiniteElement)
 
 
 def temp_convert(element, **kwargs):
@@ -105,15 +105,15 @@ def temp_convert(element, **kwargs):
 # Register the new tsfc covert method - remove after tests have run (post yield)
 @pytest.fixture
 def add_p3intmoments_tsfc():
-    convert.register(ufl.FiniteElement, temp_convert)
+    convert.register(ufl.legacy.FiniteElement, temp_convert)
     yield
-    convert.register(ufl.FiniteElement, old_convert)
+    convert.register(ufl.legacy.FiniteElement, old_convert)
 
 
 # Test New Element Dual Evaluation
 def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     mesh = UnitIntervalMesh(1)
-    e = ufl.FiniteElement("CG", "interval", 3, variant="interior-moment")
+    e = ufl.legacy.FiniteElement("CG", "interval", 3, variant="interior-moment")
     V = FunctionSpace(mesh, e)
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
