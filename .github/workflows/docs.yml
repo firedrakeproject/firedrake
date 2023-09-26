@@ -42,10 +42,6 @@ jobs:
       - name: Check documentation links
         if: ${{ github.ref == 'refs/heads/master' }}
         run: |
-          git config --global --add safe.directory /home/firedrake/firedrake/src/ufl
-          cd /home/firedrake/firedrake/src/ufl
-          git checkout interp_dual
-          cd /home/firedrake/firedrake/src/firedrake
           . /home/firedrake/firedrake/bin/activate
           cd docs
           make linkcheck
