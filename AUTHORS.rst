@@ -148,6 +148,8 @@ Tomasz J. Salwa
 
 Kaho Sato
 
+Matthew Scroggs...............<https://mscroggs.co.uk>
+
 Ben Sepanski..................<https://bensepanski.github.io>
 
 Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/daniel-shapero/>
