@@ -6,6 +6,7 @@ import abc
 
 import FIAT
 import ufl
+import ufl.legacy
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import extract_unique_domain
@@ -363,7 +364,7 @@ class CrossMeshInterpolator(Interpolator):
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
             else:
-                assert type(ufl_scalar_element) is ufl.MixedElement
+                assert type(ufl_scalar_element) is ufl.legacy.MixedElement
                 # Build and save an interpolator for each sub-element
                 # separately for MixedFunctionSpaces. NOTE: since we can't have
                 # expressions for MixedFunctionSpaces we know that the input

@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+import ufl.legacy
 
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
@@ -70,11 +71,11 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             domain = ufl.as_domain(domain)
             cell = domain.ufl_cell()
             if rank == 0:
-                element = ufl.FiniteElement("R", cell, 0)
+                element = ufl.legacy.FiniteElement("R", cell, 0)
             elif rank == 1:
-                element = ufl.VectorElement("R", cell, 0, shape[0])
+                element = ufl.legacy.VectorElement("R", cell, 0, shape[0])
             else:
-                element = ufl.TensorElement("R", cell, 0, shape=shape)
+                element = ufl.legacy.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
             return Function(R, val=dat).assign(value)

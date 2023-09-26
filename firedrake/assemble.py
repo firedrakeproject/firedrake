@@ -14,6 +14,7 @@ from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
+import ufl.legacy
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
@@ -1284,7 +1285,7 @@ def _as_global_kernel_arg_constant(_, self):
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
 def _as_global_kernel_arg_cell_sizes(_, self):
     # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
-    ufl_element = ufl.FiniteElement("P", self._mesh.ufl_cell(), 1)
+    ufl_element = ufl.legacy.FiniteElement("P", self._mesh.ufl_cell(), 1)
     finat_element = create_element(ufl_element)
     return self._make_dat_global_kernel_arg(finat_element)
 
@@ -1311,7 +1312,7 @@ def _as_global_kernel_arg_cell_facet(_, self):
 @_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_global_kernel_arg_cell_orientations(_, self):
     # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
-    ufl_element = ufl.FiniteElement("DG", cell=self._form.ufl_domain().ufl_cell(), degree=0)
+    ufl_element = ufl.legacy.FiniteElement("DG", cell=self._form.ufl_domain().ufl_cell(), degree=0)
     finat_element = create_element(ufl_element)
     return self._make_dat_global_kernel_arg(finat_element)
 

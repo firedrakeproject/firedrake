@@ -5,6 +5,7 @@ API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
 import ufl
+import ufl.legacy
 
 from pyop2.utils import flatten
 
@@ -20,7 +21,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 @PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
-    """Build a scalar :class:`ufl.FiniteElement`.
+    """Build a scalar :class:`ufl.legacy.FiniteElement`.
 
     :arg mesh: The mesh to determine the cell from.
     :arg family: The finite element family.
@@ -31,7 +32,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    :class:`ufl.legacy.FiniteElementBase`, in which case all other arguments
     are ignored and the element is returned immediately.
 
     .. note::
@@ -43,51 +44,51 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     mesh.init()
     topology = mesh.topology
     cell = topology.ufl_cell()
-    if isinstance(family, ufl.FiniteElementBase):
+    if isinstance(family, ufl.legacy.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
-    if isinstance(cell, ufl.TensorProductCell) \
+    if isinstance(cell, ufl.legacy.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
-        la = ufl.FiniteElement(family,
-                               cell=cell.sub_cells()[0],
-                               degree=degree)
+        la = ufl.legacy.FiniteElement(family,
+                                      cell=cell.sub_cells()[0],
+                                      degree=degree)
         # If second element was passed in, use it
-        lb = ufl.FiniteElement(vfamily,
-                               cell=ufl.interval,
-                               degree=vdegree)
+        lb = ufl.legacy.FiniteElement(vfamily,
+                                      cell=ufl.interval,
+                                      degree=vdegree)
         # Now make the TensorProductElement
-        return ufl.TensorProductElement(la, lb)
+        return ufl.legacy.TensorProductElement(la, lb)
     else:
-        return ufl.FiniteElement(family, cell=cell, degree=degree)
+        return ufl.legacy.FiniteElement(family, cell=cell, degree=degree)
 
 
 def check_element(element, top=True):
     """Run some checks on the provided element.
 
-    The :class:`~ufl.classes.VectorElement` and
-    :class:`~ufl.classes.TensorElement` modifiers must be "outermost"
+    The :class:`~ufl.legacy.VectorElement` and
+    :class:`~ufl.legacy.TensorElement` modifiers must be "outermost"
     for function space construction to work, excepting that they
-    should not wrap a :class:`~ufl.classes.MixedElement`.  Similarly,
-    a base :class:`~ufl.classes.MixedElement` must be outermost (it
-    can contain :class:`~ufl.classes.MixedElement` instances, provided
+    should not wrap a :class:`~ufl.legacy.MixedElement`.  Similarly,
+    a base :class:`~ufl.legacy.MixedElement` must be outermost (it
+    can contain :class:`~ufl.legacy.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
     :arg element: The :class:`UFL element
-        <ufl.classes.FiniteElementBase>` to check.
+        <ufl.legacy.FiniteElementBase>` to check.
     :kwarg top: Are we at the top element (in which case the modifier
         is legal).
     :returns: ``None`` if the element is legal.
     :raises ValueError: if the element is illegal.
 
     """
-    if type(element) in (ufl.BrokenElement, ufl.RestrictedElement,
-                         ufl.HDivElement, ufl.HCurlElement):
+    if type(element) in (ufl.legacy.BrokenElement, ufl.legacy.RestrictedElement,
+                         ufl.legacy.HDivElement, ufl.legacy.HCurlElement):
         inner = (element._element, )
-    elif type(element) is ufl.EnrichedElement:
+    elif type(element) is ufl.legacy.EnrichedElement:
         inner = element._elements
-    elif type(element) is ufl.TensorProductElement:
+    elif type(element) is ufl.legacy.TensorProductElement:
         inner = element.sub_elements()
-    elif isinstance(element, ufl.MixedElement):
+    elif isinstance(element, ufl.legacy.MixedElement):
         if not top:
             raise ValueError("%s modifier must be outermost" % type(element))
         else:
@@ -113,13 +114,13 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    :class:`ufl.legacy.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
 
     # Support FunctionSpace(mesh, MixedElement)
-    if type(element) is ufl.MixedElement:
+    if type(element) is ufl.legacy.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
     if mesh.ufl_cell().cellname() == "hexahedron" and \
        element.family() not in ["Q", "DQ"]:
@@ -154,13 +155,13 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    :class:`ufl.legacy.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
 
     # Support FunctionSpace(mesh, MixedElement)
-    if type(element) is ufl.MixedElement:
+    if type(element) is ufl.legacy.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
 
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
@@ -195,17 +196,17 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    :class:`ufl.legacy.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate :class:`.FunctionSpace` is
     returned.  In this case, the provided element must have an empty
-    :meth:`ufl.FiniteElementBase.value_shape`.
+    :meth:`ufl.legacy.FiniteElementBase.value_shape`.
 
     .. note::
 
        The element that you provide need be a scalar element (with
        empty ``value_shape``), however, it should not be an existing
-       :class:`~ufl.classes.VectorElement`.  If you already have an
-       existing :class:`~ufl.classes.VectorElement`, you should pass
+       :class:`~ufl.legacy.VectorElement`.  If you already have an
+       existing :class:`~ufl.legacy.VectorElement`, you should pass
        it to :func:`FunctionSpace` directly instead.
 
     """
@@ -214,7 +215,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
         dim = mesh.ufl_cell().geometric_dimension()
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
-    element = ufl.VectorElement(sub_element, dim=dim)
+    element = ufl.legacy.VectorElement(sub_element, dim=dim)
     return FunctionSpace(mesh, element, name=name)
 
 
@@ -238,21 +239,21 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`~ufl.classes.FiniteElementBase`, in which case all other arguments
+    :class:`~ufl.legacy.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate :class:`.FunctionSpace` is
     returned.  In this case, the provided element must have an empty
-    :meth:`~ufl.classes.FiniteElementBase.value_shape`.
+    :meth:`~ufl.legacy.FiniteElementBase.value_shape`.
 
     .. note::
 
        The element that you provide must be a scalar element (with
        empty ``value_shape``).  If you already have an existing
-       :class:`~ufl.classes.TensorElement`, you should pass it to
+       :class:`~ufl.legacy.TensorElement`, you should pass it to
        :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
-    element = ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
+    element = ufl.legacy.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
 
 
@@ -261,20 +262,20 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 
     :arg spaces: An iterable of constituent spaces, or a
-        :class:`~ufl.classes.MixedElement`.
+        :class:`~ufl.legacy.MixedElement`.
     :arg name: An optional name for the mixed function space.
     :arg mesh: An optional mesh.  Must be provided if spaces is a
-        :class:`~ufl.classes.MixedElement`, ignored otherwise.
+        :class:`~ufl.legacy.MixedElement`, ignored otherwise.
     """
-    if isinstance(spaces, ufl.FiniteElementBase):
+    if isinstance(spaces, ufl.legacy.FiniteElementBase):
         # Build the spaces if we got a mixed element
-        assert type(spaces) is ufl.MixedElement and mesh is not None
+        assert type(spaces) is ufl.legacy.MixedElement and mesh is not None
         sub_elements = []
 
         def rec(eles):
             for ele in eles:
                 # Only want to recurse into MixedElements
-                if type(ele) is ufl.MixedElement:
+                if type(ele) is ufl.legacy.MixedElement:
                     rec(ele.sub_elements())
                 else:
                     sub_elements.append(ele)

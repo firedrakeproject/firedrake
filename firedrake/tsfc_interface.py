@@ -15,6 +15,7 @@ import tempfile
 import collections
 
 import ufl
+import ufl.legacy
 from ufl import Form, conj
 from .ufl_expr import TestFunction
 
@@ -344,7 +345,7 @@ def extract_numbered_coefficients(expr, numbers):
     orig_coefficients = ufl.algorithms.extract_coefficients(expr)
     coefficients = []
     for coeff in (orig_coefficients[i] for i in numbers):
-        if type(coeff.ufl_element()) == ufl.MixedElement:
+        if type(coeff.ufl_element()) == ufl.legacy.MixedElement:
             coefficients.extend(coeff.subfunctions)
         else:
             coefficients.append(coeff)

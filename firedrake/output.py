@@ -3,6 +3,7 @@ import itertools
 import numpy
 import os
 import ufl
+import ufl.legacy
 from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
@@ -118,10 +119,9 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
             family = "DG"
         else:
             family = "DQ"
-    return ufl.FiniteElement(family,
-                             cell=cell,
-                             degree=degree if max_degree is None else max_degree,
-                             variant="equispaced")
+    return ufl.legacy.FiniteElement(
+        family, cell=cell, degree=degree if max_degree is None else max_degree,
+        variant="equispaced")
 
 
 @PETSc.Log.EventDecorator()
