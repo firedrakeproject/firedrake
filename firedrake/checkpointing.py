@@ -1422,6 +1422,7 @@ class CheckpointFile(object):
             globals = {}
             locals = {}
             exec("from ufl import *", globals, locals)
+            exec("from ufl.legacy import *", globals, locals)
             return eval(self.get_attr(path, name + "_repr"), globals, locals)
         else:
             return self._unpickle(self.get_attr(path, name))  # backward compat.
