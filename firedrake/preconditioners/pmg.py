@@ -125,7 +125,7 @@ class PMGBase(PCSNESBase):
         while True:
             try:
                 ele_ = self.coarsen_element(ele)
-                assert ele_.value_shape() == ele.value_shape()
+                assert ele_.value_shape == ele.value_shape
                 ele = ele_
             except ValueError:
                 break
@@ -387,7 +387,7 @@ class PMGBase(PCSNESBase):
         if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
         elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
-            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
+            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements)
         elif isinstance(ele, ufl.EnrichedElement):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
         elif isinstance(ele, ufl.WithMapping):
@@ -417,7 +417,7 @@ class PMGBase(PCSNESBase):
         :returns: the reconstructed element
         """
         if isinstance(ele, ufl.VectorElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements())
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements)
         elif isinstance(ele, ufl.TensorElement):
             return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), shape=ele._shape, symmetry=ele.symmetry())
         elif isinstance(ele, ufl.EnrichedElement):
@@ -425,10 +425,10 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele._elements))
         elif isinstance(ele, ufl.TensorProductElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements()), cell=ele.cell())
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements), cell=ele.cell)
         elif isinstance(ele, ufl.MixedElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements()))
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements))
         elif isinstance(ele, ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, degree), ele.mapping())
         elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
@@ -1062,7 +1062,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = ufl.Identity(Q.ufl_element().value_shape()[0])
+        tensor = ufl.Identity(Q.ufl_element().value_shape[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -1288,9 +1288,9 @@ class StandaloneInterpolationMatrix(object):
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
-                qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
-                if felem.value_shape():
-                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
+                qelem = ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
+                if felem.value_shape:
+                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape, symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
@@ -1515,7 +1515,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
 
     fele = Pk.ufl_element()
     if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
-        for i in range(fele.num_sub_elements()):
+        for i in range(fele.num_sub_elements):
             Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
             P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
 

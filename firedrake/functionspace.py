@@ -87,12 +87,12 @@ def check_element(element, top=True):
     elif type(element) is ufl.legacy.EnrichedElement:
         inner = element._elements
     elif type(element) is ufl.legacy.TensorProductElement:
-        inner = element.sub_elements()
+        inner = element.sub_elements
     elif isinstance(element, ufl.legacy.MixedElement):
         if not top:
             raise ValueError("%s modifier must be outermost" % type(element))
         else:
-            inner = element.sub_elements()
+            inner = element.sub_elements
     else:
         return
     for e in inner:
@@ -276,10 +276,10 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
             for ele in eles:
                 # Only want to recurse into MixedElements
                 if type(ele) is ufl.legacy.MixedElement:
-                    rec(ele.sub_elements())
+                    rec(ele.sub_elements)
                 else:
                     sub_elements.append(ele)
-        rec(spaces.sub_elements())
+        rec(spaces.sub_elements)
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
     # Check that function spaces are on the same mesh

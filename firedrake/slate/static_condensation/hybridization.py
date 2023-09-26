@@ -59,15 +59,15 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape() for Vi in V):
+        if all(Vi.ufl_element().value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space().name == "HDiv":
+            if Vi.ufl_element().sobolev_space.name == "HDiv":
                 self.vidx = i
             else:
-                assert Vi.ufl_element().sobolev_space().name == "L2"
+                assert Vi.ufl_element().sobolev_space.name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.

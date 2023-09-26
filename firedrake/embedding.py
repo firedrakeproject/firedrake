@@ -4,7 +4,7 @@ import ufl.legacy
 
 
 def get_embedding_dg_element(element):
-    cell = element.cell()
+    cell = element.cell
     degree = element.degree()
     family = lambda c: "DG" if c.is_simplex() else "DQ"
     if isinstance(cell, ufl.legacy.TensorProductCell):
@@ -15,7 +15,7 @@ def get_embedding_dg_element(element):
                                                                for (c, d) in zip(cell.sub_cells(), degree)))
     else:
         scalar_element = ufl.legacy.FiniteElement(family(cell), cell=cell, degree=degree)
-    shape = element.value_shape()
+    shape = element.value_shape
     if len(shape) == 0:
         DG = scalar_element
     elif len(shape) == 1:
@@ -46,7 +46,7 @@ def get_embedding_method_for_checkpointing(element):
     if isinstance(element, (ufl.legacy.HDivElement, ufl.legacy.HCurlElement, ufl.legacy.WithMapping)):
         return "project"
     elif isinstance(element, (ufl.legacy.VectorElement, ufl.legacy.TensorElement)):
-        elem, = set(element.sub_elements())
+        elem, = set(element.sub_elements)
         return get_embedding_method_for_checkpointing(elem)
     elif element.family() in ['Lagrange', 'Discontinuous Lagrange',
                               'Nedelec 1st kind H(curl)', 'Raviart-Thomas',
@@ -55,7 +55,7 @@ def get_embedding_method_for_checkpointing(element):
                               'S', 'DPC', 'Real']:
         return "interpolate"
     elif isinstance(element, ufl.legacy.TensorProductElement):
-        methods = [get_embedding_method_for_checkpointing(elem) for elem in element.sub_elements()]
+        methods = [get_embedding_method_for_checkpointing(elem) for elem in element.sub_elements]
         if any(method == "project" for method in methods):
             return "project"
         else:

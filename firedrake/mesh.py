@@ -1285,8 +1285,8 @@ class MeshTopology(AbstractMeshTopology):
         elem = tV.ufl_element()
         if tV.mesh() is not self:
             raise RuntimeError(f"tf must be defined on {self}: {tf.mesh()} is not {self}")
-        if elem.value_shape() != ():
-            raise RuntimeError(f"tf must be scalar: {elem.value_shape()} != ()")
+        if elem.value_shape != ():
+            raise RuntimeError(f"tf must be scalar: {elem.value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
@@ -1922,7 +1922,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+                                                         (self.num_vertices(), self.ufl_coordinate_element().cell.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
@@ -2397,11 +2397,11 @@ def make_mesh_from_coordinates(coordinates, name):
 
     V = coordinates.function_space()
     element = coordinates.ufl_element()
-    if V.rank != 1 or len(element.value_shape()) != 1:
+    if V.rank != 1 or len(element.value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
     assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
     # Build coordinate element
-    cell = element.cell().reconstruct(geometric_dimension=V.value_size)
+    cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
@@ -2720,7 +2720,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
-    helement = mesh._coordinates.ufl_element().sub_elements()[0]
+    helement = mesh._coordinates.ufl_element().sub_elements[0]
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
@@ -2742,7 +2742,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
+        helement = mesh._coordinates.ufl_element().sub_elements[0].reconstruct(family="CG")
         element = ufl.legacy.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
@@ -4058,8 +4058,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             plex1.createLabel(label_name)
     for f, subid in zip(indicator_functions, subdomain_ids):
         elem = f.topological.function_space().ufl_element()
-        if elem.value_shape() != ():
-            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape()} != ()")
+        if elem.value_shape != ():
+            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0

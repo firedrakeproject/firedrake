@@ -158,7 +158,7 @@ class Assigner:
 
         if (subset and type(assignee.ufl_element()) == ufl.legacy.MixedElement
                 and any(el.family() == "Real"
-                        for el in assignee.ufl_element().sub_elements())):
+                        for el in assignee.ufl_element().sub_elements)):
             raise ValueError("Subset is not a valid argument for assigning to a mixed "
                              "element including a real element")
 

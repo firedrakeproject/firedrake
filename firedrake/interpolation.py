@@ -350,16 +350,16 @@ class CrossMeshInterpolator(Interpolator):
         # input ordering VOM will only contain the points on rank 0!
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
-        if ufl_scalar_element.num_sub_elements():
+        if ufl_scalar_element.num_sub_elements:
             if all(
-                ufl_scalar_element.sub_elements()[0] == e
-                for e in ufl_scalar_element.sub_elements()
+                ufl_scalar_element.sub_elements[0] == e
+                for e in ufl_scalar_element.sub_elements
             ):
                 # For a VectorElement or TensorElement the correct
                 # VectorFunctionSpace equivalent is built from the scalar
                 # sub-element.
-                ufl_scalar_element = ufl_scalar_element.sub_elements()[0]
-                if ufl_scalar_element.value_shape() != ():
+                ufl_scalar_element = ufl_scalar_element.sub_elements[0]
+                if ufl_scalar_element.value_shape != ():
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
@@ -420,7 +420,7 @@ class CrossMeshInterpolator(Interpolator):
         # I first point evaluate my expression at these locations, giving a
         # P0DG function on the VOM. As described in the manual, this is an
         # interpolation operation.
-        shape = V_dest.ufl_element().value_shape()
+        shape = V_dest.ufl_element().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
@@ -789,7 +789,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
-        dims = [numpy.prod(fs.ufl_element().value_shape(), dtype=int)
+        dims = [numpy.prod(fs.ufl_element().value_shape, dtype=int)
                 for fs in V]
         loops = []
         if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
@@ -827,13 +827,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
 
-    if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
+    if len(expr.ufl_shape) != len(V.ufl_element().value_shape):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                           % (len(expr.ufl_shape), len(V.ufl_element().value_shape())))
+                           % (len(expr.ufl_shape), len(V.ufl_element().value_shape)))
 
-    if expr.ufl_shape != V.ufl_element().value_shape():
+    if expr.ufl_shape != V.ufl_element().value_shape:
         raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                           % (expr.ufl_shape, V.ufl_element().value_shape()))
+                           % (expr.ufl_shape, V.ufl_element().value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.ufl_domain()
@@ -1046,7 +1046,7 @@ def rebuild_dg(element, expr, rt_var_name):
     runtime_points_expr = gem.Variable(rt_var_name, (num_points, expr_tdim))
     rule_pointset = finat.point_set.UnknownPointSet(runtime_points_expr)
     try:
-        expr_fiat_cell = as_fiat_cell(expr.ufl_element().cell())
+        expr_fiat_cell = as_fiat_cell(expr.ufl_element().cell)
     except AttributeError:
         # expression must be pure function of spatial coordinates so
         # domain has correct ufl cell

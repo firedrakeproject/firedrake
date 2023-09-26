@@ -1269,7 +1269,7 @@ def _as_global_kernel_arg_coefficient(_, self):
 
     ufl_element = V.ufl_element()
     if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((ufl_element.value_size(),))
+        return op2.GlobalKernelArg((ufl_element.value_size,))
     else:
         finat_element = create_element(ufl_element)
         return self._make_dat_global_kernel_arg(finat_element, index)

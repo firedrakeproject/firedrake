@@ -95,9 +95,9 @@ old_convert = convert.dispatch(ufl.legacy.FiniteElement)
 
 
 def temp_convert(element, **kwargs):
-    if element.family() == "Lagrange" and element.cell() == interval \
+    if element.family() == "Lagrange" and element.cell == interval \
        and element.degree() == 3 and element.variant() == "interior-moment":
-        return FInAT_P3IntMoments(as_fiat_cell(element.cell()), element.degree()), set()
+        return FInAT_P3IntMoments(as_fiat_cell(element.cell), element.degree()), set()
     else:
         return old_convert(element, **kwargs)
 

@@ -376,14 +376,14 @@ class FunctionSpace(object):
                and type(element.wrapee) in {ufl.legacy.TensorElement, ufl.legacy.VectorElement}):
             # The number of "free" dofs is given by reference_value_shape,
             # not value_shape due to symmetry specifications
-            rvs = element.reference_value_shape()
+            rvs = element.reference_value_shape
             # This requires that the sub element is not itself a
             # tensor element (which is checked by the top level
             # constructor of function spaces)
             shape_element = element
             if isinstance(element, ufl.legacy.WithMapping):
                 shape_element = element.wrapee
-            sub = shape_element.sub_elements()[0].value_shape()
+            sub = shape_element.sub_elements[0].value_shape
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
@@ -973,7 +973,7 @@ def ComponentFunctionSpace(parent, component):
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent

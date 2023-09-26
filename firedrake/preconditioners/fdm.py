@@ -375,7 +375,7 @@ class FDMPC(PCBase):
         if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
-        sobolev = e.sobolev_space()
+        sobolev = e.sobolev_space
 
         # Replacement rule for the exterior derivative = grad(arg) * eps
         map_grad = None
@@ -1263,11 +1263,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 def restrict_element(ele, restriction_domain):
     """Get an element that is not restricted and return the restricted element."""
     if isinstance(ele, ufl.VectorElement):
-        return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements())
+        return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
     elif isinstance(ele, ufl.TensorElement):
         return type(ele)(restrict_element(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements()))
+        return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements))
     else:
         return ele[restriction_domain]
 
@@ -1276,11 +1276,11 @@ def unrestrict_element(ele):
     """Get an element that might or might not be restricted and
        return the parent unrestricted element."""
     if isinstance(ele, ufl.VectorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
+        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, ufl.TensorElement):
         return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements))
     elif isinstance(ele, ufl.RestrictedElement):
         return unrestrict_element(ele._element)
     else:
@@ -1390,7 +1390,7 @@ class PoissonFDMPC(FDMPC):
 
         V = Vrow
         bsize = V.value_size
-        ncomp = V.ufl_element().reference_value_size()
+        ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()
         shift = axes_shifts * bsize
@@ -1683,7 +1683,7 @@ class PoissonFDMPC(FDMPC):
                                                        form_compiler_parameters=fcp).assemble)
 
         # make DGT functions with BC flags
-        shape = V.ufl_element().reference_value_shape()
+        shape = V.ufl_element().reference_value_shape
         Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=shape) if shape else DGT)
         test = TestFunction(Q)
 

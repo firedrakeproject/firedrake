@@ -208,15 +208,15 @@ class HiptmairPC(TwoLevelPC):
 
 def curl_to_grad(ele):
     if isinstance(ele, ufl.VectorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements())
+        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
     elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements()))
+        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
     elif isinstance(ele, ufl.RestrictedElement):
         return ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
     else:
-        cell = ele.cell()
+        cell = ele.cell
         family = ele.family()
         variant = ele.variant()
         degree = ele.degree()
@@ -225,7 +225,7 @@ def curl_to_grad(ele):
         else:
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
-                cells = ele.cell().sub_cells()
+                cells = ele.cell.sub_cells()
                 elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
                 return ufl.TensorProductElement(*elems, cell=cell)
         return ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
@@ -233,17 +233,17 @@ def curl_to_grad(ele):
 
 def div_to_curl(ele):
     if isinstance(ele, ufl.VectorElement):
-        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements())
+        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
     elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()))
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
     elif isinstance(ele, ufl.RestrictedElement):
         return ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
     elif isinstance(ele, ufl.EnrichedElement):
         return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
     elif isinstance(ele, ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()), cell=ele.cell())
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements), cell=ele.cell)
     elif isinstance(ele, ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
     elif isinstance(ele, ufl.BrokenElement):
@@ -256,7 +256,7 @@ def div_to_curl(ele):
         degree = ele.degree()
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
-            family = "DG" if ele.cell().is_simplex() else "DQ"
+            family = "DG" if ele.cell.is_simplex() else "DQ"
             degree = degree-1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"

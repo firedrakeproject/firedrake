@@ -108,7 +108,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     :returns: A ufl element containing all elements.
     """
     try:
-        cell, = set(e.cell() for e in elements)
+        cell, = set(e.cell for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))

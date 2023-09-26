@@ -1276,10 +1276,10 @@ class CheckpointFile(object):
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
         if isinstance(ufl_element, ufl.legacy.TensorElement):
-            shape = ufl_element.reference_value_shape()
+            shape = ufl_element.reference_value_shape
             block_size = np.product(shape)
         elif isinstance(ufl_element, ufl.legacy.VectorElement):
-            shape = ufl_element.value_shape()[:1]
+            shape = ufl_element.value_shape[:1]
             block_size = np.product(shape)
         else:
             block_size = 1

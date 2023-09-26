@@ -65,7 +65,7 @@ class FacetSplitPC(PCBase):
 
         def restrict(ele, restriction_domain):
             if isinstance(ele, VectorElement):
-                return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements())
+                return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
             elif isinstance(ele, TensorElement):
                 return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
             else:

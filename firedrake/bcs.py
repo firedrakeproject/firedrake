@@ -330,12 +330,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(self.function_space())
