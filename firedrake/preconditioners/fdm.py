@@ -625,6 +625,7 @@ class FDMPC(PCBase):
         assembler.arguments[0].data = A.handle
         assembler()
 
+
 class ElementKernel(object):
     """
     A constant element kernel
@@ -1158,7 +1159,6 @@ class SchurComplementBlockSVD(SchurComplementKernel):
         result = self.work[1].matMatMult(A00, A01, result=result)
         result.axpy(1.0, A11, structure=structure)
         return result
-
 
 
 def is_restricted(finat_element):
