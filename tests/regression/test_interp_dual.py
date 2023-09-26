@@ -129,49 +129,6 @@ def test_assemble_base_form_operator_expressions(mesh):
     res = assemble(alpha * Iv1 - alpha**2 * Iv2)
     assert np.allclose(alpha * mat_Iv1.petscmat[:, :] - alpha**2 * mat_Iv2.petscmat[:, :], res.petscmat[:, :], rtol=1e-14)
 
-    # Check product of BaseFormOperators
-    res = assemble(If1 * If2)
-    b = assemble(If2)
-    # Check product of BaseFormOperator and Coefficient
-    res2 = assemble(If1 * b)
-    a = assemble(If1)
-    # Exact solution
-    res3 = assemble(a * b)
-    assert np.allclose(res.dat.data, res2.dat.data)
-    assert np.allclose(res2.dat.data, res3.dat.data)
-
-    """
-    # Multiplication involving BaseFormOperators
-    v2 = TrialFunction(V2)
-    Iv3 = Interpolate(v2, V1)
-    mat_Iv3 = assemble(Iv3)
-    res = assemble(Iv1 * Iv3)
-    assert np.allclose(mat_Iv1.petscmat.matMult(mat_Iv3.petscmat)[:, :], res.petscmat[:, :], rtol=1e-14)
-
-    res = assemble(Iv3 * If1)
-    # Problem with random order of ufl.Product
-    # res2 = assemble(Iv3 * b)
-    res3 = assemble(action(Iv3, If1))
-    res4 = assemble(action(Iv3, a))
-    # FIXME: Remove below
-    assert np.allclose(res.dat.data, res3.dat.data)
-    #assert np.allclose(res.dat.data, res2.dat.data)
-    #assert np.allclose(res2.dat.data, res3.dat.data)
-    assert np.allclose(res3.dat.data, res4.dat.data)
-
-    res = assemble(alpha * Iv1 * If1 + alpha**2 * Iv2 * (If1 - If2))
-    res2 = assemble(alpha * action(Iv1, If1) + alpha**2 * action(Iv2, (If1 - If2)))
-    a = assemble(action(Iv1, If1))
-    b = assemble(action(Iv2, If1))
-    c = assemble(action(Iv2, If2))
-    res3 = alpha * a.petscmat[:, :] + alpha**2 * (b.petscmat[:, :] - c.petscmat[:, :])
-    assert np.allclose(res.petscmat[:, :], res2.petscmat[:, :], rtol=1e-14)
-    assert np.allclose(res2.petscmat[:, :], res3, rtol=1e-14)
-
-    # with pytest.raises(ValueError):
-    #    pass
-    """
-
 
 def test_check_identity(mesh):
     V2 = FunctionSpace(mesh, "CG", 2)

@@ -21,7 +21,6 @@ import gem
 import finat
 
 import firedrake
-import firedrake.assemble
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, action, adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
@@ -268,6 +267,9 @@ class Interpolator(abc.ABC):
               interpolation operator.
         :returns: The resulting interpolated :class:`.Function`.
         """
+        from firedrake.assemble import preprocess_base_form, assemble
+        from pyadjoint.tape import get_working_tape
+
         V = self.V
         if isinstance(V, firedrake.Function):
             if not output:
@@ -287,9 +289,15 @@ class Interpolator(abc.ABC):
             # Passing in a function is equivalent to taking the action.
             interp = action(interp, f)
 
-        from pyadjoint.tape import get_working_tape
         get_working_tape()
-        res = firedrake.assemble(interp, tensor=output)
+        # Assembly annotation records the form before it is preprocessed. Hence, we preprocess
+        # the form beforehand to facilitate derivation of the tangent linear/adjoint models.
+        # For example,
+        # -> `interp = Action(Interpolate(v1, v0), f)` with `v1` and `v0` being respectively `Argument`
+        # and `Coargument`. Differentiating `interp` is not currently supported as the action's left slot
+        # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
+        interp = preprocess_base_form(interp)
+        res = assemble(interp, tensor=output, is_base_form_preprocessed=True)
         return res
 
     @abc.abstractmethod
