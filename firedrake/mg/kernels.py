@@ -19,6 +19,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import ufl
+import ufl.legacy
 import tsfc
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -484,7 +485,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl.MixedElement:
+            if type(coefficient.ufl_element()) == ufl.legacy.MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))

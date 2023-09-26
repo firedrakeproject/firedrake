@@ -23,6 +23,7 @@ from pyop2.utils import get_petsc_dir
 
 import firedrake.dmhooks as dmhooks
 import ufl
+import ufl.legacy
 import FIAT
 import finat
 import numpy
@@ -372,7 +373,7 @@ class FDMPC(PCBase):
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
         tdim = mesh.topological_dimension()
-        if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
+        if isinstance(e, (ufl.legacy.VectorElement, ufl.legacy.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
         sobolev = e.sobolev_space
@@ -414,11 +415,11 @@ class FDMPC(PCBase):
 
         qvariant = "fdm_quadrature"
         elements = [e.reconstruct(variant=qvariant),
-                    ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
-        elements = list(map(ufl.BrokenElement, elements))
+                    ufl.legacy.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
+        elements = list(map(ufl.legacy.BrokenElement, elements))
         if V.shape:
-            elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-        Z = FunctionSpace(mesh, ufl.MixedElement(elements))
+            elements = [ufl.legacy.TensorElement(ele, shape=V.shape) for ele in elements]
+        Z = FunctionSpace(mesh, ufl.legacy.MixedElement(elements))
 
         # Transform the exterior derivative and the original arguments of J to arguments in Z
         args = (TestFunctions(Z), TrialFunctions(Z))
@@ -1217,7 +1218,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     A11.destroy()
 
     if any(is_restricted(ec)) or any(is_restricted(ef)):
-        scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
+        scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.legacy.TensorElement, ufl.legacy.VectorElement)) else e
         fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
         cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
         temp = Dhat
@@ -1262,11 +1263,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 
 def restrict_element(ele, restriction_domain):
     """Get an element that is not restricted and return the restricted element."""
-    if isinstance(ele, ufl.VectorElement):
+    if isinstance(ele, ufl.legacy.VectorElement):
         return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
-    elif isinstance(ele, ufl.TensorElement):
+    elif isinstance(ele, ufl.legacy.TensorElement):
         return type(ele)(restrict_element(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
+    elif isinstance(ele, ufl.legacy.MixedElement):
         return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements))
     else:
         return ele[restriction_domain]
@@ -1275,13 +1276,13 @@ def restrict_element(ele, restriction_domain):
 def unrestrict_element(ele):
     """Get an element that might or might not be restricted and
        return the parent unrestricted element."""
-    if isinstance(ele, ufl.VectorElement):
+    if isinstance(ele, ufl.legacy.VectorElement):
         return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements)
-    elif isinstance(ele, ufl.TensorElement):
+    elif isinstance(ele, ufl.legacy.TensorElement):
         return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
+    elif isinstance(ele, ufl.legacy.MixedElement):
         return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements))
-    elif isinstance(ele, ufl.RestrictedElement):
+    elif isinstance(ele, ufl.legacy.RestrictedElement):
         return unrestrict_element(ele._element)
     else:
         return ele
@@ -1602,7 +1603,7 @@ class PoissonFDMPC(FDMPC):
         quad_deg = fcp.get("degree", 2*degree+1)
         dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
-        DG = ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
+        DG = ufl.legacy.FiniteElement(family, mesh.ufl_cell(), degree=0)
 
         # extract coefficients directly from the bilinear form
         integrals_J = J.integrals_by_type("cell")
@@ -1627,7 +1628,7 @@ class PoissonFDMPC(FDMPC):
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
-            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=alpha.ufl_shape))
+            Q = FunctionSpace(mesh, ufl.legacy.TensorElement(DG, shape=alpha.ufl_shape))
             tensor = coefficients.setdefault("alpha", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
@@ -1635,7 +1636,7 @@ class PoissonFDMPC(FDMPC):
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
         if Piola:
-            dummy_element = ufl.TensorElement(family, cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
+            dummy_element = ufl.legacy.TensorElement(family, cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
             dummy_Piola = ufl.Coefficient(ufl.FunctionSpace(mesh, dummy_element))
             replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
         else:
@@ -1649,14 +1650,14 @@ class PoissonFDMPC(FDMPC):
             if Piola:
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
-            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
+            Q = FunctionSpace(mesh, ufl.legacy.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
             tensor = coefficients.setdefault("beta", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         family = "CG" if tdim == 1 else "DGT"
         degree = 1 if tdim == 1 else 0
-        DGT = ufl.BrokenElement(ufl.FiniteElement(family, cell=mesh.ufl_cell(), degree=degree))
+        DGT = ufl.legacy.BrokenElement(ufl.legacy.FiniteElement(family, cell=mesh.ufl_cell(), degree=degree))
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
@@ -1672,19 +1673,19 @@ class PoissonFDMPC(FDMPC):
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
             G = G * abs(ufl.JacobianDeterminant(mesh))
 
-            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=G.ufl_shape))
+            Q = FunctionSpace(mesh, ufl.legacy.TensorElement(DGT, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
             PT = Piola.T
-            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=PT.ufl_shape))
+            Q = FunctionSpace(mesh, ufl.legacy.TensorElement(DGT, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         # make DGT functions with BC flags
         shape = V.ufl_element().reference_value_shape
-        Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=shape) if shape else DGT)
+        Q = FunctionSpace(mesh, ufl.legacy.TensorElement(DGT, shape=shape) if shape else DGT)
         test = TestFunction(Q)
 
         ref_args = [ufl.variable(t) for t in args_J]
