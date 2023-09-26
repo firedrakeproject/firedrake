@@ -186,6 +186,13 @@ def test_constants_are_renumbered_in_form_signature():
     assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
 
 
+def test_constant_names_are_not_used_in_generated_code():
+    mesh = UnitIntervalMesh(1)
+    c = Constant(1.0, name="()")
+    # should run without error
+    assemble(c * dx(mesh))
+
+
 @pytest.mark.skipcomplex
 def test_correct_constants_are_used_in_split_form():
     # see https://github.com/firedrakeproject/firedrake/issues/3091

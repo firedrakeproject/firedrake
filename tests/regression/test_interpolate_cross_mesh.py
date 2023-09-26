@@ -64,6 +64,7 @@ def make_high_order(m_low_order, degree):
         ),
         "unitsquare_Regge_source",
         "spheresphere",
+        "sphereextrudedsphereextruded",
     ]
 )
 def parameters(request):
@@ -222,6 +223,36 @@ def parameters(request):
                 [-sqrt(3) / 2, 1 / 2, 0],
             ]
         )  # points that ought to be on the unit circle, at z=0
+        # We don't add source and target mesh vertices since no amount of mesh
+        # tolerance loading allows .at to avoid getting different results on different
+        # processes for this mesh pair.
+        # Function.at often gets conflicting answers across boundaries for this
+        # mesh, so we lower the tolerance a bit for this test
+        m_dest.tolerance = 0.1
+        # We use add to avoid TSFC complaints about too many indices for sum
+        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
+        # into V_dest
+        expr_src = reduce(add, SpatialCoordinate(m_src))
+        expr_dest = reduce(add, SpatialCoordinate(m_dest))
+        expected = reduce(add, coords.T)
+        V_src = FunctionSpace(m_src, "CG", 3)
+        V_dest = FunctionSpace(m_dest, "CG", 4)
+        V_dest_2 = FunctionSpace(m_dest, "DG", 2)
+    elif request.param == "sphereextrudedsphereextruded":
+        m_src = ExtrudedMesh(UnitIcosahedralSphereMesh(1), 2, extrusion_type="radial")
+        # Note we need to use the same base sphere otherwise it's hard to check
+        # anything really
+        m_dest = ExtrudedMesh(UnitIcosahedralSphereMesh(1), 3, extrusion_type="radial")
+        coords = np.array(
+            [
+                [0, 1.5, 0],
+                [1.5, 0, 0],
+                [-1.5, 0, 0],
+                [0, -1.5, 0],
+                [sqrt(2) / 2 + sqrt(2) / 4, sqrt(2) / 2 + sqrt(2) / 4, 0],
+                [-sqrt(3) / 2 - sqrt(3) / 4, 1.0, 0],
+            ]
+        )  # points that ought to be on in the meshes, at z=0
         # We don't add source and target mesh vertices since no amount of mesh
         # tolerance loading allows .at to avoid getting different results on different
         # processes for this mesh pair.
