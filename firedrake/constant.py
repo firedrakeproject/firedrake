@@ -68,7 +68,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
 
-            domain = ufl.as_domain(domain)
+            if not isinstance(domain, ufl.AbstractDomain):
+                coordinate_element = ufl.legacy.VectorElement("Lagrange", ufl.as_cell(domain), 1, gdim=cell.geometric_dimension)
+                domain = ufl.Mesh(coordinate_element)
+
             cell = domain.ufl_cell()
             if rank == 0:
                 element = ufl.legacy.FiniteElement("R", cell, 0)
