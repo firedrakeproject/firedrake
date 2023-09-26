@@ -78,17 +78,17 @@ def test_prism(mesh_prism, family, degree, vfamily, vdegree):
                          [('CG', 1),
                           ('DG', 1),
                           EnrichedElement(
-                              HDiv(TensorProductElement(
+                              HDivElement(TensorProductElement(
                                   FiniteElement('RT', triangle, 2),
                                   FiniteElement('DG', interval, 1))),
-                              HDiv(TensorProductElement(
+                              HDivElement(TensorProductElement(
                                   FiniteElement('DG', triangle, 1),
                                   FiniteElement('CG', interval, 2)))),
                           EnrichedElement(
-                              HCurl(TensorProductElement(
+                              HCurlElement(TensorProductElement(
                                   FiniteElement('RT', triangle, 2),
                                   FiniteElement('CG', interval, 2))),
-                              HCurl(TensorProductElement(
+                              HCurlElement(TensorProductElement(
                                   FiniteElement('CG', triangle, 2),
                                   FiniteElement('DG', interval, 1))))])
 def test_prism_vector(mesh_prism, args):

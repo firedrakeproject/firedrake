@@ -47,7 +47,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     if isinstance(family, ufl.legacy.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
-    if isinstance(cell, ufl.legacy.TensorProductCell) \
+    if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = ufl.legacy.FiniteElement(family,
                                       cell=cell.sub_cells()[0],
