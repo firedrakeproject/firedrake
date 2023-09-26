@@ -85,8 +85,8 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
 
     W0_elt = TensorProductElement(U0, V0)
 
-    W1_a = HDiv(TensorProductElement(U1, V0))
-    W1_b = HDiv(TensorProductElement(U0, V1))
+    W1_a = HDivElement(TensorProductElement(U1, V0))
+    W1_b = HDivElement(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
 
     W0 = FunctionSpace(mesh, W0_elt)
@@ -157,8 +157,8 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
-    W1_a = HDiv(TensorProductElement(U1, V0))
-    W1_b = HDiv(TensorProductElement(U0, V1))
+    W1_a = HDivElement(TensorProductElement(U1, V0))
+    W1_b = HDivElement(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
     W2_elt = TensorProductElement(U1, V1)
 

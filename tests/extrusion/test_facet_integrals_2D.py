@@ -19,7 +19,7 @@ def f(mesh, request):
 def RT2(mesh):
     U0 = FiniteElement("CG", "interval", 2)
     U1 = FiniteElement("DG", "interval", 1)
-    W1 = HDiv(TensorProductElement(U1, U0)) + HDiv(TensorProductElement(U0, U1))
+    W1 = HDivElement(TensorProductElement(U1, U0)) + HDivElement(TensorProductElement(U0, U1))
     return FunctionSpace(mesh, W1)
 
 

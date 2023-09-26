@@ -18,7 +18,7 @@ def test_rtce_expansion(tpc_quad, degree):
 
     C_elt = FiniteElement("CG", interval, degree)
     D_elt = FiniteElement("DG", interval, degree - 1)
-    expected = HCurl(TensorProductElement(C_elt, D_elt)) + HCurl(TensorProductElement(D_elt, C_elt))
+    expected = HCurlElement(TensorProductElement(C_elt, D_elt)) + HCurlElement(TensorProductElement(D_elt, C_elt))
     assert expected == actual
 
 
@@ -28,7 +28,7 @@ def test_rtcf_expansion(tpc_quad, degree):
 
     C_elt = FiniteElement("CG", interval, degree)
     D_elt = FiniteElement("DG", interval, degree - 1)
-    expected = HDiv(TensorProductElement(C_elt, D_elt)) + HDiv(TensorProductElement(D_elt, C_elt))
+    expected = HDivElement(TensorProductElement(C_elt, D_elt)) + HDivElement(TensorProductElement(D_elt, C_elt))
     assert expected == actual
 
 
@@ -42,7 +42,7 @@ def test_nce_expansion(tpc_hex, degree):
     W0_v = FiniteElement("DG", interval, degree - 1)
     W1_v = FiniteElement("CG", interval, degree)
 
-    expected = HCurl(TensorProductElement(W0_h, W0_v)) + HCurl(TensorProductElement(W1_h, W1_v))
+    expected = HCurlElement(TensorProductElement(W0_h, W0_v)) + HCurlElement(TensorProductElement(W1_h, W1_v))
     assert expected == actual
 
 
@@ -56,7 +56,7 @@ def test_ncf_expansion(tpc_hex, degree):
     W0_v = FiniteElement("DG", interval, degree - 1)
     W1_v = FiniteElement("CG", interval, degree)
 
-    expected = HDiv(TensorProductElement(W0_h, W0_v)) + HDiv(TensorProductElement(W1_h, W1_v))
+    expected = HDivElement(TensorProductElement(W0_h, W0_v)) + HDivElement(TensorProductElement(W1_h, W1_v))
     assert expected == actual
 
 

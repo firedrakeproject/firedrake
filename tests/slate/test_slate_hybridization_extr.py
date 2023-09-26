@@ -22,8 +22,8 @@ def test_hybrid_extr_helmholtz(quad):
         DG_h = FiniteElement("DG", triangle, 0)
         CG = FiniteElement("CG", interval, 1)
 
-    HDiv_ele = EnrichedElement(HDiv(TensorProductElement(RT, DG_v)),
-                               HDiv(TensorProductElement(DG_h, CG)))
+    HDiv_ele = EnrichedElement(HDivElement(TensorProductElement(RT, DG_v)),
+                               HDivElement(TensorProductElement(DG_h, CG)))
     V = FunctionSpace(mesh, HDiv_ele)
     U = FunctionSpace(mesh, "DG", 0)
     W = V * U
