@@ -55,6 +55,8 @@ except AttributeError:
 del ufl
 from ufl import *
 from ufl.legacy import *
+from ufl.legacy import HDivElement as HDiv
+from ufl.legacy import HCurlElement as HCurl
 # Set up the cache directories before importing PyOP2.
 firedrake_configuration.setup_cache_dirs()
 
