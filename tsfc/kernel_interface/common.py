@@ -68,6 +68,9 @@ class KernelBuilderBase(KernelInterface):
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
 
+    def constant(self, const):
+        return self.constant_map[const]
+
     def cell_orientation(self, restriction):
         """Cell orientation as a GEM expression."""
         f = {None: 0, '+': 0, '-': 1}[restriction]
@@ -435,16 +438,17 @@ def check_requirements(ir):
     return cell_orientations, cell_sizes, tuple(sorted(rt_tabs.items()))
 
 
-def prepare_constant(constant):
+def prepare_constant(constant, number):
     """Bridges the kernel interface and the GEM abstraction for
     Constants.
 
     :arg constant: Firedrake Constant
+    :arg number: Value to uniquely identify the constant
     :returns: (funarg, expression)
          expression - GEM expression referring to the Constant value(s)
     """
     value_size = numpy.prod(constant.ufl_shape, dtype=int)
-    return gem.reshape(gem.Variable(constant.name, (value_size,)),
+    return gem.reshape(gem.Variable(f"c_{number}", (value_size,)),
                        constant.ufl_shape)
 
 

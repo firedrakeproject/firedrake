@@ -18,6 +18,10 @@ class KernelInterface(metaclass=ABCMeta):
         expressions."""
 
     @abstractmethod
+    def constant(self, const):
+        """Return the GEM expression corresponding to the constant."""
+
+    @abstractmethod
     def cell_orientation(self, restriction):
         """Cell orientation as a GEM expression."""
 

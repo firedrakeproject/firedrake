@@ -629,12 +629,7 @@ def translate_argument(terminal, mt, ctx):
 
 @translate.register(TSFCConstantMixin)
 def translate_constant_value(terminal, mt, ctx):
-    value_size = numpy.prod(terminal.ufl_shape, dtype=int)
-    expression = gem.reshape(
-        gem.Variable(terminal.name, (value_size,)),
-        terminal.ufl_shape
-    )
-    return expression
+    return ctx.constant(terminal)
 
 
 @translate.register(Coefficient)

@@ -173,8 +173,8 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                 self._coefficient(coefficient, f"w_{i}")
 
     def set_constants(self, constants):
-        for const in constants:
-            gemexpr = prepare_constant(const)
+        for i, const in enumerate(constants):
+            gemexpr = prepare_constant(const, i)
             self.constant_map[const] = gemexpr
 
     def set_coefficient_numbers(self, coefficient_numbers):
@@ -334,8 +334,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                 n += 1
 
     def set_constants(self, constants):
-        for const in constants:
-            gemexpr = prepare_constant(const)
+        for i, const in enumerate(constants):
+            gemexpr = prepare_constant(const, i)
             self.constant_map[const] = gemexpr
 
     def register_requirements(self, ir):
