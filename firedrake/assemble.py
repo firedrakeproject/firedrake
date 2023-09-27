@@ -107,110 +107,96 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
-def assemble_base_form(expression, tensor=None, bcs=None,
-                       diagonal=False,
-                       mat_type=None,
-                       sub_mat_type=None,
-                       form_compiler_parameters=None,
-                       appctx=None,
-                       options_prefix=None,
-                       zero_bc_nodes=False,
-                       is_base_form_preprocessed=False,
-                       weight=1.0):
-    r"""Evaluate expression.
+def base_form_postorder_traversal(expr, visitor, visited={}):
+    if expr in visited:
+        return visited[expr]
 
-    :arg expression: a :class:`~ufl.classes.BaseForm`
-    :kwarg tensor: Existing tensor object to place the result in.
-    :kwarg bcs: Iterable of boundary conditions to apply.
-    :kwarg diagonal: If assembling a matrix is it diagonal?
-    :kwarg mat_type: String indicating how a 2-form (matrix) should be
-        assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
-        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
-        matrix-free actions (``'matfree'``). If not supplied, the default value in
-        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
-        from AIJ in that only the block sparsity rather than the dof
-        sparsity is constructed.  This can result in some memory
-        savings, but does not work with all PETSc preconditioners.
-        BAIJ matrices only make sense for non-mixed matrices.
-    :kwarg sub_mat_type: String indicating the matrix type to
-        use *inside* a nested block matrix.  Only makes sense if
-        ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
-        not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
-    :kwarg form_compiler_parameters: Dictionary of parameters to pass to
-        the form compiler. Ignored if not assembling a :class:`~ufl.classes.Form`.
-        Any parameters provided here will be overridden by parameters set on the
-        :class:`~ufl.classes.Measure` in the form. For example, if a
-        ``quadrature_degree`` of 4 is specified in this argument, but a degree of
-        3 is requested in the measure, the latter will be used.
-    :kwarg appctx: Additional information to hang on the assembled
-        matrix if an implicit matrix is requested (mat_type ``"matfree"``).
-    :kwarg options_prefix: PETSc options prefix to apply to matrices.
-    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
-        output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is ``False``.
-    :kwarg is_base_form_preprocessed: If ``True``, skip preprocessing of the form.
-    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
-        identity matrix corresponding to the boundary nodes.
-        To discretise eigenvalue problems set the weight equal to 0.0.
-
-    :returns: a :class:`float` for 0-forms, a :class:`.Cofunction` or a :class:`.Function` for 1-forms,
-              and a :class:`.MatrixBase` for 2-forms.
-
-    This function assembles a :class:`~ufl.classes.BaseForm` object by traversing the corresponding DAG
-    in a post-order fashion and evaluating the nodes on the fly.
-    """
-
-    # Preprocess the DAG and restructure the DAG
-    if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
-        # Preprocessing the form makes a new object -> current form caching mechanism
-        # will populate `expr`'s cache which is now different than `expression`'s cache so we need
-        # to transmit the cache. All of this only holds when `expression` is a `ufl.Form`
-        # and therefore when `is_base_form_preprocessed` is False.
-        expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
-        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
-            expr._cache = expression._cache
-        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
-        if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            # FIXME: Directly call assemble_expressions once sum of BaseFormOperator has been lifted
-            return assemble(expr)
-    else:
-        expr = expression
-
-    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
     stack = [expr]
-    visited = {}
     while stack:
         e = stack.pop()
-        unvisted_children = []
+        unvisited_children = []
         operands = base_form_operands(e)
         for arg in operands:
             if arg not in visited:
-                unvisted_children.append(arg)
+                unvisited_children.append(arg)
 
-        if unvisted_children:
+        if unvisited_children:
             stack.append(e)
-            stack.extend(unvisted_children)
+            stack.extend(unvisited_children)
         else:
-            t = tensor if e is expr else None
-            visited[e] = base_form_assembly_visitor(e, t, bcs, diagonal,
-                                                    form_compiler_parameters,
-                                                    mat_type, sub_mat_type,
-                                                    appctx, options_prefix,
-                                                    zero_bc_nodes, weight,
-                                                    *(visited[arg] for arg in operands))
-    if tensor:
-        update_tensor(visited[expr], tensor)
+            visited[e] = visitor(e, *(visited[arg] for arg in operands))
+
     return visited[expr]
 
 
-def update_tensor(assembled_base_form, tensor):
-    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-        assembled_base_form.dat.copy(tensor.dat)
-    elif isinstance(tensor, matrix.MatrixBase):
-        # Uses the PETSc copy method.
-        assembled_base_form.petscmat.copy(tensor.petscmat)
-    else:
-        raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
+def base_form_preorder_traversal(expr, visitor, visited={}):
+    if expr in visited:
+        return visited[expr]
+
+    stack = [expr]
+    while stack:
+        e = stack.pop()
+        unvisited_children = []
+        operands = base_form_operands(e)
+        for arg in operands:
+            if arg not in visited:
+                unvisited_children.append(arg)
+
+        if unvisited_children:
+            stack.append(e)
+            stack.extend(unvisited_children)
+
+        visited[e] = visitor(e)
+
+    return visited[expr]
+
+
+def reconstruct_node_from_operands(expr, operands):
+    if isinstance(expr, (ufl.Adjoint, ufl.Action)):
+        return expr._ufl_expr_reconstruct_(*operands)
+    elif isinstance(expr, ufl.FormSum):
+        return ufl.FormSum(*[(op, w) for op, w in zip(operands, expr.weights())])
+    return expr
+
+
+def base_form_operands(expr):
+    if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
+        return expr.ufl_operands
+    if isinstance(expr, ufl.Form):
+        # Use reversed to treat base form operators
+        # in the order in which they have been made.
+        return list(reversed(expr.base_form_operators()))
+    if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+        # Conserve order
+        children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
+                                 if isinstance(e, ufl.form.BaseForm))
+        return list(children)
+    return []
+
+
+def restructure_base_form_postorder(expression, visited=None):
+    visited = visited or {}
+
+    def visitor(expr, *operands):
+        # Need to reconstruct the expression with its visited operands!
+        expr = reconstruct_node_from_operands(expr, operands)
+        # Perform the DAG restructuring when needed
+        return restructure_base_form(expr, visited)
+
+    return base_form_postorder_traversal(expression, visitor, visited)
+
+
+def restructure_base_form_preorder(expression, visited=None):
+    visited = visited or {}
+
+    def visitor(expr):
+        # Perform the DAG restructuring when needed
+        return restructure_base_form(expr, visited)
+
+    expression = base_form_preorder_traversal(expression, visitor, visited)
+    # Need to reconstruct the expression at the end when all its operands have been visited!
+    operands = [visited.get(args, args) for args in base_form_operands(expression)]
+    return reconstruct_node_from_operands(expression, operands)
 
 
 def restructure_base_form(expr, visited=None):
@@ -350,57 +336,118 @@ def restructure_base_form(expr, visited=None):
     return expr
 
 
-def restructure_base_form_postorder(expr, visited=None):
+def assemble_base_form(expression, tensor=None, bcs=None,
+                       diagonal=False,
+                       mat_type=None,
+                       sub_mat_type=None,
+                       form_compiler_parameters=None,
+                       appctx=None,
+                       options_prefix=None,
+                       zero_bc_nodes=False,
+                       is_base_form_preprocessed=False,
+                       weight=1.0,
+                       visited=None):
+    r"""Evaluate expression.
+
+    :arg expression: a :class:`~ufl.classes.BaseForm`
+    :kwarg tensor: Existing tensor object to place the result in.
+    :kwarg bcs: Iterable of boundary conditions to apply.
+    :kwarg diagonal: If assembling a matrix is it diagonal?
+    :kwarg mat_type: String indicating how a 2-form (matrix) should be
+        assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
+        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
+        matrix-free actions (``'matfree'``). If not supplied, the default value in
+        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
+        from AIJ in that only the block sparsity rather than the dof
+        sparsity is constructed.  This can result in some memory
+        savings, but does not work with all PETSc preconditioners.
+        BAIJ matrices only make sense for non-mixed matrices.
+    :kwarg sub_mat_type: String indicating the matrix type to
+        use *inside* a nested block matrix.  Only makes sense if
+        ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
+        not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
+    :kwarg form_compiler_parameters: Dictionary of parameters to pass to
+        the form compiler. Ignored if not assembling a :class:`~ufl.classes.Form`.
+        Any parameters provided here will be overridden by parameters set on the
+        :class:`~ufl.classes.Measure` in the form. For example, if a
+        ``quadrature_degree`` of 4 is specified in this argument, but a degree of
+        3 is requested in the measure, the latter will be used.
+    :kwarg appctx: Additional information to hang on the assembled
+        matrix if an implicit matrix is requested (mat_type ``"matfree"``).
+    :kwarg options_prefix: PETSc options prefix to apply to matrices.
+    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
+        output tensor to zero rather than to the values prescribed by the
+        boundary condition. Default is ``False``.
+    :kwarg is_base_form_preprocessed: If ``True``, skip preprocessing of the form.
+    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        identity matrix corresponding to the boundary nodes.
+        To discretise eigenvalue problems set the weight equal to 0.0.
+
+    :returns: a :class:`float` for 0-forms, a :class:`.Cofunction` or a :class:`.Function` for 1-forms,
+              and a :class:`.MatrixBase` for 2-forms.
+
+    This function assembles a :class:`~ufl.classes.BaseForm` object by traversing the corresponding DAG
+    in a post-order fashion and evaluating the nodes on the fly.
+    """
+
+    # Preprocess the DAG and restructure the DAG
+    if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
+        # Preprocessing the form makes a new object -> current form caching mechanism
+        # will populate `expr`'s cache which is now different than `expression`'s cache so we need
+        # to transmit the cache. All of this only holds when `expression` is a `ufl.Form`
+        # and therefore when `is_base_form_preprocessed` is False.
+        expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
+        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+            expr._cache = expression._cache
+        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
+        if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+            return _assemble_expr(expr)
+    else:
+        expr = expression
+
+    # Define assembly DAG visitor
+    assembly_visitor = functools.partial(base_form_assembly_visitor, bcs=bcs, diagonal=diagonal,
+                                         form_compiler_parameters=form_compiler_parameters,
+                                         mat_type=mat_type, sub_mat_type=sub_mat_type,
+                                         appctx=appctx, options_prefix=options_prefix,
+                                         zero_bc_nodes=zero_bc_nodes, weight=weight)
+
+    def visitor(e, *operands):
+        t = tensor if e is expr else None
+        return assembly_visitor(e, t, *operands)
+
+    # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
     visited = visited or {}
-    if expr in visited:
-        return visited[expr]
+    result = base_form_postorder_traversal(expr, visitor, visited)
 
-    # Visit/update the children
-    operands = base_form_operands(expr)
-    operands = list(restructure_base_form_postorder(op, visited) for op in operands)
-    # Need to reconstruct the DAG as we traverse it!
-    expr = reconstruct_node_from_operands(expr, operands)
-    # Perform the DAG rotation when needed
-    visited[expr] = restructure_base_form(expr, visited)
-    return visited[expr]
+    if tensor:
+        update_tensor(result, tensor)
+    return result
 
 
-def restructure_base_form_preorder(expr, visited=None):
-    visited = visited or {}
-    if expr in visited:
-        return visited[expr]
-
-    # Perform the DAG rotation when needed
-    expr = restructure_base_form(expr, visited)
-    # Visit/update the children
-    operands = base_form_operands(expr)
-    operands = list(restructure_base_form_preorder(op, visited) for op in operands)
-    # Need to reconstruct the DAG as we traverse it!
-    visited[expr] = reconstruct_node_from_operands(expr, operands)
-    return visited[expr]
-
-
-def reconstruct_node_from_operands(expr, operands):
-    if isinstance(expr, (ufl.Adjoint, ufl.Action)):
-        return expr._ufl_expr_reconstruct_(*operands)
-    elif isinstance(expr, ufl.FormSum):
-        return ufl.FormSum(*[(op, w) for op, w in zip(operands, expr.weights())])
+def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
+    """Preprocess ufl.BaseForm objects"""
+    if mat_type != "matfree":
+        # For "matfree", Form evaluation is delayed
+        expr = expand_derivatives_form(expr, form_compiler_parameters)
+    # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
+    if not isinstance(expr, ufl.form.BaseForm):
+        return assemble(expr)
+    if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+        # => No restructuring needed for Form and slate.TensorBase
+        expr = restructure_base_form_preorder(expr)
+        expr = restructure_base_form_postorder(expr)
     return expr
 
 
-def base_form_operands(expr):
-    if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
-        return expr.ufl_operands
-    if isinstance(expr, ufl.Form):
-        # Use reversed to treat base form operators
-        # in the order in which they have been made.
-        return list(reversed(expr.base_form_operators()))
-    if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-        # Conserve order
-        children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                 if isinstance(e, ufl.form.BaseForm))
-        return list(children)
-    return []
+def update_tensor(assembled_base_form, tensor):
+    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
+        assembled_base_form.dat.copy(tensor.dat)
+    elif isinstance(tensor, matrix.MatrixBase):
+        # Uses the PETSc copy method.
+        assembled_base_form.petscmat.copy(tensor.petscmat)
+    else:
+        raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
 
 def expand_derivatives_form(form, fc_params):
@@ -437,26 +484,11 @@ def expand_derivatives_form(form, fc_params):
     return ufl.algorithms.ad.expand_derivatives(form)
 
 
-def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-    """Preprocess ufl.BaseForm objects"""
-    if mat_type != "matfree":
-        # For "matfree", Form evaluation is delayed
-        expr = expand_derivatives_form(expr, form_compiler_parameters)
-    # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
-    if not isinstance(expr, ufl.form.BaseForm):
-        return assemble(expr)
-    if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-        # => No restructuring needed for Form and slate.TensorBase
-        expr = restructure_base_form_preorder(expr)
-        expr = restructure_base_form_postorder(expr)
-    return expr
-
-
-def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
+def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
                                form_compiler_parameters,
                                mat_type, sub_mat_type,
                                appctx, options_prefix,
-                               zero_bc_nodes, weight, *args):
+                               zero_bc_nodes, weight):
     r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
 
         This functions contains the assembly handlers corresponding to the different nodes that
