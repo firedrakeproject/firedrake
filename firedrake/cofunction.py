@@ -256,13 +256,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self
         return NotImplemented
 
+    def _interpolate_future(self, expression):
+        from firedrake import interpolation
+        return interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
+
     def interpolate(self, expression):
         r"""Interpolate an expression onto this :class:`Cofunction`.
 
         :param expression: a UFL expression to interpolate
         :returns: this :class:`Function` object"""
-        from firedrake import interpolation
-        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
+        interp = self._interpolate_future(expression)
         return firedrake.assemble(interp)
 
     def vector(self):

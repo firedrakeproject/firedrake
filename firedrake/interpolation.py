@@ -250,6 +250,27 @@ class Interpolator(abc.ABC):
         self._allow_missing_dofs = allow_missing_dofs
         self.callable = None
 
+    def _interpolate_future(self, *function, transpose, default_missing_val):
+
+        V = self.V
+        if isinstance(V, firedrake.Function):
+            V = V.function_space()
+
+        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
+                       'access': self.access, 'bcs': self.bcs,
+                       'allow_missing_dofs': self._allow_missing_dofs,
+                       'default_missing_val': default_missing_val}
+        interp = Interpolate(self.expr, V, interp_data=interp_data)
+        if transpose:
+            interp = adjoint(interp)
+
+        if function:
+            f, = function
+            # Passing in a function is equivalent to taking the action.
+            interp = action(interp, f)
+        # Return the `ufl.Interpolate` object
+        return interp
+
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
         """This performs interpolation by assembling `Interp`, which in turn calls
@@ -270,24 +291,13 @@ class Interpolator(abc.ABC):
         from firedrake.assemble import preprocess_base_form, assemble
         from pyadjoint.tape import get_working_tape
 
-        V = self.V
-        if isinstance(V, firedrake.Function):
-            if not output:
-                # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
-                output = V
-            V = V.function_space()
-        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
-                       'access': self.access, 'bcs': self.bcs,
-                       'allow_missing_dofs': self._allow_missing_dofs,
-                       'default_missing_val': default_missing_val}
-        interp = Interpolate(self.expr, V, interp_data=interp_data)
-        if transpose:
-            interp = adjoint(interp)
+        # Get the Interpolate object
+        interp = self._interpolate_future(*function, transpose=transpose,
+                                          default_missing_val=default_missing_val)
 
-        if function:
-            f, = function
-            # Passing in a function is equivalent to taking the action.
-            interp = action(interp, f)
+        if isinstance(self.V, firedrake.Function) and not output:
+            # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
+            output = self.V
 
         get_working_tape()
         # Assembly annotation records the form before it is preprocessed. Hence, we preprocess
