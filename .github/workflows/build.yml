@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyop2 ksagiyam/fix_dat_version \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
