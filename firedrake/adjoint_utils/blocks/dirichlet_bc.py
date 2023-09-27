@@ -39,18 +39,16 @@ class DirichletBCBlock(Block, Backend):
         adj_output = None
         for adj_input in adj_inputs:
             if self.compat.isconstant(c):
-                adj_value = self.backend.Function(self.parent_space)
-                adj_input.apply(adj_value.vector())
+                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_input.apply(adj_value)
                 if self.function_space != self.parent_space:
                     vec = self.compat.extract_bc_subvector(
                         adj_value, self.collapsed_space, bc
                     )
-                    adj_value = self.compat.function_from_vector(
-                        self.collapsed_space, vec
-                    )
+                    adj_value = self.backend.Function(self.collapsed_space, vec.dat)
 
                 if adj_value.ufl_shape == () or adj_value.ufl_shape[0] <= 1:
-                    r = adj_value.vector().sum()
+                    r = adj_value.dat.data_ro.sum()
                 else:
                     output = []
                     subindices = _extract_subindices(self.function_space)
@@ -64,7 +62,7 @@ class DirichletBCBlock(Block, Backend):
                         output.append(
                             current_subfunc.sub(
                                 prev_idx, deepcopy=True
-                            ).vector().sum()
+                            ).dat.data_ro.sum()
                         )
 
                     r = self.backend.cpp.la.Vector(self.backend.MPI.comm_world,
@@ -77,14 +75,14 @@ class DirichletBCBlock(Block, Backend):
                 #       you can even use the Function outside its domain.
                 # For now we will just assume the FunctionSpace is the same for
                 # the BC and the Function.
-                adj_value = self.backend.Function(self.parent_space)
-                adj_input.apply(adj_value.vector())
+                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_input.apply(adj_value)
                 r = self.compat.extract_bc_subvector(
                     adj_value, c.function_space(), bc
                 )
             elif isinstance(c, self.compat.Expression):
-                adj_value = self.backend.Function(self.parent_space)
-                adj_input.apply(adj_value.vector())
+                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_input.apply(adj_value)
                 output = self.compat.extract_bc_subvector(
                     adj_value, self.collapsed_space, bc
                 )
@@ -93,6 +91,7 @@ class DirichletBCBlock(Block, Backend):
                 adj_output = r
             else:
                 adj_output += r
+
         return adj_output
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,

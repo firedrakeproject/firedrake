@@ -92,6 +92,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
+          python -m pytest -v tests/test_0init.py
           python -m pytest \
             --durations=200 \
             --cov firedrake \

@@ -349,7 +349,9 @@ class CrossMeshInterpolator(Interpolator):
         # input ordering VOM will only contain the points on rank 0!
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
-        if ufl_scalar_element.num_sub_elements():
+        if ufl_scalar_element.num_sub_elements() and not isinstance(
+            ufl_scalar_element, ufl.TensorProductElement
+        ):
             if all(
                 ufl_scalar_element.sub_elements()[0] == e
                 for e in ufl_scalar_element.sub_elements()
@@ -362,8 +364,7 @@ class CrossMeshInterpolator(Interpolator):
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
-            else:
-                assert type(ufl_scalar_element) is ufl.MixedElement
+            elif type(ufl_scalar_element) is ufl.MixedElement:
                 # Build and save an interpolator for each sub-element
                 # separately for MixedFunctionSpaces. NOTE: since we can't have
                 # expressions for MixedFunctionSpaces we know that the input
@@ -402,6 +403,10 @@ class CrossMeshInterpolator(Interpolator):
                     )
                     self.sub_interpolators.append(sub_interpolator)
                 return
+            else:
+                raise NotImplementedError(
+                    f"Unhandled cross-mesh interpolation ufl element type: {repr(ufl_scalar_element)}"
+                )
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
         f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         dest_node_coords = f_dest_node_coords.dat.data_ro
