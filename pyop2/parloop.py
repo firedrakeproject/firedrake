@@ -17,6 +17,7 @@ from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelAr
 from pyop2.local_kernel import LocalKernel, CStringLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
+from pyop2.types.data_carrier import DataCarrier
 from pyop2.utils import cached_property
 
 
@@ -209,6 +210,7 @@ class Parloop:
     @mpi.collective
     def __call__(self):
         """Execute the kernel over all members of the iteration space."""
+        self.increment_dat_version()
         self.zero_global_increments()
         orig_lgmaps = self.replace_lgmaps()
         self.global_to_local_begin()
@@ -222,6 +224,16 @@ class Parloop:
         self.reduction_end(requests)
         self.finalize_global_increments()
         self.local_to_global_end()
+
+    def increment_dat_version(self):
+        """Increment dat versions of :class:`DataCarrier`s in the arguments."""
+        for lk_arg, gk_arg, pl_arg in self.zipped_arguments:
+            assert isinstance(pl_arg.data, DataCarrier)
+            if lk_arg.access is not Access.READ:
+                if pl_arg.data in self.reduced_globals:
+                    self.reduced_globals[pl_arg.data].data.increment_dat_version()
+                else:
+                    pl_arg.data.increment_dat_version()
 
     def zero_global_increments(self):
         """Zero any global increments every time the loop is executed."""

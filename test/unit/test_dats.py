@@ -183,6 +183,17 @@ class TestDat:
         assert d1.dat_version == 4
         assert d2.dat_version == 2
 
+        # ParLoop
+        d3 = op2.Dat(s ** 1, data=None, dtype=np.uint32)
+        assert d3.dat_version == 0
+        k = op2.Kernel("""
+static void write(unsigned int* v) {
+  *v = 1;
+}
+""", "write")
+        op2.par_loop(k, s, d3(op2.WRITE))
+        assert d3.dat_version == 1
+
     def test_mixed_dat_version(self, s, d1, mdat):
         """Check object versioning for MixedDat"""
         d2 = op2.Dat(s)
@@ -215,6 +226,25 @@ class TestDat:
         assert d1.dat_version == 4
         assert mdat.dat_version == 8
         assert mdat2.dat_version == 5
+
+        # ParLoop
+        d3 = op2.Dat(s ** 1, data=None, dtype=np.uint32)
+        d4 = op2.Dat(s ** 1, data=None, dtype=np.uint32)
+        d3d4 = op2.MixedDat([d3, d4])
+        assert d3.dat_version == 0
+        assert d4.dat_version == 0
+        assert d3d4.dat_version == 0
+        k = op2.Kernel("""
+static void write(unsigned int* v) {
+  v[0] = 1;
+  v[1] = 2;
+}
+""", "write")
+        m = op2.Map(s, op2.Set(nelems), 1, values=[0, 1, 2, 3, 4])
+        op2.par_loop(k, s, d3d4(op2.WRITE, op2.MixedMap([m, m])))
+        assert d3.dat_version == 1
+        assert d4.dat_version == 1
+        assert d3d4.dat_version == 2
 
     def test_accessing_data_with_halos_increments_dat_version(self, d1):
         assert d1.dat_version == 0
