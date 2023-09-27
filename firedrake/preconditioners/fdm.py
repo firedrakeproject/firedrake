@@ -741,7 +741,7 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
         return op2.Kernel(code, self.name)
 
 
-class CellInverseKernel(ElementKernel):
+class InteriorSolveKernel(ElementKernel):
 
     def __init__(self, kernel, form, name=None):
         self.form = form
@@ -760,14 +760,19 @@ class CellInverseKernel(ElementKernel):
         self.mats.append(self.data_mat)
 
     def __call__(self, *args, result=None):
-        return self.children(*args, result=result)
+        return self.kernel(*args, result=result)
 
-    def kernel_action(self):
+    def kernel_action(self, a):
         from tsfc import compile_form
-        V = self.form.arguments()[0].function_space()
-        kernel = compile_form(self.form, log=PETSc.Log.isActive())
-        coefficients = extract_numbered_coefficients(self.form, kernel.coefficient_numbers)
+        from firedrake.tsfc_interface import extract_numbered_coefficients
+
+        args = a.arguments()
+        args[-1] = ufl.Coefficient(args[-1].function_space())
+        kernel = compile_form(a(*args), log=PETSc.Log.isActive())
+
+        coefficients = extract_numbered_coefficients(a, kernel.coefficient_numbers)
         if kernel.needs_external_coords:
+            V = self.form.arguments()[0].function_space()
             coefficients = [V.mesh().coordinates] + coefficients
 
         return op2.Kernel(kernel.ast, kernel.name,
@@ -776,29 +781,51 @@ class CellInverseKernel(ElementKernel):
                           events=(kernel.event,)), coefficients
 
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
-        matvec, coefficients = self.kernel_action()
-        matvec_code = matvec.code
-        matvec_call = matvec.name
+        matvec, matvec_args = self.kernel_action(self.form)
+        r = range(matvec_args)
+        A00_code = matvec.code
+        A00_mult = matvec.name
+        ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in r])
+        ctx_pack = ", ".join(["c%d" % i for i in r])
+        ctx_unpack = "".join(["appctx[%d], " % i for i in r])
         code = f"""
 {self.header(mat_type=mat_type)}
 
-{matvec_code}
+static {A00_code}
+
+static PetscErrorCode usermult(Mat A, Vec X, Vec Y) {{
+    PetscFunctionBeginUser;
+    PetscScalar **appctx;
+    PetscScalar *x, *y;
+    PetscCall(MatShellGetContext(A, &appctx));
+    PetscCall(VecZeroEntries(Y));
+    PetscCall(VecGetArray(Y, &y));
+    PetscCall(VecGetArrayRead(X, &x));
+    {A00_mult}(y, {ctx_unpack}x);
+    PetscCall(VecRestoreArrayRead(X, &x));
+    PetscCall(VecRestoreArray(Y, &y));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}}
 
 PetscErrorCode {self.name}(const KSP ksp, const Mat C,
                            const PetscScalar *restrict coefficients,
-                           const PetscScalar *restrict b,
+                           {ctx_struct}
+                           const PetscScalar *restrict y,
                            PetscScalar *restrict x)
 {{
+    PetscScalar *appctx[] = {{ {ctx_pack} }};
+    PetscInt m;
     Mat A, B;
     Vec X, Y;
-    PetscInt m;
     PetscFunctionBeginUser;
     PetscCall(KSPGetOperators(ksp, &A, &B));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
-    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void)){matvec_call}));
+    PetscCall(MatShellSetContext(A, &appctx));
+    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))usermult));
     PetscCall(MatGetSize(B, &m, NULL));
-    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, b, &Y));
+
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
     PetscCall(KSPSolve(ksp, Y, X));
     PetscCall(VecDestroy(&X));
@@ -806,6 +833,18 @@ PetscErrorCode {self.name}(const KSP ksp, const Mat C,
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
         return op2.Kernel(code, self.name)
+
+class SchurComplementExact(ElementKernel):
+
+    def kernel(self):
+        code = f"""
+        // X[F] = x;
+        // Y = A * X;
+        // X[I] = -AII \ Y[I];
+        // Y = A * X;
+        // y = Y[F];
+        """
+        return
 
 
 class SchurComplementKernel(ElementKernel):
