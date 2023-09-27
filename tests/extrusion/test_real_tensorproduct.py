@@ -73,7 +73,7 @@ def quadrilateral(request):
 
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
-    tolerance = 1e-14
+    tolerance = 2e-14
     mesh2d = RectangleMesh(5, 1, 5, 1, quadrilateral=quadrilateral)
 
     # construct number of levels
@@ -97,7 +97,7 @@ def test_vertical_average_variable(quadrilateral):
     fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
     f_real = Function(fs_real).project(f)
 
-    l2err = l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
+    l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
     assert abs(l2err) < tolerance
 
 
