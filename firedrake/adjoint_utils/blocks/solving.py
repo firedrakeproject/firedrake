@@ -151,7 +151,7 @@ class GenericSolveBlock(Block, Backend):
             )
         )
         dFdu_form = self.backend.adjoint(dFdu)
-        dJdu = dJdu.vector().copy()
+        dJdu = dJdu.copy()
 
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
@@ -661,7 +661,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         F_form = self._create_F_form()
 
         dFdu_form = self.adj_F
-        dJdu = dJdu.vector().copy()
+        dJdu = dJdu.copy()
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdu_form)
