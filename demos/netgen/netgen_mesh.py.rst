@@ -380,7 +380,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    bc = DirichletBC (V , 0.0 , [1])
    A = assemble (a , bcs = bc); b = assemble (l)
    bc.apply(b)
-   solve (A, sol, b, solver_parameters ={"ksp_type": "cg", "pc_type": "none"})
+   solve (A, sol, b, solver_parameters ={"ksp_type": "cg", "pc_type": "lu"})
    
    File("output/Sphere.pvd").write(sol)
 
