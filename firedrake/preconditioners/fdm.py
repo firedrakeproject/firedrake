@@ -741,6 +741,73 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
         return op2.Kernel(code, self.name)
 
 
+class CellInverseKernel(ElementKernel):
+
+    def __init__(self, kernel, form, name=None):
+        self.form = form
+        self.kernel = kernel
+        self.data_mat = kernel.data_mat
+        B = kernel.result
+        comm = B.getComm()
+        A = PETSc.Mat().create(comm=comm)
+        A.setType("shell")
+        A.setSizes(B.getSizes())
+        A.setUp()
+        ksp = PETSc.KSP().create(comm=comm)
+        ksp.setOperators(A, B)
+        ksp.setFromOptions()
+        super().__init__(ksp, name=name)
+        self.mats.append(self.data_mat)
+
+    def __call__(self, *args, result=None):
+        return self.children(*args, result=result)
+
+    def kernel_action(self):
+        from tsfc import compile_form
+        V = self.form.arguments()[0].function_space()
+        kernel = compile_form(self.form, log=PETSc.Log.isActive())
+        coefficients = extract_numbered_coefficients(self.form, kernel.coefficient_numbers)
+        if kernel.needs_external_coords:
+            coefficients = [V.mesh().coordinates] + coefficients
+
+        return op2.Kernel(kernel.ast, kernel.name,
+                          requires_zeroed_output_arguments=True,
+                          flop_count=kernel.flop_count,
+                          events=(kernel.event,)), coefficients
+
+    def kernel(self, mat_type="aij", on_diag=True, addv=None):
+        matvec, coefficients = self.kernel_action()
+        matvec_code = matvec.code
+        matvec_call = matvec.name
+        code = f"""
+{self.header(mat_type=mat_type)}
+
+{matvec_code}
+
+PetscErrorCode {self.name}(const KSP ksp, const Mat C,
+                           const PetscScalar *restrict coefficients,
+                           const PetscScalar *restrict b,
+                           PetscScalar *restrict x)
+{{
+    Mat A, B;
+    Vec X, Y;
+    PetscInt m;
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetOperators(ksp, &A, &B));
+    PetscCall(MatSetValuesArray(C, coefficients));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void)){matvec_call}));
+    PetscCall(MatGetSize(B, &m, NULL));
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, b, &Y));
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
+    PetscCall(KSPSolve(ksp, Y, X));
+    PetscCall(VecDestroy(&X));
+    PetscCall(VecDestroy(&Y));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}}"""
+        return op2.Kernel(code, self.name)
+
+
 class SchurComplementKernel(ElementKernel):
     """
     An element kernel to compute Schur complements that reuses work matrices and the
