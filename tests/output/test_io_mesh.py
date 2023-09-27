@@ -103,7 +103,7 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
     fname = COMM_WORLD.bcast(fname, root=0)
     # Save mesh.
     v = _compute_integral(mesh)
-    print(repr(mesh))
+    print("saving", repr(mesh))
     with CheckpointFile(fname, "w", comm=COMM_WORLD) as afile:
         afile.save_mesh(mesh)
     # Load -> Save -> Load ...
@@ -116,6 +116,7 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
             # Load.
             with CheckpointFile(fname, "r", comm=comm) as afile:
                 mesh = afile.load_mesh(name=mesh_name)
+            print("loaded", repr(mesh))
             if variable_layers:
                 # Check loaded layers equals computed layers
                 layers = _compute_random_layers(mesh._base_mesh)
@@ -124,7 +125,6 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
             v1 = _compute_integral(mesh)
             assert abs(v1 - v) < 2.e-14
             # Save.
-            print(repr(mesh))
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
 
