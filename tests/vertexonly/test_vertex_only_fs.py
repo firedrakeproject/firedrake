@@ -148,18 +148,22 @@ def functionspace_tests(vm):
     I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
     h2 = I2_io.interpolate(g)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-    g = I_io.interpolate(h, transpose=True)
+
+    h_star = h.riesz_representation(riesz_map="l2")
+    g = I_io.interpolate(h_star, transpose=True)
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        g2 = I2_io.interpolate(h, transpose=True)
+        g2 = I2_io.interpolate(h_star, transpose=True)
         assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
     I_io_transpose = Interpolator(TestFunction(W), V)
     I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
-    h = I_io_transpose.interpolate(g, transpose=True)
+    h_star = I_io_transpose.interpolate(g, transpose=True)
+    h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
         h2 = I2_io_transpose.interpolate(g, transpose=True)
@@ -247,22 +251,26 @@ def vectorfunctionspace_tests(vm):
     I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
     h2 = I2_io.interpolate(g)
     assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    g = I_io.interpolate(h, transpose=True)
+
+    h_star = h.riesz_representation(riesz_map="l2")
+    g = I_io.interpolate(h_star, transpose=True)
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        g2 = I2_io.interpolate(h, transpose=True)
+        g2 = I2_io.interpolate(h_star, transpose=True)
         assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
     I_io_transpose = Interpolator(TestFunction(W), V)
     I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
-    h = I_io_transpose.interpolate(g, transpose=True)
-    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    h_star = I_io_transpose.interpolate(g, transpose=True)
+    assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
         h2 = I2_io_transpose.interpolate(g, transpose=True)
         assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+
+    h = h_star.riesz_representation(riesz_map="l2")
     g = I_io_transpose.interpolate(h)
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
     g2 = I2_io_transpose.interpolate(h)

@@ -434,7 +434,7 @@ def test_interpolate_minmax(access):
     g = interpolate(x*y, V)
     f = interpolate(x**2 - y**4, V)
     actual = Function(g)
-    actual = interpolate(f, actual, access=access).dat.data_ro
+    actual = Interpolator(f, actual, access=access)._interpolate().dat.data_ro
 
     if access is MIN:
         expect = np.where(f.dat.data_ro < g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)

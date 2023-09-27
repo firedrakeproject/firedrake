@@ -320,8 +320,8 @@ def test_real_interpolate_minmaxinc():
     assert np.isclose(sum_x, expect.sum())
     min_x = Function(R).assign(-1)
     max_x = Function(R).assign(2)
-    min_x = float(interpolate(x, min_x, access=MIN))
-    max_x = float(interpolate(x, max_x, access=MAX))
+    min_x = float(Interpolator(x, min_x, access=MIN)._interpolate())
+    max_x = float(Interpolator(x, max_x, access=MAX)._interpolate())
 
     assert np.isclose(min_x, -1)
     assert np.isclose(max_x, 2)
