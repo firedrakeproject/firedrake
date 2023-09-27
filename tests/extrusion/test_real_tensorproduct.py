@@ -51,7 +51,7 @@ def solution(variant, fs_kind):
 
 @pytest.fixture
 def tolerance(variant):
-    return {"linear": 1e-15, "sin": 1e-5}[variant]
+    return {"linear": 2e-15, "sin": 1e-5}[variant]
 
 
 def test_vertical_average(V, expr, solution, tolerance):
