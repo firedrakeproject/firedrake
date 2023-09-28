@@ -630,7 +630,6 @@ class FDMPC(PCBase):
                 args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
                 op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
                             op2.PassthroughArg(op2.OpaqueType("KSP"), S.ksp.handle),
-                            op2.PassthroughArg(op2.OpaqueType("Mat"), S.data_mat.handle),
                             coefficients_acc, *args_acc,
                             x.dat(op2.READ, x.cell_node_map()),
                             y.dat(op2.INC, y.cell_node_map()))()
@@ -665,7 +664,7 @@ class ElementKernel(object):
     @staticmethod
     def header(mat_type="aij"):
         header = """
-static inline PetscErrorCode MatSetValuesArray(const Mat A, const PetscScalar *values)
+static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *values)
 {{
     PetscBool done;
     PetscInt m;
@@ -736,10 +735,8 @@ PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
 class TripleProductKernel(ElementKernel):
 
     def __init__(self, A, B, C, name=None):
-        self.data_mat = B
         self.product = partial(A.matMatMult, B, C)
         super().__init__(self.product(), name=name)
-        self.mats.append(self.data_mat)
 
     def __call__(self, *args, result=None):
         return self.product(result=result)
@@ -752,11 +749,13 @@ class TripleProductKernel(ElementKernel):
         code = f"""
 {self.header(mat_type=mat_type)}
 
-PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
+PetscErrorCode {self.name}(const Mat A, const Mat B,
                            const PetscScalar *restrict coefficients,
                            {declare_indices})
 {{
+    Mat C;
     PetscFunctionBeginUser;
+    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatSetValuesSparse(A, B, {indices[0]}, {indices[-1]}, {addv}));
@@ -812,7 +811,6 @@ class InteriorSolveKernel(ElementKernel):
 
     def __init__(self, kernel, name=None):
         self.child = kernel
-        self.data_mat = kernel.data_mat
         B = kernel.result
         comm = B.getComm()
         A = PETSc.Mat().create(comm=comm)
@@ -827,7 +825,6 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setUp()
         self.ksp = ksp
         super().__init__(ksp, name=name)
-        self.mats.append(self.data_mat)
 
     def __call__(self, *args, result=None):
         return self.child(*args, result=result)
@@ -837,7 +834,7 @@ class InteriorSolveKernel(ElementKernel):
         code = f"""
 {A_struct}
 {self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(const KSP ksp, const Mat C,
+PetscErrorCode {self.name}(const KSP ksp,
                            const PetscScalar *restrict coefficients,
                            {ctx_struct}
                            const PetscScalar *restrict y,
@@ -845,10 +842,11 @@ PetscErrorCode {self.name}(const KSP ksp, const Mat C,
 {{
     {ctx_pack}
     PetscInt m;
-    Mat A, B;
+    Mat A, B, C;
     Vec X, Y;
     PetscFunctionBeginUser;
     PetscCall(KSPGetOperators(ksp, &A, &B));
+    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatShellSetContext(A, &appctx));
@@ -886,7 +884,7 @@ class ImplicitSchurComplementKernel(InteriorSolveKernel):
 {A00_struct}
 {A_struct.replace("#include <stdint.h>", "")}
 {self.header(mat_type=mat_type)}
-PetscErrorCode {self.name}(const KSP ksp, const Mat C,
+PetscErrorCode {self.name}(const KSP ksp,
                            const PetscScalar *restrict coefficients,
                            {ctx_struct}
                            const PetscScalar *restrict x1,
@@ -901,10 +899,11 @@ PetscErrorCode {self.name}(const KSP ksp, const Mat C,
     PetscScalar x0[{N0}] = {{0.0}};
     PetscScalar y0[{N0}] = {{0.0}};
     PetscInt i;
-    Mat A, B;
+    Mat A, B, C;
     Vec X, Y;
     PetscFunctionBeginUser;
     PetscCall(KSPGetOperators(ksp, &A, &B));
+    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatShellSetContext(A, &appctx));
@@ -958,8 +957,6 @@ class SchurComplementKernel(ElementKernel):
         self.work = [None for _ in range(2)]
         super().__init__(self.condense(), name=name)
 
-        self.data_mat = self.children[0].data_mat
-        self.mats.append(self.data_mat)
         self.mats.extend(c.result for c in self.children)
         for w in self.work:
             if isinstance(w, PETSc.Mat):
@@ -986,13 +983,15 @@ class SchurComplementKernel(ElementKernel):
 {self.header(mat_type=mat_type)}
 {self.condense_code}
 
-PetscErrorCode {self.name}(const Mat A, const Mat B, const Mat C,
+PetscErrorCode {self.name}(const Mat A, const Mat B,
                            const Mat A11, const Mat A10, const Mat A01, const Mat A00,
                            {declare_work}
                            const PetscScalar *restrict coefficients,
                            const PetscInt *restrict rindices)
 {{
+    Mat C;
     PetscFunctionBeginUser;
+    PetscCall(MatProductGetMats(A00, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatCondense(B, A11, A10, A01, A00, {work}));
     PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
