@@ -512,8 +512,11 @@ class CrossMeshInterpolator(Interpolator):
                 raise NotImplementedError(
                     f"Unhandled cross-mesh interpolation ufl element type: {repr(ufl_scalar_element)}"
                 )
+
+        from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = assemble(f_dest_node_coords)
         dest_node_coords = f_dest_node_coords.dat.data_ro
         try:
             self.vom_dest_node_coords_in_src_mesh = firedrake.VertexOnlyMesh(

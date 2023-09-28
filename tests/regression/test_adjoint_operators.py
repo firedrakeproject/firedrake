@@ -679,7 +679,8 @@ def test_copy_function():
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
-    assert np.isclose(rf(interpolate(-one, V)), -J)
+    a = assemble(Interpolate(-one, V))
+    assert np.isclose(rf(a), -J)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done

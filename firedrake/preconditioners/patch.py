@@ -6,7 +6,7 @@ from firedrake.utils import cached_property, complex_mode, IntType
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
-from firedrake.interpolation import interpolate
+from firedrake.interpolation import Interpolate
 
 from collections import namedtuple
 import operator
@@ -641,6 +641,7 @@ class PlaneSmoother(object):
     def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+        from firedrake.assemble import assemble
 
         if ndiv is None and divisions is None:
             raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
@@ -658,7 +659,8 @@ class PlaneSmoother(object):
             # not its weakref proxy (the variable `mesh`)
             # as interpolation fails because they are not hashable
             CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
-            coordinates = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+            coordinates = Interpolate(mesh.coordinates, CGk, interp_data={'access': op2.MAX})
+            coordinates = assemble(coordinates)
         else:
             coordinates = mesh.coordinates
 
