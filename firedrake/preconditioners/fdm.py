@@ -955,7 +955,7 @@ class SchurComplementKernel(ElementKernel):
         self.work = [None for _ in range(2)]
         super().__init__(self.condense(), name=name)
 
-        self.mats.extend(c.result for c in self.children)
+        self.mats.extend(self.submats)
         for w in self.work:
             if isinstance(w, PETSc.Mat):
                 self.mats.append(w)
