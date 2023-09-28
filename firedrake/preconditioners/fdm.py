@@ -602,7 +602,7 @@ class FDMPC(PCBase):
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
 
-                S = ImplicitSchurComplementKernel(TripleProductKernel(R0, M, C0))
+                #S = ImplicitSchurComplementKernel(TripleProductKernel(R0, M, C0))
 
                 element_kernel = schur_kernel(element_kernel,
                                               TripleProductKernel(R1, M, C0),
@@ -620,7 +620,6 @@ class FDMPC(PCBase):
                                     *indices_acc)
             self.assemblers.setdefault(key, assembler)
 
-            S = None
             if S is not None:
                 x = Function(Vrow)
                 y = Function(Vcol)
@@ -629,7 +628,7 @@ class FDMPC(PCBase):
                 args.extend(extract_firedrake_constants(self.J))
                 args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
                 op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
-                            op2.PassthroughArg(op2.OpaqueType("KSP"), S.ksp.handle),
+                            op2.PassthroughArg(op2.OpaqueType("KSP"), S.result.handle),
                             coefficients_acc, *args_acc,
                             x.dat(op2.READ, x.cell_node_map()),
                             y.dat(op2.INC, y.cell_node_map()))()
@@ -823,7 +822,6 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setType("cg")
         ksp.setTolerances(rtol=1E-8, atol=0)
         ksp.setUp()
-        self.ksp = ksp
         super().__init__(ksp, name=name)
 
     def __call__(self, *args, result=None):
