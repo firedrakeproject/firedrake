@@ -768,14 +768,14 @@ def matshell_wrapper(a, prefix="form"):
     import tsfc
     import loopy
 
-    args = list(a.arguments())
-    args[-1] = ufl.Coefficient(args[-1].function_space())
-    F = a(*args)
+    v, u = a.arguments()
+    F = a(v, ufl.Coefficient(u.function_space()))
     kernel, = tsfc.compile_form(F, prefix=prefix, log=PETSc.Log.isActive())
     matmult = op2.Kernel(kernel.ast, kernel.name,
                          requires_zeroed_output_arguments=True,
                          flop_count=kernel.flop_count,
                          events=(kernel.event,))
+
     matmult_code = loopy.generate_code_v2(matmult.code).device_code()
     iconst = len(kernel.arguments) - len(extract_firedrake_constants(F))
     coefficients = kernel.arguments[1:iconst-1]
