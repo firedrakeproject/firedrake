@@ -954,11 +954,7 @@ class SchurComplementKernel(ElementKernel):
 
         self.work = [None for _ in range(2)]
         super().__init__(self.condense(), name=name)
-
         self.mats.extend(self.submats)
-        for w in self.work:
-            if isinstance(w, PETSc.Mat):
-                self.mats.append(w)
 
     def __call__(self, *args, result=None):
         for k in self.children:
@@ -971,11 +967,6 @@ class SchurComplementKernel(ElementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
-        work = "NULL"
-        declare_work = ""
-        if isinstance(self.work[0], PETSc.Mat):
-            work = "W0"
-            declare_work = f"const Mat {work},"
         code = f"""
 #include <petscblaslapack.h>
 {self.header(mat_type=mat_type)}
@@ -983,7 +974,6 @@ class SchurComplementKernel(ElementKernel):
 
 PetscErrorCode {self.name}(const Mat A, const Mat B,
                            const Mat A11, const Mat A10, const Mat A01, const Mat A00,
-                           {declare_work}
                            const PetscScalar *restrict coefficients,
                            const PetscInt *restrict rindices)
 {{
@@ -991,7 +981,7 @@ PetscErrorCode {self.name}(const Mat A, const Mat B,
     PetscFunctionBeginUser;
     PetscCall(MatProductGetMats(A00, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
-    PetscCall(MatCondense(B, A11, A10, A01, A00, {work}));
+    PetscCall(MatCondense(B, A11, A10, A01, A00));
     PetscCall(MatSetValuesSparse(A, B, rindices, rindices, {addv}));
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
@@ -1002,7 +992,7 @@ class SchurComplementPattern(SchurComplementKernel):
 
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
-                                         const Mat A01, const Mat A00, const Mat W0) {
+                                         const Mat A01, const Mat A00) {
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
@@ -1028,7 +1018,7 @@ class SchurComplementDiagonal(SchurComplementKernel):
 
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
-                                         const Mat A01, const Mat A00, const Mat W0) {
+                                         const Mat A01, const Mat A00) {
     Vec vec;
     PetscInt n;
     PetscScalar *vals;
@@ -1068,12 +1058,13 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
 
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
-                                         const Mat A01, const Mat A00, const Mat W0) {
+                                         const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr;
     PetscBool done;
     PetscInt m, bsize, irow;
     const PetscInt *ai, *aj;
     PetscScalar *vals, *U;
+    Mat X;
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A01));
@@ -1099,7 +1090,9 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     }
     PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscCall(MatProductNumeric(W0));
+
+    PetscCall(MatProductGetMats(B, &X, NULL, NULL));
+    PetscCall(MatProductNumeric(X));
     PetscCall(MatProductNumeric(B));
     PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -1135,12 +1128,13 @@ class SchurComplementBlockLU(SchurComplementKernel):
 
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
-                                         const Mat A01, const Mat A00, const Mat W0) {
+                                         const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr, lwork;
     PetscBool done;
     PetscInt m, bsize, irow, icol, nnz, iswap, *ipiv, *perm;
     const PetscInt *ai, *aj;
     PetscScalar *vals, *work, *L, *U;
+    Mat X;
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A10));
@@ -1191,8 +1185,9 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 
     // A00 = inv(U^T)
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    // W0 = inv(U^T) * A01
-    PetscCall(MatProductNumeric(W0));
+    // X = inv(U^T) * A01
+    PetscCall(MatProductGetMats(B, NULL, NULL, &X));
+    PetscCall(MatProductNumeric(X));
 
     // A00 = -inv(L^T)
     PetscCall(MatSeqAIJGetArray(A00, &vals));
@@ -1200,7 +1195,7 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
     PetscCall(PetscFree3(ipiv, perm, work));
 
-    // B = A11 - A10 * inv(L^T) * W0
+    // B = A11 - A10 * inv(L^T) * X
     PetscCall(MatProductNumeric(B));
     PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -1240,7 +1235,7 @@ class SchurComplementBlockInverse(SchurComplementKernel):
 
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
-                                         const Mat A01, const Mat A00, const Mat W0) {
+                                         const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr, lwork;
     PetscBool done;
     PetscInt m, irow, bsize, *ipiv;
