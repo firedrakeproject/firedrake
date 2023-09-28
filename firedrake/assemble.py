@@ -431,8 +431,8 @@ def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         # For "matfree", Form evaluation is delayed
         expr = expand_derivatives_form(expr, form_compiler_parameters)
     # Expanding derivatives may turn `ufl.BaseForm` objects into `ufl.Expr` objects that are not `ufl.BaseForm`.
-    if not isinstance(expr, ufl.form.BaseForm):
-        return assemble(expr)
+    if not isinstance(expr, ufl.form.BaseForm) and isinstance(expr, ufl.core.expr.Expr):
+        return _assemble_expr(expr)
     if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
         # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)

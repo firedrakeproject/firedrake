@@ -426,25 +426,6 @@ def test_adjoint_dg():
 
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
-@pytest.mark.parametrize("access", [MIN, MAX])
-def test_interpolate_minmax(access):
-    mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "DG", 0)
-    x, y = SpatialCoordinate(mesh)
-    g = interpolate(x*y, V)
-    f = interpolate(x**2 - y**4, V)
-    actual = Function(g)
-    actual = Interpolator(f, actual, access=access)._interpolate().dat.data_ro
-
-    if access is MIN:
-        expect = np.where(f.dat.data_ro < g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
-    else:
-        expect = np.where(f.dat.data_ro > g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
-
-    assert np.allclose(actual, expect)
-
-
-@pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)

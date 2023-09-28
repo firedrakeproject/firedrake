@@ -16,14 +16,24 @@ def M(fs):
     return inner(uhat, v) * dx
 
 
-def test_assemble_interp(mesh):
-    V1 = FunctionSpace(mesh, "CG", 1)
-    V2 = FunctionSpace(mesh, "CG", 2)
+@pytest.fixture(scope="module")
+def V1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
 
+
+@pytest.fixture(scope="module")
+def V2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
+
+
+@pytest.fixture(scope="module")
+def f1(mesh, V1):
     x, y = SpatialCoordinate(mesh)
     expr = cos(2*pi*x)*sin(2*pi*y)
-    f1 = Function(V1).interpolate(expr)
+    return Function(V1).interpolate(expr)
 
+
+def test_assemble_interp_operator(V1, V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
     assert isinstance(If1, ufl.Interpolate)
@@ -33,9 +43,13 @@ def test_assemble_interp(mesh):
     b = interpolate(f1, V2)
     assert np.allclose(a.dat.data, b.dat.data)
 
+
+def test_assemble_interp_matrix(V1, V2, f1):
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
+
+    b = interpolate(f1, V2)
 
     # Get the interpolation matrix
     a = assemble(Iv1)
@@ -46,11 +60,22 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, b.dat.data)
 
+
+def test_assemble_interp_tlm(V1, V2, f1):
     # -- Action(I(v1, V2), f1) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+    b = interpolate(f1, V2)
+
     assembled_action_Iv1 = assemble(action(Iv1, f1))
     assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
 
+
+def test_assemble_interp_adjoint_matrix(V1, V2, f1):
     # -- Adjoint(I(v1, V2)) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+
     v2 = TestFunction(V2)
     c2 = assemble(v2 * dx)
     # Interpolation from V2* to V1*
@@ -62,7 +87,12 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 
+
+def test_assemble_interp_adjoint_model(V1, V2, f1):
     # -- Action(Adjoint(I(v1, v2)), fstar) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+
     fstar = Cofunction(V2.dual())
     v = Argument(V1, 0)
     Ivfstar = assemble(Interpolate(v, fstar))
@@ -70,7 +100,10 @@ def test_assemble_interp(mesh):
     res = assemble(action(adjoint(Iv1), fstar))
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
+
+def test_assemble_interp_rank0(V1, V2, f1):
     # -- Interpolate(f1, u2) (rank 0) -- #
+    v2 = TestFunction(V2)
     # Set the Cofunction u2
     u2 = assemble(v2 * dx)
     # Interpolate(f1, u2) <=> Action(Interpolate(f1, V2), u2)

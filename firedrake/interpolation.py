@@ -48,6 +48,7 @@ class Interpolate(ufl.Interpolate):
         :arg expr: a UFL expression to interpolate.
         :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
                 defined on the dual of the :class:`.FunctionSpace` to interpolate into.
+        :arg interp_data: optional dictionary containing interpolation-specific data
         """
 
         # Check function space
@@ -55,7 +56,7 @@ class Interpolate(ufl.Interpolate):
             v = Argument(v.dual(), 0)
             v2 = extract_arguments(expr)
             if v2 and v2[0].number() == 0:
-                # Cope with the different convention of Interp and Inteprolator:
+                # Cope with the different convention of Interpolate and Interpolator:
                 #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
                 #  -> Interpolator(Argument(V1, 0), V2)
                 expr = replace(expr, {v2[0]: Argument(v2[0].function_space(),
@@ -65,7 +66,7 @@ class Interpolate(ufl.Interpolate):
         # Get the primal space (V** = V)
         vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
         self._function_space = vv.function_space().dual()
-        ufl.Interpolate.__init__(self, expr, v)
+        super().__init__(expr, v)
 
         # Interpolate data (e.g. subset or access)
         self.interp_data = interp_data if interp_data else {}
@@ -74,7 +75,8 @@ class Interpolate(ufl.Interpolate):
         return self._function_space
 
     def _ufl_expr_reconstruct_(self, expr, v=None, interp_data=None):
-        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, interp_data=interp_data or self.interp_data)
+        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v,
+                                                      interp_data=interp_data or self.interp_data)
 
 
 # Current behaviour of interpolation in Firedrake:
@@ -273,45 +275,6 @@ class Interpolator(abc.ABC):
 
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
-        """This performs interpolation by assembling `Interp`, which in turn calls
-        `Interpolator._interpolate`. Having this structure ensures consistency between
-        `Interpolator` and `Interp`.
-
-        This mechanism handles annotation since performing interpolation will drop an
-        Assemble block on the tape.
-
-        :arg function: If the expression being interpolated contains an
-            :class:`ufl.Argument`, then the :class:`.Function` value to
-            interpolate.
-        :kwarg output: Optional. A :class:`.Function` to contain the output.
-        :kwarg transpose: Set to true to apply the transpose (adjoint) of the
-              interpolation operator.
-        :returns: The resulting interpolated :class:`.Function`.
-        """
-        from firedrake.assemble import preprocess_base_form, assemble
-        from pyadjoint.tape import get_working_tape
-
-        # Get the Interpolate object
-        interp = self._interpolate_future(*function, transpose=transpose,
-                                          default_missing_val=default_missing_val)
-
-        if isinstance(self.V, firedrake.Function) and not output:
-            # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
-            output = self.V
-
-        get_working_tape()
-        # Assembly annotation records the form before it is preprocessed. Hence, we preprocess
-        # the form beforehand to facilitate derivation of the tangent linear/adjoint models.
-        # For example,
-        # -> `interp = Action(Interpolate(v1, v0), f)` with `v1` and `v0` being respectively `Argument`
-        # and `Coargument`. Differentiating `interp` is not currently supported as the action's left slot
-        # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
-        interp = preprocess_base_form(interp)
-        res = assemble(interp, tensor=output, is_base_form_preprocessed=True)
-        return res
-
-    @abc.abstractmethod
-    def _interpolate(self, *args, **kwargs):
         """
         Compute the interpolation.
 
@@ -332,6 +295,53 @@ class Interpolator(abc.ABC):
 
         :returns: The resulting interpolated :class:`.Function`.
         """
+        import warnings
+        from firedrake.assemble import assemble
+
+        warnings.warn("""The use of `interpolate` to perform the numerical interpolation is deprecated.
+This feature will be removed very shortly.
+
+Instead, import `interpolate` from the `firedrake.__future__` module to update
+the interpolation's behaviour to return the symbolic `ufl.Interpolate` object associated
+with this interpolation.
+
+You can then assemble the resulting object to get the interpolated quantity
+of interest. For example,
+
+```
+from firedrake.__future__ import interpolate
+...
+
+interp = interpolate(expr, V)
+assemble(interp)
+
+# OR
+
+interp = Function(V).interpolate(expr)
+f = assemble(interp)
+```
+
+Alternatively, you can also perform other symbolic operations on `interp`, such as taking
+the derivative, and then assemble the resulting form.
+""", FutureWarning)
+
+        # Get the Interpolate object
+        interp = self._interpolate_future(*function, transpose=transpose,
+                                          default_missing_val=default_missing_val)
+
+        if isinstance(self.V, firedrake.Function) and not output:
+            # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
+            output = self.V
+
+        # Assemble the `ufl.Interpolate` object, which will then call `Interpolator._interpolate`
+        # to perform the interpolation. Having this structure ensures consistency between
+        # `Interpolator` and `Interp`. This mechanism handles annotation since performing interpolation will drop an
+        # `AssembleBlock` on the tape.
+        res = assemble(interp, tensor=output)
+        return res
+
+    @abc.abstractmethod
+    def _interpolate(self, *args, **kwargs):
         pass
 
 
