@@ -619,7 +619,7 @@ class FDMPC(PCBase):
             kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
             assembler = op2.ParLoop(kernel,
                                     Vrow.mesh().cell_set,
-                                    *(op2.PassthroughArg(op2.PetscMatType(), arg.data) for arg in args),
+                                    *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
                                     *indices_acc)
 
         assembler.arguments[0].data = A.handle
@@ -639,7 +639,7 @@ class ElementKernel(object):
         return result or self.result
 
     def mat_args(self, *mats):
-        return [op2.PassthroughArg(op2.PetscMatType(), mat.handle) for mat in list(mats) + self.mats]
+        return [op2.PassthroughArg(op2.OpaqueType("Mat"), mat.handle) for mat in list(mats) + self.mats]
 
     @staticmethod
     def header(mat_type="aij"):
@@ -783,15 +783,16 @@ class InteriorSolveKernel(ElementKernel):
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
         matvec, matvec_args = self.kernel_action(self.form)
         r = range(matvec_args)
-        A00_code = matvec.code
         A00_mult = matvec.name
+        A00_code = matvec.code
+        A00_code = A00_code.replace("void " + A00_mult, "static void " + A00_mult)
         ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in r])
         ctx_pack = ", ".join(["c%d" % i for i in r])
         ctx_unpack = "".join(["appctx[%d], " % i for i in r])
         code = f"""
 {self.header(mat_type=mat_type)}
 
-static {A00_code}
+{A00_code}
 
 static PetscErrorCode usermult(Mat A, Vec X, Vec Y) {{
     PetscFunctionBeginUser;
@@ -824,7 +825,6 @@ PetscErrorCode {self.name}(const KSP ksp, const Mat C,
     PetscCall(MatShellSetContext(A, &appctx));
     PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))usermult));
     PetscCall(MatGetSize(B, &m, NULL));
-
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
     PetscCall(KSPSolve(ksp, Y, X));
@@ -1463,7 +1463,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
                     for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
     assembler = op2.ParLoop(kernel,
                             Vc.mesh().cell_set,
-                            *(op2.PassthroughArg(op2.PetscMatType(), m.handle) for m in (preallocator, Dhat)),
+                            *(op2.PassthroughArg(op2.OpaqueType("Mat"), m.handle) for m in (preallocator, Dhat)),
                             *indices)
     assembler()
     preallocator.assemble()
