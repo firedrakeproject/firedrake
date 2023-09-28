@@ -256,45 +256,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self
         return NotImplemented
 
-    def _interpolate_future(self, expression):
-        from firedrake import interpolation
-        return interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-
     def interpolate(self, expression):
         r"""Interpolate an expression onto this :class:`Cofunction`.
 
         :param expression: a UFL expression to interpolate
         :returns: this :class:`Function` object"""
-        import warnings
-
-        warnings.warn("""The use of `interpolate` to perform the numerical interpolation is deprecated.
-This feature will be removed very shortly.
-
-Instead, import `interpolate` from the `firedrake.__future__` module to update
-the interpolation's behaviour to return the symbolic `ufl.Interpolate` object associated
-with this interpolation.
-
-You can then assemble the resulting object to get the interpolated quantity
-of interest. For example,
-
-```
-from firedrake.__future__ import interpolate
-...
-
-interp = interpolate(expr, V)
-assemble(interp)
-
-# OR
-
-interp = Function(V).interpolate(expr)
-f = assemble(interp)
-```
-
-Alternatively, you can also perform other symbolic operations on `interp`, such as taking
-the derivative, and then assemble the resulting form.
-""", FutureWarning)
-
-        interp = self._interpolate_future(expression)
+        from firedrake import interpolation
+        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp)
 
     def vector(self):

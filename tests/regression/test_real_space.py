@@ -298,5 +298,5 @@ def test_real_interpolate():
     N = 100
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
-    a_int = interpolate(Constant(1.0), R)
+    a_int = assemble(interpolate(Constant(1.0), R))
     assert np.allclose(float(a_int), 1.0)

@@ -1,6 +1,8 @@
 """Global test configuration."""
 
 import pytest
+# Tests should adhere to future's features behaviours
+from firedrake.__future__ import *
 
 
 def pytest_configure(config):

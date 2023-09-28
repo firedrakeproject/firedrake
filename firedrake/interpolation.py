@@ -252,7 +252,7 @@ class Interpolator(abc.ABC):
         self._allow_missing_dofs = allow_missing_dofs
         self.callable = None
 
-    def _interpolate_future(self, *function, transpose, default_missing_val):
+    def _interpolate_future(self, *function, transpose=False, default_missing_val=None):
 
         V = self.V
         if isinstance(V, firedrake.Function):

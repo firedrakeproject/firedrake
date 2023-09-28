@@ -10,7 +10,7 @@ def at(function, point):
 def vertex_only_mesh(function, point):
     vom = VertexOnlyMesh(function.function_space().mesh(), point)
     vom_fs = VectorFunctionSpace(vom, "DG", 0)
-    return interpolate(function, vom_fs).dat.data_ro
+    return assemble(interpolate(function, vom_fs)).dat.data_ro
 
 
 @pytest.mark.parametrize("point_eval", [
@@ -29,8 +29,8 @@ def test_convergence_rate(point_eval):
             (np.cos(np.linspace(0, 2*np.pi, 3**6, endpoint=False)),
              np.sin(np.linspace(0, 2*np.pi, 3**6, endpoint=False)))
         )
-        f = interpolate(SpatialCoordinate(m),
-                        VectorFunctionSpace(m, "Lagrange", 1))
+        f = assemble(interpolate(SpatialCoordinate(m),
+                                 VectorFunctionSpace(m, "Lagrange", 1)))
         sol = np.array(point_eval(f, test_coords))
         error += [np.linalg.norm(test_coords - sol)]
 

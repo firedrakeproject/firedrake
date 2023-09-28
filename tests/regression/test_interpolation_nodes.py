@@ -62,7 +62,7 @@ def test_div_curl_preserving(V):
         else:
             expression = as_vector([sin(y)*z, cos(x)*z, exp(x)])
 
-    f = interpolate(expression, V)
+    f = assemble(interpolate(expression, V))
     if "Nedelec" in V.ufl_element().family():
         norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
@@ -87,7 +87,7 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
         variant = f"integral({degree+1})"
         V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=variant)
         V = FunctionSpace(mesh, V_el)
-        f = interpolate(expression, V)
+        f = assemble(interpolate(expression, V))
         error_l2 = errornorm(expression, f, 'L2')
         if "Nedelec" in V.ufl_element().family():
             error_hD = errornorm(expression, f, 'hcurl')

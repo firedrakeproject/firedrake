@@ -103,11 +103,11 @@ def run_injection(hierarchy, vector, space, degrees):
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact_primal(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact_primal(mesh, vector, degree), V))
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact_primal(mesh, vector, degree), V))
             tmp = Function(V)
             inject(actual, tmp)
             actual = tmp
@@ -121,11 +121,11 @@ def run_prolongation(hierarchy, vector, space, degrees):
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact_primal(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact_primal(mesh, vector, degree), V))
 
         for mesh in hierarchy[1:]:
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact_primal(mesh, vector, degree), V))
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp

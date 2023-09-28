@@ -40,7 +40,7 @@ def test_assemble_interp_operator(V1, V2, f1):
 
     # -- I(f1, V2) -- #
     a = assemble(If1)
-    b = interpolate(f1, V2)
+    b = assemble(interpolate(f1, V2))
     assert np.allclose(a.dat.data, b.dat.data)
 
 
@@ -49,7 +49,7 @@ def test_assemble_interp_matrix(V1, V2, f1):
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
 
-    b = interpolate(f1, V2)
+    b = assemble(interpolate(f1, V2))
 
     # Get the interpolation matrix
     a = assemble(Iv1)
@@ -65,7 +65,7 @@ def test_assemble_interp_tlm(V1, V2, f1):
     # -- Action(I(v1, V2), f1) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
-    b = interpolate(f1, V2)
+    b = assemble(interpolate(f1, V2))
 
     assembled_action_Iv1 = assemble(action(Iv1, f1))
     assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
@@ -186,7 +186,7 @@ def test_solve_interp_f(mesh):
     f1 = Function(V1).interpolate(cos(x)*sin(y))
 
     # -- Exact solution with a source term interpolated into DG0
-    f2 = interpolate(f1, V2)
+    f2 = assemble(interpolate(f1, V2))
     F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f2, w)*dx
     solve(F == 0, u)
 

@@ -54,7 +54,7 @@ def cell_ownership(m):
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
     P0DG = FunctionSpace(m, "DG", 0)
-    return interpolate(Constant(m.comm.rank), P0DG).dat.data_ro_with_halos
+    return assemble(interpolate(Constant(m.comm.rank), P0DG)).dat.data_ro_with_halos
 
 
 def point_ownership(m, points, localpoints):
