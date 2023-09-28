@@ -664,12 +664,30 @@ class ElementKernel(object):
 
     @staticmethod
     def header(mat_type="aij"):
+        header = """
+static inline PetscErrorCode MatSetValuesArray(const Mat A, const PetscScalar *values)
+{{
+    PetscBool done;
+    PetscInt m;
+    const PetscInt *ai;
+    PetscScalar *vals;
+    PetscFunctionBeginUser;
+    PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+    PetscCall(MatSeqAIJGetArray(A, &vals));
+    PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
+    PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}}"""
+        if mat_type == "matfree":
+            return header
         select_cols = ""
         if mat_type.endswith("sbaij"):
             select_cols = """
         for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
             indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
         return f"""
+{header}
 static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
                                                 const PetscInt *restrict rindices,
                                                 const PetscInt *restrict cindices,
@@ -695,21 +713,6 @@ static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
     PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
     PetscCall(PetscFree(indices));
-    PetscFunctionReturn(PETSC_SUCCESS);
-}}
-
-static inline PetscErrorCode MatSetValuesArray(const Mat A, const PetscScalar *values)
-{{
-    PetscBool done;
-    PetscInt m;
-    const PetscInt *ai, *aj;
-    PetscScalar *vals;
-    PetscFunctionBeginUser;
-    PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
-    PetscCall(MatSeqAIJGetArray(A, &vals));
-    PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
-    PetscCall(MatSeqAIJRestoreArray(A, &vals));
-    PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
 
@@ -832,8 +835,8 @@ class InteriorSolveKernel(ElementKernel):
     def kernel(self, form, mat_type="matfree", on_diag=True, addv=None):
         A_struct, ctx_struct, ctx_pack, _ = matshell_wrapper(form, prefix="A")
         code = f"""
-{self.header()}
 {A_struct}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(const KSP ksp, const Mat C,
                            const PetscScalar *restrict coefficients,
                            {ctx_struct}
@@ -880,9 +883,9 @@ class ImplicitSchurComplementKernel(InteriorSolveKernel):
         A_struct, ctx_struct, ctx_pack, ctx_coefficients, ctx_constants = matshell_wrapper(a, prefix="A")
         A_call = f"A_cell_integral(y, {ctx_coefficients}x{ctx_constants});"
         code = f"""
-{self.header()}
 {A00_struct}
 {A_struct.replace("#include <stdint.h>", "")}
+{self.header(mat_type=mat_type)}
 PetscErrorCode {self.name}(const KSP ksp, const Mat C,
                            const PetscScalar *restrict coefficients,
                            {ctx_struct}
