@@ -2,7 +2,7 @@
 
 import pytest
 # Tests should adhere to future's features behaviours
-from firedrake.__future__ import *
+from firedrake.__future__ import *      # noqa: F401
 
 
 def pytest_configure(config):

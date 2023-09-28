@@ -260,7 +260,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         r"""Interpolate an expression onto this :class:`Cofunction`.
 
         :param expression: a UFL expression to interpolate
-        :returns: this :class:`Function` object"""
+        :returns: this :class:`firedrake.function.Function` object"""
         from firedrake import interpolation
         interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp)
