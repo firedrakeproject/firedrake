@@ -540,7 +540,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolator = Interpolator(self.expr, P0DG_vom)
+        self.point_eval_interpolate = Interpolate(self.expr, P0DG_vom)
         # The parallel decomposition of the nodes of V_dest in the DESTINATION
         # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
         # VOM. This again is an interpolation operation, which, under the hood
@@ -548,7 +548,7 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom_i_o = fs_type(
             self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
         )
-        self.to_input_ordering_interpolator = Interpolator(
+        self.to_input_ordering_interpolate = Interpolate(
             firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
         )
         # The P0DG function outputted by the above interpolation has the
@@ -569,6 +569,8 @@ class CrossMeshInterpolator(Interpolator):
 
         For arguments, see :class:`.Interpolator`.
         """
+        from firedrake.assemble import assemble
+
         if transpose and not self.nargs:
             raise ValueError(
                 "Can currently only apply transpose interpolation with arguments."
@@ -610,35 +612,30 @@ class CrossMeshInterpolator(Interpolator):
                 self.sub_interpolators, f_src.subfunctions, output.subfunctions
             ):
                 if f_src is self.expr:
-                    # f_src is already contained in self.point_eval_interpolator,
+                    # f_src is already contained in self.point_eval_interpolate,
                     # so the sub_interpolators are already prepared to interpolate
                     # without needing to be given a Function
                     assert not self.nargs
-                    sub_interpolator.interpolate(
-                        output=output_sub_func, transpose=transpose, **kwargs
-                    )
+                    interp = sub_interpolator._interpolate_future(transpose=transpose, **kwargs)
+                    assemble(interp, tensor=output_sub_func)
                 else:
-                    sub_interpolator.interpolate(
-                        f_src_sub_func,
-                        output=output_sub_func,
-                        transpose=transpose,
-                        **kwargs,
-                    )
+                    interp = sub_interpolator._interpolate_future(transpose=transpose, **kwargs)
+                    assemble(action(interp, f_src_sub_func), tensor=output_sub_func)
             return output
 
         if not transpose:
             if f_src is self.expr:
-                # f_src is already contained in self.point_eval_interpolator
+                # f_src is already contained in self.point_eval_interpolate
                 assert not self.nargs
                 f_src_at_dest_node_coords_src_mesh_decomp = (
-                    self.point_eval_interpolator.interpolate()
+                    assemble(self.point_eval_interpolate)
                 )
             else:
                 f_src_at_dest_node_coords_src_mesh_decomp = (
-                    self.point_eval_interpolator.interpolate(f_src)
+                    assemble(action(self.point_eval_interpolate, f_src))
                 )
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolator.V
+                self.to_input_ordering_interpolate.function_space()
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
@@ -656,10 +653,8 @@ class CrossMeshInterpolator(Interpolator):
                 # the output function.
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
 
-            self.to_input_ordering_interpolator.interpolate(
-                f_src_at_dest_node_coords_src_mesh_decomp,
-                output=f_src_at_dest_node_coords_dest_mesh_decomp,
-            )
+            interp = action(self.to_input_ordering_interpolate, f_src_at_dest_node_coords_src_mesh_decomp)
+            assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
 
             # we can now confidently assign this to a function on V_dest
             if self._allow_missing_dofs and default_missing_val is None:
@@ -685,7 +680,7 @@ class CrossMeshInterpolator(Interpolator):
             # cofunction on the input-ordering VOM (which has this parallel
             # decomposition and ordering) and assign the dat values.
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
-                self.to_input_ordering_interpolator.V.dual()
+                self.to_input_ordering_interpolate.function_space().dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
@@ -696,9 +691,8 @@ class CrossMeshInterpolator(Interpolator):
             # don't have to worry about skipping over missing points here
             # because I'm going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            f_src_at_src_node_coords = self.to_input_ordering_interpolator.interpolate(
-                f_src_at_dest_node_coords_dest_mesh_decomp, transpose=True
-            )
+            interp = action(adjoint(self.to_input_ordering_interpolate), f_src_at_dest_node_coords_dest_mesh_decomp)
+            f_src_at_src_node_coords = assemble(interp)
             # NOTE: if I wanted the default missing value to be applied to
             # transpose interpolation I would have to do it here. However,
             # this would require me to implement default missing values for
@@ -710,9 +704,8 @@ class CrossMeshInterpolator(Interpolator):
             # SameMeshInterpolator.interpolate did not effect the result. For
             # now, I say in the docstring that it only applies to forward
             # interpolation.
-            self.point_eval_interpolator.interpolate(
-                f_src_at_src_node_coords, transpose=True, output=output
-            )
+            interp = action(adjoint(self.point_eval_interpolate), f_src_at_src_node_coords)
+            assemble(interp, tensor=output)
 
         return output
 

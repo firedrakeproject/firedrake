@@ -338,7 +338,7 @@ def test_interpolate_unitsquare_mixed():
     assert np.allclose(got[:, 0], expected_1)
     assert np.allclose(got[:, 1], expected_2)
     f_dest = Function(V_dest)
-    assemble(interpolator.interpolate(f_src, output=f_dest))
+    assemble(interpolator.interpolate(f_src), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = np.asarray(f_dest.at(coords))
     assert np.allclose(got[:, 0], expected_1)
@@ -541,7 +541,7 @@ def interpolate_function(
 
     # output argument works
     f_dest = Function(V_dest)
-    assemble(Interpolator(f_src, V_dest).interpolate(output=f_dest))
+    assemble(Interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -560,7 +560,7 @@ def interpolate_expression(
 
     # output argument works for expressions
     f_dest = Function(V_dest)
-    assemble(Interpolator(expr_src, V_dest).interpolate(output=f_dest))
+    assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -662,7 +662,7 @@ def test_missing_dofs():
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
-    assemble(interpolator.interpolate(f_src, output=f_dest))
+    assemble(interpolator.interpolate(f_src), tensor=f_dest)
     # assigned value hasn't been changed
     assert np.allclose(f_dest.at(coords), np.array([0.25, 1.0]))
     f_dest = assemble(interpolator.interpolate(f_src, default_missing_val=2.0))
@@ -671,7 +671,7 @@ def test_missing_dofs():
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
-    assemble(interpolator.interpolate(f_src, default_missing_val=2.0, output=f_dest))
+    assemble(interpolator.interpolate(f_src, default_missing_val=2.0), tensor=f_dest)
     assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
 
     # Try the other way around so we can check transpose is unaffected
