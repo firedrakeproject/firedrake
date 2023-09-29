@@ -22,6 +22,8 @@ from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
+from firedrake.tsfc_interface import compile_form
+from firedrake.preconditioners.pmg import cache_generate_code
 
 import firedrake.dmhooks as dmhooks
 import ufl
@@ -158,6 +160,18 @@ class FDMPC(PCBase):
             else:
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
+        # Internally, we just set up a PC object that the user can configure
+        # however from the PETSc command line.  Since PC allows the user to specify
+        # a KSP, we can do iterative by -fdm_pc_type ksp.
+        fdmpc = PETSc.PC().create(comm=pc.comm)
+        fdmpc.incrementTabLevel(1, parent=pc)
+        # We set a DM and an appropriate SNESContext on the constructed PC so one
+        # can do e.g. multigrid or patch solves.
+        self._dm = V_fdm.dm
+        fdmpc.setDM(self._dm)
+        fdmpc.setOptionsPrefix(options_prefix)
+        self.pc = fdmpc
+
         # Assemble the FDM preconditioner with sparse local matrices
         Pmat, self.assembly_callables = self.allocate_matrix(V_fdm, J_fdm, bcs_fdm, fcp, pmat_type, use_static_condensation)
         Pmat.setNullSpace(Amat.getNullSpace())
@@ -165,20 +179,8 @@ class FDMPC(PCBase):
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
         self._assemble_P()
 
-        # Internally, we just set up a PC object that the user can configure
-        # however from the PETSc command line.  Since PC allows the user to specify
-        # a KSP, we can do iterative by -fdm_pc_type ksp.
-        fdmpc = PETSc.PC().create(comm=pc.comm)
-        fdmpc.incrementTabLevel(1, parent=pc)
-
-        # We set a DM and an appropriate SNESContext on the constructed PC so one
-        # can do e.g. multigrid or patch solves.
-        self._dm = V_fdm.dm
-        fdmpc.setDM(self._dm)
-        fdmpc.setOptionsPrefix(options_prefix)
         fdmpc.setOperators(A=Amat, P=Pmat)
         fdmpc.setUseAmat(use_amat)
-        self.pc = fdmpc
         if hasattr(self, "_ctx_ref"):
             with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref, save=False):
                 fdmpc.setFromOptions()
@@ -242,6 +244,10 @@ class FDMPC(PCBase):
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
+
+        # FIXME this is just to test the interior solver
+        for c in assembly_callables:
+            c()
 
         Pmats = {}
         diagonal_terms = []
@@ -601,13 +607,14 @@ class FDMPC(PCBase):
                 V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
-
-                #S = ImplicitSchurComplementKernel(TripleProductKernel(R0, M, C0))
-
                 element_kernel = schur_kernel(element_kernel,
                                               TripleProductKernel(R1, M, C0),
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
+
+                CI = self.assemble_reference_tensor(V0)
+                RI = self.assemble_reference_tensor(V0, transpose=True)
+                # S = ImplicitSchurComplementKernel(TripleProductKernel(RI, M, CI))
 
             coefficients_acc = self.coefficients["cell"].dat(op2.READ, self.coefficients["cell"].cell_node_map())
             spaces = (Vrow, Vcol)[on_diag:]
@@ -621,12 +628,18 @@ class FDMPC(PCBase):
             self.assemblers.setdefault(key, assembler)
 
             if S is not None:
-                x = Function(Vrow)
-                y = Function(Vcol)
+                from firedrake.assemble import assemble
+                from firedrake import Constant
                 args = [Vrow.mesh().coordinates]
                 args.extend(self.J.coefficients())
                 args.extend(extract_firedrake_constants(self.J))
                 args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
+
+                x = Function(Vrow)
+                coords = args[0]
+                expr = numpy.prod([ufl.sin(numpy.pi*coords[i]) for i in range(Vrow.mesh().geometric_dimension())])
+                x = assemble(ufl.inner(TestFunction(Vrow), expr*Constant(numpy.ones(x.ufl_shape)))*ufl.dx)
+                y = Function(Vcol)
                 op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
                             op2.PassthroughArg(op2.OpaqueType("KSP"), S.result.handle),
                             coefficients_acc, *args_acc,
@@ -663,7 +676,7 @@ class ElementKernel(object):
     @staticmethod
     def header(mat_type="aij"):
         header = """
-static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *values)
+static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restrict values)
 {{
     PetscBool done;
     PetscInt m;
@@ -763,52 +776,45 @@ PetscErrorCode {self.name}(const Mat A, const Mat B,
         return op2.Kernel(code, self.name)
 
 
-def matshell_wrapper(a, prefix="form"):
-    import tsfc
-    import loopy
-
+def wrap_form(a, prefix="form", matshell=False):
     v, u = a.arguments()
-    F = a(v, ufl.Coefficient(u.function_space()))
-    kernel, = tsfc.compile_form(F, prefix=prefix, log=PETSc.Log.isActive())
-    matmult = op2.Kernel(kernel.ast, kernel.name,
-                         requires_zeroed_output_arguments=True,
-                         flop_count=kernel.flop_count,
-                         events=(kernel.event,))
-
-    matmult_code = loopy.generate_code_v2(matmult.code).device_code()
+    V = u.function_space()
+    F = a(v, ufl.Coefficient(V))
+    kernels = compile_form(F, prefix)
+    kernel = kernels[-1].kinfo.kernel
+    kernel_code = cache_generate_code(kernel, V._comm)
     iconst = len(kernel.arguments) - len(extract_firedrake_constants(F))
     coefficients = kernel.arguments[1:iconst-1]
     constants = kernel.arguments[iconst:]
-    r = len(kernel.arguments[1:]) - 1
+    r = len(kernel.arguments) - len(a.arguments())
 
     ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in range(r)])
     ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (r, ", ".join(["c%d" % i for i in range(r)]))
     ctx_coefficients = "".join(["appctx[%d], " % i for i in range(len(coefficients))])
     ctx_constants = "".join([", appctx[%d]" % i for i in range(len(coefficients), r)])
-
-    matmult_call = f"{matmult.name}(y, {ctx_coefficients}x{ctx_constants});"
-    matmult_struct = f"""
-{matmult_code.replace("void "+matmult.name, "static void "+matmult.name)}
-
+    matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
+    matmult_struct = kernel_code.replace("void "+kernel.name, "static void "+kernel.name)
+    if matshell:
+        matmult_struct += f"""
 static PetscErrorCode {prefix}(Mat A, Vec X, Vec Y) {{
-    PetscFunctionBeginUser;
     PetscScalar **appctx, *y;
     const PetscScalar *x;
+    PetscFunctionBeginUser;
     PetscCall(MatShellGetContext(A, &appctx));
     PetscCall(VecZeroEntries(Y));
     PetscCall(VecGetArray(Y, &y));
     PetscCall(VecGetArrayRead(X, &x));
-    {matmult_call}
+    {matmult_call("x", "y")}
     PetscCall(VecRestoreArrayRead(X, &x));
     PetscCall(VecRestoreArray(Y, &y));
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
-    return matmult_struct, ctx_struct, ctx_pack, ctx_coefficients, ctx_constants
+    return matmult_struct, matmult_call, ctx_struct, ctx_pack
 
 
 class InteriorSolveKernel(ElementKernel):
 
-    def __init__(self, kernel, name=None):
+    def __init__(self, kernel, name=None, prefix="interior_"):
         self.child = kernel
         B = kernel.result
         comm = B.getComm()
@@ -817,10 +823,13 @@ class InteriorSolveKernel(ElementKernel):
         A.setSizes(B.getSizes())
         A.setUp()
         ksp = PETSc.KSP().create(comm=comm)
+        ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
-        ksp.pc.setType("ilu")
         ksp.setType("cg")
+        ksp.setNormType(ksp.NormType.NATURAL)
+        ksp.pc.setType("icc")
         ksp.setTolerances(rtol=1E-8, atol=0)
+        ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
 
@@ -828,7 +837,7 @@ class InteriorSolveKernel(ElementKernel):
         return self.child(*args, result=result)
 
     def kernel(self, form, mat_type="matfree", on_diag=True, addv=None):
-        A_struct, ctx_struct, ctx_pack, _ = matshell_wrapper(form, prefix="A")
+        A_struct, _, ctx_struct, ctx_pack = wrap_form(form, prefix="A", matshell=True)
         code = f"""
 {A_struct}
 {self.header(mat_type=mat_type)}
@@ -875,9 +884,8 @@ class ImplicitSchurComplementKernel(InteriorSolveKernel):
         N1 = N - N0
         a = a11(*(t.reconstruct(function_space=V) for t in args))
         a00 = a11(*(t.reconstruct(function_space=V0) for t in args))
-        A00_struct, *_ = matshell_wrapper(a00, prefix="A00")
-        A_struct, ctx_struct, ctx_pack, ctx_coefficients, ctx_constants = matshell_wrapper(a, prefix="A")
-        A_call = f"A_cell_integral(y, {ctx_coefficients}x{ctx_constants});"
+        A00_struct, *_ = wrap_form(a00, prefix="A_interior", matshell=True)
+        A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A")
         code = f"""
 {A00_struct}
 {A_struct.replace("#include <stdint.h>", "")}
@@ -903,13 +911,14 @@ PetscErrorCode {self.name}(const KSP ksp,
     PetscCall(KSPGetOperators(ksp, &A, &B));
     PetscCall(MatProductGetMats(B, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
+
     PetscCall(MatProductNumeric(B));
     PetscCall(MatShellSetContext(A, &appctx));
-    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A00));
+    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
 
     // x[fdofs] = x1; y = A * x;
     for (i = 0; i < N1; i++) x[fdofs[i]] = x1[i];
-    {A_call}
+    {A_call("x", "y")}
 
     // x[idofs] = -AII \ y[idofs];
     for (i = 0; i < N0; i++) y0[i] = y[idofs[i]];
@@ -922,7 +931,8 @@ PetscErrorCode {self.name}(const KSP ksp,
 
     // y = A * x; y1 += y[fdofs];
     for (i = 0; i < N; i++) y[i] = 0.0;
-    {A_call}
+    {A_call("x", "y")}
+
     for (i = 0; i < N1; i++) y1[i] += y[fdofs[i]];
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
@@ -949,7 +959,6 @@ class SchurComplementKernel(ElementKernel):
         for k, kdofs in sorted(zip(unique_degree, counts)):
             self.slices[k] = slice(istart, istart + k * kdofs)
             istart += k * kdofs
-
         self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
         self.work = [None for _ in range(2)]
