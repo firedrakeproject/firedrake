@@ -160,6 +160,7 @@ class FDMPC(PCBase):
             else:
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
+        self.bcs = bcs_fdm
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
@@ -244,10 +245,7 @@ class FDMPC(PCBase):
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
-
-        # FIXME this is just to test the interior solver
-        for c in assembly_callables:
-            c()
+        self.operators = {}
 
         Pmats = {}
         diagonal_terms = []
@@ -315,6 +313,14 @@ class FDMPC(PCBase):
     def _assemble_P(self):
         for _assemble in self.assembly_callables:
             _assemble()
+        return
+        # FIXME
+        for key in self.operators:
+            S = self.operators[key]
+            x = S.createVecRight()
+            y = S.createVecLeft()
+            x.setRandom()
+            S.mult(x, y)
 
     @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
@@ -378,7 +384,6 @@ class FDMPC(PCBase):
             splitter = ExtractSubBlock()
             J = splitter.split(J, argument_indices=(index, index))
         self.J = J
-
         args_J = J.arguments()
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
@@ -625,14 +630,15 @@ class FDMPC(PCBase):
 
                 x = Function(Vrow)
                 y = Function(Vcol)
-                with x.dat.vec_ro as _x:
-                    _x.setRandom()
-                schur = op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
-                                    op2.PassthroughArg(op2.OpaqueType(S.result.klass), S.result.handle),
-                                    coefficients_acc, *args_acc,
-                                    x.dat(op2.READ, x.cell_node_map()),
-                                    y.dat(op2.INC, y.cell_node_map()))
-                schur()
+                schur_parloop = op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
+                                            op2.PassthroughArg(op2.OpaqueType(S.result.klass), S.result.handle),
+                                            coefficients_acc, *args_acc,
+                                            x.dat(op2.READ, x.cell_node_map()),
+                                            y.dat(op2.INC, y.cell_node_map()))
+
+                ctx = ParloopMatrixContext(schur_parloop, x, y, bcs=self.bcs)
+                Smat = PETSc.Mat().createPython(A.getSizes(), context=ctx, comm=A.getComm())
+                self.operators[key] = Smat
 
             spaces = (Vrow, Vcol)[on_diag:]
             indices_acc = tuple(self.indices[V](op2.READ, V.cell_node_map()) for V in spaces)
@@ -826,6 +832,8 @@ class InteriorSolveKernel(ElementKernel):
         ksp.pc.setType("icc")
         ksp.setNormType(ksp.NormType.NATURAL)
         ksp.setTolerances(rtol=1E-8, atol=0)
+        # ksp.setInitialGuessKnoll(True)
+        # ksp.setInitialGuessNonzero(True)
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
@@ -1312,42 +1320,39 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
         return result
 
 
-class SchurComplementBlockSVD(SchurComplementKernel):
+class ParloopMatrixContext(object):
 
-    def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
-        A11, A10, A01, A00 = self.submats
-        indptr, indices, U = A00.getValuesCSR()
-        V = numpy.ones(U.shape, dtype=U.dtype)
-        self.work[0] = A00.getDiagonal(result=self.work[0])
-        D = self.work[0]
-        dslice = self.slices[1]
-        numpy.sign(D.array_r[dslice], out=U[dslice])
-        flops = dslice.stop - dslice.start
-        for k in self.blocks:
-            bslice = self.slices[k]
-            A = U[bslice].reshape((-1, k, k))
-            u, s, v = numpy.linalg.svd(A, full_matrices=False)
-            dslice = slice(dslice.stop, dslice.stop + k * A.shape[0])
-            numpy.copyto(D.array_w[dslice], s.flat)
-            numpy.copyto(U[bslice], numpy.transpose(u, axes=(0, 2, 1)).flat)
-            numpy.copyto(V[bslice], numpy.transpose(v, axes=(0, 2, 1)).flat)
-            flops += A.shape[0] * ((4*k**3)//3 + 4*k**3)
+    def __init__(self, parloop, x, y, bcs=None):
+        self.parloop = parloop
+        self._x = x
+        self._y = y
+        self.bcs = tuple(bc.reconstruct(V=self._x.function_space()) for bc in bcs) or tuple()
+        self.bcs = tuple()
 
-        PETSc.Log.logFlops(flops)
-        D.sqrtabs()
-        D.reciprocal()
-        A00.setValuesCSR(indptr, indices, V)
-        A00.assemble()
-        A00.diagonalScale(R=D)
-        self.work[1] = A10.matMult(A00, result=self.work[1])
-        D.scale(-1.0)
-        A00.setValuesCSR(indptr, indices, U)
-        A00.assemble()
-        A00.diagonalScale(L=D)
-        result = self.work[1].matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
-        return result
+    @PETSc.Log.EventDecorator()
+    def mult(self, mat, X, Y, inc=False):
+        with self._x.dat.vec_wo as v:
+            X.copy(v)
+        for bc in self.bcs:
+            bc.zero(self._x)
+        with self._y.dat.vec_wo as v:
+            if inc:
+                Y.copy(v)
+            else:
+                v.zeroEntries()
+        self.parloop()
+        with self._y.dat.vec_ro as v:
+            v.copy(Y)
+        for bc in self.bcs:
+            bc.set(self._y, self._x)
+
+    @PETSc.Log.EventDecorator()
+    def multAdd(self, mat, X, Y, W):
+        if Y.handle == W.handle:
+            self.mult(mat, X, Y, inc=True)
+        else:
+            self.mult(mat, X, W)
+            W.axpy(1.0, Y)
 
 
 def is_restricted(finat_element):
