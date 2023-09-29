@@ -260,10 +260,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         r"""Interpolate an expression onto this :class:`Cofunction`.
 
         :param expression: a UFL expression to interpolate
-        :returns: this :class:`firedrake.function.Function` object"""
+        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
         from firedrake import interpolation
         interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-        return firedrake.assemble(interp)
+        return firedrake.assemble(interp, tensor=self)
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this

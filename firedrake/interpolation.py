@@ -54,22 +54,34 @@ class Interpolate(ufl.Interpolate):
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
             v = Argument(v.dual(), 0)
-            v2 = extract_arguments(expr)
-            if v2 and v2[0].number() == 0:
-                # Cope with the different convention of Interpolate and Interpolator:
-                #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
-                #  -> Interpolator(Argument(V1, 0), V2)
-                expr = replace(expr, {v2[0]: Argument(v2[0].function_space(),
-                                                      number=1,
-                                                      part=v2[0].part())})
 
         # Get the primal space (V** = V)
         vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
         self._function_space = vv.function_space().dual()
         super().__init__(expr, v)
 
-        # Interpolate data (e.g. subset or access)
-        self.interp_data = interp_data if interp_data else {}
+        # -- Interpolate data (e.g. subset or access) -- #
+        interp_data = interp_data or {}
+        # Add the interpolator into `interp_data` (if not already there)
+        default_missing_val = interp_data.pop('default_missing_val', None)
+        interpolator = interp_data.pop("interpolator", None)
+
+        if not interpolator:
+            # Cope with the different convention of Interpolate and Interpolator:
+            #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
+            #  -> Interpolator(Argument(V1, 0), V2)
+            expr_args = extract_arguments(expr)
+            if expr_args and expr_args[0].number() == 1:
+                v, = expr_args
+                expr = replace(expr, {v: Argument(v.function_space(),
+                                                  number=0,
+                                                  part=v.part())})
+            interpolator = Interpolator(expr,
+                                        self.function_space(),
+                                        **interp_data)
+        self.interp_data = {"default_missing_val": default_missing_val,
+                            "interpolator": interpolator,
+                            **interp_data}
 
     def function_space(self):
         return self._function_space
@@ -258,11 +270,19 @@ class Interpolator(abc.ABC):
         if isinstance(V, firedrake.Function):
             V = V.function_space()
 
-        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
-                       'access': self.access, 'bcs': self.bcs,
-                       'allow_missing_dofs': self._allow_missing_dofs,
+        interp_data = {'interpolator': self,
                        'default_missing_val': default_missing_val}
-        interp = Interpolate(self.expr, V, interp_data=interp_data)
+        # Cope with the different convention of `Interpolate` and `Interpolator`:
+        #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
+        #  -> Interpolator(Argument(V1, 0), V2)
+        expr = self.expr
+        expr_args = extract_arguments(expr)
+        if expr_args and expr_args[0].number() == 0:
+            v2, = expr_args
+            expr = replace(expr, {v2: Argument(v2.function_space(),
+                                               number=1,
+                                               part=v2.part())})
+        interp = Interpolate(expr, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)
 
@@ -337,8 +357,7 @@ the derivative, and then assemble the resulting form.
         # to perform the interpolation. Having this structure ensures consistency between
         # `Interpolator` and `Interp`. This mechanism handles annotation since performing interpolation will drop an
         # `AssembleBlock` on the tape.
-        res = assemble(interp, tensor=output)
-        return res
+        return assemble(interp, tensor=output)
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):

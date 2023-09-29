@@ -598,21 +598,20 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
         # If argument numbers have been swapped => Adjoint.
         arg_expression = ufl.algorithms.extract_arguments(expression)
         is_adjoint = (arg_expression and arg_expression[0].number() == 0)
-        # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-        if not is_adjoint and rank != 1:
-            _, v1 = expr.arguments()
-            expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
-        # Should we use `freeze_expr` to cache the interpolation ? (e.g. if timestepping loop)
+        # Get the interpolator
         interp_data = expr.interp_data
-        default_missing_val = interp_data.pop('default_missing_val', None)
-        interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
+        interpolator = interp_data["interpolator"]
+        default_missing_val = interp_data.get('default_missing_val', None)
         # Assembly
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.
             if is_adjoint:
                 output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
                 return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
-            # Assembling the operator, or its Jacobian action.
+            # Assembling the Jacobian action.
+            if interpolator.nargs:
+                return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
+            # Assembling the operator
             return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
         elif rank == 2:
             # Return the interpolation matrix
