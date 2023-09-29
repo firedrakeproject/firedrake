@@ -595,7 +595,9 @@ class FDMPC(PCBase):
         try:
             assembler = self.assemblers[key]
         except KeyError:
-            S = None
+            coefficients = self.coefficients["cell"]
+            coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
+
             M = self._element_mass_matrix
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
@@ -612,11 +614,26 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
 
+                # Matrix-free Schur complement parloop
                 CI = self.assemble_reference_tensor(V0)
                 RI = self.assemble_reference_tensor(V0, transpose=True)
-                # S = ImplicitSchurComplementKernel(TripleProductKernel(RI, M, CI))
+                S = ImplicitSchurComplementKernel(TripleProductKernel(RI, M, CI))
+                args = [Vrow.mesh().coordinates]
+                args.extend(self.J.coefficients())
+                args.extend(extract_firedrake_constants(self.J))
+                args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
 
-            coefficients_acc = self.coefficients["cell"].dat(op2.READ, self.coefficients["cell"].cell_node_map())
+                x = Function(Vrow)
+                y = Function(Vcol)
+                with x.dat.vec_ro as _x:
+                    _x.setRandom()
+                schur = op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
+                                    op2.PassthroughArg(op2.OpaqueType(S.result.klass), S.result.handle),
+                                    coefficients_acc, *args_acc,
+                                    x.dat(op2.READ, x.cell_node_map()),
+                                    y.dat(op2.INC, y.cell_node_map()))
+                schur()
+
             spaces = (Vrow, Vcol)[on_diag:]
             indices_acc = tuple(self.indices[V](op2.READ, V.cell_node_map()) for V in spaces)
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
@@ -626,25 +643,6 @@ class FDMPC(PCBase):
                                     coefficients_acc,
                                     *indices_acc)
             self.assemblers.setdefault(key, assembler)
-
-            if S is not None:
-                from firedrake.assemble import assemble
-                from firedrake import Constant
-                args = [Vrow.mesh().coordinates]
-                args.extend(self.J.coefficients())
-                args.extend(extract_firedrake_constants(self.J))
-                args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
-
-                x = Function(Vrow)
-                coords = args[0]
-                expr = numpy.prod([ufl.sin(numpy.pi*coords[i]) for i in range(Vrow.mesh().geometric_dimension())])
-                x = assemble(ufl.inner(TestFunction(Vrow), expr*Constant(numpy.ones(x.ufl_shape)))*ufl.dx)
-                y = Function(Vcol)
-                op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
-                            op2.PassthroughArg(op2.OpaqueType("KSP"), S.result.handle),
-                            coefficients_acc, *args_acc,
-                            x.dat(op2.READ, x.cell_node_map()),
-                            y.dat(op2.INC, y.cell_node_map()))()
 
         if A.getType() == "preallocator":
             args = assembler.arguments[:2]
@@ -671,7 +669,7 @@ class ElementKernel(object):
         return result or self.result
 
     def mat_args(self, *mats):
-        return [op2.PassthroughArg(op2.OpaqueType("Mat"), mat.handle) for mat in list(mats) + self.mats]
+        return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
 
     @staticmethod
     def header(mat_type="aij"):
@@ -783,15 +781,13 @@ def wrap_form(a, prefix="form", matshell=False):
     kernels = compile_form(F, prefix)
     kernel = kernels[-1].kinfo.kernel
     kernel_code = cache_generate_code(kernel, V._comm)
-    iconst = len(kernel.arguments) - len(extract_firedrake_constants(F))
-    coefficients = kernel.arguments[1:iconst-1]
-    constants = kernel.arguments[iconst:]
-    r = len(kernel.arguments) - len(a.arguments())
+    nargs = len(kernel.arguments) - len(a.arguments())
+    ncoef = nargs - len(extract_firedrake_constants(F))
 
-    ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in range(r)])
-    ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (r, ", ".join(["c%d" % i for i in range(r)]))
-    ctx_coefficients = "".join(["appctx[%d], " % i for i in range(len(coefficients))])
-    ctx_constants = "".join([", appctx[%d]" % i for i in range(len(coefficients), r)])
+    ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in range(nargs)])
+    ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join(["c%d" % i for i in range(nargs)]))
+    ctx_coefficients = "".join(["appctx[%d], " % i for i in range(ncoef)])
+    ctx_constants = "".join([", appctx[%d]" % i for i in range(ncoef, nargs)])
     matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
     matmult_struct = kernel_code.replace("void "+kernel.name, "static void "+kernel.name)
     if matshell:
@@ -822,12 +818,13 @@ class InteriorSolveKernel(ElementKernel):
         A.setType("shell")
         A.setSizes(B.getSizes())
         A.setUp()
+
         ksp = PETSc.KSP().create(comm=comm)
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
         ksp.setType("cg")
-        ksp.setNormType(ksp.NormType.NATURAL)
         ksp.pc.setType("icc")
+        ksp.setNormType(ksp.NormType.NATURAL)
         ksp.setTolerances(rtol=1E-8, atol=0)
         ksp.setFromOptions()
         ksp.setUp()
@@ -920,7 +917,7 @@ PetscErrorCode {self.name}(const KSP ksp,
     for (i = 0; i < N1; i++) x[fdofs[i]] = x1[i];
     {A_call("x", "y")}
 
-    // x[idofs] = -AII \ y[idofs];
+    // x[idofs] = -inv(AII) * y[idofs];
     for (i = 0; i < N0; i++) y0[i] = y[idofs[i]];
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, N0, y0, &Y));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, N0, x0, &X));
