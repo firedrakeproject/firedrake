@@ -635,7 +635,6 @@ class FDMPC(PCBase):
                                             coefficients_acc, *args_acc,
                                             x.dat(op2.READ, x.cell_node_map()),
                                             y.dat(op2.INC, y.cell_node_map()))
-
                 ctx = ParloopMatrixContext(schur_parloop, x, y, bcs=self.bcs)
                 Smat = PETSc.Mat().createPython(A.getSizes(), context=ctx, comm=A.getComm())
                 self.operators[key] = Smat
@@ -643,8 +642,7 @@ class FDMPC(PCBase):
             spaces = (Vrow, Vcol)[on_diag:]
             indices_acc = tuple(self.indices[V](op2.READ, V.cell_node_map()) for V in spaces)
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
-            assembler = op2.ParLoop(kernel,
-                                    Vrow.mesh().cell_set,
+            assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
                                     *element_kernel.mat_args(A),
                                     coefficients_acc,
                                     *indices_acc)
@@ -842,7 +840,7 @@ class InteriorSolveKernel(ElementKernel):
         return self.child(*args, result=result)
 
     def kernel(self, form, mat_type="matfree", on_diag=True, addv=None):
-        A_struct, _, ctx_struct, ctx_pack = wrap_form(form, prefix="A", matshell=True)
+        A_struct, _, ctx_struct, ctx_pack = wrap_form(form, prefix="A_interior", matshell=True)
         code = f"""
 {A_struct}
 {self.header(mat_type=mat_type)}
@@ -858,11 +856,11 @@ PetscErrorCode {self.name}(const KSP ksp,
     Vec X, Y;
     PetscFunctionBeginUser;
     PetscCall(KSPGetOperators(ksp, &A, &B));
+    PetscCall(MatShellSetContext(A, &appctx));
+    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
     PetscCall(MatProductGetMats(B, NULL, &C, NULL));
     PetscCall(MatSetValuesArray(C, coefficients));
     PetscCall(MatProductNumeric(B));
-    PetscCall(MatShellSetContext(A, &appctx));
-    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A));
     PetscCall(MatGetSize(B, &m, NULL));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
@@ -914,12 +912,11 @@ PetscErrorCode {self.name}(const KSP ksp,
     Vec X, Y;
     PetscFunctionBeginUser;
     PetscCall(KSPGetOperators(ksp, &A, &B));
-    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-    PetscCall(MatSetValuesArray(C, coefficients));
-
-    PetscCall(MatProductNumeric(B));
     PetscCall(MatShellSetContext(A, &appctx));
     PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
+    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
+    PetscCall(MatSetValuesArray(C, coefficients));
+    PetscCall(MatProductNumeric(B));
 
     // x[fdofs] = x1; y = A * x;
     for (i = 0; i < N1; i++) x[fdofs[i]] = x1[i];
@@ -954,8 +951,9 @@ class SchurComplementKernel(ElementKernel):
     def __init__(self, *kernels, name=None):
         self.children = kernels
         self.submats = [k.result for k in kernels]
+        self.work = [None for _ in range(2)]
 
-        # Create dict of slices with the extents of the diagonal blocks
+        # Dict of slices with the extents of the diagonal blocks
         A00 = self.submats[-1]
         degree = numpy.diff(A00.getValuesCSR()[0])
         istart = 0
@@ -966,7 +964,6 @@ class SchurComplementKernel(ElementKernel):
             istart += k * kdofs
         self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
-        self.work = [None for _ in range(2)]
         super().__init__(self.condense(), name=name)
         self.mats.extend(self.submats)
 
