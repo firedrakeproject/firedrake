@@ -179,10 +179,9 @@ class FDMPC(PCBase):
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
         self._assemble_P()
 
-        if True:
-            Smat, assembly_callables = self.assemble_static_condensation(J_fdm, bcs_fdm, fcp, options_prefix)
-            for c in assembly_callables:
-                c()
+        test_matvec = False
+        if use_static_condensation and test_matvec:
+            Smat = self.condense(Amat, J_fdm, bcs_fdm, fcp, options_prefix)
             x = Smat.createVecRight()
             y = Smat.createVecLeft()
             x.set(1.0)
@@ -360,11 +359,14 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
-    def assemble_static_condensation(self, J, bcs, fcp, options_prefix):
-        Amats = {}
-        assembly_callables = []
+    def condense(self, A, J, bcs, fcp, options_prefix):
+        Smats = {}
         V = J.arguments()[0].function_space()
         if len(V) == 2:
+            ises = V.dof_dset.field_ises
+            Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
+            Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
+
             unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
             V0, V1 = None, None
@@ -376,29 +378,20 @@ class FDMPC(PCBase):
                     V0 = Vsub
                 elif is_facet:
                     V1 = Vsub
-            splitter = ExtractSubBlock()
-            J00 = splitter.split(J, argument_indices=(index, index))
-
-            from firedrake.assemble import assemble
-            for row, col in zip(range(2), reversed(range(2))):
-                Jblock = splitter.split(J, argument_indices=(row, col))
-                Ablock = assemble(Jblock, bcs=bcs, mat_type="matfree", form_compiler_parameters=fcp, options_prefix=options_prefix)
-                assembly_callables.append(Ablock.assemble)
-                Amats[V[row], V[col]] = Ablock.petscmat
+            J00 = ExtractSubBlock().split(J, argument_indices=(index, index))
         else:
-            V1 = V
             V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
+            V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
             J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
 
         C0 = self.assemble_reference_tensor(V0)
         R0 = self.assemble_reference_tensor(V0, transpose=True)
-        A00 = TripleProductKernel(R0, self._element_mass_matrix, C0)
-        kernels = {}
-        kernels[V1] = ImplicitSchurComplementKernel(A00, J00)
-        kernels[V0] = InteriorSolveKernel(A00, J00)
-
+        A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
+        K0 = InteriorSolveKernel(A0, J00)
+        K1 = ImplicitSchurComplementKernel(K0)
+        kernels = {V0: K0, V1: K1}
         comm = self.comm
-        args = [self.coefficients["cell"], V0.mesh().coordinates, *J.coefficients(), *extract_firedrake_constants(J)]
+        args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
         args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
         for Vsub in V:
             K = kernels[Vsub]
@@ -411,12 +404,11 @@ class FDMPC(PCBase):
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
             ctx = ParloopMatrixContext(parloop, x, y, bcs=bcs)
-            Amats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
+            Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
         if len(V) == 1:
-            Amat = Amats[V, V]
+            return Smats[V, V]
         else:
-            Amat = PETSc.Mat().createNest([[Amats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
-        return Amat, assembly_callables
+            return PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -908,10 +900,17 @@ PetscErrorCode {self.name}(const KSP ksp,
         return op2.Kernel(code, self.name)
 
 
-class ImplicitSchurComplementKernel(InteriorSolveKernel):
+class ImplicitSchurComplementKernel(ElementKernel):
+
+    def __init__(self, kernel, name=None):
+        self.child = kernel
+        super().__init__(kernel.result, name=name)
+
+    def __call__(self, *args, result=None):
+        return self.result.solve(*args)
 
     def kernel(self, mat_type="matfree", on_diag=True, addv=None):
-        a11 = self.form
+        a11 = self.child.form
         args = a11.arguments()
         V1 = args[0].function_space()
         V = FunctionSpace(V1.mesh(), unrestrict_element(V1.ufl_element()))
