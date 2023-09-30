@@ -160,7 +160,6 @@ class FDMPC(PCBase):
             else:
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
-        self.bcs = bcs_fdm
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
@@ -179,6 +178,15 @@ class FDMPC(PCBase):
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
         self._assemble_P()
+
+        if True:
+            Smat, assembly_callables = self.assemble_static_condensation(J_fdm, bcs_fdm, fcp, options_prefix)
+            for c in assembly_callables:
+                c()
+            x = Smat.createVecRight()
+            y = Smat.createVecLeft()
+            x.set(1.0)
+            Smat.mult(x, y)
 
         fdmpc.setOperators(A=Amat, P=Pmat)
         fdmpc.setUseAmat(use_amat)
@@ -245,7 +253,6 @@ class FDMPC(PCBase):
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
-        self.operators = {}
 
         Pmats = {}
         diagonal_terms = []
@@ -313,14 +320,6 @@ class FDMPC(PCBase):
     def _assemble_P(self):
         for _assemble in self.assembly_callables:
             _assemble()
-        # return
-        # FIXME
-        for key in self.operators:
-            S = self.operators[key]
-            x = S.createVecRight()
-            y = S.createVecLeft()
-            x.setRandom()
-            S.mult(x, y)
 
     @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
@@ -361,6 +360,64 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
+    def assemble_static_condensation(self, J, bcs, fcp, options_prefix):
+        Amats = {}
+        assembly_callables = []
+        V = J.arguments()[0].function_space()
+        if len(V) == 2:
+            unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
+            bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
+            V0, V1 = None, None
+            index = -1
+            for i, Vsub in enumerate(V):
+                is_interior, is_facet = is_restricted(Vsub.finat_element)
+                if is_interior:
+                    index = i
+                    V0 = Vsub
+                elif is_facet:
+                    V1 = Vsub
+            splitter = ExtractSubBlock()
+            J00 = splitter.split(J, argument_indices=(index, index))
+
+            from firedrake.assemble import assemble
+            for row, col in zip(range(2), reversed(range(2))):
+                Jblock = splitter.split(J, argument_indices=(row, col))
+                Ablock = assemble(Jblock, bcs=bcs, mat_type="matfree", form_compiler_parameters=fcp, options_prefix=options_prefix)
+                assembly_callables.append(Ablock.assemble)
+                Amats[V[row], V[col]] = Ablock.petscmat
+        else:
+            V1 = V
+            V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
+            J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
+
+        C0 = self.assemble_reference_tensor(V0)
+        R0 = self.assemble_reference_tensor(V0, transpose=True)
+        A00 = TripleProductKernel(R0, self._element_mass_matrix, C0)
+        kernels = {}
+        kernels[V1] = ImplicitSchurComplementKernel(A00, J00)
+        kernels[V0] = InteriorSolveKernel(A00, J00)
+
+        comm = self.comm
+        args = [self.coefficients["cell"], V0.mesh().coordinates, *J.coefficients(), *extract_firedrake_constants(J)]
+        args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
+        for Vsub in V:
+            K = kernels[Vsub]
+            x = Function(Vsub)
+            y = Function(Vsub)
+            sizes = (Vsub.dof_dset.layout_vec.getSizes(),) * 2
+            parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
+                                  op2.PassthroughArg(op2.OpaqueType(K.result.klass), K.result.handle),
+                                  *args_acc,
+                                  x.dat(op2.READ, x.cell_node_map()),
+                                  y.dat(op2.INC, y.cell_node_map()))
+            ctx = ParloopMatrixContext(parloop, x, y, bcs=bcs)
+            Amats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
+        if len(V) == 1:
+            Amat = Amats[V, V]
+        else:
+            Amat = PETSc.Mat().createNest([[Amats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
+        return Amat, assembly_callables
+
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
         """
@@ -379,11 +436,10 @@ class FDMPC(PCBase):
         # replace the exterior derivatives with arguments in broken(V^{k+1}).
         # Then, replace the original arguments with arguments in broken(V^k).
         # Where the broken spaces have L2-orthogonal FDM basis functions.
-        index = len(J.arguments()[-1].function_space())-1
+        index = len(J.arguments()[0].function_space())-1
         if index:
             splitter = ExtractSubBlock()
             J = splitter.split(J, argument_indices=(index, index))
-        self.J = J
         args_J = J.arguments()
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
@@ -600,9 +656,6 @@ class FDMPC(PCBase):
         try:
             assembler = self.assemblers[key]
         except KeyError:
-            coefficients = self.coefficients["cell"]
-            coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
-
             M = self._element_mass_matrix
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
@@ -619,28 +672,10 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
 
-                # Matrix-free Schur complement parloop
-                CI = self.assemble_reference_tensor(V0)
-                RI = self.assemble_reference_tensor(V0, transpose=True)
-                S = ImplicitSchurComplementKernel(TripleProductKernel(RI, M, CI))
-                args = [Vrow.mesh().coordinates]
-                args.extend(self.J.coefficients())
-                args.extend(extract_firedrake_constants(self.J))
-                args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
-
-                x = Function(Vrow)
-                y = Function(Vcol)
-                schur_parloop = op2.ParLoop(S.kernel(self.J), Vrow.mesh().cell_set,
-                                            op2.PassthroughArg(op2.OpaqueType(S.result.klass), S.result.handle),
-                                            coefficients_acc, *args_acc,
-                                            x.dat(op2.READ, x.cell_node_map()),
-                                            y.dat(op2.INC, y.cell_node_map()))
-                ctx = ParloopMatrixContext(schur_parloop, x, y, bcs=self.bcs)
-                Smat = PETSc.Mat().createPython(A.getSizes(), context=ctx, comm=A.getComm())
-                self.operators[key] = Smat
-
             spaces = (Vrow, Vcol)[on_diag:]
             indices_acc = tuple(self.indices[V](op2.READ, V.cell_node_map()) for V in spaces)
+            coefficients = self.coefficients["cell"]
+            coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
                                     *element_kernel.mat_args(A),
@@ -814,33 +849,34 @@ static PetscErrorCode {prefix}(Mat A, Vec X, Vec Y) {{
 
 class InteriorSolveKernel(ElementKernel):
 
-    def __init__(self, kernel, name=None, prefix="interior_"):
+    def __init__(self, kernel, form, name=None, prefix="interior_"):
         self.child = kernel
+        self.form = form
         B = kernel.result
         comm = B.getComm()
         A = PETSc.Mat().create(comm=comm)
-        A.setType("shell")
+        A.setType(PETSc.Mat.Type.SHELL)
         A.setSizes(B.getSizes())
         A.setUp()
 
         ksp = PETSc.KSP().create(comm=comm)
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
-        ksp.setType("cg")
-        ksp.pc.setType("icc")
-        ksp.setNormType(ksp.NormType.NATURAL)
+        ksp.setType(PETSc.KSP.Type.CG)
+        ksp.pc.setType(PETSc.PC.Type.ICC)
+        ksp.setNormType(PETSc.KSP.NormType.NATURAL)
         ksp.setTolerances(rtol=1E-8, atol=0)
-        # ksp.setInitialGuessKnoll(True)
         # ksp.setInitialGuessNonzero(True)
+        # ksp.setInitialGuessKnoll(True)
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
 
     def __call__(self, *args, result=None):
-        return self.child(*args, result=result)
+        return self.result.solve(*args)
 
-    def kernel(self, form, mat_type="matfree", on_diag=True, addv=None):
-        A_struct, _, ctx_struct, ctx_pack = wrap_form(form, prefix="A_interior", matshell=True)
+    def kernel(self, mat_type="matfree", on_diag=True, addv=None):
+        A_struct, _, ctx_struct, ctx_pack = wrap_form(self.form, prefix="A_interior", matshell=True)
         code = f"""
 {A_struct}
 {self.header(mat_type=mat_type)}
@@ -874,8 +910,8 @@ PetscErrorCode {self.name}(const KSP ksp,
 
 class ImplicitSchurComplementKernel(InteriorSolveKernel):
 
-    def kernel(self, form, mat_type="matfree", on_diag=True, addv=None):
-        a11 = form
+    def kernel(self, mat_type="matfree", on_diag=True, addv=None):
+        a11 = self.form
         args = a11.arguments()
         V1 = args[0].function_space()
         V = FunctionSpace(V1.mesh(), unrestrict_element(V1.ufl_element()))
@@ -1000,7 +1036,6 @@ PetscErrorCode {self.name}(const Mat A, const Mat B,
 
 
 class SchurComplementPattern(SchurComplementKernel):
-
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B,
                                          const Mat A11, const Mat A10,
@@ -1027,7 +1062,6 @@ static inline PetscErrorCode MatCondense(const Mat B,
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
-
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B,
                                          const Mat A11, const Mat A10,
@@ -1068,7 +1102,6 @@ static inline PetscErrorCode MatCondense(const Mat B,
 
 
 class SchurComplementBlockCholesky(SchurComplementKernel):
-
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B,
                                          const Mat A11, const Mat A10,
@@ -1139,7 +1172,6 @@ static inline PetscErrorCode MatCondense(const Mat B,
 
 
 class SchurComplementBlockLU(SchurComplementKernel):
-
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B,
                                          const Mat A11, const Mat A10,
@@ -1246,7 +1278,6 @@ static inline PetscErrorCode MatCondense(const Mat B,
 
 
 class SchurComplementBlockInverse(SchurComplementKernel):
-
     condense_code = """
 static inline PetscErrorCode MatCondense(const Mat B,
                                          const Mat A11, const Mat A10,
@@ -1327,20 +1358,13 @@ class ParloopMatrixContext(object):
         self._x = x
         self._y = y
         self.on_diag = x.function_space() == y.function_space()
-        if bcs:
-            Vrow = y.function_space()
-            V = FunctionSpace(Vrow.mesh(), Vrow.ufl_element())
-            self.row_bcs = tuple(bc.reconstruct(V=V, g=0) for bc in bcs if bc.function_space() == Vrow)
-        else:
-            self.row_bcs = tuple()
+        Vrow = y.function_space()
+        self.row_bcs = tuple(bc for bc in bcs if bc.function_space() == Vrow)
         if self.on_diag:
             self.col_bcs = self.row_bcs
-        elif bcs:
-            Vcol = x.function_space()
-            V = FunctionSpace(Vcol.mesh(), Vcol.ufl_element())
-            self.col_bcs = tuple(bc.reconstruct(V=V, g=0) for bc in bcs if bc.function_space() == Vcol)
         else:
-            self.col_bcs = tuple()
+            Vcol = x.function_space()
+            self.col_bcs = tuple(bc for bc in bcs if bc.function_space() == Vcol)
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y, inc=False):
@@ -1355,6 +1379,10 @@ class ParloopMatrixContext(object):
                 v.zeroEntries()
         self._parloop()
         if self.on_diag:
+            if len(self.row_bcs) > 0:
+                # TODO, can we avoid the copy?
+                with self._x.dat.vec_wo as v:
+                    X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._x)
         else:
