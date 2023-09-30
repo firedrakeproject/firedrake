@@ -313,7 +313,7 @@ class FDMPC(PCBase):
     def _assemble_P(self):
         for _assemble in self.assembly_callables:
             _assemble()
-        return
+        # return
         # FIXME
         for key in self.operators:
             S = self.operators[key]
@@ -1002,7 +1002,8 @@ PetscErrorCode {self.name}(const Mat A, const Mat B,
 class SchurComplementPattern(SchurComplementKernel):
 
     condense_code = """
-static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
+static inline PetscErrorCode MatCondense(const Mat B,
+                                         const Mat A11, const Mat A10,
                                          const Mat A01, const Mat A00) {
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
@@ -1028,7 +1029,8 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 class SchurComplementDiagonal(SchurComplementKernel):
 
     condense_code = """
-static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
+static inline PetscErrorCode MatCondense(const Mat B,
+                                         const Mat A11, const Mat A10,
                                          const Mat A01, const Mat A00) {
     Vec vec;
     PetscInt n;
@@ -1068,19 +1070,20 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 class SchurComplementBlockCholesky(SchurComplementKernel):
 
     condense_code = """
-static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
+static inline PetscErrorCode MatCondense(const Mat B,
+                                         const Mat A11, const Mat A10,
                                          const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr;
     PetscBool done;
     PetscInt m, bsize, irow;
-    const PetscInt *ai, *aj;
+    const PetscInt *ai;
     PetscScalar *vals, *U;
     Mat X;
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A01));
     PetscCall(MatProductNumeric(A00));
-    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscCall(MatSeqAIJGetArray(A00, &vals));
     irow = 0;
     while (irow < m && ai[irow + 1] - ai[irow] == 1) {
@@ -1099,7 +1102,7 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
         U += bsize * bsize;
         irow += bsize;
     }
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
 
     PetscCall(MatProductGetMats(B, &X, NULL, NULL));
@@ -1138,12 +1141,13 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 class SchurComplementBlockLU(SchurComplementKernel):
 
     condense_code = """
-static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
+static inline PetscErrorCode MatCondense(const Mat B,
+                                         const Mat A11, const Mat A10,
                                          const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr, lwork;
     PetscBool done;
     PetscInt m, bsize, irow, icol, nnz, iswap, *ipiv, *perm;
-    const PetscInt *ai, *aj;
+    const PetscInt *ai;
     PetscScalar *vals, *work, *L, *U;
     Mat X;
     PetscFunctionBeginUser;
@@ -1151,7 +1155,7 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     PetscCall(MatProductNumeric(A10));
     PetscCall(MatProductNumeric(A01));
     PetscCall(MatProductNumeric(A00));
-    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscCall(MatSeqAIJGetArray(A00, &vals));
 
     // A00 = (U^T) * (L^T)
@@ -1159,7 +1163,6 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     bsize = ai[m] - ai[m - 1];
     PetscCall(PetscMalloc2(bsize, &ipiv, bsize, &perm));
     PetscCall(PetscCalloc1(nnz, &work));
-
     irow = 0;
     while (irow < m && ai[irow + 1] - ai[irow] == 1) {
         work[irow] = 1.0;
@@ -1192,7 +1195,7 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
         U += bsize * bsize;
         irow += bsize;
     }
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
 
     // A00 = inv(U^T)
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
@@ -1245,19 +1248,20 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 class SchurComplementBlockInverse(SchurComplementKernel):
 
     condense_code = """
-static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A10,
+static inline PetscErrorCode MatCondense(const Mat B,
+                                         const Mat A11, const Mat A10,
                                          const Mat A01, const Mat A00) {
     PetscBLASInt bn, lierr, lwork;
     PetscBool done;
     PetscInt m, irow, bsize, *ipiv;
-    const PetscInt *ai, *aj;
+    const PetscInt *ai;
     PetscScalar *vals, *work, *ainv, swork;
     PetscFunctionBeginUser;
     PetscCall(MatProductNumeric(A11));
     PetscCall(MatProductNumeric(A10));
     PetscCall(MatProductNumeric(A01));
     PetscCall(MatProductNumeric(A00));
-    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
 
     lwork = -1;
     bsize = ai[m] - ai[m - 1];
@@ -1267,7 +1271,6 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     bsize = (PetscInt)swork;
     PetscCall(PetscBLASIntCast(bsize, &lwork));
     PetscCall(PetscMalloc1(bsize, &work));
-
     PetscCall(MatSeqAIJGetArray(A00, &vals));
     irow = 0;
     while (irow < m && ai[irow + 1] - ai[irow] == 1) {
@@ -1285,7 +1288,7 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
     }
     PetscCall(PetscFree2(ipiv, work));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
 
     PetscCall(MatScale(A00, -1.0));
     PetscCall(MatProductNumeric(B));
@@ -1320,28 +1323,45 @@ static inline PetscErrorCode MatCondense(const Mat B, const Mat A11, const Mat A
 class ParloopMatrixContext(object):
 
     def __init__(self, parloop, x, y, bcs=None):
-        self.parloop = parloop
+        self._parloop = parloop
         self._x = x
         self._y = y
-        self.bcs = tuple(bc.reconstruct(V=self._x.function_space()) for bc in bcs) or tuple()
-        self.bcs = tuple()
+        self.on_diag = x.function_space() == y.function_space()
+        if bcs:
+            Vrow = y.function_space()
+            V = FunctionSpace(Vrow.mesh(), Vrow.ufl_element())
+            self.row_bcs = tuple(bc.reconstruct(V=V, g=0) for bc in bcs if bc.function_space() == Vrow)
+        else:
+            self.row_bcs = tuple()
+        if self.on_diag:
+            self.col_bcs = self.row_bcs
+        elif bcs:
+            Vcol = x.function_space()
+            V = FunctionSpace(Vcol.mesh(), Vcol.ufl_element())
+            self.col_bcs = tuple(bc.reconstruct(V=V, g=0) for bc in bcs if bc.function_space() == Vcol)
+        else:
+            self.col_bcs = tuple()
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y, inc=False):
         with self._x.dat.vec_wo as v:
             X.copy(v)
-        for bc in self.bcs:
+        for bc in self.col_bcs:
             bc.zero(self._x)
         with self._y.dat.vec_wo as v:
             if inc:
                 Y.copy(v)
             else:
                 v.zeroEntries()
-        self.parloop()
+        self._parloop()
+        if self.on_diag:
+            for bc in self.row_bcs:
+                bc.set(self._y, self._x)
+        else:
+            for bc in self.row_bcs:
+                bc.zero(self._y)
         with self._y.dat.vec_ro as v:
             v.copy(Y)
-        for bc in self.bcs:
-            bc.set(self._y, self._x)
 
     @PETSc.Log.EventDecorator()
     def multAdd(self, mat, X, Y, W):
