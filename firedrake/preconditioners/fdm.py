@@ -180,7 +180,7 @@ class FDMPC(PCBase):
         self._assemble_P()
 
         test_matvec = True
-        test_matvec = False
+        # test_matvec = False
         if use_static_condensation and test_matvec:
             Smat = self.condense(Amat, J_fdm, bcs_fdm, fcp, options_prefix)
             x = Smat.createVecRight()
@@ -370,16 +370,9 @@ class FDMPC(PCBase):
 
             unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
-            V0, V1 = None, None
-            index = -1
-            for i, Vsub in enumerate(V):
-                is_interior, is_facet = is_restricted(Vsub.finat_element)
-                if is_interior:
-                    index = i
-                    V0 = Vsub
-                elif is_facet:
-                    V1 = Vsub
-            J00 = ExtractSubBlock().split(J, argument_indices=(index, index))
+            V0 = next(Vi for Vi in V if is_restricted(Vi.finat_element)[0])
+            V1 = next(Vi for Vi in V if is_restricted(Vi.finat_element)[1])
+            J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
         else:
             V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
             V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
