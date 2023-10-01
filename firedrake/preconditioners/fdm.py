@@ -179,6 +179,7 @@ class FDMPC(PCBase):
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
         self._assemble_P()
 
+        test_matvec = True
         test_matvec = False
         if use_static_condensation and test_matvec:
             Smat = self.condense(Amat, J_fdm, bcs_fdm, fcp, options_prefix)
@@ -713,9 +714,9 @@ static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restric
     PetscScalar *vals;
     PetscFunctionBeginUser;
     PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-    PetscCall(MatSeqAIJGetArray(A, &vals));
+    PetscCall(MatSeqAIJGetArrayWrite(A, &vals));
     PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
-    PetscCall(MatSeqAIJRestoreArray(A, &vals));
+    PetscCall(MatSeqAIJRestoreArrayWrite(A, &vals));
     PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
@@ -760,10 +761,9 @@ static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
         if addv is None:
             addv = PETSc.InsertMode.INSERT
         indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["const PetscInt *restrict %s" % s for s in indices])
+        declare_indices = ", ".join("const PetscInt *restrict %s" % s for s in indices)
         code = f"""
 {self.header(mat_type=mat_type)}
-
 PetscErrorCode {self.name}(const Mat A, const Mat B, {declare_indices})
 {{
     PetscFunctionBeginUser;
@@ -786,10 +786,9 @@ class TripleProductKernel(ElementKernel):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
         indices = ("rindices", "cindices")[:2-on_diag]
-        declare_indices = ", ".join(["const PetscInt *restrict %s" % s for s in indices])
+        declare_indices = ", ".join("const PetscInt *restrict %s" % s for s in indices)
         code = f"""
 {self.header(mat_type=mat_type)}
-
 PetscErrorCode {self.name}(const Mat A, const Mat B,
                            const PetscScalar *restrict coefficients,
                            {declare_indices})
@@ -811,16 +810,16 @@ def wrap_form(a, prefix="form", matshell=False):
     F = a(v, ufl.Coefficient(V))
     kernels = compile_form(F, prefix)
     kernel = kernels[-1].kinfo.kernel
-    kernel_code = cache_generate_code(kernel, V._comm)
     nargs = len(kernel.arguments) - len(a.arguments())
     ncoef = nargs - len(extract_firedrake_constants(F))
 
-    ctx_struct = "".join(["const PetscScalar *restrict c%d, " % i for i in range(nargs)])
-    ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join(["c%d" % i for i in range(nargs)]))
-    ctx_coefficients = "".join(["appctx[%d], " % i for i in range(ncoef)])
-    ctx_constants = "".join([", appctx[%d]" % i for i in range(ncoef, nargs)])
+    ctx_struct = "".join("const PetscScalar *restrict c%d, " % i for i in range(nargs))
+    ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join("c%d" % i for i in range(nargs)))
+    ctx_coefficients = "".join("appctx[%d], " % i for i in range(ncoef))
+    ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
     matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
-    matmult_struct = kernel_code.replace("void "+kernel.name, "static void "+kernel.name)
+    matmult_struct = cache_generate_code(kernel, V._comm)
+    # matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
     if matshell:
         matmult_struct += f"""
 static PetscErrorCode {prefix}(Mat A, Vec X, Vec Y) {{
@@ -910,24 +909,28 @@ class ImplicitSchurComplementKernel(ElementKernel):
         return self.result.solve(*args)
 
     def kernel(self, mat_type="matfree", on_diag=True, addv=None):
-        a11 = self.child.form
-        args = a11.arguments()
-        V1 = args[0].function_space()
-        V = FunctionSpace(V1.mesh(), unrestrict_element(V1.ufl_element()))
-        V0 = FunctionSpace(V1.mesh(), restrict_element(V.ufl_element(), "interior"))
-        idofs = restricted_dofs(V0.finat_element, V.finat_element)
-        fdofs = restricted_dofs(V1.finat_element, V.finat_element)
-        N = V.finat_element.space_dimension() * V.value_size
-        N0 = V0.finat_element.space_dimension() * V0.value_size
-        N1 = N - N0
-        a = a11(*(t.reconstruct(function_space=V) for t in args))
-        a00 = a11(*(t.reconstruct(function_space=V0) for t in args))
+        assert on_diag
+        comm = self.result.getComm()
+        form = self.child.form
+        args = form.arguments()
+        Q = args[0].function_space()
+        V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
+        V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
+        V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
+        idofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
+        fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
+        size = idofs.size + fdofs.size
+        assert size == V.finat_element.space_dimension() * V.value_size
+        a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
+        a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
         A00_struct, *_ = wrap_form(a00, prefix="A_interior", matshell=True)
         A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A")
         code = f"""
 {A00_struct}
 {A_struct.replace("#include <stdint.h>", "")}
 {self.header(mat_type=mat_type)}
+static const PetscInt idofs[{idofs.size}] = {{ {", ".join(map(str, idofs.indices))} }};
+static const PetscInt fdofs[{fdofs.size}] = {{ {", ".join(map(str, fdofs.indices))} }};
 PetscErrorCode {self.name}(const KSP ksp,
                            const PetscScalar *restrict coefficients,
                            {ctx_struct}
@@ -935,13 +938,10 @@ PetscErrorCode {self.name}(const KSP ksp,
                            PetscScalar *restrict y1)
 {{
     {ctx_pack}
-    const PetscInt N = {N}, N0 = {N0}, N1 = {N1};
-    const PetscInt idofs[] = {{ {", ".join(list(map(str, idofs)))} }};
-    const PetscInt fdofs[] = {{ {", ".join(list(map(str, fdofs)))} }};
-    PetscScalar x[{N}] = {{0.0}};
-    PetscScalar y[{N}] = {{0.0}};
-    PetscScalar x0[{N0}] = {{0.0}};
-    PetscScalar y0[{N0}] = {{0.0}};
+    PetscScalar x[{size}] = {{0.0}};
+    PetscScalar y[{size}] = {{0.0}};
+    PetscScalar x0[{idofs.size}] = {{0.0}};
+    PetscScalar y0[{idofs.size}] = {{0.0}};
     PetscInt i;
     Mat A, B, C;
     Vec X, Y;
@@ -954,23 +954,23 @@ PetscErrorCode {self.name}(const KSP ksp,
     PetscCall(MatProductNumeric(B));
 
     // x[fdofs] = x1; y = A * x;
-    for (i = 0; i < N1; i++) x[fdofs[i]] = x1[i];
+    for (i = 0; i < {fdofs.size}; i++) x[fdofs[i]] = x1[i];
     {A_call("x", "y")}
 
     // x[idofs] = -inv(AII) * y[idofs];
-    for (i = 0; i < N0; i++) y0[i] = y[idofs[i]];
-    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, N0, y0, &Y));
-    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, N0, x0, &X));
+    for (i = 0; i < {idofs.size}; i++) y0[i] = y[idofs[i]];
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, {idofs.size}, y0, &Y));
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, {idofs.size}, x0, &X));
     PetscCall(KSPSolve(ksp, Y, X));
     PetscCall(VecDestroy(&X));
     PetscCall(VecDestroy(&Y));
-    for (i = 0; i < N0; i++) x[idofs[i]] = -x0[i];
+    for (i = 0; i < {idofs.size}; i++) x[idofs[i]] = -x0[i];
 
     // y = A * x; y1 += y[fdofs];
-    for (i = 0; i < N; i++) y[i] = 0.0;
+    for (i = 0; i < {size}; i++) y[i] = 0.0;
     {A_call("x", "y")}
 
-    for (i = 0; i < N1; i++) y1[i] += y[fdofs[i]];
+    for (i = 0; i < {fdofs.size}; i++) y1[i] += y[fdofs[i]];
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
         return op2.Kernel(code, self.name)
@@ -1011,13 +1011,13 @@ class SchurComplementKernel(ElementKernel):
         return result
 
     def kernel(self, mat_type="aij", on_diag=True, addv=None):
+        assert on_diag
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
         code = f"""
 #include <petscblaslapack.h>
 {self.header(mat_type=mat_type)}
 {self.condense_code}
-
 PetscErrorCode {self.name}(const Mat A, const Mat B,
                            const Mat A11, const Mat A10, const Mat A01, const Mat A00,
                            const PetscScalar *restrict coefficients,
@@ -1701,18 +1701,13 @@ class SparseAssembler(object):
                           PetscInt *cindices,
                           InsertMode addv)
     {{
-        PetscInt m, n, ncols, irow, icol;
+        PetscInt m, ncols, irow, icol;
         PetscInt *cols, *indices;
         PetscScalar *vals;
         PetscFunctionBeginUser;
         PetscCall(MatGetSize(B, &m, NULL));
-        n = 0;
-        for (PetscInt i = 0; i < m; i++) {{
-            PetscCall(MatGetRow(B, i, &ncols, NULL, NULL));
-            n = ncols > n ? ncols : n;
-            PetscCall(MatRestoreRow(B, i, &ncols, NULL, NULL));
-        }}
-        PetscCall(PetscMalloc1(n, &indices));
+        PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
+        PetscCall(PetscMalloc1(ncols, &indices));
         for (PetscInt i = 0; i < m; i++) {{
             PetscCall(MatGetRow(B, i, &ncols, &cols, &vals));
             irow = rindices[i];
