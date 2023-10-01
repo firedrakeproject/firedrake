@@ -363,19 +363,21 @@ class FDMPC(PCBase):
     def condense(self, A, J, bcs, fcp, options_prefix):
         Smats = {}
         V = J.arguments()[0].function_space()
+        V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
+        V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
+        if V0 is None:
+            V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
+        if V1 is None:
+            V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
         if len(V) == 2:
             ises = V.dof_dset.field_ises
             Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
             Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
-
             unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
-            V0 = next(Vi for Vi in V if is_restricted(Vi.finat_element)[0])
-            V1 = next(Vi for Vi in V if is_restricted(Vi.finat_element)[1])
             J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
         else:
-            V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
-            V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
+            assert len(V) == 1
             J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
 
         C0 = self.assemble_reference_tensor(V0)
@@ -401,8 +403,7 @@ class FDMPC(PCBase):
             Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
         if len(V) == 1:
             return Smats[V, V]
-        else:
-            return PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
+        return PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -1346,7 +1347,7 @@ static inline PetscErrorCode MatCondense(const Mat B,
 class ParloopMatrixContext(object):
 
     def __init__(self, parloop, x, y, bcs=None):
-        self._parloop = parloop
+        self._mult_parloop = parloop
         self._x = x
         self._y = y
         self.on_diag = x.function_space() == y.function_space()
@@ -1358,8 +1359,7 @@ class ParloopMatrixContext(object):
             Vcol = x.function_space()
             self.col_bcs = tuple(bc for bc in bcs if bc.function_space() == Vcol)
 
-    @PETSc.Log.EventDecorator()
-    def mult(self, mat, X, Y, inc=False):
+    def _op(self, action, X, Y, inc=False):
         with self._x.dat.vec_wo as v:
             X.copy(v)
         for bc in self.col_bcs:
@@ -1369,7 +1369,7 @@ class ParloopMatrixContext(object):
                 Y.copy(v)
             else:
                 v.zeroEntries()
-        self._parloop()
+        action()
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
@@ -1384,11 +1384,38 @@ class ParloopMatrixContext(object):
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
+    def mult(self, mat, X, Y):
+        parloop = self._mult_parloop
+        self._op(parloop, X, Y)
+
+    @PETSc.Log.EventDecorator()
     def multAdd(self, mat, X, Y, W):
+        parloop = self._mult_parloop
         if Y.handle == W.handle:
-            self.mult(mat, X, Y, inc=True)
+            self._op(parloop, X, Y, inc=True)
         else:
-            self.mult(mat, X, W)
+            self._op(parloop, X, W)
+            W.axpy(1.0, Y)
+
+
+class ParloopSolveContext(ParloopMatrixContext):
+
+    def __init__(self, mult, solve, x, y, bcs=None):
+        self._solve_parloop = solve
+        super().__init__(mult, x, y, bcs=bcs)
+
+    @PETSc.Log.EventDecorator()
+    def solve(self, mat, X, Y):
+        parloop = self._solve_parloop
+        self._op(parloop, X, Y)
+
+    @PETSc.Log.EventDecorator()
+    def solveAdd(self, mat, X, Y, W):
+        parloop = self._solve_parloop
+        if Y.handle == W.handle:
+            self._op(parloop, X, Y, inc=True)
+        else:
+            self._op(parloop, X, W)
             W.axpy(1.0, Y)
 
 
