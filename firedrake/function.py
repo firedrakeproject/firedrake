@@ -766,3 +766,16 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
                             + ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)
+
+
+def cofunction2function(c, V):
+    """
+    Temporary function for mapping a :class:`Cofunction` to a :class:`Function`.
+    """
+    f = V if isinstance(V, Function) else Function(V)
+    if isinstance(f.dat.data_with_halos, tuple):
+        for i, arr in enumerate(f.dat.data_with_halos):
+            arr[:] = c.dat.data_with_halos[i]
+    else:
+        f.dat.data_with_halos[:] = c.dat.data_with_halos
+    return f

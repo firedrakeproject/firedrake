@@ -330,8 +330,15 @@ class InterpolateBlock(Block, Backend):
         dJdm = self.backend.derivative(prepared, input)
         # Get the function space from `dJdm` argument
         arg, = extract_arguments(dJdm)
-        # Make sure to have a cofunction output
-        output = self.backend.Cofunction(arg.function_space().dual())
+        # # Make sure to have a cofunction output
+        # output = self.backend.Cofunction(arg.function_space().dual())
+
+        # FIXME: Temporary
+        output = self.backend.Function(arg.function_space())
+        if isinstance(adj_inputs[0], firedrake.Cofunction):
+            from firedrake.function import cofunction2function
+            adj_inputs[0] = cofunction2function(adj_inputs[0], arg.function_space())
+
         return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True)
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):

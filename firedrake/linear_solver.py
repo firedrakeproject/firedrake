@@ -130,6 +130,8 @@ class LinearSolver(OptionsManager):
             bc.apply(u)
         update()
         # blift contains -A u_bc
+        if isinstance(blift, function.Cofunction):
+            blift = function.cofunction2function(blift, b.function_space())
         blift += b
         if isinstance(blift, cofunction.Cofunction):
             blift_func = blift.riesz_representation(riesz_map="l2")
