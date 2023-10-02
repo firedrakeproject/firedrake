@@ -236,13 +236,13 @@ class FDMPC(PCBase):
             # If we are in a facet space, we build the Schur complement on its diagonal block
             if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
-                self.interior_pc_type = PETSc.PC.Type.JACOBI
+                interior_pc_type = PETSc.PC.Type.JACOBI
             elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
-                self.interior_pc_type = PETSc.PC.Type.ICC
+                interior_pc_type = PETSc.PC.Type.ICC
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockLU
-                self.interior_pc_type = PETSc.PC.Type.ILU
+                interior_pc_type = PETSc.PC.Type.ILU
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -252,7 +252,7 @@ class FDMPC(PCBase):
 
         A00_inv = None
         if use_static_condensation and use_amat:
-            Amat, A00_inv = self.condense(Amat, J, bcs, fcp)
+            Amat, A00_inv = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
 
         Pmats = {}
         diagonal_terms = []
@@ -366,7 +366,7 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
-    def condense(self, A, J, bcs, fcp):
+    def condense(self, A, J, bcs, fcp, pc_type="icc"):
         Smats = {}
         V = J.arguments()[0].function_space()
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
@@ -391,7 +391,7 @@ class FDMPC(PCBase):
         C0 = self.assemble_reference_tensor(V0)
         R0 = self.assemble_reference_tensor(V0, transpose=True)
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
-        K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=self.interior_pc_type)
+        K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
         K1 = ImplicitSchurComplementKernel(K0)
         kernels = {V0: K0, V1: K1}
         comm = self.comm
