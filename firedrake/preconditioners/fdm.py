@@ -236,10 +236,13 @@ class FDMPC(PCBase):
             # If we are in a facet space, we build the Schur complement on its diagonal block
             if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
+                self.interior_pc_type = "jacobi"
             elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
+                self.interior_pc_type = "icc"
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockLU
+                self.interior_pc_type = "ilu"
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -388,7 +391,7 @@ class FDMPC(PCBase):
         C0 = self.assemble_reference_tensor(V0)
         R0 = self.assemble_reference_tensor(V0, transpose=True)
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
-        K0 = InteriorSolveKernel(A0, J00)
+        K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=self.interior_pc_type)
         K1 = ImplicitSchurComplementKernel(K0)
         kernels = {V0: K0, V1: K1}
         comm = self.comm
@@ -499,7 +502,7 @@ class FDMPC(PCBase):
             from firedrake.assemble import assemble
             bdiags = []
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
-            for iset, name in zip(Z.dof_dset.field_ises, ("beta", "alpha")):
+            for iset in Z.dof_dset.field_ises:
                 sub = M.petscmat.createSubMatrix(iset, iset)
                 ctx = sub.getPythonContext()
                 bdiags.append(ctx._block_diagonal)
@@ -1156,11 +1159,11 @@ static inline PetscErrorCode MatCondense(const Mat B,
         return result
 
 
-def wrap_form(a, prefix="form", matshell=False):
+def wrap_form(a, prefix="form", fcp=None, matshell=False):
     v, u = a.arguments()
     V = u.function_space()
     F = a(v, ufl.Coefficient(V))
-    kernels = compile_form(F, prefix)
+    kernels = compile_form(F, prefix, parameters=fcp)
     kernel = kernels[-1].kinfo.kernel
     nargs = len(kernel.arguments) - len(a.arguments())
     ncoef = nargs - len(extract_firedrake_constants(F))
@@ -1192,9 +1195,10 @@ static PetscErrorCode {prefix}(Mat A, Vec X, Vec Y) {{
 
 class InteriorSolveKernel(ElementKernel):
 
-    def __init__(self, kernel, form, name=None, prefix="interior_"):
+    def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
         self.child = kernel
         self.form = form
+        self.fcp = fcp
         B = kernel.result
         comm = B.getComm()
         A = PETSc.Mat().create(comm=comm)
@@ -1206,7 +1210,7 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
         ksp.setType(PETSc.KSP.Type.CG)
-        ksp.pc.setType(PETSc.PC.Type.ICC)
+        ksp.pc.setType(pc_type)
         ksp.setNormType(PETSc.KSP.NormType.NATURAL)
         ksp.setTolerances(rtol=1E-8, atol=0)
         ksp.setInitialGuessNonzero(True)
@@ -1216,7 +1220,7 @@ class InteriorSolveKernel(ElementKernel):
         super().__init__(ksp, name=name)
 
     def kernel(self, mat_type="matfree", on_diag=True, addv=None):
-        A_struct, _, ctx_struct, ctx_pack = wrap_form(self.form, prefix="A_interior", matshell=True)
+        A_struct, _, ctx_struct, ctx_pack = wrap_form(self.form, prefix="A_interior", fcp=self.fcp, matshell=True)
         code = f"""
 {A_struct}
 {self.header(mat_type=mat_type)}
@@ -1258,6 +1262,7 @@ class ImplicitSchurComplementKernel(ElementKernel):
         assert on_diag
         comm = self.result.getComm()
         form = self.child.form
+        fcp = self.child.fcp
         args = form.arguments()
         Q = args[0].function_space()
         V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
@@ -1269,8 +1274,8 @@ class ImplicitSchurComplementKernel(ElementKernel):
         assert size == V.finat_element.space_dimension() * V.value_size
         a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
         a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
-        A00_struct, *_ = wrap_form(a00, prefix="A_interior", matshell=True)
-        A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A")
+        A00_struct, *_ = wrap_form(a00, prefix="A_interior", fcp=fcp, matshell=True)
+        A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A", fcp=fcp)
         code = f"""
 {A00_struct}
 {A_struct.replace("#include <stdint.h>", "")}
