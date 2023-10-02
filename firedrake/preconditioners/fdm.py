@@ -174,7 +174,7 @@ class FDMPC(PCBase):
 
         # Assemble the FDM preconditioner with sparse local matrices
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
-                                                                   options_prefix, pmat_type, use_static_condensation, use_amat)
+                                                                   pmat_type, use_static_condensation, use_amat)
         Pmat.setNullSpace(Amat.getNullSpace())
         Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
         Pmat.setNearNullSpace(Amat.getNearNullSpace())
@@ -189,7 +189,7 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
-    def allocate_matrix(self, Amat, V, J, bcs, fcp, options_prefix, pmat_type, use_static_condensation, use_amat):
+    def allocate_matrix(self, Amat, V, J, bcs, fcp, pmat_type, use_static_condensation, use_amat):
         """
         Allocate the FDM sparse preconditioner.
 
@@ -199,8 +199,9 @@ class FDMPC(PCBase):
         :arg fcp: form compiler parameters to assemble coefficients
         :arg pmat_type: the `PETSc.Mat.Type` for the blocks in the diagonal
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
+        :arg use_amat: are we computing the Schur complement exactly?
 
-        :returns: 2-tuple with the preconditioner :class:`PETSc.Mat` and a list of assembly callables
+        :returns: 3-tuple with the stiffness and preconditioner :class:`PETSc.Mats` and a list of assembly callables
         """
         symmetric = pmat_type.endswith("sbaij")
         ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
@@ -248,7 +249,7 @@ class FDMPC(PCBase):
 
         A00_inv = None
         if use_static_condensation and use_amat:
-            Amat, A00_inv = self.condense(Amat, J, bcs, fcp, options_prefix)
+            Amat, A00_inv = self.condense(Amat, J, bcs, fcp)
 
         Pmats = {}
         diagonal_terms = []
@@ -362,7 +363,7 @@ class FDMPC(PCBase):
             self.pc.getOperators()[-1].destroy()
             self.pc.destroy()
 
-    def condense(self, A, J, bcs, fcp, options_prefix):
+    def condense(self, A, J, bcs, fcp):
         Smats = {}
         V = J.arguments()[0].function_space()
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
@@ -371,16 +372,17 @@ class FDMPC(PCBase):
             V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
         if V1 is None:
             V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
-        if len(V) == 2:
+        if len(V) == 1:
+            J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
+        elif len(V) == 2:
+            J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
             ises = V.dof_dset.field_ises
             Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
             Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
             unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
-            J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
         else:
-            assert len(V) == 1
-            J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
+            raise ValueError("Expecting at most 2 components")
 
         A00_inv = None
         C0 = self.assemble_reference_tensor(V0)
@@ -694,9 +696,6 @@ class ElementKernel(object):
         self.mats = [self.result]
         self.name = name or type(self).__name__
 
-    def __call__(self, *args, result=None):
-        return result or self.result
-
     def mat_args(self, *mats):
         return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
 
@@ -772,9 +771,6 @@ class TripleProductKernel(ElementKernel):
         self.product = partial(A.matMatMult, B, C)
         super().__init__(self.product(), name=name)
 
-    def __call__(self, *args, result=None):
-        return self.product(result=result)
-
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT_VALUES
@@ -823,11 +819,6 @@ class SchurComplementKernel(ElementKernel):
         super().__init__(self.condense(), name=name)
         self.mats.extend(self.submats)
 
-    def __call__(self, *args, result=None):
-        for k in self.children:
-            k(*args, result=k.result)
-        return self.condense(result=result)
-
     def condense(self, result=None):
         return result
 
@@ -874,11 +865,6 @@ static inline PetscErrorCode MatCondense(const Mat B,
             result = A10.matMatMult(A00, A01, result=result)
         result.aypx(0.0, self.submats[0], structure=structure)
         return result
-
-    def __call__(self, *args, result=None):
-        k = self.children[0]
-        k(*args, result=k.result)
-        return self.condense(result=result)
 
 
 class SchurComplementDiagonal(SchurComplementKernel):
@@ -1225,13 +1211,9 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setTolerances(rtol=1E-8, atol=0)
         ksp.setInitialGuessNonzero(True)
         ksp.setInitialGuessKnoll(True)
-
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
-
-    def __call__(self, *args, result=None):
-        return self.result.solve(*args)
 
     def kernel(self, mat_type="matfree", on_diag=True, addv=None):
         A_struct, _, ctx_struct, ctx_pack = wrap_form(self.form, prefix="A_interior", matshell=True)
@@ -1271,9 +1253,6 @@ class ImplicitSchurComplementKernel(ElementKernel):
     def __init__(self, kernel, name=None):
         self.child = kernel
         super().__init__(kernel.result, name=name)
-
-    def __call__(self, *args, result=None):
-        return self.result.solve(*args)
 
     def kernel(self, mat_type="matfree", on_diag=True, addv=None):
         assert on_diag
@@ -2020,7 +1999,7 @@ class PoissonFDMPC(FDMPC):
                     update_A(A, Ae, rows)
                     Ae.destroy()
 
-    def condense(self, A, J, bcs, fcp, options_prefix):
+    def condense(self, A, J, bcs, fcp):
         return A, None
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
