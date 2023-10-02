@@ -236,13 +236,13 @@ class FDMPC(PCBase):
             # If we are in a facet space, we build the Schur complement on its diagonal block
             if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
-                self.interior_pc_type = "jacobi"
+                self.interior_pc_type = PETSc.PC.Type.JACOBI
             elif symmetric:
                 self.schur_kernel[Vfacet] = SchurComplementBlockCholesky
-                self.interior_pc_type = "icc"
+                self.interior_pc_type = PETSc.PC.Type.ICC
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockLU
-                self.interior_pc_type = "ilu"
+                self.interior_pc_type = PETSc.PC.Type.ILU
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
