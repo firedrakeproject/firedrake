@@ -773,7 +773,9 @@ class FormAssembler(abc.ABC):
     def _as_pyop2_type(tensor):
         if isinstance(tensor, op2.Global):
             return tensor
-        elif isinstance(tensor, firedrake.Cofunction):
+        elif isinstance(tensor, firedrake.Cofunction):  # FIXME: Temporary
+            return tensor.dat
+        elif isinstance(tensor, firedrake.Function):
             return tensor.dat
         elif isinstance(tensor, matrix.Matrix):
             return tensor.M

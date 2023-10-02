@@ -64,7 +64,8 @@ class AssembleBlock(Block, Backend):
                                                  adj_input)
                 adj_output = self.compat.assemble_adjoint_value(adj_output)
             else:
-                adj_output = self.backend.Cofunction(space.dual())
+                # adj_output = self.backend.Cofunction(space.dual())
+                adj_output = self.backend.Function(space)  # FIXME: Temporary
                 # Assemble `dform`: derivatives are expanded along the way
                 # which may lead to a ZeroBaseForm
                 assembled_dform = self.compat.assemble_adjoint_value(dform)

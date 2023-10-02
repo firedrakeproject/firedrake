@@ -332,13 +332,7 @@ class InterpolateBlock(Block, Backend):
         arg, = extract_arguments(dJdm)
         # # Make sure to have a cofunction output
         # output = self.backend.Cofunction(arg.function_space().dual())
-
-        # FIXME: Temporary
-        output = self.backend.Function(arg.function_space())
-        if isinstance(adj_inputs[0], firedrake.Cofunction):
-            from firedrake.function import cofunction2function
-            adj_inputs[0] = cofunction2function(adj_inputs[0], arg.function_space())
-
+        output = self.backend.Function(arg.function_space())  # FIXME: Temporary
         return self.backend.Interpolator(dJdm, self.V).interpolate(adj_inputs[0], output=output, transpose=True)
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
@@ -520,7 +514,8 @@ class InterpolateBlock(Block, Backend):
                                              block_variable.saved_output)
 
         # Make sure to have a cofunction output
-        output = self.backend.Cofunction(component.function_space())
+        # output = self.backend.Cofunction(component.function_space())
+        output = self.backend.Function(component.function_space())  # FIXME: Temporary
         # left multiply by dJ/dv (adj_inputs[0]) - i.e. interpolate using the
         # transpose operator
         component += self.backend.Interpolator(d2exprdudu, self.V).interpolate(
@@ -551,7 +546,7 @@ class SubfunctionBlock(Block, Backend):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = self.backend.Cofunction(block_variable.output.function_space().dual())
+        eval_adj = self.backend.Function(block_variable.output.function_space())  # FIXME: Temporary
         if type(adj_inputs[0]) is self.backend.Cofunction:
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:

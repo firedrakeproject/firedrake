@@ -839,7 +839,8 @@ class SupermeshProjectBlock(Block, Backend):
             raise NotImplementedError(
                 f"Source function must be a Cofunction, not {type(inputs[0])}."
             )
-        out = self.backend.Cofunction(self.source_space.dual())
+        # out = self.backend.Cofunction(self.source_space.dual())
+        out = self.backend.Function(self.source_space)  # FIXME: Temporary
         tmp = self.backend.Function(self.target_space)
         # Adjoint of step 2 (mass is self-adjoint)
         self.projector.apply_massinv(tmp, inputs[0])

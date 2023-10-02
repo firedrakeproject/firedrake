@@ -119,7 +119,8 @@ class LinearSolver(OptionsManager):
         from firedrake.assemble import OneFormAssembler
 
         u = function.Function(self.trial_space)
-        b = cofunction.Cofunction(self.test_space.dual())
+        # b = cofunction.Cofunction(self.test_space.dual())
+        b = function.Function(self.test_space)  # FIXME: Temporary
         expr = -action(self.A.a, u)
         return u, OneFormAssembler(expr, tensor=b).assemble, b
 
@@ -130,8 +131,6 @@ class LinearSolver(OptionsManager):
             bc.apply(u)
         update()
         # blift contains -A u_bc
-        if isinstance(blift, function.Cofunction):
-            blift = function.cofunction2function(blift, b.function_space())
         blift += b
         if isinstance(blift, cofunction.Cofunction):
             blift_func = blift.riesz_representation(riesz_map="l2")
@@ -150,6 +149,8 @@ class LinearSolver(OptionsManager):
             raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)
         if isinstance(b, vector.Vector):
             b = b.function
+        if isinstance(b, cofunction.Cofunction):  # FIXME: Temporary
+            b = function.cofunction2function(b, self.trial_space)
         if not isinstance(b, (function.Function, cofunction.Cofunction)):
             raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
 
