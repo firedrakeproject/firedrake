@@ -738,14 +738,25 @@ class FormAssembler(abc.ABC):
 
     @cached_property
     def parloops(self):
-        return tuple(
-            ParloopBuilder(
-                self._form, lknl, gknl, self._tensor, subdomain_id,
-                self.all_integer_subdomain_ids, diagonal=self.diagonal,
-                lgmaps=self.collect_lgmaps(lknl, self._bcs)).build()
-            for lknl, gknl in zip(self.local_kernels, self.global_kernels)
-            for subdomain_id in lknl.kinfo.subdomain_id
-        )
+        loops = []
+        global_kernel_iter = iter(self.global_kernels)
+        for local_kernel in self.local_kernels:
+            for subdomain_id in local_kernel.kinfo.subdomain_id:
+                global_kernel = next(global_kernel_iter)
+                loops.append(
+                    ParloopBuilder(
+                        self._form,
+                        local_kernel,
+                        global_kernel,
+                        self._tensor,
+                        subdomain_id,
+                        self.all_integer_subdomain_ids,
+                        diagonal=self.diagonal,
+                        lgmaps=self.collect_lgmaps(local_kernel, self._bcs)
+                    ).build()
+                )
+        assert_empty(global_kernel_iter)
+        return tuple(loops)
 
     def needs_unrolling(self, local_knl, bcs):
         """Do we need to address matrix elements directly rather than in
