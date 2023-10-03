@@ -250,27 +250,27 @@ class FDMPC(PCBase):
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
 
-        A00_inv = None
-        if use_static_condensation and use_amat:
-            Amat, A00_inv = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
-
         Pmats = {}
+        if use_static_condensation and use_amat:
+            # Replace the facet block of the stiffness matrix with the exact Schur complement
+            # Set up the preconditioner with exact off-diagonal blocks and exact inverse of the interior block
+            Amat, Pmats = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
+
         diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
         # Loop over all pairs of subspaces
         for Vrow, Vcol in product(V, V):
+            if (Vrow, Vcol) in Pmats:
+                continue
+
             if symmetric and (Vcol, Vrow) in Pmats:
                 Pmats[Vrow, Vcol] = PETSc.Mat().createTranspose(Pmats[Vcol, Vrow])
                 continue
 
+            # Preallocate and assemble the FDM auxiliary sparse operator
             on_diag = Vrow == Vcol
             sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
             ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
-
-            # Interior block is solved with an element-wise KSP
-            if A00_inv and on_diag and Vrow != Vfacet:
-                Pmats[Vrow, Vcol] = A00_inv
-                continue
 
             preallocator = PETSc.Mat().create(comm=self.comm)
             preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -387,7 +387,7 @@ class FDMPC(PCBase):
         else:
             raise ValueError("Expecting at most 2 components")
 
-        A00_inv = None
+        Pmats = dict(Smats)
         C0 = self.assemble_reference_tensor(V0)
         R0 = self.assemble_reference_tensor(V0, transpose=True)
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
@@ -408,13 +408,12 @@ class FDMPC(PCBase):
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
             ctx = ParloopMatrixContext(parloop, x, y, bcs=bcs)
-            P = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
+            Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
             if Vsub == V0:
-                A00_inv = P
-                P = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
-            Smats[Vsub, Vsub] = P
+                Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
+                Smats[Vsub, Vsub] = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
         Smat = Smats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
-        return Smat, A00_inv
+        return Smat, Pmats
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=True):
@@ -1287,9 +1286,9 @@ PetscErrorCode {self.name}(const KSP ksp,
                            PetscScalar *restrict yf)
 {{
     {ctx_pack}
-    static PetscScalar xi[{idofs.size}], yi[{idofs.size}], x[{size}], y[{size}];
     static const PetscInt idofs[{idofs.size}] = {{ {", ".join(map(str, idofs.indices))} }};
     static const PetscInt fdofs[{fdofs.size}] = {{ {", ".join(map(str, fdofs.indices))} }};
+    static PetscScalar xi[{idofs.size}], yi[{idofs.size}], x[{size}], y[{size}];
     PetscInt i;
     Mat A, B, C;
     Vec X, Y;
@@ -1307,7 +1306,7 @@ PetscErrorCode {self.name}(const KSP ksp,
     for (i = 0; i < {fdofs.size}; i++) x[fdofs[i]] = xf[i];
     {A_call("x", "y")}
 
-    // x[idofs] = -inv(AII) * y[idofs];
+    // x[idofs] = -inv(Aii) * y[idofs];
     for (i = 0; i < {idofs.size}; i++) yi[i] = y[idofs[i]];
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, {idofs.size}, yi, &Y));
     PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, {idofs.size}, xi, &X));
@@ -1322,6 +1321,8 @@ PetscErrorCode {self.name}(const KSP ksp,
     for (i = 0; i < {fdofs.size}; i++) yf[i] += y[fdofs[i]];
     PetscFunctionReturn(PETSC_SUCCESS);
 }}"""
+        idofs.destroy()
+        fdofs.destroy()
         return op2.Kernel(code, self.name)
 
 
@@ -2005,7 +2006,7 @@ class PoissonFDMPC(FDMPC):
                     Ae.destroy()
 
     def condense(self, A, J, bcs, fcp):
-        return A, None
+        return A, {}
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp):
