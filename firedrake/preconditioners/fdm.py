@@ -1205,6 +1205,7 @@ class InteriorSolveKernel(ElementKernel):
         A.setSizes(B.getSizes())
         A.setUp()
 
+        knoll = False
         ksp = PETSc.KSP().create(comm=comm)
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
@@ -1212,8 +1213,8 @@ class InteriorSolveKernel(ElementKernel):
         ksp.pc.setType(pc_type)
         ksp.setNormType(PETSc.KSP.NormType.NATURAL)
         ksp.setTolerances(rtol=1E-8, atol=0)
-        ksp.setInitialGuessNonzero(True)
-        ksp.setInitialGuessKnoll(True)
+        ksp.setInitialGuessNonzero(knoll)
+        ksp.setInitialGuessKnoll(knoll)
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
