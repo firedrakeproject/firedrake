@@ -458,9 +458,11 @@ class PMGPC(PCBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
-        opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-
+        max_levels = odm.getRefineLevel() + 1
+        if max_levels > 1:
+            opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+            if opts.getString("mg_coarse_pc_type") == "mg":
+                opts["mg_coarse_pc_mg_levels"] = min(opts.getInt("mg_coarse_pc_mg_levels", max_levels), max_levels)
         return ppc
 
     def apply(self, pc, x, y):
@@ -501,10 +503,13 @@ class PMGSNES(SNESBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
-        opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-        opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
-
+        max_levels = odm.getRefineLevel() + 1
+        if max_levels > 1:
+            opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+            if opts.getString("fas_coarse_pc_type") == "mg":
+                opts["fas_coarse_pc_mg_levels"] = min(opts.getInt("fas_coarse_pc_mg_levels", max_levels), max_levels)
+            if opts.getString("fas_coarse_snes_type") == "fas":
+                opts["fas_coarse_snes_fas_levels"] = min(opts.getInt("fas_coarse_snes_fas_levels", max_levels), max_levels)
         return psnes
 
     def step(self, snes, x, f, y):
