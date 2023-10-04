@@ -227,6 +227,13 @@ class FDMPC(PCBase):
         else:
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
+        # Create data structures needed for assembly
+        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
+        self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
+        self.assemblers = {}
+        Pmats = {}
+
         # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
         if V == Vbig and Vbig.finat_element.formdegree == 0:
@@ -243,18 +250,10 @@ class FDMPC(PCBase):
             else:
                 self.schur_kernel[Vfacet] = SchurComplementBlockLU
                 interior_pc_type = PETSc.PC.Type.ILU
-
-        # Create data structures needed for assembly
-        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
-        self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
-        self.assemblers = {}
-
-        Pmats = {}
-        if use_static_condensation and use_amat:
-            # Replace the facet block of the stiffness matrix with the exact Schur complement
-            # Set up the preconditioner with exact off-diagonal blocks and exact inverse of the interior block
-            Amat, Pmats = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
+            if use_amat:
+                # Replace the facet block of the stiffness matrix with the exact Schur complement
+                # Set up the preconditioner with exact off-diagonal blocks and exact inverse of the interior block
+                Amat, Pmats = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
 
         diagonal_terms = []
         addv = PETSc.InsertMode.ADD_VALUES
