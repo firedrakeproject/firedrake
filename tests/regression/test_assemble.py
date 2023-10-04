@@ -268,7 +268,6 @@ def test_assemble_mixed_function_sparse():
     assert np.allclose(v, 13.0)
 
 
-@pytest.mark.skipcomplex
 def test_3125():
     # see https://github.com/firedrakeproject/firedrake/issues/3125
     mesh = UnitSquareMesh(3, 3)
