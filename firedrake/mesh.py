@@ -841,7 +841,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         return self._tolerance
 
     @abc.abstractmethod
-    def mark_entities(self, tf, label_name, label_value):
+    def mark_entities(self, tf, label_value, label_name=None):
         """Mark selected entities.
 
         :arg tf: The :class:`.CoordinatelessFunction` object that marks
@@ -849,8 +849,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
             to mark facet entities.
-        :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
+        :arg label_name: The name of the label to store entity selections.
 
         All entities must live on the same topological dimension. Currently,
         one can only mark cell or facet entities.
@@ -1263,13 +1263,14 @@ class MeshTopology(AbstractMeshTopology):
         """Get partitioner actually used for (re)distributing underlying plex over comm."""
         return self.topology_dm.getPartitioner()
 
-    def mark_entities(self, tf, label_name, label_value):
+    def mark_entities(self, tf, label_value, label_name=None):
         import firedrake.function as function
 
-        if label_name in (dmcommon.CELL_SETS_LABEL,
-                          dmcommon.FACE_SETS_LABEL,
-                          "Vertex Sets",
-                          "depth",
+        if not isinstance(label_value, numbers.Integral):
+            raise TypeError(f"label_value must be an integer: got {label_value}")
+        if label_name and not isinstance(label_name, str):
+            raise TypeError(f"label_name must be `None` or a string: got {label_name}")
+        if label_name in ("depth",
                           "celltype",
                           "ghost",
                           "exterior_facets",
@@ -1289,15 +1290,18 @@ class MeshTopology(AbstractMeshTopology):
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
+            label_name = label_name or dmcommon.CELL_SETS_LABEL
         elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1) or \
                 (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1):
             # facets
             height = 1
+            label_name = label_name or dmcommon.FACE_SETS_LABEL
         else:
             raise ValueError(f"indicator functions must be 'DP' or 'DQ' (degree 0) to mark cells and 'P' (degree 1) in 1D or 'HDiv Trace' (degree 0) in 2D or 3D to mark facets: got (family, degree) = ({elem.family()}, {elem.degree()})")
         plex = self.topology_dm
         if not plex.hasLabel(label_name):
             plex.createLabel(label_name)
+        plex.clearLabelStratum(label_name, label_value)
         label = plex.getLabel(label_name)
         section = tV.dm.getSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
@@ -1515,7 +1519,7 @@ class ExtrudedMeshTopology(MeshTopology):
     def _permutation_name(self):
         return self._base_mesh._permutation_name
 
-    def mark_entities(self, tf, label_name, label_value):
+    def mark_entities(self, tf, label_value, label_name=None):
         raise NotImplementedError("Currently not implemented for ExtrudedMesh")
 
 
@@ -1742,7 +1746,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_extrusion_height_list, "cell_parent_extrusion_height")
 
-    def mark_entities(self, tf, label_name, label_value):
+    def mark_entities(self, tf, label_value, label_name=None):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -2365,7 +2369,7 @@ values from f.)"""
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
-    def mark_entities(self, f, label_name, label_value):
+    def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
         :arg f: The :class:`.Function` object that marks
@@ -2373,13 +2377,13 @@ values from f.)"""
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
             to mark facet entities.
-        :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
+        :arg label_name: The name of the label to store entity selections.
 
         All entities must live on the same topological dimension. Currently,
         one can only mark cell or facet entities.
         """
-        self.topology.mark_entities(f.topological, label_name, label_value)
+        self.topology.mark_entities(f.topological, label_value, label_name)
 
 
 @PETSc.Log.EventDecorator()
