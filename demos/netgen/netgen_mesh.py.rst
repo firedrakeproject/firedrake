@@ -346,14 +346,14 @@ In particular, we need to pass the degree of the polynomial field we want to use
        ngmesh = OCCGeometry(shape,dim=2).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(Mesh(ngmesh,comm=COMM_WORLD).curve_field(4))
+   mesh = Mesh(Mesh(ngmesh, comm=COMM_WORLD).curve_field(4))
    File("output/MeshExample5.pvd").write(mesh)
 
 .. figure:: Example5.png
    :align: center
    :alt: Example of a curved mesh of order 4 generated from a geometry described using Open Cascade WorkPlane.
 
-High-order meshes are supported also in three dimensions; we just need to specify the correct dimension when constructing the OCCGeometry object.
+High-order meshes are also supported in three dimensions; we just need to specify the correct dimension when constructing the OCCGeometry object.
 We will now show how to solve the Poisson problem on a high-order mesh, of order 3, for the unit sphere. ::
 
    from netgen.occ import Sphere, Pnt
@@ -370,17 +370,19 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    File("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
    V = FunctionSpace(mesh, "CG", 3)
-   f = Function(V); f.interpolate(1+0*x)
-   u = TrialFunction(V); v = TestFunction(V)
+   f = Function(V).interpolate(1+0*x)
+   u = TrialFunction(V)
+   v = TestFunction(V)
    a = inner(grad(u), grad(v)) * dx
    l = inner(f, v) * dx
    
    sol = Function(V)
    
-   bc = DirichletBC (V , 0.0 , [1])
-   A = assemble (a , bcs = bc); b = assemble (l)
+   bc = DirichletBC(V, 0.0, [1])
+   A = assemble(a, bcs=bc)
+   b = assemble(l)
    bc.apply(b)
-   solve (A, sol, b, solver_parameters ={"ksp_type": "cg", "pc_type": "lu"})
+   solve(A, sol, b, solver_parameters={"ksp_type": "cg", "pc_type": "lu"})
    
    File("output/Sphere.pvd").write(sol)
 
