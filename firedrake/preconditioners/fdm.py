@@ -942,8 +942,8 @@ static inline PetscErrorCode MatCondense(const Mat B,
         U += bsize * bsize;
         irow += bsize;
     }
-    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+    PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
     PetscCall(MatProductGetMats(B, &X, NULL, NULL));
     PetscCall(MatProductNumeric(X));
     PetscCall(MatProductNumeric(B));
