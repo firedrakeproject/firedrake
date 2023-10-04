@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyadjoint dolci/checkpointing_time_depend  \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
