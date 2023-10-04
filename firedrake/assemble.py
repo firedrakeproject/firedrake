@@ -692,7 +692,7 @@ class FormAssembler(abc.ABC):
             return
 
         # TODO We should have some proper checks here
-        for lknl, parloop in zip(self.local_kernels, self.parloops):
+        for (lknl, _), parloop in zip(self.local_kernels, self.parloops):
             data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
             parloop.arguments[0].data = data
         self._tensor = tensor
@@ -703,6 +703,14 @@ class FormAssembler(abc.ABC):
 
     @cached_property
     def local_kernels(self):
+        """Return local kernels and their subdomain IDs.
+
+        Returns
+        -------
+        tuple
+            Collection of ``(local_kernel, subdomain_id)`` 2-tuples, one for
+            each possible combination.
+        """
         try:
             topology, = set(d.topology for d in self._form.ufl_domains())
         except ValueError:
@@ -714,16 +722,26 @@ class FormAssembler(abc.ABC):
                 raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
-            return tsfc_interface.compile_form(self._form, "form", diagonal=self.diagonal,
-                                               parameters=self._form_compiler_params)
+            kernels = tsfc_interface.compile_form(
+                self._form, "form", diagonal=self.diagonal,
+                parameters=self._form_compiler_params
+            )
         elif isinstance(self._form, slate.TensorBase):
-            return slac.compile_expression(self._form, compiler_parameters=self._form_compiler_params)
+            kernels = slac.compile_expression(
+                self._form,
+                compiler_parameters=self._form_compiler_params
+            )
         else:
             raise AssertionError
+        return tuple(
+            (k, subdomain_id) for k in kernels for subdomain_id in k.kinfo.subdomain_id
+        )
 
     @cached_property
     def all_integer_subdomain_ids(self):
-        return tsfc_interface.gather_integer_subdomain_ids(self.local_kernels)
+        return tsfc_interface.gather_integer_subdomain_ids(
+            {k for k, _ in self.local_kernels}
+        )
 
     @cached_property
     def global_kernels(self):
@@ -732,30 +750,27 @@ class FormAssembler(abc.ABC):
                 self._form, tsfc_knl, subdomain_id, self.all_integer_subdomain_ids,
                 diagonal=self.diagonal, unroll=self.needs_unrolling(tsfc_knl, self._bcs)
             )
-            for tsfc_knl in self.local_kernels
-            for subdomain_id in tsfc_knl.kinfo.subdomain_id
+            for tsfc_knl, subdomain_id in self.local_kernels
         )
 
     @cached_property
     def parloops(self):
         loops = []
-        global_kernel_iter = iter(self.global_kernels)
-        for local_kernel in self.local_kernels:
-            for subdomain_id in local_kernel.kinfo.subdomain_id:
-                global_kernel = next(global_kernel_iter)
-                loops.append(
-                    ParloopBuilder(
-                        self._form,
-                        local_kernel,
-                        global_kernel,
-                        self._tensor,
-                        subdomain_id,
-                        self.all_integer_subdomain_ids,
-                        diagonal=self.diagonal,
-                        lgmaps=self.collect_lgmaps(local_kernel, self._bcs)
-                    ).build()
-                )
-        assert_empty(global_kernel_iter)
+        for (local_kernel, subdomain_id), global_kernel in zip(
+            self.local_kernels, self.global_kernels
+        ):
+            loops.append(
+                ParloopBuilder(
+                    self._form,
+                    local_kernel,
+                    global_kernel,
+                    self._tensor,
+                    subdomain_id,
+                    self.all_integer_subdomain_ids,
+                    diagonal=self.diagonal,
+                    lgmaps=self.collect_lgmaps(local_kernel, self._bcs)
+                ).build()
+            )
         return tuple(loops)
 
     def needs_unrolling(self, local_knl, bcs):
