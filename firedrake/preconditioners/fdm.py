@@ -294,7 +294,7 @@ class FDMPC(PCBase):
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
             if ptype.endswith("sbaij"):
                 P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-            P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
+            # P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
             P.setUp()
 
             # append callables to zero entries, insert element matrices, and apply BCs
@@ -649,7 +649,6 @@ class FDMPC(PCBase):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg mat_type: a `PETSc.Mat.Type`
         """
-
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
         try:
@@ -1207,13 +1206,21 @@ class InteriorSolveKernel(ElementKernel):
         A.setSizes(B.getSizes())
         A.setUp()
 
+        use_cg = False
+        if use_cg:
+            ksp_type = PETSc.KSP.Type.CG
+            norm_type = PETSc.KSP.NormType.NATURAL
+        else:
+            ksp_type = PETSc.KSP.Type.MINRES
+            norm_type = PETSc.KSP.NormType.PRECONDITIONED
         knoll = False
+        knoll = True
         ksp = PETSc.KSP().create(comm=comm)
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
-        ksp.setType(PETSc.KSP.Type.CG)
         ksp.pc.setType(pc_type)
-        ksp.setNormType(PETSc.KSP.NormType.NATURAL)
+        ksp.setType(ksp_type)
+        ksp.setNormType(norm_type)
         ksp.setTolerances(rtol=1E-8, atol=0)
         ksp.setInitialGuessNonzero(knoll)
         ksp.setInitialGuessKnoll(knoll)
