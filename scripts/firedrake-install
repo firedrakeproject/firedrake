@@ -329,7 +329,7 @@ honoured.""",
     parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
-                        help="Install Netgen.")
+                        help="Install NGSolve/Netgen and ngsPETSc.")
 
     args = parser.parse_args()
 
@@ -1418,6 +1418,18 @@ def build_and_install_slepc():
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
     run_pip(["install", "ngsolve", "--pre"])
+    log.info("Installing ngsPETSc.")
+    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
+    ngsPETSc_changed = False
+    if os.path.exists("ngsPETSc"):
+        ngsPETSc_changed |= git_update("ngsPETSc")
+    else:
+        git_clone(url)
+        ngsPETSc_changed = True
+    if ngsPETSc_changed:
+        with directory("ngsPETSc"):
+            with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
+                check_call([python, "-m", "pip", "install", "-e", "."])
 
 
 def install_documentation_dependencies():

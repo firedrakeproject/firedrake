@@ -33,9 +33,10 @@ from pyadjoint import stop_annotating
 
 try:
     import netgen
-    from ngsolve import ngs2petsc
+    from ngsPETSc import FiredrakeMesh
 except ImportError:
     netgen = None
+    ngsPETSc = None
 
 
 __all__ = [
@@ -43,8 +44,7 @@ __all__ = [
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
-    'VertexOnlyMeshMissingPointsError',
-]
+    'VertexOnlyMeshMissingPointsError']
 
 
 _cells = {
@@ -280,20 +280,6 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
-
-
-@PETSc.Log.EventDecorator()
-def _from_netgen(ngmesh, comm=None):
-    """
-    Create a DMPlex from an Netgen mesh
-
-    :arg ngmesh: Netgen Mesh
-    TODO: Right now we construct Netgen mesh on a single worker, load it in Firedrake
-    and then distribute. We should find a way to take advantage of the fact that
-    Netgen can act as a parallel mesher.
-    """
-    meshMap = ngs2petsc.DMPlexMapping(ngmesh)
-    return meshMap.plex
 
 
 @PETSc.Log.EventDecorator()
@@ -2484,6 +2470,8 @@ def Mesh(meshfile, **kwargs):
            distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
            will scale with the dimension of the mesh.
 
+    :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
+
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
     filename extension):
@@ -2542,7 +2530,9 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        plex = _from_netgen(meshfile, user_comm)
+        netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
+        netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
+        plex = netgen_firedrake_mesh.meshMap.petscPlex
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -2571,34 +2561,8 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm, tolerance=tolerance)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        # Adding Netgen mesh and inverse sfBC as attributes
-        mesh.netgen_mesh = meshfile
-        mesh.sfBCInv = mesh.sfBC.createInverse() if user_comm.Get_size() > 1 else None
-        mesh.comm = user_comm
-        # Refine Method
-
-        def refine_marked_elements(self, mark):
-            with mark.dat.vec as marked:
-                marked0 = marked
-                getIdx = self._cell_numbering.getOffset
-                if self.sfBCInv is not None:
-                    getIdx = lambda x: x
-                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,
-                                                                  self._cell_numbering,
-                                                                  marked)
-                if self.comm.Get_rank() == 0:
-                    mark = marked0.getArray()
-                    for i, el in enumerate(self.netgen_mesh.Elements2D()):
-                        if mark[getIdx(i)]:
-                            el.refine = True
-                        else:
-                            el.refine = False
-                    self.netgen_mesh.Refine(adaptive=True)
-                    return Mesh(self.netgen_mesh)
-                else:
-                    return Mesh(netgen.libngpy._meshing.Mesh(2))
-
-        setattr(MeshGeometry, "refine_marked_elements", refine_marked_elements)
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        mesh = netgen_firedrake_mesh.firedrakeMesh
     return mesh
 
 
