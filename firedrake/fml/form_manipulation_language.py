@@ -7,7 +7,7 @@ from firedrake import Constant, Function
 
 
 __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
-           "keep", "subject", "name"]
+           "keep", "subject", "name_label"]
 
 # ---------------------------------------------------------------------------- #
 # Core routines for filtering terms
@@ -481,4 +481,4 @@ class Label(object):
 # ---------------------------------------------------------------------------- #
 
 subject = Label("subject", validator=lambda value: type(value) == Function)
-name = Label("name", validator=lambda value: type(value) == str)
+name_label = Label("name", validator=lambda value: type(value) == str)
