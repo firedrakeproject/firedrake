@@ -1254,7 +1254,7 @@ def build_and_install_h5py():
 
 def build_and_install_libsupermesh():
     log.info("Installing libsupermesh")
-    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
+    url = "git+https://github.com/firedrakeproject/libsupermesh.git@JDBetteridge/remove_libspatialindex"
     if os.path.exists("libsupermesh"):
         changed = git_update("libsupermesh", url)
     else:
@@ -1273,9 +1273,10 @@ def build_and_install_libsupermesh():
                     "-DMPI_CXX_COMPILER=" + cxx,
                     "-DMPI_Fortran_COMPILER=" + f90,
                     "-DCMAKE_Fortran_COMPILER=" + f90,
-                    "-DMPIEXEC_EXECUTABLE" + args.mpiexec,
+                    "-DMPIEXEC_EXECUTABLE=" + args.mpiexec,
                     "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"
                 ]
+                print(" ".join(cmd))
                 check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
@@ -1906,6 +1907,12 @@ if mode == "install":
         packages.remove("loopy")
 
     with pipargs("--no-deps"):
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+
         for p in packages:
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
@@ -1916,6 +1923,11 @@ if mode == "install":
 
     with environment(**compiler_env):
         build_and_install_libsupermesh()
+
+    with pipargs("--no-deps"):
+        for p in ("PyOP2", "firedrake"):
+            with environment(**compiler_env, **link_env):
+                install(p+"/")
 
     # Work around easy-install.pth bug.
     try:
@@ -2067,7 +2079,7 @@ Please consider updating your PETSc manually.
             packages.remove("firedrake")
         except ValueError:
             pass
-        packages += ("PyOP2", "firedrake")
+
         for p in packages:
             clean(p)
             if p in parallel_packages:
@@ -2078,6 +2090,11 @@ Please consider updating your PETSc manually.
 
         with environment(**compiler_env):
             build_and_install_libsupermesh()
+
+        with pipargs("--no-deps"):
+            for p in ("PyOP2", "firedrake"):
+                with environment(**compiler_env, **link_env):
+                    install(p+"/")
 
         # Ensure pytest is at the latest version
         run_pip(["install", "-U", "pytest"])
