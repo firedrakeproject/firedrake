@@ -80,6 +80,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --pip-install git+https://github.com/JDBetteridge/rtree.git@JDBetteridge/include_headers#egg=rtree \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
