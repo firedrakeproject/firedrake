@@ -6,6 +6,7 @@ import os
 import sys
 import numpy as np
 import petsc4py
+import rtree
 import versioneer
 
 from firedrake_configuration import get_config
@@ -53,15 +54,15 @@ cythonfiles = [("dmcommon", ["petsc"]),
                ("mgimpl", ["petsc"]),
                ("patchimpl", ["petsc"]),
                ("spatialindex", ["spatialindex_c"]),
-               ("supermeshimpl", ["supermesh", "petsc"])]
+               ("supermeshimpl", ["supermesh", "petsc", "spatialindex_c"])]
 
 
 petsc_dirs = get_petsc_dir()
 if os.environ.get("HDF5_DIR"):
     petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
-include_dirs = [np.get_include(), petsc4py.get_include()]
+include_dirs = [np.get_include(), petsc4py.get_include(), rtree.core.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
-dirs = (sys.prefix, *petsc_dirs)
+dirs = (sys.prefix, *petsc_dirs, os.path.dirname(rtree.core.get_libraries()))
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
 
 extensions = [Extension("firedrake.cython.{}".format(ext),
