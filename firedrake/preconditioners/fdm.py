@@ -232,6 +232,7 @@ class FDMPC(PCBase):
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
+        self.kernels = []
         Pmats = {}
 
         # Dictionary with kernel to compute the Schur complement
@@ -392,6 +393,7 @@ class FDMPC(PCBase):
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
         K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
         K1 = ImplicitSchurComplementKernel(K0)
+        self.kernels.extend((A0, K0, K1))
         kernels = {V0: K0, V1: K1}
         comm = self.comm
         args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
@@ -647,6 +649,7 @@ class FDMPC(PCBase):
         :arg addv: a `PETSc.Mat.InsertMode`
         :arg mat_type: a `PETSc.Mat.Type`
         """
+
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
         try:
@@ -667,6 +670,7 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R1, M, C0),
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
+            self.kernels.append(element_kernel)
             spaces = (Vrow, Vcol)[on_diag:]
             indices_acc = tuple(self.indices[V](op2.READ, V.cell_node_map()) for V in spaces)
             coefficients = self.coefficients["cell"]
@@ -680,8 +684,7 @@ class FDMPC(PCBase):
         if A.getType() == "preallocator":
             args = assembler.arguments[:2]
             kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
-            assembler = op2.ParLoop(kernel,
-                                    Vrow.mesh().cell_set,
+            assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
                                     *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
                                     *indices_acc)
         assembler.arguments[0].data = A.handle
