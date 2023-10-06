@@ -341,6 +341,8 @@ def test_near_nullspace_mixed():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
+            'assembled_pc_gamg_aggressive_square_graph': None,  # See https://gitlab.com/petsc/petsc/-/commit/d529f056d75cd16b380adc3e50ccb741df53d0de
+            'assembled_pc_gamg_mis_k_minimum_degree_ordering': True,  # See https://gitlab.com/petsc/petsc/-/commit/d529f056d75cd16b380adc3e50ccb741df53d0de
             'assembled_mg_levels_pc_type': 'sor',
             'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,  # See https://gitlab.com/petsc/petsc/-/issues/1221
             'ksp_rtol': 1e-7,

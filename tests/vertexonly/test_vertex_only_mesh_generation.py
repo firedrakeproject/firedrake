@@ -43,6 +43,7 @@ def cell_midpoints(m):
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -61,8 +62,13 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
+        m = UnitIcosahedralSphereMesh(name="immersedsphere")
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
         m = UnitIcosahedralSphereMesh()
         m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial", name="immersedsphereextruded")
         return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
@@ -360,15 +366,25 @@ def test_missing_points_behaviour(parentmesh):
     assert "\'hello\'" in str(e.value)
 
 
+def negative_coord_furthest_from_origin(parentmesh):
+    coords = parentmesh.coordinates.dat.data_ro
+    where_all_negative = [np.all(pt <= 0) for pt in coords]
+    negative_coords = coords[where_all_negative]
+    square_dists = [np.inner(pt, pt) for pt in negative_coords]
+    return negative_coords[np.argmax(square_dists)]
+
+
 def test_outside_boundary_behaviour(parentmesh):
     """
     Generate points just outside the boundary of the parentmesh and
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just outside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
@@ -425,9 +441,11 @@ def test_inside_boundary_behaviour(parentmesh):
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just inside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
     assert len(inputcoord) == 1
     # Tolerance is large enough to pick up point
