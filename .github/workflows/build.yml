@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch petsc connorjward/merge-upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
