@@ -279,6 +279,6 @@ def test_3125():
     tst = TestFunction(Z)
     v, q = split(tst)
     d = Function(W)
-    F = inner(z, tst)*dx + inner(v, u)/(d+p)*dx(2, degree=10)
+    F = inner(z, tst)*dx + inner(u, v)/(d+p)*dx(2, degree=10)
     # should run without error
     solve(F == 0, z)
