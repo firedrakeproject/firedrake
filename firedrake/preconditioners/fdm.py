@@ -1160,20 +1160,26 @@ static inline PetscErrorCode MatCondense(const Mat B,
 
 
 def wrap_form(a, prefix="form", fcp=None, matshell=False):
-    v, u = a.arguments()
-    V = u.function_space()
-    F = a(v, ufl.Coefficient(V))
-    kernels = compile_form(F, prefix, parameters=fcp)
-    kernel = kernels[-1].kinfo.kernel
-    nargs = len(kernel.arguments) - len(a.arguments())
-    ncoef = nargs - len(extract_firedrake_constants(F))
+    cache = a._cache.setdefault("fdm_kernels", {})
+    key = (prefix,)
+    try:
+        matmult_struct, matmult_call, ctx_struct, ctx_pack = cache[key]
+    except KeyError:
+        v, u = a.arguments()
+        V = u.function_space()
+        F = a(v, ufl.Coefficient(V))
+        kernels = compile_form(F, prefix, parameters=fcp)
+        kernel = kernels[-1].kinfo.kernel
+        nargs = len(kernel.arguments) - len(a.arguments())
+        ncoef = nargs - len(extract_firedrake_constants(F))
+        ctx_struct = "".join("const PetscScalar *restrict c%d, " % i for i in range(nargs))
+        ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join("c%d" % i for i in range(nargs)))
+        ctx_coefficients = "".join("appctx[%d], " % i for i in range(ncoef))
+        ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
+        matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
+        matmult_struct = cache_generate_code(kernel, V._comm)
+        cache[key] = (matmult_struct, matmult_call, ctx_struct, ctx_pack)
 
-    ctx_struct = "".join("const PetscScalar *restrict c%d, " % i for i in range(nargs))
-    ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join("c%d" % i for i in range(nargs)))
-    ctx_coefficients = "".join("appctx[%d], " % i for i in range(ncoef))
-    ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
-    matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
-    matmult_struct = cache_generate_code(kernel, V._comm)
     # matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
     if matshell:
         matmult_struct += f"""
