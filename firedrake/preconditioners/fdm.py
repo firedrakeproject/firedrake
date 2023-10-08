@@ -676,7 +676,7 @@ class FDMPC(PCBase):
             coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                    *element_kernel.mat_args(A),
+                                    *element_kernel.make_args(A),
                                     coefficients_acc,
                                     *indices_acc)
             self.assemblers.setdefault(key, assembler)
@@ -699,7 +699,7 @@ class ElementKernel(object):
         self.mats = [self.result]
         self.name = name or type(self).__name__
 
-    def mat_args(self, *mats):
+    def make_args(self, *mats):
         return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
 
     @staticmethod
