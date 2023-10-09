@@ -25,7 +25,7 @@ osname = platform.uname().system
 arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy"]
+wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
 parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
