@@ -519,19 +519,26 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-    def __init__(self, filename, mode, comm=COMM_WORLD):
-        self.viewer = ViewerHDF5()
+    def __init__(self, filename, mode, comm=None):
+        if not comm:
+            import warnings
+            warnings.warn(
+                "No communicator passed to CheckpointFile, defaulting to COMM_WORLD. "
+                "This is likely to break in parallel"
+            )
+            comm = COMM_WORLD
         self.filename = filename
         self.comm = comm
         self._comm = internal_comm(comm)
-        r"""The neme of the checkpoint file."""
+        self.viewer = ViewerHDF5(comm=self._comm)
         self.viewer.create(filename, mode=mode, comm=self._comm)
         self.commkey = self._comm.py2f()
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
+        # DMPlex HDF5 version options.
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
-        r"""DMPlex HDF5 version options."""
+
 
     def __del__(self):
         if hasattr(self, "_comm"):
