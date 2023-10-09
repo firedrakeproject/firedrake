@@ -310,10 +310,6 @@ class CrossMeshInterpolator(Interpolator):
 
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
-        if self.nargs and self.arguments[0] != self.expr:
-            raise NotImplementedError(
-                "Can't yet create an interpolator from an expression with arguments."
-            )
 
         if self._allow_missing_dofs:
             missing_points_behaviour = MissingPointsBehaviour.IGNORE
@@ -483,7 +479,19 @@ class CrossMeshInterpolator(Interpolator):
             f_src = self.expr
 
         if transpose:
-            V_dest = self.expr.function_space()
+            try:
+                V_dest = self.expr.function_space()
+            except AttributeError:
+                if self.nargs:
+                    V_dest = self.arguments[0].function_space()
+                else:
+                    coeffs = extract_coefficients(self.expr)
+                    if len(coeffs):
+                        V_dest = coeffs[0].function_space()
+                    else:
+                        raise ValueError(
+                            "Can't transpose interpolate an expression with no coefficients or arguments."
+                        )
         else:
             if isinstance(self.V, firedrake.Function):
                 V_dest = self.V.function_space()
