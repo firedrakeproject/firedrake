@@ -1,3 +1,4 @@
+import copy
 import enum
 import math
 import numpy as np
@@ -7,6 +8,7 @@ import matplotlib.colors
 import matplotlib.patches
 import matplotlib.tri
 from matplotlib.path import Path
+from matplotlib.lines import Line2D
 from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
@@ -761,10 +763,29 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     path = Path(vertices, np.tile(codes[deg],
                 function.function_space().cell_node_list.shape[0]))
 
+    # ~ kwargs["facecolor"] = kwargs.pop("facecolor", "red")
+    # ~ kwargs["edgecolor"] = kwargs.pop("edgecolor", "blue")
+    # ~ kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
+    # ~ patch = matplotlib.patches.PathPatch(path, **kwargs)
+    # ~ axes.add_patch(patch)
+
+    # ~ kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
+    # ~ x, y = path.vertices.T
+    # ~ line = Line2D(x, y, **kwargs)
+    # ~ line._path = path
+    # ~ line._xorig = copy.copy(x_vals)
+    # ~ print(x_vals)
+    # ~ line._yorig = copy.copy(y_vals)
+    # ~ print(y_vals)
+    # ~ line._invalidx = True
+    # ~ line._invalidy = True
+    # ~ line.stale = True
+    # ~ axes.add_line(line)
+
     kwargs["facecolor"] = kwargs.pop("facecolor", "none")
-    kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
-    patch = matplotlib.patches.PathPatch(path, **kwargs)
-    axes.add_patch(patch)
+    kwargs["edgecolor"] = kwargs.pop("edgecolor", "blue")
+    patch = matplotlib.collections.PathCollection([path], **kwargs)
+    axes.add_collection(patch)
     return patch
 
 
