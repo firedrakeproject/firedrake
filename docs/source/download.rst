@@ -110,9 +110,10 @@ have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
 The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
 or later, the system installed Python 3 is supported and tested. On
-MacOS, the homebrew_ installed Python 3 is supported and tested::
-
-  brew install python3
+MacOS, due to current issues with homebrew_, `pyenv <https://github.com/pyenv/pyenv>`_
+is the recommended way to obtain a functional Python 3. More information on
+how to install and use pyenv can be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/Installing-pyenv>`_.
 
 Installation is likely to work well on other Linux platforms, although
 the script may stop to ask you to install some dependency packages.
