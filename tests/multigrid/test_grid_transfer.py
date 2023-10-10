@@ -194,3 +194,77 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
         run_restriction(hierarchy, vector, space, degrees)
     elif transfer_type == "prolongation":
         run_prolongation(hierarchy, vector, space, degrees)
+
+
+@pytest.fixture(params=["interval-interval",
+                        "quadrilateral",
+                        "quadrilateral-interval",
+                        "hexahedron"], scope="module")
+def deformed_cell(request):
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def deformed_hierarchy(deformed_cell):
+    cells = deformed_cell.split("-")
+    extruded = len(cells) == 2
+    cube = cells[0] in ["quadrilateral", "hexahedron"]
+    if cells[0] == "interval":
+        base_dim = 1
+    elif cells[0] in ["triangle", "quadrilateral"]:
+        base_dim = 2
+    elif cells[0] == "hexahedron":
+        base_dim = 3
+
+    nx = 2
+    if base_dim == 1:
+        base = UnitIntervalMesh(nx)
+    elif base_dim == 2:
+        base = UnitSquareMesh(nx, nx, quadrilateral=cube)
+    elif base_dim == 3:
+        base = UnitCubeMesh(nx, nx, nx, hexahedral=cube)
+    refine = 1
+    hierarchy = MeshHierarchy(base, refine)
+    if extruded:
+        height = 1
+        hierarchy = ExtrudedMeshHierarchy(hierarchy, height, base_layer=nx)
+
+    # Deform into disk/cylinder sector
+    rmin = 1
+    rmax = 2
+    tmin = -pi/4
+    tmax = pi/4
+    for mesh in hierarchy:
+        x = mesh.coordinates.dat.data_ro
+        R = (rmax - rmin) * x[:, 0] + rmin
+        T = (tmax - tmin) * x[:, 1] + tmin
+        mesh.coordinates.dat.data_wo[:, 0] = R * numpy.cos(T)
+        mesh.coordinates.dat.data_wo[:, 1] = R * numpy.sin(T)
+    return hierarchy
+
+
+@pytest.fixture(params=["injection", "restriction", "prolongation"])
+def deformed_transfer_type(request, deformed_hierarchy):
+    if not deformed_hierarchy.nested and request.param == "injection":
+        return pytest.mark.xfail(reason="Supermesh projections not implemented yet")(request.param)
+    else:
+        return request.param
+
+
+def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
+    vector = False
+    space = "Lagrange"
+    degrees = (1,)
+
+    if not deformed_hierarchy.nested and deformed_transfer_type == "injection":
+        pytest.skip("Not implemented")
+    if deformed_transfer_type == "injection":
+        if space in {"DG", "DQ"} and complex_mode:
+            with pytest.raises(NotImplementedError):
+                run_injection(deformed_hierarchy, vector, space, degrees)
+        else:
+            run_injection(deformed_hierarchy, vector, space, degrees)
+    elif deformed_transfer_type == "restriction":
+        run_restriction(deformed_hierarchy, vector, space, degrees)
+    elif deformed_transfer_type == "prolongation":
+        run_prolongation(deformed_hierarchy, vector, space, degrees)
