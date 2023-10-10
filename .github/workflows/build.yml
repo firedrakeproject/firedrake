@@ -89,6 +89,7 @@ jobs:
           python -m pip list
       - name: Test Firedrake
         run: |
+          export PYOP2_DEBUG=1
           . ../firedrake_venv/bin/activate
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
