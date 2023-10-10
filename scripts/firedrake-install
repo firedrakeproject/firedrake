@@ -1416,8 +1416,19 @@ def build_and_install_slepc():
 
 
 def build_and_install_netgen():
-    log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "ngsolve", "--pre"])
+    log.info("Installing scikit-build.")
+    run_pip(["install", "-U", "scikit-build"])
+    log.info("Installing Netgen, it may take an hour or more to build!")
+    url = "git+https://github.com/UZerbinati/netgen.git@master"
+    netgen_changed = False
+    if os.path.exists("netgen"):
+        netgen_changed |= git_update("netgen")
+    else:
+        git_clone(url)
+        netgen_changed = True
+    if netgen_changed:
+        with directory("netgen"):
+            check_call([python, "-m", "pip", "install", "-e", "."])
     log.info("Installing ngsPETSc.")
     url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
     ngsPETSc_changed = False
