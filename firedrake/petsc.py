@@ -1,10 +1,13 @@
 # Utility module that imports and initialises petsc4py
 import functools
+import gc
 import itertools
 import os
 import subprocess
 import sys
+
 from contextlib import contextmanager
+from pyop2 import mpi
 
 # When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
 # crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
@@ -20,7 +23,7 @@ else:
 from petsc4py import PETSc
 
 
-__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup")
 
 
 def flatten_parameters(parameters, sep="_"):
@@ -259,3 +262,27 @@ class OptionsManager(object):
         finally:
             for k in self.to_delete:
                 del self.options_object[self.options_prefix + k]
+
+
+def garbage_cleanup(obj):
+    """ Cleans up garbage PETSc objects on Firedrake object or any comm
+
+    :arg obj: Any Firedrake object or any comm
+    """
+    gc.collect()
+    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
+        try:
+            if mpi.is_pyop2_comm(obj):
+                PETSc.garbage_cleanup(obj)
+            else:
+                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
+                if internal_comm is None:
+                    PETSc.garbage_cleanup(obj)
+                else:
+                    PETSc.garbage_cleanup(internal_comm)
+        except mpi.PyOP2CommError:
+            pass
+    elif hasattr(obj, "_comm"):
+        PETSc.garbage_cleanup(obj._comm)
+    elif hasattr(obj, "comm"):
+        PETSc.garbage_cleanup(obj.comm)
