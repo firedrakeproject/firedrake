@@ -691,7 +691,6 @@ class FDMPC(PCBase):
 
 
 class ElementKernel(object):
-    condense_code = ""
     code = """
 PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
     PetscFunctionBeginUser;
@@ -703,6 +702,7 @@ PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
         self.result = A
         self.mats = [self.result]
         self.name = name or type(self).__name__
+        self.rules = {}
 
     def make_args(self, *mats):
         return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
@@ -756,11 +756,9 @@ static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
     PetscCall(PetscFree(indices));
     PetscFunctionReturn(PETSC_SUCCESS);
 }""" % {"select_cols": select_cols}
-        code += self.code % {
-            "name": self.name,
-            "indices": ", ".join("const PetscInt *restrict %s" % s for s in indices),
-            "rows": indices[0], "cols": indices[-1], "addv": addv, "condense": self.condense_code,
-        }
+        code += self.code % dict(self.rules, name=self.name,
+                                 indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
+                                 rows=indices[0], cols=indices[-1], addv=addv)
         return op2.Kernel(code, self.name)
 
 
@@ -784,6 +782,7 @@ PetscErrorCode %(name)s(const Mat A, const Mat B,
 
 
 class SchurComplementKernel(ElementKernel):
+    condense_code = ""
     code = """
 #include <petscblaslapack.h>
 PetscErrorCode %(name)s(const Mat A, const Mat B,
@@ -816,6 +815,7 @@ PetscErrorCode %(name)s(const Mat A, const Mat B,
 
         super().__init__(self.condense(), name=name)
         self.mats.extend(self.submats)
+        self.rules["condense"] = self.condense_code
 
     def condense(self, result=None):
         return result
@@ -1149,6 +1149,32 @@ static PetscErrorCode %(prefix)s(Mat A, Vec X, Vec Y) {
 
 
 class InteriorSolveKernel(ElementKernel):
+    code = """
+    %(A_struct)s
+    PetscErrorCode %(name)s(const KSP ksp,
+                            const PetscScalar *restrict coefficients,
+                            %(ctx_struct)s
+                            const PetscScalar *restrict y,
+                            PetscScalar *restrict x){
+        %(ctx_pack)s
+        PetscInt m;
+        Mat A, B, C;
+        Vec X, Y;
+        PetscFunctionBeginUser;
+        PetscCall(KSPGetOperators(ksp, &A, &B));
+        PetscCall(MatShellSetContext(A, &appctx));
+        PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
+        PetscCall(MatProductGetMats(B, NULL, &C, NULL));
+        PetscCall(MatSetValuesArray(C, coefficients));
+        PetscCall(MatProductNumeric(B));
+        PetscCall(MatGetSize(B, &m, NULL));
+        PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
+        PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
+        PetscCall(KSPSolve(ksp, Y, X));
+        PetscCall(VecDestroy(&X));
+        PetscCall(VecDestroy(&Y));
+        PetscFunctionReturn(PETSC_SUCCESS);
+    }"""
 
     def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
         self.child = kernel
@@ -1182,67 +1208,17 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
-
-    def kernel(self, mat_type="matfree", on_diag=True, addv=None):
-        self.code = """
-%(A_struct)s
-PetscErrorCode %%(name)s(const KSP ksp,
-                        const PetscScalar *restrict coefficients,
-                        %(ctx_struct)s
-                        const PetscScalar *restrict y,
-                        PetscScalar *restrict x){
-    %(ctx_pack)s
-    PetscInt m;
-    Mat A, B, C;
-    Vec X, Y;
-    PetscFunctionBeginUser;
-    PetscCall(KSPGetOperators(ksp, &A, &B));
-    PetscCall(MatShellSetContext(A, &appctx));
-    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
-    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-    PetscCall(MatSetValuesArray(C, coefficients));
-    PetscCall(MatProductNumeric(B));
-    PetscCall(MatGetSize(B, &m, NULL));
-    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
-    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
-    PetscCall(KSPSolve(ksp, Y, X));
-    PetscCall(VecDestroy(&X));
-    PetscCall(VecDestroy(&Y));
-    PetscFunctionReturn(PETSC_SUCCESS);
-}""" % {label: cstring for label, cstring in zip(("A_struct", "A_call", "ctx_struct", "ctx_pack"),
-        wrap_form(self.form, prefix="A_interior", fcp=self.fcp, matshell=True))}
-        return super().kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
+        rules = {label: cstring for label, cstring in
+                 zip(("A_struct", "A_call", "ctx_struct", "ctx_pack"),
+                     wrap_form(self.form, prefix="A_interior", fcp=self.fcp, matshell=True))}
+        self.rules.update(rules)
 
 
 class ImplicitSchurComplementKernel(ElementKernel):
-
-    def __init__(self, kernel, name=None):
-        self.child = kernel
-        super().__init__(kernel.result, name=name)
-
-    def kernel(self, mat_type="matfree", on_diag=True, addv=None):
-        assert on_diag
-        comm = self.result.getComm()
-        form = self.child.form
-        fcp = self.child.fcp
-        args = form.arguments()
-        Q = args[0].function_space()
-        V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
-        V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
-        V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
-        idofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
-        fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
-        size = idofs.size + fdofs.size
-        assert size == V.finat_element.space_dimension() * V.value_size
-        a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
-        a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
-        A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A", fcp=fcp)
-        A00_struct, *_ = wrap_form(a00, prefix="A_interior", fcp=fcp, matshell=True)
-        A00_struct = A00_struct.replace("#include <stdint.h>", "")
-        self.code = """
+    code = """
 %(A_struct)s
 %(A00_struct)s
-PetscErrorCode %%(name)s(const KSP ksp,
+PetscErrorCode %(name)s(const KSP ksp,
                         const PetscScalar *restrict coefficients,
                         %(ctx_struct)s
                         const PetscScalar *restrict xf,
@@ -1282,13 +1258,37 @@ PetscErrorCode %%(name)s(const KSP ksp,
     %(A_call)s
     for (i = 0; i < %(fsize)d; i++) yf[i] += y[fdofs[i]];
     PetscFunctionReturn(PETSC_SUCCESS);
-}""" % dict(A_struct=A_struct, A_call=A_call("x", "y"), ctx_struct=ctx_struct, ctx_pack=ctx_pack,
-            A00_struct=A00_struct, size=size, isize=idofs.size, fsize=fdofs.size,
-            idofs=", ".join(map(str, idofs.indices)),
-            fdofs=", ".join(map(str, fdofs.indices)))
+}"""
+
+    def __init__(self, kernel, name=None):
+        self.child = kernel
+        super().__init__(kernel.result, name=name)
+
+        comm = self.result.getComm()
+        form = self.child.form
+        fcp = self.child.fcp
+        args = form.arguments()
+        Q = args[0].function_space()
+        V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
+        V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
+        V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
+        idofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
+        fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
+        size = idofs.size + fdofs.size
+        assert size == V.finat_element.space_dimension() * V.value_size
+        a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
+        a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
+        A_struct, A_call, ctx_struct, ctx_pack = wrap_form(a, prefix="A", fcp=fcp)
+        A00_struct, *_ = wrap_form(a00, prefix="A_interior", fcp=fcp, matshell=True)
+        A00_struct = A00_struct.replace("#include <stdint.h>", "")
+
+        rules = dict(A_struct=A_struct, A_call=A_call("x", "y"), ctx_struct=ctx_struct, ctx_pack=ctx_pack,
+                     A00_struct=A00_struct, size=size, isize=idofs.size, fsize=fdofs.size,
+                     idofs=", ".join(map(str, idofs.indices)),
+                     fdofs=", ".join(map(str, fdofs.indices)))
+        self.rules.update(rules)
         idofs.destroy()
         fdofs.destroy()
-        return super().kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
 
 
 class ParloopMatrixContext(object):
@@ -1337,21 +1337,6 @@ class ParloopMatrixContext(object):
     @PETSc.Log.EventDecorator()
     def multAdd(self, mat, X, Y, W):
         self._op(self._mult_parloop, X, Y, W)
-
-
-class ParloopSolveContext(ParloopMatrixContext):
-
-    def __init__(self, mult, solve, x, y, bcs=None):
-        self._solve_parloop = solve
-        super().__init__(mult, x, y, bcs=bcs)
-
-    @PETSc.Log.EventDecorator()
-    def solve(self, mat, X, Y):
-        self._op(self._solve_parloop, X, Y)
-
-    @PETSc.Log.EventDecorator()
-    def solveAdd(self, mat, X, Y, W):
-        self._op(self._solve_parloop, X, Y, W)
 
 
 def is_restricted(finat_element):
