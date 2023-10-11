@@ -711,7 +711,9 @@ PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
         if addv is None:
             addv = PETSc.InsertMode.INSERT
         indices = ("rindices", "cindices")[:2-on_diag]
-        code = """
+        code = ""
+        if "MatSetValuesArray" in self.code:
+            code = """
 static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restrict values) {
     PetscBool done;
     PetscInt m;
@@ -1208,9 +1210,8 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
-        rules = {label: cstring for label, cstring in
-                 zip(("A_struct", "A_call", "ctx_struct", "ctx_pack"),
-                     wrap_form(self.form, prefix="A_interior", fcp=self.fcp, matshell=True))}
+        A_struct, _, ctx_struct, ctx_pack = wrap_form(self.form, prefix="A_interior", fcp=self.fcp, matshell=True)
+        rules = dict(A_struct=A_struct, ctx_struct=ctx_struct, ctx_pack=ctx_pack)
         self.rules.update(rules)
 
 
