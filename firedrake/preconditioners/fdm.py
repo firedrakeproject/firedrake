@@ -1152,31 +1152,31 @@ static PetscErrorCode %(prefix)s(Mat A, Vec X, Vec Y) {
 
 class InteriorSolveKernel(ElementKernel):
     code = """
-    %(A_struct)s
-    PetscErrorCode %(name)s(const KSP ksp,
-                            const PetscScalar *restrict coefficients,
-                            %(ctx_struct)s
-                            const PetscScalar *restrict y,
-                            PetscScalar *restrict x){
-        %(ctx_pack)s
-        PetscInt m;
-        Mat A, B, C;
-        Vec X, Y;
-        PetscFunctionBeginUser;
-        PetscCall(KSPGetOperators(ksp, &A, &B));
-        PetscCall(MatShellSetContext(A, &appctx));
-        PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
-        PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-        PetscCall(MatSetValuesArray(C, coefficients));
-        PetscCall(MatProductNumeric(B));
-        PetscCall(MatGetSize(B, &m, NULL));
-        PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
-        PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
-        PetscCall(KSPSolve(ksp, Y, X));
-        PetscCall(VecDestroy(&X));
-        PetscCall(VecDestroy(&Y));
-        PetscFunctionReturn(PETSC_SUCCESS);
-    }"""
+%(A_struct)s
+PetscErrorCode %(name)s(const KSP ksp,
+                        const PetscScalar *restrict coefficients,
+                        %(ctx_struct)s
+                        const PetscScalar *restrict y,
+                        PetscScalar *restrict x){
+    %(ctx_pack)s
+    PetscInt m;
+    Mat A, B, C;
+    Vec X, Y;
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetOperators(ksp, &A, &B));
+    PetscCall(MatShellSetContext(A, &appctx));
+    PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
+    PetscCall(MatProductGetMats(B, NULL, &C, NULL));
+    PetscCall(MatSetValuesArray(C, coefficients));
+    PetscCall(MatProductNumeric(B));
+    PetscCall(MatGetSize(B, &m, NULL));
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
+    PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
+    PetscCall(KSPSolve(ksp, Y, X));
+    PetscCall(VecDestroy(&X));
+    PetscCall(VecDestroy(&Y));
+    PetscFunctionReturn(PETSC_SUCCESS);
+}"""
 
     def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
         self.child = kernel
