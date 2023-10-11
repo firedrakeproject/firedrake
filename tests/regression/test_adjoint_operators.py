@@ -276,7 +276,7 @@ def test_interpolate_to_function_space_cross_mesh():
     x = SpatialCoordinate(mesh_src)
     u.interpolate(x[0])
     c = Constant(1., domain=mesh_src)
-    w = interpolate((u+c)*u, W)
+    w = Function(W).interpolate((u+c)*u)
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
