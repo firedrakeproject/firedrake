@@ -264,25 +264,44 @@ class OptionsManager(object):
                 del self.options_object[self.options_prefix + k]
 
 
+def _extract_comm(obj):
+    comm = None
+    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
+        try:
+            if mpi.is_pyop2_comm(obj):
+                comm = obj
+            else:
+                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
+                if internal_comm is None:
+                    comm = obj
+                else:
+                    comm = internal_comm
+        except mpi.PyOP2CommError:
+            pass
+    elif hasattr(obj, "_comm"):
+        comm = obj._comm
+    elif hasattr(obj, "comm"):
+        comm = obj.comm
+    return comm
+
+
 def garbage_cleanup(obj):
     """ Cleans up garbage PETSc objects on Firedrake object or any comm
 
     :arg obj: Any Firedrake object or any comm
     """
     gc.collect()
-    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
-        try:
-            if mpi.is_pyop2_comm(obj):
-                PETSc.garbage_cleanup(obj)
-            else:
-                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
-                if internal_comm is None:
-                    PETSc.garbage_cleanup(obj)
-                else:
-                    PETSc.garbage_cleanup(internal_comm)
-        except mpi.PyOP2CommError:
-            pass
-    elif hasattr(obj, "_comm"):
-        PETSc.garbage_cleanup(obj._comm)
-    elif hasattr(obj, "comm"):
-        PETSc.garbage_cleanup(obj.comm)
+    comm = _extract_comm(obj)
+    if comm:
+        PETSc.garbage_cleanup(comm)
+
+
+def garbage_view(obj):
+    """ View garbage PETSc objects on Firedrake object or any comm
+
+    :arg obj: Any Firedrake object or any comm
+    """
+    gc.collect()
+    comm = _extract_comm(obj)
+    if comm:
+        PETSc.garbage_view(comm)
