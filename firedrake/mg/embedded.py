@@ -33,6 +33,7 @@ class TransferManager(object):
             self._V_DG_project_reference_values = {}
             self._V_inv_mass_ksp = {}
             self._V_DG_mass_piola = {}
+            self._interpolators = {}
 
     def __init__(self, *, native_transfers=None, use_averaging=True, mat_type=None):
         """
@@ -59,12 +60,29 @@ class TransferManager(object):
             return reduce(and_, map(self.is_native, element.sub_elements()))
         return element.family() in native
 
+    def _interpolator(self, uc, uf):
+        Vc = uc.function_space()
+        Vf = uf.function_space()
+        key = (Vc, Vf)
+        cache = self.cache(Vc.ufl_element())._interpolators
+        try:
+            return cache[key]
+        except KeyError:
+            return cache.setdefault(key, firedrake.Interpolator(firedrake.TestFunction(Vc), Vf))
+
+    def _prolong(self, x, y):
+        self._interpolator(x, y).interpolate(x, output=y, transpose=False)
+
+    def _restrict(self, x, y):
+        self._interpolator(y, x).interpolate(x, output=y, transpose=True)
+
     def _native_transfer(self, element, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element):
-                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                ops = self._prolong, self._restrict, self._prolong
+                #ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 

@@ -391,10 +391,9 @@ def inject_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
+        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs() and is_affine(coordinates.ufl_element()):
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coordinates = Vf.ufl_domain().coordinates
         evaluate_code = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 

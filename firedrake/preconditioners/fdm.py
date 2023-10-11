@@ -692,7 +692,7 @@ class FDMPC(PCBase):
 
 class ElementKernel(object):
     """
-    A constant element kernel
+    A constant element kernel builder
     """
     def __init__(self, A, name=None):
         self.result = A
