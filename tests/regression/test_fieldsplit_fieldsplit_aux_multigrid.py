@@ -38,7 +38,6 @@ class SchurApprox(AuxiliaryOperatorPC):
         return (K, bcs)
 
 
-@pytest.mark.xfail(reason="FIX THIS LATER: Have to update our PETSc fork to fix build issues")
 @pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
 def test_fieldsplit_fieldsplit_aux_multigrid():
     # Setup
@@ -143,8 +142,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "fieldsplit_0_fieldsplit_1_aux_mg_coarse_assembled": {
             "mat_type": "aij",
             "pc_type": "lu",
-            "pc_factor_mat_solver_type": "mumps",
-            "mat_mumps_icntl_14": 500
+            "pc_factor_mat_solver_type": "superlu_dist",
         },
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_type": "chebyshev",
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_convergence_test": "skip",
