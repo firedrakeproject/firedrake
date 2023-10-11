@@ -81,8 +81,8 @@ class TransferManager(object):
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element):
-                ops = self._prolong, self._restrict, self._prolong
-                #ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                # ops = self._prolong, self._restrict, self._prolong
+                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
