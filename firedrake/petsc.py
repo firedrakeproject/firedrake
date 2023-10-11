@@ -8,8 +8,6 @@ import sys
 
 from contextlib import contextmanager
 from pyop2 import mpi
-from typing import Any
-from mpi4py import MPI
 
 # When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
 # crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
@@ -25,7 +23,7 @@ else:
 from petsc4py import PETSc
 
 
-__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup")
 
 
 class FiredrakePETScError(Exception):
@@ -270,77 +268,25 @@ class OptionsManager(object):
                 del self.options_object[self.options_prefix + k]
 
 
-def _extract_comm(obj: Any) -> MPI.Comm:
-    """ Extract Firedrake internal comm off given object
+def garbage_cleanup(obj):
+    """ Cleans up garbage PETSc objects on Firedrake object or any comm
 
-    Parameters
-    ----------
-    obj:
-        Any Firedrake object or any comm
-
-    Returns
-    -------
-    MPI.Comm
-        Internal communicator
-
+    :arg obj: Any Firedrake object or any comm
     """
-    comm = None
+    gc.collect()
     if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
         try:
             if mpi.is_pyop2_comm(obj):
-                comm = obj
+                PETSc.garbage_cleanup(obj)
             else:
                 internal_comm = obj.Get_attr(mpi.innercomm_keyval)
                 if internal_comm is None:
-                    comm = obj
+                    PETSc.garbage_cleanup(obj)
                 else:
-                    comm = internal_comm
+                    PETSc.garbage_cleanup(internal_comm)
         except mpi.PyOP2CommError:
             pass
     elif hasattr(obj, "_comm"):
-        comm = obj._comm
+        PETSc.garbage_cleanup(obj._comm)
     elif hasattr(obj, "comm"):
-        comm = obj.comm
-    return comm
-
-
-@mpi.collective
-def garbage_cleanup(obj: Any):
-    """ Clean up garbage PETSc objects on Firedrake object or any comm
-
-    Parameters
-    ----------
-    obj:
-        Any Firedrake object with a comm, or any comm
-
-    """
-    # We are manually calling the Python cyclic garbage collection routine to
-    # get as many unreachable reference cycles swept up before we call the PETSc
-    # cleanup routine. This routine is designed to free up as much memory as
-    # possible for memory constrained systems
-    gc.collect()
-    comm = _extract_comm(obj)
-    if comm:
-        PETSc.garbage_cleanup(comm)
-    else:
-        raise FiredrakePETScError("No comm found, cannot clean up garbage")
-
-
-@mpi.collective
-def garbage_view(obj: Any):
-    """ View garbage PETSc objects on Firedrake object or any comm
-
-    Parameters
-    ----------
-    obj:
-        Any Firedrake object with a comm, or any comm.
-
-    """
-    # We are manually calling the Python cyclic garbage collection routine so
-    # that as many unreachable PETSc objects are visible in the garbage view.
-    gc.collect()
-    comm = _extract_comm(obj)
-    if comm:
-        PETSc.garbage_view(comm)
-    else:
-        raise FiredrakePETScError("No comm found, cannot view garbage")
+        PETSc.garbage_cleanup(obj.comm)
