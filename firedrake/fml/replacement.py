@@ -22,9 +22,9 @@ def _replace_dict(old, new, old_idx, new_idx, replace_type):
 
     Parameters
     ----------
-    old : :class:`Function` or :class:`TestFunction` or :class:`TrialFunction`
+    old : Function or TestFunction or TrialFunction
         The old variable to be replaced.
-    new : :class:`Function` or :class:`TestFunction` or :class:`TrialFunction`
+    new : Function or TestFunction or TrialFunction
         The new variable to be replace with.
     old_idx : int
         The index of the old variable to be replaced. If the old variable is not
@@ -131,14 +131,14 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
 
     Parameters
     ----------
-    new_test : :func:`.TestFunction`
+    new_test : Argument
         The new test function.
 
     Returns
     -------
-    :obj:`callable`
-        A function that takes in t, a :class:`.Term`, and returns a new
-        :class:`.Term` with form containing the ``new_test`` and
+    `callable`
+        A function that takes in t, a .Term, and returns a new
+        .Term with form containing the ``new_test`` and
         ``labels=t.labels``
     """
 
@@ -149,12 +149,12 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t : :class:`.Term`
+        t : .Term
             The original term.
 
         Returns
         -------
-        :class:`.Term`
+        .Term
             The new term.
         """
         old_test = t.form.arguments()[0]
@@ -180,14 +180,14 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
     Parameters
     ----------
-    new : :func:`.TrialFunction` or :class:`.Function`
+    new : Argument or firedrake.function.Function
         The new function.
 
     Returns
     -------
-    :obj:`callable`
-        A function that takes in t, a :class:`.Term`, and returns a new
-        :class:`.Term` with form containing the ``new_test`` and
+    `callable`
+        A function that takes in t, a .Term, and returns a new
+        .Term with form containing the ``new_test`` and
         ``labels=t.labels``
     """
 
@@ -198,7 +198,7 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t (:class:`.Term`)
+        t : .Term
             The original term.
 
         Raises
@@ -208,7 +208,7 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
         Returns
         -------
-        :class:`.Term`
+        .Term
             The new term.
         """
         if len(t.form.arguments()) != 2:
@@ -236,10 +236,10 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
     Parameters
     ----------
-    new : :class:`ufl.Expr`
+    new : ufl.Expr
         The new expression to replace the subject.
-    idx : :obj:`int`, optional
-        Index of the subject in the equation's :class:`.MixedFunctionSpace`.
+    idx : `int`, optional
+        Index of the subject in the equation's MixedFunctionSpace.
         Defaults to None.
     """
     def repl(t):
@@ -249,7 +249,7 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
         Parameters
         ----------
-        t : :class:`.Term`
+        t : .Term
             The original term.
 
         Raises
@@ -260,7 +260,7 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
         Returns
         -------
-        :class:`.Term`:
+        .Term
             The new term.
         """
 

@@ -30,9 +30,9 @@ class Term(object):
         """
         Parameters
         ----------
-        form : :class:`ufl.Form`
+        form : ufl.Form
             The form for this terms.
-        label_dict : :obj:`dict`, optional
+        label_dict : `dict`, optional
             Dictionary of key-value pairs corresponding to current form labels.
             Defaults to None.
         """
@@ -45,7 +45,7 @@ class Term(object):
 
         Parameters
         ----------
-        label : :class:`Label`
+        label : Label
             The label to return the value of.
 
         Returns
@@ -61,10 +61,10 @@ class Term(object):
 
         Parameters
         ----------
-        *labels : :class:`Label`
+        *labels : Label
             A label or series of labels. A tuple is automatically returned if
             multiple labels are provided as arguments.
-        return_tuple : :obj:`bool`, optional
+        return_tuple : `bool`, optional
             If True, forces a tuple to be returned even if only one label is
             provided as an argument. Defaults to False.
 
@@ -84,12 +84,12 @@ class Term(object):
 
         Parameters
         ----------
-        other : :class:`Term` or :class:`LabelledForm`
+        other : Term or LabelledForm
             The term or labelled form to add to this term.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             A labelled form containing the terms.
         """
         if self is NullTerm:
@@ -111,12 +111,12 @@ class Term(object):
 
         Parameters
         ----------
-        other : :class:`Term` or :class:`LabelledForm`
+        other : Term or LabelledForm
             The term or labelled form to subtract from this term.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             A labelled form containing the terms.
         """
         other = other * Constant(-1.0)
@@ -128,12 +128,12 @@ class Term(object):
 
         Parameters
         ----------
-        other : float, :class:`Constant` or :class:`ufl.algebra.Product`
+        other : float, Constant or ufl.algebra.Product
             The quantity to multiply this term by.
 
         Returns
         -------
-        :class:`Term`
+        Term
             The product of the term with the quantity.
         """
         return Term(other*self.form, self.labels)
@@ -146,12 +146,13 @@ class Term(object):
 
         Parameters
         ----------
-        other : float, :class:`Constant` or :class:`ufl.algebra.Product`
+        other : float, Constant or ufl.algebra.Product
             The quantity to divide this term by.
 
         Returns
         -------
-        :class:`Term`: The quotient of the term divided by the quantity.
+        Term
+            The quotient of the term divided by the quantity.
         """
         return self * (Constant(1.0) / other)
 
@@ -167,8 +168,8 @@ class LabelledForm(object):
     """
     A form, broken down into terms that pair individual forms with labels.
 
-    The `LabelledForm` object holds a list of terms, which pair
-    :class:`ufl.Form` objects with :class:`.Label`\\ s. The :meth:`label_map`
+    The LabelledForm object holds a list of terms, which pair
+    ufl.Form objects with .Label\\ s. The label_map
     routine allows the terms to be manipulated or selected based on particular
     filters.
     """
@@ -178,8 +179,8 @@ class LabelledForm(object):
         """
         Parameters
         ----------
-        *terms :class:`Term`
-            Terms to combine to make the `LabelledForm`.
+        *terms : Term
+            Terms to combine to make the LabelledForm.
 
         Raises
         ------
@@ -198,12 +199,12 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        other : :class:`ufl.Form`, :class:`Term` or :class:`LabelledForm`
+        other : ufl.Form, Term or LabelledForm
             The form, term or labelled form to add to this labelled form.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             A labelled form containing the terms.
         """
         if isinstance(other, ufl.Form):
@@ -225,12 +226,12 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        other : :class:`ufl.Form`, :class:`Term` or :class:`LabelledForm`
+        other : ufl.Form, Term or LabelledForm
             The form, term or labelled form to subtract from this labelled form.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             A labelled form containing the terms.
         """
         if type(other) is Term:
@@ -249,13 +250,14 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        other : float, :class:`Constant` or :class:`ufl.algebra.Product`
+        other : float, Constant or ufl.algebra.Product
             The quantity to multiply this labelled form by. All terms in the
             form are multiplied.
 
         Returns
         -------
-        :class:`LabelledForm`: The product of all terms with the quantity.
+        LabelledForm
+            The product of all terms with the quantity.
         """
         return self.label_map(all_terms, lambda t: Term(other*t.form, t.labels))
 
@@ -265,13 +267,13 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        other : float, :class:`Constant` or :class:`ufl.algebra.Product`
+        other : float, Constant or ufl.algebra.Product
             The quantity to divide this labelled form by. All terms in the form
             are divided.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             The quotient of all terms with the quantity.
         """
         return self * (Constant(1.0) / other)
@@ -293,18 +295,18 @@ class LabelledForm(object):
 
         Parameters
         ----------
-        term_filter : :obj:`callable`
+        term_filter : `callable`
             A function to filter the labelled form's terms.
-        map_if_true : :obj:`callable`, optional
+        map_if_true : `callable`, optional
             How to map the terms for which the term_filter returns True.
             Defaults to identity.
-        map_if_false : :obj:`callable`, optional
+        map_if_false : `callable`, optional
             How to map the terms for which the term_filter returns False.
             Defaults to identity.
 
         Returns
         -------
-        :class:`LabelledForm`
+        LabelledForm
             A new labelled form with the terms mapped.
         """
 
@@ -338,7 +340,7 @@ class LabelledForm(object):
 
         Returns
         -------
-        :class:`ufl.Form`
+        ufl.Form
             The whole form corresponding to all the terms.
         """
         # Throw an error if there is no form
@@ -359,10 +361,10 @@ class Label(object):
         ----------
         label : str
             The name of the label.
-        value : :obj:`Any`, optional
+        value : `any`, optional
             The value for the label to take. Can be any type (subject to the
             validator). Defaults to True.
-        validator : :obj:`callable`, optional
+        validator : `callable`, optional
             Function to check the validity of any value later passed to the
             label. Defaults to None.
         """
@@ -376,7 +378,7 @@ class Label(object):
 
         Parameters
         ----------
-        target : :class:`ufl.Form`, :class:`Term` or :class:`LabelledForm`
+        target : ufl.Form, Term or LabelledForm
             The form, term or labelled form to be labelled.
         value : Any, optional
             The value to attach to this label. Defaults to None.
@@ -384,14 +386,14 @@ class Label(object):
         Raises
         ------
         ValueError
-            If the `target` is not a :class:`ufl.Form`, :class:`Term` or
-            :class:`LabelledForm`.
+            If the `target` is not a ufl.Form, Term or
+            LabelledForm.
 
         Returns
         -------
-        :class:`Term` or :class:`LabelledForm`
-            A :class:`Term` is returned if the target is a :class:`Term`,
-            otherwise a :class:`LabelledForm` is returned.
+        Term or LabelledForm
+            A Term is returned if the target is a Term,
+            otherwise a LabelledForm is returned.
         """
         # if value is provided, check that we have a validator function
         # and validate the value, otherwise use default value
@@ -416,18 +418,18 @@ class Label(object):
         """
         Removes a label from a term or labelled form.
 
-        This removes any :class:`Label` with this `label` from
-        `target`. If called on an :class:`LabelledForm`, it acts termwise.
+        This removes any Label with this ``label`` from
+        ``target``. If called on an LabelledForm, it acts term-wise.
 
         Parameters
         ----------
-        target : :class:`Term` or :class:`LabelledForm`
+        target : Term or LabelledForm
             Term or labelled form to have this label removed from.
 
         Raises
         ------
         ValueError
-            If the `target` is not a :class:`Term` or a :class:`LabelledForm`.
+            If the `target` is not a Term or a LabelledForm.
         """
 
         if isinstance(target, LabelledForm):
@@ -446,12 +448,12 @@ class Label(object):
         """
         Updates the label of a term or labelled form.
 
-        This updates the value of any :class:`Label` with this `label` from
-        `target`. If called on an :class:`LabelledForm`, it acts termwise.
+        This updates the value of any Label with this ``label`` from
+        ``target``. If called on an LabelledForm, it acts term-wise.
 
         Parameters
         ----------
-        target : :class:`Term` or :class:`LabelledForm`
+        target : Term or LabelledForm
             Term or labelled form to have this label updated.
         new : Any
             The new value for this label to take. The type is subject to the
@@ -460,7 +462,7 @@ class Label(object):
         Raises
         ------
         ValueError
-            If the `target` is not a :class:`Term` or a :class:`LabelledForm`.
+            If the `target` is not a Term or a LabelledForm.
         """
 
         if isinstance(target, LabelledForm):
