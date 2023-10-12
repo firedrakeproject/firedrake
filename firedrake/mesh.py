@@ -2860,7 +2860,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     name = name if name is not None else mesh.name + "_immersed_vom"
 
     def initialise(mesh, swarm, tdim, name, use_cell_dm_marking):
-
         # Topology
         topology = VertexOnlyMeshTopology(
             swarm,
@@ -2869,32 +2868,16 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
             use_cell_dm_marking=use_cell_dm_marking,
             reorder=False,
         )
-
         # Geometry
         tcell = topology.ufl_cell()
         cell = tcell.reconstruct(geometric_dimension=gdim)
         element = finat.ufl.VectorElement("DG", cell, 0)
         # Create mesh object
         vmesh = MeshGeometry.__new__(MeshGeometry, element)
-        vmesh._topology = topology
+        vmesh._init_topology(topology)
         vmesh._parent_mesh = mesh
-
         # Finish the initialisation of mesh topology
-        vmesh.topology.init()
-
-        # Initialise mesh geometry
-        coordinates_fs = functionspace.VectorFunctionSpace(vmesh.topology, "DG", 0,
-                                                           dim=gdim)
-
-        coordinates_data = dmcommon.reordered_coords(swarm, coordinates_fs.dm.getDefaultSection(),
-                                                     (vmesh.num_vertices(), gdim))
-
-        coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                      val=coordinates_data,
-                                                      name="Coordinates")
-
-        vmesh.__init__(coordinates)
-
+        vmesh.init()
         # Save vertex reference coordinate (within reference cell) in function
         if tdim > 0:
             reference_coordinates_fs = functionspace.VectorFunctionSpace(
@@ -2906,7 +2889,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         else:
             # We can't do this in 0D so leave it undefined.
             vmesh.reference_coordinates = None
-
         return vmesh
 
     vmesh_out = initialise(mesh, swarm, tdim, name, use_cell_dm_marking=True)
