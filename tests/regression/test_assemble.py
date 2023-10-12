@@ -266,3 +266,19 @@ def test_assemble_mixed_function_sparse():
     f.sub(4).interpolate(Constant(3.0))
     v = assemble((inner(f[1], f[1]) + inner(f[4], f[4])) * dx)
     assert np.allclose(v, 13.0)
+
+
+def test_3125():
+    # see https://github.com/firedrakeproject/firedrake/issues/3125
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "CG", 1)
+    Z = MixedFunctionSpace([V, W])
+    z = Function(Z)
+    u, p = split(z)
+    tst = TestFunction(Z)
+    v, q = split(tst)
+    d = Function(W)
+    F = inner(z, tst)*dx + inner(u, v)/(d+p)*dx(2, degree=10)
+    # should run without error
+    solve(F == 0, z)
