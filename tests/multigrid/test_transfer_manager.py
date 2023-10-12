@@ -4,12 +4,23 @@ from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
 
 
+@pytest.fixture(scope="module")
+def hierarchy():
+    mesh = UnitSquareMesh(1, 1)
+    return MeshHierarchy(mesh, 1)
+
+
+@pytest.fixture
+def mesh(hierarchy):
+    return hierarchy[-1]
+
+
+transfer = TransferManager()
+
+
 @pytest.mark.parametrize("sub", (True, False), ids=["Z.sub(0)", "V"])
 @pytest.mark.skipcomplexnoslate
-def test_transfer_manager_inside_coarsen(sub):
-    mesh = UnitSquareMesh(1, 1)
-    mh = MeshHierarchy(mesh, 1)
-    mesh = mh[-1]
+def test_transfer_manager_inside_coarsen(sub, mesh):
     V = FunctionSpace(mesh, "N1curl", 2)
     Q = FunctionSpace(mesh, "P", 1)
     Z = V*Q
@@ -41,3 +52,45 @@ def test_transfer_manager_inside_coarsen(sub):
     x, y = SpatialCoordinate(mesh)
     expect = project(as_vector([-y, x]), V)
     assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro)
+
+
+@pytest.mark.parametrize("transfer_op", ("prolong", "restrict", "inject"))
+@pytest.mark.parametrize("family", ("CG", "RT"))
+def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
+    Vc = FunctionSpace(hierarchy[0], family, 1)
+    Vf = FunctionSpace(hierarchy[1], family, 1)
+    if transfer_op == "prolong":
+        op = transfer.prolong
+        source = Function(Vc)
+        target = Function(Vf)
+    elif transfer_op == "restrict":
+        op = transfer.restrict
+        source = Function(Vf)
+        target = Function(Vc)
+    elif transfer_op == "inject":
+        op = transfer.inject
+        source = Function(Vf)
+        target = Function(Vc)
+
+    # Test that the operator produces an output for an unrecognized input
+    source.assign(1)
+    op(source, target)
+    assert not numpy.allclose(target.dat.data_ro, 0.0)
+
+    # Test no-op for unmodified input
+    for k in range(2):
+        dat_version = target.dat.dat_version
+        op(source, target)
+        assert target.dat.dat_version == dat_version
+
+    # Modify the input, test that the output is regenerated
+    source.assign(2)
+    dat_version = target.dat.dat_version
+    op(source, target)
+    assert target.dat.dat_version > dat_version
+
+    # Modify the output, test that the output is regenerated
+    target.assign(3)
+    dat_version = target.dat.dat_version
+    op(source, target)
+    assert target.dat.dat_version > dat_version

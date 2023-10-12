@@ -123,6 +123,12 @@ def test_poisson_gmg_parallel_newtonfas():
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_baseform_coarsening(typ):
     parameters = solver_parameters(typ)
+    parameters = dict(parameters)
+    parameters["snes_rtol"] = 1.0E-10
+    parameters["snes_atol"] = 0.0
+    parameters["ksp_type"] = "gmres"
+    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_atol"] = 0.0
     base = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(base, 2, refinements_per_level=2)
     mesh = mh[-1]
@@ -156,3 +162,64 @@ def test_baseform_coarsening(typ):
 
     for s in solutions[1:]:
         assert errornorm(s, solutions[0]) < 1E-14
+
+
+def run_helmholtz(typ):
+    parameters = solver_parameters(typ)
+    parameters = dict(parameters)
+    parameters["ksp_type"] = "gmres"
+    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_atol"] = 0.0
+
+    base = UnitSquareMesh(10, 10)
+    nlevel = 4
+
+    mh = MeshHierarchy(base, nlevel)
+    mesh = mh[-1]
+    R = FunctionSpace(mesh, 'R', 0)
+    V = FunctionSpace(mesh, 'CG', 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    uh = Function(V)
+    alpha = Function(R)
+    one = Function(R)
+    one.assign(1.0)
+
+    # Choose a forcing function such that the exact solution is not an
+    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
+    # iterations of ilu fails to converge this problem sufficiently.
+    x = SpatialCoordinate(V.mesh())
+    uexact = sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])
+
+    # The problem is parametrized such that
+    # alpha = 0 gives the mass matrix, and alpha = 1 gives Poisson
+    a = inner((one - alpha) * u, v)*dx + inner(alpha * grad(u), grad(v))*dx
+    L = a(v, uexact)
+    bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
+
+    transfer = TransferManager()
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    solver.set_transfer_manager(transfer)
+
+    for val in (0.0, 1.0):
+        alpha.assign(val)
+        uh.assign(0)
+        solver.solve()
+        its_reused = solver.snes.ksp.getIterationNumber()
+        res_reused = solver.snes.getFunctionNorm()
+
+    new_solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    new_solver.set_transfer_manager(transfer)
+    uh.assign(0)
+    new_solver.solve()
+    its_new = new_solver.snes.ksp.getIterationNumber()
+    res_new = new_solver.snes.getFunctionNorm()
+    assert its_reused == its_new
+    assert numpy.isclose(res_reused, res_new)
+
+
+@pytest.mark.parametrize("typ",
+                         ["mg", "mgmatfree"])
+def test_reinjection(typ):
+    run_helmholtz(typ)
