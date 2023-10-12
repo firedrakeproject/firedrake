@@ -1,3 +1,4 @@
+import gc
 import ufl
 from itertools import chain
 from contextlib import ExitStack
@@ -286,6 +287,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
+        gc.collect()
         comm = self._problem.u.function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
