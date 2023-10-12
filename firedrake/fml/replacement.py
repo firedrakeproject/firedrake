@@ -4,7 +4,9 @@ Generic routines for replacing functions using FML.
 
 import ufl
 from .form_manipulation_language import Term, subject
-from firedrake import split, MixedElement
+from firedrake import split, MixedElement, Function, Argument
+from collections.abc import Callable
+from typing import Union
 
 __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 
@@ -12,7 +14,13 @@ __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 # ---------------------------------------------------------------------------- #
 # A general routine for building the replacement dictionary
 # ---------------------------------------------------------------------------- #
-def _replace_dict(old, new, old_idx, new_idx, replace_type):
+def _replace_dict(
+    old: Union[Function, Argument],
+    new: Union[Function, Argument],
+    old_idx: Union[int, None],
+    new_idx: Union[int, None],
+    replace_type: str
+) -> dict:
     """
     Build a dictionary to pass to the ufl.replace routine. The dictionary
     matches variables in the old term with those in the new.
@@ -22,17 +30,19 @@ def _replace_dict(old, new, old_idx, new_idx, replace_type):
 
     Parameters
     ----------
-    old : Function or TestFunction or TrialFunction
+    old
         The old variable to be replaced.
-    new : Function or TestFunction or TrialFunction
+        (Function or TestFunction or TrialFunction)
+    new
         The new variable to be replace with.
-    old_idx : int
+        (Function or TestFunction or TrialFunction)
+    old_idx
         The index of the old variable to be replaced. If the old variable is not
         indexable then this should be None.
-    new_idx : int
+    new_idx
         The index of the new variable to replace with. If the new variable is
         not indexable then this should be None.
-    replace_type : str
+    replace_type
         A string to use in error messages, describing the type of replacement
         that is happening.
 
@@ -125,36 +135,46 @@ def _replace_dict(old, new, old_idx, new_idx, replace_type):
 # ---------------------------------------------------------------------------- #
 # Replacement routines
 # ---------------------------------------------------------------------------- #
-def replace_test_function(new_test, old_idx=None, new_idx=None):
+def replace_test_function(
+    new_test: Argument,
+    old_idx: Union[int, None] = None,
+    new_idx: Union[int, None] = None
+) -> Callable:
     """
     A routine to replace the test function in a term with a new test function.
 
     Parameters
     ----------
-    new_test : Argument
+    new_test
         The new test function.
+    old_idx
+        The index of the old TestFunction to be replaced. If the old
+        variable is not indexable then this should be None.
+    new_idx
+        The index of the new TestFunction to replace with. If the new
+        variable is not indexable then this should be None.
 
     Returns
     -------
-    `callable`
+    Callable
         A function that takes in t, a .Term, and returns a new
         .Term with form containing the ``new_test`` and
         ``labels=t.labels``
     """
 
-    def repl(t):
+    def repl(t: Term) -> Term:
         """
         Replaces the test function in a term with a new expression. This is
         built around the ufl replace routine.
 
         Parameters
         ----------
-        t : .Term
+        t
             The original term.
 
         Returns
         -------
-        .Term
+        Term
             The new term.
         """
         old_test = t.form.arguments()[0]
@@ -174,31 +194,41 @@ def replace_test_function(new_test, old_idx=None, new_idx=None):
     return repl
 
 
-def replace_trial_function(new_trial, old_idx=None, new_idx=None):
+def replace_trial_function(
+    new_trial: Union[Argument, Function],
+    old_idx: Union[int, None] = None,
+    new_idx: Union[int, None] = None
+) -> Callable:
     """
     A routine to replace the trial function in a term with a new expression.
 
     Parameters
     ----------
-    new : Argument or firedrake.function.Function
+    new
         The new function.
+    old_idx
+        The index of the old Function or TrialFunction to be replaced.
+        If the old variable is not indexable then this should be None.
+    new_idx
+        The index of the new Function or TrialFunction to replace with.
+        If the new variable is not indexable then this should be None.
 
     Returns
     -------
-    `callable`
-        A function that takes in t, a .Term, and returns a new
-        .Term with form containing the ``new_test`` and
+    Callable
+        A function that takes in t, a Term, and returns a new
+        Term with form containing the ``new_test`` and
         ``labels=t.labels``
     """
 
-    def repl(t):
+    def repl(t: Term) -> Term:
         """
         Replaces the trial function in a term with a new expression. This is
         built around the ufl replace routine.
 
         Parameters
         ----------
-        t : .Term
+        t
             The original term.
 
         Raises
@@ -208,7 +238,7 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
 
         Returns
         -------
-        .Term
+        Term
             The new term.
         """
         if len(t.form.arguments()) != 2:
@@ -230,26 +260,39 @@ def replace_trial_function(new_trial, old_idx=None, new_idx=None):
     return repl
 
 
-def replace_subject(new_subj, old_idx=None, new_idx=None):
+def replace_subject(
+    new_subj: ufl.core.expr.Expr,
+    old_idx: Union[int, None] = None,
+    new_idx: Union[int, None] = None
+) -> Callable:
     """
     A routine to replace the subject in a term with a new variable.
 
     Parameters
     ----------
-    new : ufl.Expr
+    new
         The new expression to replace the subject.
-    idx : `int`, optional
-        Index of the subject in the equation's MixedFunctionSpace.
-        Defaults to None.
+    old_idx
+        The index of the old subject to be replaced. If the old
+        variable is not indexable then this should be None.
+    new_idx
+        The index of the new subject to replace with. If the new
+        variable is not indexable then this should be None.
+
+    Returns
+    -------
+    Callable
+        A function that takes in t, a Term, and returns a new Term with
+        form containing the ``new_test`` and ``labels=t.labels``
     """
-    def repl(t):
+    def repl(t: Term) -> Term:
         """
         Replaces the subject in a term with a new expression. This is built
         around the ufl replace routine.
 
         Parameters
         ----------
-        t : .Term
+        t
             The original term.
 
         Raises
@@ -260,7 +303,7 @@ def replace_subject(new_subj, old_idx=None, new_idx=None):
 
         Returns
         -------
-        .Term
+        Term
             The new term.
         """
 
