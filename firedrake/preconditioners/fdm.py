@@ -728,11 +728,9 @@ static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restric
     PetscFunctionReturn(PETSC_SUCCESS);
 }"""
         if mat_type != "matfree":
-            select_cols = ""
-            if mat_type.endswith("sbaij"):
-                select_cols = """
-            for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
-                indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
+            select_cols = """
+        for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
+            indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
             code += """
 static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
                                                 const PetscInt *restrict rindices,
@@ -757,7 +755,7 @@ static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
     PetscCall(PetscFree(indices));
     PetscFunctionReturn(PETSC_SUCCESS);
-}""" % {"select_cols": select_cols}
+}""" % {"select_cols": select_cols if mat_type.endswith("sbaij") else ""}
         code += self.code % dict(self.rules, name=self.name,
                                  indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
                                  rows=indices[0], cols=indices[-1], addv=addv)
@@ -1129,9 +1127,9 @@ def wrap_form(a, prefix="form", fcp=None, matshell=False):
         ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
         matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
         matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
         cache[key] = (matmult_struct, matmult_call, ctx_struct, ctx_pack)
 
-    # matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
     if matshell:
         matmult_struct += """
 static PetscErrorCode %(prefix)s(Mat A, Vec X, Vec Y) {

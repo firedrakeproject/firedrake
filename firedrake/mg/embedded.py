@@ -25,6 +25,7 @@ class TransferManager(object):
         :arg element: The element to use for the caching."""
         def __init__(self, element):
             self.embedding_element = get_embedding_dg_element(element)
+            self._dat_versions = {}
             self._DG_work = {}
             self._work_vec = {}
             self._V_dof_weights = {}
@@ -328,41 +329,49 @@ class TransferManager(object):
         """
         Vs = source.function_space()
         Vt = target.function_space()
-
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
+
+        cache = self.cache(source_element)
+        key = (transfer_op, source, target)
+        if key in cache._dat_versions:
+            dat_versions = (source.dat.dat_version, target.dat.dat_version)
+            if cache._dat_versions[key] == dat_versions:
+                return
+
         if self.is_native(source_element) and self.is_native(target_element):
-            return self._native_transfer(source_element, transfer_op)(source, target)
-        if type(source_element) is ufl.MixedElement:
+            self._native_transfer(source_element, transfer_op)(source, target)
+        elif type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
-            return target
-        # Get some work vectors
-        dgsource = self.DG_work(Vs)
-        dgtarget = self.DG_work(Vt)
-        VDGs = dgsource.function_space()
-        VDGt = dgtarget.function_space()
+        else:
+            # Get some work vectors
+            dgsource = self.DG_work(Vs)
+            dgtarget = self.DG_work(Vt)
+            VDGs = dgsource.function_space()
+            VDGt = dgtarget.function_space()
 
-        # Project into DG space
-        # u \in Vs -> u \in VDGs
-        with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
-            self.V_DG_project_reference_values(Vs, VDGs).mult(sv, dgv)
+            # Project into DG space
+            # u \in Vs -> u \in VDGs
+            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+                self.V_DG_project_reference_values(Vs, VDGs).mult(sv, dgv)
 
-        # Transfer
-        # u \in VDGs -> u \in VDGt
-        self.op(dgsource, dgtarget, transfer_op)
+            # Transfer
+            # u \in VDGs -> u \in VDGt
+            self.op(dgsource, dgtarget, transfer_op)
 
-        # Project back
-        # u \in VDGt -> u \in Vt
-        with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
-            if self.use_averaging:
-                self.V_approx_inv_mass_piola(Vs, Vt, VDGt).mult(dgv, t)
-                t.pointwiseDivide(t, self.V_dof_weights(Vt))
-            else:
-                work = self.work_vec(Vt)
-                self.V_DG_mass_piola(Vs, Vt, VDGt).mult(dgv, work)
-                self.V_inv_mass_ksp(Vt).solve(work, t)
+            # Project back
+            # u \in VDGt -> u \in Vt
+            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+                if self.use_averaging:
+                    self.V_approx_inv_mass_piola(Vs, Vt, VDGt).mult(dgv, t)
+                    t.pointwiseDivide(t, self.V_dof_weights(Vt))
+                else:
+                    work = self.work_vec(Vt)
+                    self.V_DG_mass_piola(Vs, Vt, VDGt).mult(dgv, work)
+                    self.V_inv_mass_ksp(Vt).solve(work, t)
+        cache._dat_versions[key] = (source.dat.dat_version, target.dat.dat_version)
 
     def prolong(self, uc, uf):
         """Prolong a function.
@@ -388,35 +397,42 @@ class TransferManager(object):
         """
         Vc = gc.function_space()
         Vf = gf.function_space()
-
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
+
+        cache = self.cache(source_element)
+        key = (Op.RESTRICT, gf, gc)
+        if key in cache._dat_versions:
+            dat_versions = (gf.dat.dat_version, gc.dat.dat_version)
+            if cache._dat_versions[key] == dat_versions:
+                return
+
         if self.is_native(source_element) and self.is_native(target_element):
-            return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
-        if type(source_element) is ufl.MixedElement:
+            self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
+        elif type(source_element) is ufl.MixedElement:
             assert type(target_element) is ufl.MixedElement
             for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
-            return gc
-        dgf = self.DG_work(Vf)
-        dgc = self.DG_work(Vc)
-        VDGf = dgf.function_space()
-        VDGc = dgc.function_space()
-        work = self.work_vec(Vf)
+        else:
+            dgf = self.DG_work(Vf)
+            dgc = self.DG_work(Vc)
+            VDGf = dgf.function_space()
+            VDGc = dgc.function_space()
+            work = self.work_vec(Vf)
 
-        # g \in Vf^* -> g \in VDGf^*
-        with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
-            if self.use_averaging:
-                work.pointwiseDivide(gfv, self.V_dof_weights(Vf))
-                self.V_approx_inv_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
-            else:
-                self.V_inv_mass_ksp(Vf).solve(gfv, work)
-                self.V_DG_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
+            # g \in Vf^* -> g \in VDGf^*
+            with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
+                if self.use_averaging:
+                    work.pointwiseDivide(gfv, self.V_dof_weights(Vf))
+                    self.V_approx_inv_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
+                else:
+                    self.V_inv_mass_ksp(Vf).solve(gfv, work)
+                    self.V_DG_mass_piola(Vc, Vf, VDGf).multTranspose(work, dgscratch)
 
-        # g \in VDGf^* -> g \in VDGc^*
-        self.restrict(dgf, dgc)
+            # g \in VDGf^* -> g \in VDGc^*
+            self.restrict(dgf, dgc)
 
-        # g \in VDGc^* -> g \in Vc^*
-        with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
-            self.V_DG_project_reference_values(Vc, VDGc).multTranspose(dgscratch, gcv)
-        return gc
+            # g \in VDGc^* -> g \in Vc^*
+            with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
+                self.V_DG_project_reference_values(Vc, VDGc).multTranspose(dgscratch, gcv)
+        cache._dat_versions[key] = (gf.dat.dat_version, gc.dat.dat_version)
