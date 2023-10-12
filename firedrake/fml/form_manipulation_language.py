@@ -4,8 +4,7 @@ import ufl
 import functools
 import operator
 from firedrake import Constant, Function
-from collections.abc import Callable, Sequence, Mapping
-from typing import Any, Union
+from typing import Any, Callable, Mapping, Sequence, Tuple, Union
 
 
 __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
@@ -61,7 +60,7 @@ class Term(object):
         self,
         *labels: Union[Sequence["Label"], "Label"],
         return_tuple: bool = False
-    ) -> Union[tuple[bool], bool]:
+    ) -> Union[Tuple[bool], bool]:
         """
         Whether the term has the specified labels attached to it.
 

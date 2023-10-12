@@ -5,8 +5,7 @@ Generic routines for replacing functions using FML.
 import ufl
 from .form_manipulation_language import Term, subject
 from firedrake import split, MixedElement, Function, Argument
-from collections.abc import Callable
-from typing import Union
+from typing import Callable, Union
 
 __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 
