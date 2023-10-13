@@ -25,7 +25,7 @@ osname = platform.uname().system
 arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy"]
+wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
 parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
@@ -326,10 +326,10 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
+    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
-                        help="Install Netgen.")
+                        help="Install NGSolve/Netgen and ngsPETSc.")
 
     args = parser.parse_args()
 
@@ -434,7 +434,7 @@ else:
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
+    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
@@ -1417,7 +1417,19 @@ def build_and_install_slepc():
 
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "ngsolve", "--pre"])
+    run_pip(["install", "netgen-mesher==6.2.2304.post142.dev0"])
+    log.info("Installing ngsPETSc.")
+    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
+    ngsPETSc_changed = False
+    if os.path.exists("ngsPETSc"):
+        ngsPETSc_changed |= git_update("ngsPETSc")
+    else:
+        git_clone(url)
+        ngsPETSc_changed = True
+    if ngsPETSc_changed:
+        with directory("ngsPETSc"):
+            with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
+                check_call([python, "-m", "pip", "install", "-e", "."])
 
 
 def install_documentation_dependencies():
