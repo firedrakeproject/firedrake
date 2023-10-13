@@ -73,10 +73,12 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
         op = transfer.inject
         source = Function(Vf)
         target = Function(Vc)
-        if family != "CG" and complex_mode:
-            with pytest.raises(NotImplementedError):
-                op(source, target)
-                return
+
+    if complex_mode and ((family == "DG" and transfer_op == "inject")
+                         or family not in {"CG", "DG"}):
+        with pytest.raises(NotImplementedError):
+            op(source, target)
+            return
 
     # Test that the operator produces an output for an unrecognized input
     source.assign(1)
