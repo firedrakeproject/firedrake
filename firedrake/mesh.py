@@ -1517,7 +1517,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, tolerance=0.5):
+    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, original_swarm=None, tolerance=0.5):
         """
         Half-initialise a mesh topology.
 
@@ -1535,6 +1535,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             resides in. For extruded meshes this is the base mesh cell. If
             false, we let mark_entity_classes do the marking. In such a case
             we should not let there be any vertices in the halo regions.
+        :arg original_swarm: The original swarm.
         :tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
             still be considered to be in the cell.
@@ -1588,6 +1589,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             entity_dofs[:] = 0
             entity_dofs[0] = 1
             self._vertex_numbering = self.create_section(entity_dofs)
+        self.original_swarm = original_swarm
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -1745,7 +1747,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
-        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
+        :class:`~.VertexOnlyMeshTopology` whilst preserving other information, such as
         the global indices and parent mesh cell information.
 
         Notes
@@ -1758,7 +1760,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        return self._input_ordering
+        # Make the VOM which uses the original ordering of the points
+        if self.original_swarm:
+            return VertexOnlyMeshTopology(
+                self.original_swarm,
+                self,
+                name=self.name + "_input_ordering",
+                use_cell_dm_marking=False,
+                reorder=False,
+            )
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
@@ -2284,6 +2294,30 @@ values from f.)"""
                                 ctypes.c_size_t]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves. Extend this for regular meshes.
+    def input_ordering(self):
+        """
+        Return the input ordering of the mesh vertices as a
+        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
+        the global indices and parent mesh cell information.
+
+        Notes
+        -----
+        If ``redundant=True`` at mesh creation, all the vertices will
+        be returned on rank 0.
+
+        Any points that were not found in the original mesh when it was created
+        will still be present here in their originally supplied order.
+
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        _input_ordering = make_vom_from_vom_topology(self.topology.input_ordering, self.name + "_input_ordering")
+        if _input_ordering:
+            _input_ordering._parent_mesh = self
+            _input_ordering.init()
+            return _input_ordering
 
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
@@ -2902,23 +2936,11 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         name=name,
         use_cell_dm_marking=True,
         reorder=False,
+        original_swarm=original_swarm
     )
     vmesh_out = make_vom_from_vom_topology(topology, name)
     vmesh_out._parent_mesh = mesh
     vmesh_out.init()
-    # Make the VOM which uses the original ordering of the points
-    topology = VertexOnlyMeshTopology(
-        original_swarm,
-        vmesh_out.topology,
-        name=name + "_input_ordering",
-        use_cell_dm_marking=False,
-        reorder=False,
-    )
-    vmesh_out.topology._input_ordering = make_vom_from_vom_topology(topology, name + "_input_ordering")
-    vmesh_out.topology._input_ordering._parent_mesh = vmesh_out
-    vmesh_out.topology._input_ordering.init()
-    vmesh_out.topology._input_ordering.topology._input_ordering = None
-
     return vmesh_out
 
 
