@@ -87,8 +87,9 @@ def test_prolong_de_rham(tp_mesh):
     for u in us:
         for v in us:
             if u != v:
-                P = prolongation_matrix_matfree(u, v).getPythonContext()
-                P._prolong()
+                P = prolongation_matrix_matfree(u, v)
+                with u.dat.vec as x, v.dat.vec as y:
+                    P.mult(x, y)
                 assert norm(v-expr, "L2") < 1E-14
 
 
@@ -113,8 +114,9 @@ def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
     uc.dat.data[1::2] = 1.0
 
     for v in [ui, uf]:
-        P = prolongation_matrix_matfree(uc, v).getPythonContext()
-        P._prolong()
+        P = prolongation_matrix_matfree(uc, v)
+        with uc.dat.vec as x, v.dat.vec as y:
+            P.mult(x, y)
 
     assert norm(ui + uf - uc, "L2") < 2E-14
 

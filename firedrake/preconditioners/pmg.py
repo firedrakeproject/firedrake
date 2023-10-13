@@ -1189,7 +1189,8 @@ class StandaloneInterpolationMatrix(object):
         return weight
 
     @cached_property
-    def _kernels(self):
+    def _parloops(self):
+        self._prolong_write = True
         try:
             # We generate custom prolongation and restriction kernels mainly because:
             # 1. Code generation for the transpose of prolongation is not readily available
@@ -1201,6 +1202,7 @@ class StandaloneInterpolationMatrix(object):
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
+            self._prolong_write = False
         except ValueError:
             # The elements do not have the expected tensor product structure
             # Fall back to aij kernels
@@ -1221,14 +1223,10 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        with self.uf.dat.vec_wo as uf:
-            uf.set(0.0E0)
-        self._kernels[0]()
+        self._parloops[0]()
 
     def _restrict(self):
-        with self.uc.dat.vec_wo as uc:
-            uc.set(0.0E0)
-        self._kernels[1]()
+        self._parloops[1]()
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -1427,48 +1425,47 @@ class StandaloneInterpolationMatrix(object):
         restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
-    def multTranspose(self, mat, rf, rc):
-        """
-        Implement restriction: restrict residual on fine grid rf to coarse grid rc.
-        """
-        with self.uf.dat.vec_wo as uf:
-            rf.copy(uf)
-        for bc in self.Vf_bcs:
-            bc.zero(self.uf)
+    def _copy(self, x, y):
+        if x.handle != y.handle:
+            x.copy(y)
 
-        self._restrict()
-
-        for bc in self.Vc_bcs:
-            bc.zero(self.uc)
-        with self.uc.dat.vec_ro as uc:
-            uc.copy(rc)
-
-    def mult(self, mat, xc, xf, inc=False):
-        """
-        Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
-        """
-        with self.uc.dat.vec_wo as uc:
-            xc.copy(uc)
-        for bc in self.Vc_bcs:
-            bc.zero(self.uc)
-
-        self._prolong()
-
-        for bc in self.Vf_bcs:
-            bc.zero(self.uf)
+    def _op(self, action, x_bcs, y_bcs, x, y, X, Y, W=None, inc=False):
+        out = Y if W is None else W
         if inc:
-            with self.uf.dat.vec_ro as uf:
-                xf.axpy(1.0, uf)
+            self._copy(Y, out)
         else:
-            with self.uf.dat.vec_ro as uf:
-                uf.copy(xf)
+            with y.dat.vec_wo as v:
+                if W is None:
+                    v.zeroEntries()
+                else:
+                    self._copy(Y, v)
+        with x.dat.vec_wo as v:
+            self._copy(X, v)
+        for bc in x_bcs:
+            bc.zero(x)
+        action()
+        for bc in y_bcs:
+            bc.zero(y)
+        with y.dat.vec_ro as v:
+            if inc:
+                out.axpy(1.0, v)
+            else:
+                self._copy(v, out)
 
-    def multAdd(self, mat, x, y, w):
-        if y.handle == w.handle:
-            self.mult(mat, x, w, inc=True)
-        else:
-            self.mult(mat, x, w)
-            w.axpy(1.0, y)
+    def mult(self, mat, X, Y):
+        """Prolong correction on coarse grid X to fine grid Y."""
+        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y)
+
+    def multAdd(self, mat, X, Y, W):
+        inc = self._prolong_write
+        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W, inc=inc)
+
+    def multTranspose(self, mat, X, Y):
+        """Restrict residual on fine grid X to coarse grid Y."""
+        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y)
+
+    def multTransposeAdd(self, mat, X, Y, W):
+        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y, W)
 
 
 class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
@@ -1490,7 +1487,8 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         return standalones
 
     @cached_property
-    def _kernels(self):
+    def _parloops(self):
+        self._prolong_write = any(s._prolong_write for s in self._standalones)
         prolong = lambda: [s._prolong() for s in self._standalones]
         restrict = lambda: [s._restrict() for s in self._standalones]
         return prolong, restrict
