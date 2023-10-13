@@ -1433,12 +1433,11 @@ class StandaloneInterpolationMatrix(object):
         out = Y if W is None else W
         if inc:
             self._copy(Y, out)
-        else:
-            with y.dat.vec_wo as v:
-                if W is None:
-                    v.zeroEntries()
-                else:
-                    self._copy(Y, v)
+        with y.dat.vec_wo as v:
+            if W is None or inc:
+                v.zeroEntries()
+            else:
+                self._copy(Y, v)
         with x.dat.vec_wo as v:
             self._copy(X, v)
         for bc in x_bcs:
@@ -1457,10 +1456,7 @@ class StandaloneInterpolationMatrix(object):
         self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y)
 
     def multAdd(self, mat, X, Y, W):
-        # FIXME initialize parloops in order to know prolongation access
-        action = self._prolong
-        inc = self._prolong_write
-        self._op(action, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W=W, inc=inc)
+        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W=W, inc=self._prolong_write)
 
     def multTranspose(self, mat, X, Y):
         """Restrict residual on fine grid X to coarse grid Y."""
