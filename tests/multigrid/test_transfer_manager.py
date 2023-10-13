@@ -2,6 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(scope="module")
@@ -55,10 +56,11 @@ def test_transfer_manager_inside_coarsen(sub, mesh):
 
 
 @pytest.mark.parametrize("transfer_op", ("prolong", "restrict", "inject"))
-@pytest.mark.parametrize("family", ("CG", "RT"))
+@pytest.mark.parametrize("family", ("CG", "DG", "RT"))
 def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
-    Vc = FunctionSpace(hierarchy[0], family, 1)
-    Vf = FunctionSpace(hierarchy[1], family, 1)
+    degree = 1
+    Vc = FunctionSpace(hierarchy[0], family, degree)
+    Vf = FunctionSpace(hierarchy[1], family, degree)
     if transfer_op == "prolong":
         op = transfer.prolong
         source = Function(Vc)
@@ -71,6 +73,10 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
         op = transfer.inject
         source = Function(Vf)
         target = Function(Vc)
+        if family != "CG" and complex_mode:
+            with pytest.raises(NotImplementedError):
+                op(source, target)
+                return
 
     # Test that the operator produces an output for an unrecognized input
     source.assign(1)
