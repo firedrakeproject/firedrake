@@ -276,4 +276,3 @@ packages for which these are also dependencies.
 .. _discussions: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
-.. _MacOS: https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS
