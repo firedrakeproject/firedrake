@@ -100,3 +100,20 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
     dat_version = target.dat.dat_version
     op(source, target)
     assert target.dat.dat_version > dat_version
+
+    # Test that the operator produces an output for an unrecognized input
+    source = Function(source)
+    target = Function(target)
+    dat_version = target.dat.dat_version
+    op(source, target)
+    assert target.dat.dat_version > dat_version
+
+    # Wrap old dats with new functions, test that old dats are still recognized
+    dat_version = target.dat.dat_version
+    old_dats = (source.dat, target.dat)
+    source = Function(source.function_space(), val=source.dat)
+    target = Function(target.function_space(), val=target.dat)
+    assert (source.dat, target.dat) == old_dats
+    assert target.dat.dat_version == dat_version
+    op(source, target)
+    assert target.dat.dat_version == dat_version
