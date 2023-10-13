@@ -1457,15 +1457,17 @@ class StandaloneInterpolationMatrix(object):
         self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y)
 
     def multAdd(self, mat, X, Y, W):
+        # FIXME initialize parloops in order to know prolongation access
+        action = self._prolong
         inc = self._prolong_write
-        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W, inc=inc)
+        self._op(action, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W=W, inc=inc)
 
     def multTranspose(self, mat, X, Y):
         """Restrict residual on fine grid X to coarse grid Y."""
         self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y)
 
     def multTransposeAdd(self, mat, X, Y, W):
-        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y, W)
+        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y, W=W)
 
 
 class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
@@ -1488,6 +1490,10 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
 
     @cached_property
     def _parloops(self):
+        # FIXME we cannot be lazy, as we do not know a priori if prolongation has write access
+        # Therefore we must initiliaze all standalone parloops in order to know the prolongation access
+        for s in self._standalones:
+            s._parloops
         self._prolong_write = any(s._prolong_write for s in self._standalones)
         prolong = lambda: [s._prolong() for s in self._standalones]
         restrict = lambda: [s._restrict() for s in self._standalones]
