@@ -3426,8 +3426,8 @@ def fill_reference_coordinates_function(reference_coordinates_f):
     from firedrake.mesh import VertexOnlyMeshTopology
     assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
 
-    gdim = reference_coordinates_f.function_space().mesh()._parent_mesh.geometric_dimension()
-    parent_tdim = reference_coordinates_f.function_space().mesh()._parent_mesh.topological_dimension()
+    gdim = reference_coordinates_f.function_space().mesh().geometric_dimension()
+    parent_tdim, = reference_coordinates_f.function_space().ufl_element().value_shape()
 
     swarm = reference_coordinates_f.function_space().mesh().topology_dm
 

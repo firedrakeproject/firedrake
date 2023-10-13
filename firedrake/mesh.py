@@ -2417,6 +2417,47 @@ def make_mesh_from_mesh_topology(topology, name):
     return mesh
 
 
+def make_vom_from_vom_topology(topology, name):
+    """Make `VertexOnlyMesh` from a mesh topology.
+
+    Parameters
+    ----------
+    topology : VertexOnlyMeshTopology
+        The `VertexOnlyMeshTopology`.
+    name : str
+        The name of the mesh.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    """
+    import firedrake.functionspace as functionspace
+    import firedrake.function as function
+
+    gdim = topology.topology_dm.getCoordinateDim()
+    tcell = topology.ufl_cell()
+    cell = tcell.reconstruct(geometric_dimension=gdim)
+    element = finat.ufl.VectorElement("DG", cell, 0)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh._init_topology(topology)
+    # Save vertex reference coordinate (within reference cell) in function
+    parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
+    if parent_tdim > 0:
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(
+            vmesh, "DG", 0, dim=parent_tdim
+        )
+        vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(
+            function.Function(reference_coordinates_fs)
+        )
+    else:
+        # We can't do this in 0D so leave it undefined.
+        vmesh.reference_coordinates = None
+    vmesh.name = name
+    return vmesh
+
+
 @PETSc.Log.EventDecorator("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
@@ -2804,9 +2845,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     from firedrake_citations import Citations
     Citations().register("nixonhill2023consistent")
 
-    import firedrake.functionspace as functionspace
-    import firedrake.function as function
-
     if tolerance is None:
         tolerance = mesh.tolerance
     else:
@@ -2816,7 +2854,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
     gdim = mesh.geometric_dimension()
-    tdim = mesh.topological_dimension()
     _, pdim = vertexcoords.shape
 
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
@@ -2859,47 +2896,27 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     name = name if name is not None else mesh.name + "_immersed_vom"
 
-    def initialise(mesh, swarm, tdim, name, use_cell_dm_marking):
-        # Topology
-        topology = VertexOnlyMeshTopology(
-            swarm,
-            mesh.topology,
-            name=name,
-            use_cell_dm_marking=use_cell_dm_marking,
-            reorder=False,
-        )
-        # Geometry
-        tcell = topology.ufl_cell()
-        cell = tcell.reconstruct(geometric_dimension=gdim)
-        element = finat.ufl.VectorElement("DG", cell, 0)
-        # Create mesh object
-        vmesh = MeshGeometry.__new__(MeshGeometry, element)
-        vmesh._init_topology(topology)
-        vmesh._parent_mesh = mesh
-        # Finish the initialisation of mesh topology
-        vmesh.init()
-        # Save vertex reference coordinate (within reference cell) in function
-        if tdim > 0:
-            reference_coordinates_fs = functionspace.VectorFunctionSpace(
-                vmesh, "DG", 0, dim=tdim
-            )
-            vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(
-                function.Function(reference_coordinates_fs)
-            )
-        else:
-            # We can't do this in 0D so leave it undefined.
-            vmesh.reference_coordinates = None
-        return vmesh
-
-    vmesh_out = initialise(mesh, swarm, tdim, name, use_cell_dm_marking=True)
-    # Make the VOM which uses the original ordering of the points
-    vmesh_out.topology._input_ordering = initialise(
-        vmesh_out,
-        original_swarm,
-        0,
-        name + "_input_ordering",
-        use_cell_dm_marking=False,
+    topology = VertexOnlyMeshTopology(
+        swarm,
+        mesh.topology,
+        name=name,
+        use_cell_dm_marking=True,
+        reorder=False,
     )
+    vmesh_out = make_vom_from_vom_topology(topology, name)
+    vmesh_out._parent_mesh = mesh
+    vmesh_out.init()
+    # Make the VOM which uses the original ordering of the points
+    topology = VertexOnlyMeshTopology(
+        original_swarm,
+        vmesh_out.topology,
+        name=name + "_input_ordering",
+        use_cell_dm_marking=False,
+        reorder=False,
+    )
+    vmesh_out.topology._input_ordering = make_vom_from_vom_topology(topology, name + "_input_ordering")
+    vmesh_out.topology._input_ordering._parent_mesh = vmesh_out
+    vmesh_out.topology._input_ordering.init()
     vmesh_out.topology._input_ordering.topology._input_ordering = None
 
     return vmesh_out
