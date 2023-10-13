@@ -1765,7 +1765,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return VertexOnlyMeshTopology(
                 self.original_swarm,
                 self,
-                name=self.name + "_input_ordering",
+                name=self.original_swarm.getName(),
                 use_cell_dm_marking=False,
                 reorder=False,
             )
@@ -2883,22 +2883,17 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         tolerance = mesh.tolerance
     else:
         mesh.tolerance = tolerance
-
     mesh.init()
-
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
     gdim = mesh.geometric_dimension()
     _, pdim = vertexcoords.shape
-
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
     # sufficient.
     if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree()) > 1):
         raise NotImplementedError("Only straight edged meshes are supported")
-
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
@@ -2908,15 +2903,12 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     # add `DMLocatePoints` as an `op` to `DMShell` types and do
     # `DMSwarmSetCellDM(yourdmshell)` which has `DMLocatePoints_Shell`
     # implemented. Whether one or both of these is needed is unclear.
-
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
     swarm, original_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
-
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
-
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
         if n_missing_points:
             error = VertexOnlyMeshMissingPointsError(n_missing_points)
@@ -2927,13 +2919,13 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                 warn(str(error))
             else:
                 raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
-
     name = name if name is not None else mesh.name + "_immersed_vom"
-
+    swarm.setName(_generate_default_mesh_topology_name(name))
+    original_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
     topology = VertexOnlyMeshTopology(
         swarm,
         mesh.topology,
-        name=name,
+        name=swarm.getName(),
         use_cell_dm_marking=True,
         reorder=False,
         original_swarm=original_swarm
