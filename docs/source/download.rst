@@ -109,10 +109,12 @@ to 3.11.x is required. Many externally managed dependencies such as VTK
 have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
 The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
-or later, the system installed Python 3 is supported and tested. On
-MacOS, due to current issues with Xcode 15 and MPI, we recommend to follow the
-instructions available 
-`here <https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS>`_ .
+or later, the system installed Python 3 is supported and tested. 
+
+.. note::
+
+  On MacOS, due to current issues with Xcode15 and MPI, we recommend following the instructions available
+  `here <https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS>`_ .
 
 The homebrew_ installed Python 3 is supported::
 
@@ -274,3 +276,4 @@ packages for which these are also dependencies.
 .. _discussions: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
+.. _MacOS: https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS
