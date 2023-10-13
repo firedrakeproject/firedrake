@@ -333,7 +333,7 @@ class TransferManager(object):
         target_element = Vt.ufl_element()
 
         cache = self.cache(source_element)
-        key = (transfer_op, source, target)
+        key = (transfer_op, source.dat, target.dat)
         if key in cache._dat_versions:
             dat_versions = (source.dat.dat_version, target.dat.dat_version)
             if cache._dat_versions[key] == dat_versions:
@@ -401,7 +401,7 @@ class TransferManager(object):
         target_element = Vc.ufl_element()
 
         cache = self.cache(source_element)
-        key = (Op.RESTRICT, gf, gc)
+        key = (Op.RESTRICT, gf.dat, gc.dat)
         if key in cache._dat_versions:
             dat_versions = (gf.dat.dat_version, gc.dat.dat_version)
             if cache._dat_versions[key] == dat_versions:
