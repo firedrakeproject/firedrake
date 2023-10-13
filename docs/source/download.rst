@@ -110,9 +110,10 @@ have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
 The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
 or later, the system installed Python 3 is supported and tested. On
-MacOS, due to current issues with Xcode 15 and MPI_, we recommend to follow the
+MacOS, due to current issues with Xcode 15 and MPI, we recommend to follow the
 instructions available 
-`here < https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS>`_.
+`here <https://github.com/firedrakeproject/firedrake/wiki/Installation-instructions-for-macOS>`_ .
+
 The homebrew_ installed Python 3 is supported::
 
   brew install python3
