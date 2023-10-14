@@ -78,7 +78,7 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
                          or family not in {"CG", "DG"}):
         with pytest.raises(NotImplementedError):
             op(source, target)
-            return
+        return
 
     # Test that the operator produces an output for an unrecognized input
     source.assign(1)
