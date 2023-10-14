@@ -19,6 +19,12 @@ cdef extern from "petsc.h":
         PETSC_COPY_VALUES,
         PETSC_OWN_POINTER,
         PETSC_USE_POINTER
+    ctypedef enum PetscDataType:
+        PETSC_INT,
+        PETSC_REAL,
+        PETSC_SCALAR,
+        PETSC_COMPLEX,
+        PETSC_DATATYPE_UNKNOWN
 
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
@@ -58,14 +64,19 @@ cdef extern from "petscdmlabel.h" nogil:
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
+    int DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
 
 cdef extern from "petscdm.h" nogil:
+    int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
     int DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
+    int DMSwarmGetField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
+    int DMSwarmRestoreField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
 
 cdef extern from "petscvec.h" nogil:
     int VecGetArray(PETSc.PetscVec,PetscScalar**)
@@ -89,6 +100,7 @@ cdef extern from "petscis.h" nogil:
     int ISLocalToGlobalMappingGetSize(PETSc.PetscLGMap,PetscInt*)
     int ISLocalToGlobalMappingGetBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISLocalToGlobalMappingRestoreBlockIndices(PETSc.PetscLGMap, const PetscInt**)
+    int ISDestroy(PETSc.PetscIS*)
 
 cdef extern from "petscsf.h" nogil:
     struct PetscSFNode_:

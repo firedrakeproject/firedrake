@@ -1517,7 +1517,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, use_cell_dm_marking, original_swarm=None, tolerance=0.5):
+    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, tolerance=0.5):
         """
         Half-initialise a mesh topology.
 
@@ -1528,13 +1528,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             topology is immersed.
         :arg name: name of the mesh
         :arg reorder: whether to reorder the mesh (bool)
-        :arg use_cell_dm_marking: whether to inherit vertex markings
-            ("pyop2_core", "pyop2_owned" and "pyop2_ghost") from the cell DM,
-            i.e. the parent mesh DMPlex or DMSwarm. If true, this generally
-            means marking each vertex with the same label as the cell it
-            resides in. For extruded meshes this is the base mesh cell. If
-            false, we let mark_entity_classes do the marking. In such a case
-            we should not let there be any vertices in the halo regions.
         :arg original_swarm: The original swarm.
         :tolerance: The relative tolerance (i.e. as defined on the
             reference cell) for the distance a point can be from a cell and
@@ -1574,11 +1567,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
-            if use_cell_dm_marking:
+            if isinstance(self._parent_mesh, MeshTopology):
                 dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
             else:
                 dmcommon.mark_entity_classes(self.topology_dm)
-
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
             # Derive a cell numbering from the Swarm numbering
@@ -1766,7 +1758,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 self.original_swarm,
                 self,
                 name=self.original_swarm.getName(),
-                use_cell_dm_marking=False,
                 reorder=False,
             )
 
@@ -2926,7 +2917,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         swarm,
         mesh.topology,
         name=swarm.getName(),
-        use_cell_dm_marking=True,
         reorder=False,
         original_swarm=original_swarm
     )

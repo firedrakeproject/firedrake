@@ -1999,80 +1999,50 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     located).
     """
     cdef:
-        PETSc.DM plex=None
-        PETSc.IS core_is=None
-        PETSc.IS owned_is=None
-        PETSc.IS ghost_is=None
-        DMLabel swarm_label_core, swarm_label_owned, swarm_label_ghost
-        PetscInt label_idx, label
-        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_plex_cells
-        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_parent_cell_labels
-
-
-    swarm.createLabel("pyop2_core")
-    swarm.createLabel("pyop2_owned")
-    swarm.createLabel("pyop2_ghost")
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_core", &swarm_label_core))
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_owned", &swarm_label_owned))
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_ghost", &swarm_label_ghost))
+        PETSc.DM plex
+        PetscInt cStart, cEnd, c
+        PetscInt *plex_cell_classes = NULL, plex_cell_class
+        DMLabel swarm_labels[3], plex_label
+        PetscInt label_value = 1, op2class_size, i, ilabel
+        PETSc.PetscIS op2class_is = NULL
+        const PetscInt *class_indices = NULL
+        PetscInt nswarmCells, swarmCell, blocksize
+        PetscInt *swarmParentCells = NULL
+        PetscDataType ctype = PETSC_DATATYPE_UNKNOWN
 
     plex = swarm.getCellDM()
-
-    # Retrieve the indices into the parent DM at which each label is defined.
-    # The label value of 1 is set in mark_entity_classes.
-    core_is = plex.getStratumIS(b"pyop2_core", 1)
-    owned_is = plex.getStratumIS(b"pyop2_owned", 1)
-    ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
-    # The index numbers correspond to the numbering of the cell. NOTE: We have
-    # to put null checks here because petsc4py will not return empty indices
-    # when the iset is null, instead it will crash.
-    if core_is.iset == NULL:
-        core_idxs = np.array([], dtype=IntType)
-        max_core_idx = -1
-    else:
-        core_idxs = core_is.getIndices()
-        max_core_idx = core_idxs.max()
-    if owned_is.iset == NULL:
-        owned_idxs = np.array([], dtype=IntType)
-        max_owned_idx = -1
-    else:
-        owned_idxs = owned_is.getIndices()
-        max_owned_idx = owned_idxs.max()
-    if ghost_is.iset == NULL:
-        ghost_idxs = np.array([], dtype=IntType)
-        max_ghost_idx = -1
-    else:
-        ghost_idxs = ghost_is.getIndices()
-        max_ghost_idx = ghost_idxs.max()
-
-    # We can now make a list of all labels - this includes all topological
-    # entities: cells, facets, edges, vertices. Each has a unique index.
-    max_idx = max(max_core_idx, max_owned_idx, max_ghost_idx)
-    labels = np.zeros(max_idx + 1, dtype=IntType)
-    labels[core_idxs] = 1
-    labels[owned_idxs] = 2
-    labels[ghost_idxs] = 3
-
-    # We know the parent DM cell index for each of our swarm points. We can
-    # therefore filter the list of all labels to find the corresponding label
-    # of each swarm point.
-    swarm_plex_cells = swarm.getField("DMSwarm_cellid")
-    swarm.restoreField("DMSwarm_cellid")
-    swarm_parent_cell_labels = labels[swarm_plex_cells]
-    assert len(swarm_parent_cell_labels) == len(swarm_plex_cells)
-    for label_idx, label in enumerate(swarm_parent_cell_labels):
-        # We set the label using label index since this index is shared across
-        # all DMSwarm fields: label index n into a given field (such as
-        # DMSwarmPIC_coor) always corresponds to the same point in the swarm.
-        if label == 1:
-            CHKERR(DMLabelSetValue(swarm_label_core, label_idx, 1))
-        elif label == 2:
-            CHKERR(DMLabelSetValue(swarm_label_owned, label_idx, 1))
-        elif label == 3:
-            CHKERR(DMLabelSetValue(swarm_label_ghost, label_idx, 1))
-        else:
-            raise RuntimeError("Unknown label value")
-    return
+    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    CHKERR(PetscMalloc1(cEnd - cStart, &plex_cell_classes))
+    for c in range(cStart, cEnd):
+        plex_cell_classes[c - cStart] = -1
+    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
+        CHKERR(DMGetLabel(plex.dm, op2class, &plex_label))
+        # Get number of plex points labeled as this op2class.
+        CHKERR(DMLabelGetStratumSize(plex_label, label_value, &op2class_size))
+        if op2class_size > 0:
+            # Get an IS containing the plex points labeled as this op2class.
+            CHKERR(DMLabelGetStratumIS(plex_label, label_value, &op2class_is))
+            CHKERR(ISGetIndices(op2class_is, &class_indices))
+            for i in range(op2class_size):
+                if cStart <= class_indices[i] < cEnd:  # plex cell points are in [cStart, cEnd)
+                    plex_cell_classes[class_indices[i] - cStart] = ilabel
+            CHKERR(ISRestoreIndices(op2class_is, &class_indices))
+            CHKERR(ISDestroy(&op2class_is))
+    for c in range(cStart, cEnd):
+        if plex_cell_classes[c - cStart] < 0:
+            raise RuntimeError("Cell point %d in the parent plex does not belong to any pyop2 class" % c)
+    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
+        CHKERR(DMCreateLabel(swarm.dm, op2class))
+        CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
+    CHKERR(DMSwarmGetField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    assert ctype == PETSC_INT
+    assert blocksize == 1
+    CHKERR(DMSwarmGetLocalSize(swarm.dm, &nswarmCells))
+    for swarmCell in range(nswarmCells):
+        plex_cell_class = plex_cell_classes[swarmParentCells[swarmCell] - cStart]
+        CHKERR(DMLabelSetValue(swarm_labels[plex_cell_class], swarmCell, label_value))
+    CHKERR(DMSwarmRestoreField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(PetscFree(plex_cell_classes))
 
 
 @cython.boundscheck(False)
