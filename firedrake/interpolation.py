@@ -1031,8 +1031,7 @@ def rebuild(element, expr, rt_var_name):
     raise NotImplementedError(f"Cross mesh interpolation not implemented for a {element} element.")
 
 
-@rebuild.register(finat.GaussLegendre)
-@rebuild.register(finat.DiscontinuousLagrange)
+@rebuild.register(finat.fiat_elements.ScalarFiatElement)
 def rebuild_dg(element, expr, rt_var_name):
     # To tabulate on the given element (which is on a different mesh to the
     # expression) we must do so at runtime. We therefore create a quadrature

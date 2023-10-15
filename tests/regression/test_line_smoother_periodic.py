@@ -5,7 +5,8 @@ import pytest
 
 # Useful for making a periodic hierarchy
 def periodise(m):
-    coord_fs = VectorFunctionSpace(m, "DG", 1, dim=2)
+    element = BrokenElement(FiniteElement("CG", cell=m.ufl_cell(), degree=1))
+    coord_fs = VectorFunctionSpace(m, element, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
     domain = "{[i, j]: 0 <= i < old_coords.dofs and 0 <= j < new_coords.dofs}"
