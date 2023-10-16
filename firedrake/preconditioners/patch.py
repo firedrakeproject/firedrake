@@ -13,7 +13,7 @@ import operator
 from itertools import chain
 from functools import partial
 import numpy
-from ufl.legacy import VectorElement, MixedElement
+from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants

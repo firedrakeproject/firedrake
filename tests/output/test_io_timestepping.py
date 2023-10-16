@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 from pyop2.mpi import COMM_WORLD
 import ufl
-import ufl.legacy
+import finat.ufl
 import os
 
 cwd = os.path.abspath(os.path.dirname(__file__))
@@ -38,14 +38,14 @@ def _project(f, expr, method):
 @pytest.fixture(params=["P1", "BDMF3", "P2-P1", "Real"])
 def element(request):
     if request.param == "P1":
-        return ufl.legacy.FiniteElement("P", ufl.triangle, 1)
+        return finat.ufl.FiniteElement("P", ufl.triangle, 1)
     elif request.param == "BDMF3":
-        return ufl.legacy.FiniteElement("BDMF", ufl.triangle, 3)
+        return finat.ufl.FiniteElement("BDMF", ufl.triangle, 3)
     elif request.param == "P2-P1":
-        return ufl.legacy.MixedElement(ufl.legacy.FiniteElement("P", ufl.triangle, 2),
-                                       ufl.legacy.FiniteElement("P", ufl.triangle, 1))
+        return finat.ufl.MixedElement(finat.ufl.FiniteElement("P", ufl.triangle, 2),
+                                       finat.ufl.FiniteElement("P", ufl.triangle, 1))
     elif request.param == "Real":
-        return ufl.legacy.FiniteElement("Real", ufl.triangle, 0)
+        return finat.ufl.FiniteElement("Real", ufl.triangle, 0)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -54,7 +54,7 @@ def test_io_timestepping(element, tmpdir):
     filename = COMM_WORLD.bcast(filename, root=0)
     mycolor = (COMM_WORLD.rank > COMM_WORLD.size - 1)
     comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
-    method = "project" if isinstance(element, ufl.legacy.MixedElement) else "interpolate"
+    method = "project" if isinstance(element, finat.ufl.MixedElement) else "interpolate"
     if mycolor == 0:
         mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
         V = FunctionSpace(mesh, element)

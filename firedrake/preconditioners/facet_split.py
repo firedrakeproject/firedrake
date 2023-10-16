@@ -38,7 +38,7 @@ class FacetSplitPC(PCBase):
         return self._permutation_cache[key]
 
     def initialize(self, pc):
-        from ufl.legacy import RestrictedElement, MixedElement, TensorElement, VectorElement
+        from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
 

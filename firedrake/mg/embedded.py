@@ -1,6 +1,6 @@
 import firedrake
 import ufl
-import ufl.legacy
+import finat.ufl
 from functools import reduce
 from enum import IntEnum
 from operator import and_
@@ -209,8 +209,8 @@ class TransferManager(object):
         target_element = Vt.ufl_element()
         if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, transfer_op)(source, target)
-        if type(source_element) is ufl.legacy.MixedElement:
-            assert type(target_element) is ufl.legacy.MixedElement
+        if type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
             return target
@@ -271,8 +271,8 @@ class TransferManager(object):
         target_element = Vc.ufl_element()
         if self.is_native(source_element) and self.is_native(target_element):
             return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
-        if type(source_element) is ufl.legacy.MixedElement:
-            assert type(target_element) is ufl.legacy.MixedElement
+        if type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
             return gc

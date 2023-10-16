@@ -11,7 +11,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
-import ufl.legacy
+import finat.ufl
 from ufl.corealg.map_dag import map_expr_dag
 
 import gem
@@ -131,7 +131,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     domain = ufl.Mesh(ufl_coordinate_element)
     K = ufl.JacobianInverse(domain)
     x = ufl.SpatialCoordinate(domain)
-    x0_element = ufl.legacy.VectorElement("Real", cell, 0)
+    x0_element = finat.ufl.VectorElement("Real", cell, 0)
     x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
     expr = ufl.dot(K, x - x0)
 

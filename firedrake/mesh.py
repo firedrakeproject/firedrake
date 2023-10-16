@@ -3,7 +3,7 @@ import ctypes
 import os
 import sys
 import ufl
-import ufl.legacy
+import finat.ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
@@ -985,7 +985,7 @@ class MeshTopology(AbstractMeshTopology):
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
-        self._ufl_mesh = ufl.Mesh(ufl.legacy.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
@@ -1348,7 +1348,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-        self._ufl_mesh = ufl.Mesh(ufl.legacy.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self.topology_dm,
@@ -1571,7 +1571,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         tdim = 0
 
         cell = ufl.Cell("vertex")
-        self._ufl_mesh = ufl.Mesh(ufl.legacy.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
@@ -1856,7 +1856,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         uid = utils._new_uid()
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
-        assert isinstance(element, ufl.legacy.FiniteElementBase)
+        assert isinstance(element, finat.ufl.FiniteElementBase)
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
         return mesh
 
@@ -2408,7 +2408,7 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
-    element = ufl.legacy.VectorElement("Lagrange", cell, 1)
+    element = finat.ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
@@ -2692,10 +2692,10 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = ufl.legacy.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
     else:
-        velement = ufl.legacy.FiniteElement("Lagrange", ufl.interval, 1)
-    element = ufl.legacy.TensorProductElement(helement, velement)
+        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
@@ -2711,7 +2711,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
     if extrusion_type == "radial_hedgehog":
         helement = mesh._coordinates.ufl_element().sub_elements[0].reconstruct(family="CG")
-        element = ufl.legacy.TensorProductElement(helement, velement)
+        element = finat.ufl.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
@@ -2868,7 +2868,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         # Geometry
         tcell = topology.ufl_cell()
         cell = tcell.reconstruct(geometric_dimension=gdim)
-        element = ufl.legacy.VectorElement("DG", cell, 0)
+        element = finat.ufl.VectorElement("DG", cell, 0)
         # Create mesh object
         vmesh = MeshGeometry.__new__(MeshGeometry, element)
         vmesh._topology = topology

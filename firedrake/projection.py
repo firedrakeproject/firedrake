@@ -1,6 +1,6 @@
 import abc
 import ufl
-import ufl.legacy
+import finat.ufl
 from ufl.domain import extract_unique_domain
 
 import firedrake
@@ -133,7 +133,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
         F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), ufl.legacy.MixedElement)
+        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
         if not mixed and isinstance(F.finat_element, HDivTrace):
             if F.extruded:
                 a = (firedrake.inner(u, v)*firedrake.ds_t
@@ -196,7 +196,7 @@ class BasicProjector(ProjectorBase):
     def rhs_form(self):
         v = firedrake.TestFunction(self.target.function_space())
         F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), ufl.legacy.MixedElement)
+        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
         if not mixed and isinstance(F.finat_element, HDivTrace):
             # Project onto a trace space by supplying the respective form on the facets.
             # The measures on the facets differ between extruded and non-extruded mesh.

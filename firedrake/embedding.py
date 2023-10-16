@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Module for utility functions for scalable HDF5 I/O."""
-import ufl.legacy
+import finat.ufl
 
 
 def get_embedding_dg_element(element):
@@ -9,24 +9,24 @@ def get_embedding_dg_element(element):
     family = lambda c: "DG" if c.is_simplex() else "DQ"
     if isinstance(cell, ufl.TensorProductCell):
         if type(degree) is int:
-            scalar_element = ufl.legacy.FiniteElement("DQ", cell=cell, degree=degree)
+            scalar_element = finat.ufl.FiniteElement("DQ", cell=cell, degree=degree)
         else:
-            scalar_element = ufl.legacy.TensorProductElement(*(ufl.legacy.FiniteElement(family(c), cell=c, degree=d)
+            scalar_element = finat.ufl.TensorProductElement(*(finat.ufl.FiniteElement(family(c), cell=c, degree=d)
                                                                for (c, d) in zip(cell.sub_cells(), degree)))
     else:
-        scalar_element = ufl.legacy.FiniteElement(family(cell), cell=cell, degree=degree)
+        scalar_element = finat.ufl.FiniteElement(family(cell), cell=cell, degree=degree)
     shape = element.value_shape
     if len(shape) == 0:
         DG = scalar_element
     elif len(shape) == 1:
         shape, = shape
-        DG = ufl.legacy.VectorElement(scalar_element, dim=shape)
+        DG = finat.ufl.VectorElement(scalar_element, dim=shape)
     else:
-        if isinstance(element, ufl.legacy.TensorElement):
+        if isinstance(element, finat.ufl.TensorElement):
             symmetry = element.symmetry()
         else:
             symmetry = None
-        DG = ufl.legacy.TensorElement(scalar_element, shape=shape, symmetry=symmetry)
+        DG = finat.ufl.TensorElement(scalar_element, shape=shape, symmetry=symmetry)
     return DG
 
 
@@ -43,9 +43,9 @@ def get_embedding_element_for_checkpointing(element):
 
 def get_embedding_method_for_checkpointing(element):
     """Return the method used to embed element in dg space."""
-    if isinstance(element, (ufl.legacy.HDivElement, ufl.legacy.HCurlElement, ufl.legacy.WithMapping)):
+    if isinstance(element, (finat.ufl.HDivElement, finat.ufl.HCurlElement, finat.ufl.WithMapping)):
         return "project"
-    elif isinstance(element, (ufl.legacy.VectorElement, ufl.legacy.TensorElement)):
+    elif isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
         elem, = set(element.sub_elements)
         return get_embedding_method_for_checkpointing(elem)
     elif element.family() in ['Lagrange', 'Discontinuous Lagrange',
@@ -54,7 +54,7 @@ def get_embedding_method_for_checkpointing(element):
                               'Q', 'DQ',
                               'S', 'DPC', 'Real']:
         return "interpolate"
-    elif isinstance(element, ufl.legacy.TensorProductElement):
+    elif isinstance(element, finat.ufl.TensorProductElement):
         methods = [get_embedding_method_for_checkpointing(elem) for elem in element.sub_elements]
         if any(method == "project" for method in methods):
             return "project"

@@ -6,7 +6,7 @@ from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
 import pytools
 import ufl
-import ufl.legacy
+import finat.ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -156,7 +156,7 @@ class Assigner:
                     raise ValueError("All functions in the expression must use the same "
                                      "mesh as the assignee")
 
-        if (subset and type(assignee.ufl_element()) == ufl.legacy.MixedElement
+        if (subset and type(assignee.ufl_element()) == finat.ufl.MixedElement
                 and any(el.family() == "Real"
                         for el in assignee.ufl_element().sub_elements)):
             raise ValueError("Subset is not a valid argument for assigning to a mixed "

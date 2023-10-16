@@ -6,7 +6,7 @@ import abc
 
 import FIAT
 import ufl
-import ufl.legacy
+import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import extract_unique_domain
@@ -348,7 +348,7 @@ class CrossMeshInterpolator(Interpolator):
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
         if ufl_scalar_element.num_sub_elements and not isinstance(
-            ufl_scalar_element, ufl.legacy.TensorProductElement
+            ufl_scalar_element, finat.ufl.TensorProductElement
         ):
             if all(
                 ufl_scalar_element.sub_elements[0] == e
@@ -362,7 +362,7 @@ class CrossMeshInterpolator(Interpolator):
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
-            elif type(ufl_scalar_element) is ufl.legacy.MixedElement:
+            elif type(ufl_scalar_element) is finat.ufl.MixedElement:
                 # Build and save an interpolator for each sub-element
                 # separately for MixedFunctionSpaces. NOTE: since we can't have
                 # expressions for MixedFunctionSpaces we know that the input

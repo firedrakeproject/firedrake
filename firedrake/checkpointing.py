@@ -2,7 +2,7 @@ import functools
 import pickle
 from petsc4py.PETSc import ViewerHDF5
 import ufl
-import ufl.legacy
+import finat.ufl
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
 from firedrake.cython import hdf5interface as h5i
@@ -578,7 +578,7 @@ class CheckpointFile(object):
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
                     # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
                     cell = base_tmesh.ufl_cell()
-                    element = ufl.legacy.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                    element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
                     layers_tV = impl.FunctionSpace(base_tmesh, element)
                     self._save_function_space_topology(layers_tV)
                     # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
@@ -763,7 +763,7 @@ class CheckpointFile(object):
         path = self._path_to_dms(tmesh.name)
         if dm_name not in self.require_group(path):
             if element.family() == "Real":
-                assert not isinstance(element, (ufl.legacy.VectorElement, ufl.legacy.TensorElement))
+                assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             else:
                 dm = self._get_dm_for_checkpointing(tV)
                 topology_dm = tmesh.topology_dm
@@ -846,7 +846,7 @@ class CheckpointFile(object):
         tmesh = tV.mesh()
         element = tV.ufl_element()
         if element.family() == "Real":
-            assert not isinstance(element, (ufl.legacy.VectorElement, ufl.legacy.TensorElement))
+            assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             self.require_group(path)
@@ -895,7 +895,7 @@ class CheckpointFile(object):
             variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
             if variable_layers:
                 cell = base_tmesh.ufl_cell()
-                element = ufl.legacy.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
                 _ = self._load_function_space_topology(base_tmesh, element)
                 base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
                                                                     base_tmesh._distribution_name,
@@ -956,7 +956,7 @@ class CheckpointFile(object):
             path = self._path_to_mesh_immersed(tmesh.name, name)
             if path in self.h5pyfile:
                 cell = tmesh.ufl_cell()
-                element = ufl.legacy.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
+                element = finat.ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
                 cell_orientations_tV = self._load_function_space_topology(tmesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
                                                                tmesh._distribution_name,
@@ -1209,7 +1209,7 @@ class CheckpointFile(object):
             self.viewer.pushTimestepping()
             self.viewer.setTimestep(idx)
         if element.family() == "Real":
-            assert not isinstance(element, (ufl.legacy.VectorElement, ufl.legacy.TensorElement))
+            assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
             tf.dat.data.itemset(value)
         else:
@@ -1248,10 +1248,10 @@ class CheckpointFile(object):
         V_names = [PREFIX + "_function_space"]
         for Vsub in V:
             elem = Vsub.ufl_element()
-            if isinstance(elem, ufl.legacy.RestrictedElement):
+            if isinstance(elem, finat.ufl.RestrictedElement):
                 # RestrictedElement.shortstr() contains '<>|{}'.
                 elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
-            elif isinstance(elem, ufl.legacy.EnrichedElement):
+            elif isinstance(elem, finat.ufl.EnrichedElement):
                 # EnrichedElement.shortstr() contains '<>+'.
                 elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
             else:
@@ -1275,10 +1275,10 @@ class CheckpointFile(object):
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-        if isinstance(ufl_element, ufl.legacy.TensorElement):
+        if isinstance(ufl_element, finat.ufl.TensorElement):
             shape = ufl_element.reference_value_shape
             block_size = np.product(shape)
-        elif isinstance(ufl_element, ufl.legacy.VectorElement):
+        elif isinstance(ufl_element, finat.ufl.VectorElement):
             shape = ufl_element.value_shape[:1]
             block_size = np.product(shape)
         else:
@@ -1287,7 +1287,7 @@ class CheckpointFile(object):
 
     def _get_dm_for_checkpointing(self, tV):
         sd_key = self._get_shared_data_key_for_checkpointing(tV.mesh(), tV.ufl_element())
-        if isinstance(tV.ufl_element(), (ufl.legacy.VectorElement, ufl.legacy.TensorElement)):
+        if isinstance(tV.ufl_element(), (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             global_numbering = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
             topology_dm = tV.mesh().topology_dm
@@ -1422,7 +1422,7 @@ class CheckpointFile(object):
             globals = {}
             locals = {}
             exec("from ufl import *", globals, locals)
-            exec("from ufl.legacy import *", globals, locals)
+            exec("from finat.ufl import *", globals, locals)
             return eval(self.get_attr(path, name + "_repr"), globals, locals)
         else:
             return self._unpickle(self.get_attr(path, name))  # backward compat.

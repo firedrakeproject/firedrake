@@ -6,7 +6,7 @@ import itertools
 
 import ufl
 from ufl import as_ufl, as_tensor
-from ufl.legacy import VectorElement
+from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
