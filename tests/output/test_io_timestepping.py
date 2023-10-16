@@ -43,7 +43,7 @@ def element(request):
         return finat.ufl.FiniteElement("BDMF", ufl.triangle, 3)
     elif request.param == "P2-P1":
         return finat.ufl.MixedElement(finat.ufl.FiniteElement("P", ufl.triangle, 2),
-                                       finat.ufl.FiniteElement("P", ufl.triangle, 1))
+                                      finat.ufl.FiniteElement("P", ufl.triangle, 1))
     elif request.param == "Real":
         return finat.ufl.FiniteElement("Real", ufl.triangle, 0)
 
