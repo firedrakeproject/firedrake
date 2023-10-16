@@ -62,7 +62,7 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
     l2_u = []
     l2_sigma = []
     l2_div_sigma = []
-    element = MixedElement([stress_element, VectorElement("DG", cell=mesh.ufl_cell(), degree=1, variant="equispaced")])
+    element = MixedElement([stress_element, VectorElement("DG", cell=mesh.ufl_cell(), degree=1)])
     for msh in mesh_hierarchy[1:]:
         x, y = SpatialCoordinate(msh)
         uex = as_vector([sin(pi*x)*sin(pi*y), sin(pi*x)*sin(pi*y)])
