@@ -1761,6 +1761,26 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 reorder=False,
             )
 
+    @staticmethod
+    def _make_input_ordering_sf(swarm, nroots, ilocal):
+        # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
+        # ilocal can also be Firedrake cell numbers.
+        sf = PETSc.SF().create(comm=swarm.comm)
+        input_ranks = swarm.getField("inputrank")
+        input_indices = swarm.getField("inputindex")
+        nleaves = len(input_ranks)
+        if ilocal is not None and nleaves != len(ilocal):
+            swarm.restoreField("inputrank")
+            swarm.restoreField("inputindex")
+            raise RuntimeError(f"Mismatching leaves: nleaves {nleaves} != len(ilocal) {len(ilocal)}")
+        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        swarm.restoreField("inputrank")
+        swarm.restoreField("inputindex")
+        sf.setGraph(nroots, ilocal, input_ranks_and_idxs)
+        return sf
+
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
         """
@@ -2918,7 +2938,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         mesh.topology,
         name=swarm.getName(),
         reorder=False,
-        original_swarm=original_swarm
+        original_swarm=original_swarm,
     )
     vmesh_out = make_vom_from_vom_topology(topology, name)
     vmesh_out._parent_mesh = mesh
@@ -3170,50 +3190,6 @@ def _pic_swarm_in_mesh(
         tdim,
         gdim,
     )
-
-    # Set the SF graph for halos
-    owned_ranks_local_visible = owned_ranks_local[visible_idxs]
-    is_owned = parent_mesh.comm.rank == owned_ranks_local_visible
-    is_halo = ~is_owned
-    npts_owned = sum(is_owned)
-    npts_halo = sum(is_halo)
-    nroots = npts_owned + npts_halo  # roots should be all points
-    nleaves = npts_halo
-    local_halo_idxs = np.where(is_halo)[0].astype(IntType)  # what we pass as 'local' to the SF
-    remote_ranks = owned_ranks_local_visible[local_halo_idxs]
-
-    # Remote index is the offset in memory of the point on the other rank.
-    # Finding them is a bit of a faff...
-    remote_idxs = np.empty(npts_halo, dtype=IntType)
-    # global indices are unique particle identifiers - where they turn up on
-    # other ranks, they refer to the same particle.
-    global_idxs_local_visible = global_idxs_local[visible_idxs]
-    global_idxs_local_visible_halo = global_idxs_local_visible[local_halo_idxs]
-    global_idxs_local_visible_owned = global_idxs_local_visible[is_owned]
-    global_idxs_local_visible_owned_allranks = parent_mesh.comm.allgather(
-        global_idxs_local_visible_owned
-    )
-    # global_idxs_local_visible_owned_allranks is in rank order, so we can
-    # index into it with rank number (as long as our ranks start from zero!).
-    # We can now search for global index matches on each remote rank.
-    unique_remote_ranks = np.unique(remote_ranks)  # Don't need one for each halo point!
-    for unique_remote_rank in unique_remote_ranks:
-        remote_idxs[remote_ranks == unique_remote_rank] = np.where(
-            np.in1d(
-                global_idxs_local_visible_owned_allranks[unique_remote_rank],
-                global_idxs_local_visible_halo,
-            )
-        )[0]
-
-    # Interleave each rank and index into (rank, index) pairs for use as remote
-    # in the SF
-    remote_ranks_and_idxs = np.empty(2*nleaves, dtype=IntType)
-    remote_ranks_and_idxs[0::2] = remote_ranks
-    remote_ranks_and_idxs[1::2] = remote_idxs
-    sf = swarm.getPointSF()
-    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs)
-    swarm.setPointSF(sf)
-
     # Note when getting original ordering for extruded meshes we recalculate
     # the base_parent_cell_nums and extrusion_heights - note this could
     # be an SF operation
@@ -3221,6 +3197,42 @@ def _pic_swarm_in_mesh(
         original_ordering_swarm_coords = np.empty(shape=(0, coords.shape[1]))
     else:
         original_ordering_swarm_coords = coords
+    # Set pointSF
+    # In the below, n merely defines the local size of an array, local_points_reduced,
+    # that works as "broker". The set of indices of local_points_reduced is the target of
+    # inputindex; see _make_input_ordering_sf. All points in local_points are leaves.
+    # Then, local_points[halo_indices] = -1, local_points_reduced.fill(-1), and MPI.MAX ensure that local_points_reduced has
+    # the swarm local point numbers of the owning ranks after reduce. local_points_reduced[j] = -1
+    # if j corresponds to a missing point. Then, broadcast updates
+    # local_points[halo_indices] (it also updates local_points[~halo_indices]`, not changing any values there).
+    # If some index of local_points_reduced corresponds to a missing point, local_points_reduced[index] is not updated
+    # when we reduce and it does not update any leaf data, i.e., local_points, when we bcast.
+    owners = swarm.getField("DMSwarm_rank")
+    halo_indices, = np.where(owners != parent_mesh.comm.rank)
+    halo_indices = halo_indices.astype(IntType)
+    n = coords.shape[0]
+    m = owners.shape[0]
+    _swarm_input_ordering_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, n, None)  # sf: swarm local point <- (inputrank, inputindex)
+    local_points_reduced = np.empty(n, dtype=utils.IntType)
+    local_points_reduced.fill(-1)
+    local_points = np.arange(m, dtype=utils.IntType)  # swarm local point numbers
+    local_points[halo_indices] = -1
+    unit = MPI._typedict[np.dtype(utils.IntType).char]
+    _swarm_input_ordering_sf.reduceBegin(unit, local_points, local_points_reduced, MPI.MAX)
+    _swarm_input_ordering_sf.reduceEnd(unit, local_points, local_points_reduced, MPI.MAX)
+    _swarm_input_ordering_sf.bcastBegin(unit, local_points_reduced, local_points, MPI.REPLACE)
+    _swarm_input_ordering_sf.bcastEnd(unit, local_points_reduced, local_points, MPI.REPLACE)
+    if np.any(local_points < 0):
+        raise RuntimeError("Unable to make swarm pointSF due to inconsistent data")
+    # Interleave each rank and index into (rank, index) pairs for use as remote
+    # in the SF
+    remote_ranks_and_idxs = np.empty(2 * len(halo_indices), dtype=IntType)
+    remote_ranks_and_idxs[0::2] = owners[halo_indices]
+    remote_ranks_and_idxs[1::2] = local_points[halo_indices]
+    swarm.restoreField("DMSwarm_rank")
+    sf = swarm.getPointSF()
+    sf.setGraph(m, halo_indices, remote_ranks_and_idxs)
+    swarm.setPointSF(sf)
     original_ordering_swarm = _swarm_original_ordering_preserve(
         parent_mesh.comm,
         swarm,
@@ -3418,7 +3430,6 @@ def _dmswarm_create(
     field_rank = swarm.getField("DMSwarm_rank")
     field_input_rank = swarm.getField("inputrank")
     field_input_index = swarm.getField("inputindex")
-
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
@@ -3776,7 +3787,7 @@ def _parent_mesh_embedding(
         # any rank which will have been set to comm.size + 1)
         owned_ranks_tosort[owned_ranks != parent_mesh.comm.rank] = parent_mesh.comm.size
         # now a sort by rank will give us the ordering we want
-        idxs = np.argsort(owned_ranks_tosort, kind='stable')
+        idxs = np.argsort(owned_ranks_tosort)
         coords_embedded = coords_embedded[idxs]
         global_idxs = global_idxs[idxs]
         reference_coords = reference_coords[idxs]
