@@ -33,10 +33,8 @@ from pyadjoint import stop_annotating
 
 try:
     import netgen
-    from ngsPETSc import FiredrakeMesh
 except ImportError:
     netgen = None
-    ngsPETSc = None
 
 
 __all__ = [
@@ -2530,6 +2528,10 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        try:
+            from ngsPETSc import FiredrakeMesh
+        except ImportError as e:
+            raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
