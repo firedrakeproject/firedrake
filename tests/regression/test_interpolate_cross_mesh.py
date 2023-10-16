@@ -235,9 +235,9 @@ def parameters(request):
         expr_src = reduce(add, SpatialCoordinate(m_src))
         expr_dest = reduce(add, SpatialCoordinate(m_dest))
         expected = reduce(add, coords.T)
-        V_src = FunctionSpace(m_src, "CG", 3)
-        V_dest = FunctionSpace(m_dest, "CG", 4)
-        V_dest_2 = FunctionSpace(m_dest, "DG", 2)
+        V_src = FunctionSpace(m_src, FiniteElement("CG", m_src.ufl_cell(), degree=3, variant="equispaced"))
+        V_dest = FunctionSpace(m_dest, FiniteElement("CG", m_dest.ufl_cell(), degree=4, variant="equispaced"))
+        V_dest_2 = FunctionSpace(m_dest, FiniteElement("DG", m_dest.ufl_cell(), degree=2, variant="equispaced"))
     elif request.param == "sphereextrudedsphereextruded":
         m_src = ExtrudedMesh(UnitIcosahedralSphereMesh(1), 2, extrusion_type="radial")
         # Note we need to use the same base sphere otherwise it's hard to check
