@@ -5,7 +5,6 @@ import numpy as np
 from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
 import pytools
-import ufl
 import finat.ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl

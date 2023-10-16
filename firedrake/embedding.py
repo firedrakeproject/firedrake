@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Module for utility functions for scalable HDF5 I/O."""
 import finat.ufl
+import ufl
 
 
 def get_embedding_dg_element(element):
@@ -12,7 +13,7 @@ def get_embedding_dg_element(element):
             scalar_element = finat.ufl.FiniteElement("DQ", cell=cell, degree=degree)
         else:
             scalar_element = finat.ufl.TensorProductElement(*(finat.ufl.FiniteElement(family(c), cell=c, degree=d)
-                                                               for (c, d) in zip(cell.sub_cells(), degree)))
+                                                              for (c, d) in zip(cell.sub_cells(), degree)))
     else:
         scalar_element = finat.ufl.FiniteElement(family(cell), cell=cell, degree=degree)
     shape = element.value_shape

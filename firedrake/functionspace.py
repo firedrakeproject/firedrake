@@ -50,12 +50,12 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
-                                      cell=cell.sub_cells()[0],
-                                      degree=degree)
+                                     cell=cell.sub_cells()[0],
+                                     degree=degree)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
-                                      cell=ufl.interval,
-                                      degree=vdegree)
+                                     cell=ufl.interval,
+                                     degree=vdegree)
         # Now make the TensorProductElement
         return finat.ufl.TensorProductElement(la, lb)
     else:

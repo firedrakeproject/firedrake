@@ -1,7 +1,6 @@
 import functools
 import pickle
 from petsc4py.PETSc import ViewerHDF5
-import ufl
 import finat.ufl
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
