@@ -231,7 +231,7 @@ def test_cellvolume():
 
 def test_cellvolume_higher_order_coords():
     m = UnitTriangleMesh()
-    V = VectorFunctionSpace(m, FiniteElement("CG", cell=m.ufl_cell(), degree=3, variant="equispaced"))
+    V = VectorFunctionSpace(m, "CG", 3)
     f = Function(V)
     f.interpolate(m.coordinates)
 
@@ -240,8 +240,7 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    f.dat.data[1, 1] = warp(1.0/3.0)
-    f.dat.data[2, 1] = warp(2.0/3.0)
+    f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
 
     mesh = Mesh(f)
     g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0))
