@@ -58,20 +58,21 @@ from ufl import *
 firedrake_configuration.setup_cache_dirs()
 
 # By default we disable pyadjoint annotation.
-# To enable annotation, the user has to import firedrake_adjoint
+# To enable annotation, the user has to call continue_annotation().
 import pyadjoint
 pyadjoint.pause_annotation()
 del pyadjoint
 
 from firedrake_citations import Citations    # noqa: F401
 # Always get the firedrake paper.
-Citations().register("Rathgeber2016")
+Citations().register("FiredrakeUserManual")
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
 from firedrake.assemble import *
 from firedrake.bcs import *
 from firedrake.checkpointing import *
+from firedrake.cofunction import *
 from firedrake.constant import *
 from firedrake.exceptions import *
 from firedrake.function import *
@@ -98,6 +99,7 @@ from firedrake.solving import *
 from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
+from firedrake.eigensolver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *

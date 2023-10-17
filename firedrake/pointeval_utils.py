@@ -1,17 +1,16 @@
-
+import loopy as lp
 from firedrake.utils import IntType, as_cstr
-
-from coffee import base as ast
 
 from ufl import MixedElement, TensorProductCell
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.domain import extract_unique_domain
 
 import gem
 
 import tsfc
-import tsfc.kernel_interface.firedrake as firedrake_interface
-from tsfc.coffee import generate as generate_coffee
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
+from tsfc.loopy import generate as generate_loopy
 from tsfc.parameters import default_parameters
 
 from firedrake import utils
@@ -49,11 +48,11 @@ def compile_element(expression, coordinates, parameters=None):
         raise NotImplementedError("Cannot point evaluate mixed elements yet!")
 
     # Replace coordinates (if any)
-    domain = expression.ufl_domain()
-    assert coordinates.ufl_domain() == domain
+    domain = extract_unique_domain(expression)
+    assert extract_unique_domain(coordinates) == domain
 
     # Initialise kernel builder
-    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType_c)
+    builder = firedrake_interface.KernelBuilderBase(utils.ScalarType)
     builder.domain_coordinate[domain] = coordinates
     builder._coefficient(coordinates, "x")
     x_arg = builder.generate_arg_from_expression(builder.coefficient_map[coordinates])
@@ -67,15 +66,15 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('X', rank=(dim,)))
+    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
-                  ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                  ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
     # TODO: restore this for expression evaluation!
-    # config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
+    # config["cellvolume"] = cellvolume_generator(extract_unique_domain(coordinates), coordinates, config)
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
@@ -89,11 +88,11 @@ def compile_element(expression, coordinates, parameters=None):
     if expression.ufl_shape:
         tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
         return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType, shape=expression.ufl_shape)
         result = gem.Indexed(result, tensor_indices)
     else:
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-        result_arg = ast.Decl(utils.ScalarType_c, ast.Symbol('R', rank=(1,)))
+        result_arg = lp.GlobalArg("R", dtype=utils.ScalarType, shape=(1,))
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -102,13 +101,14 @@ def compile_element(expression, coordinates, parameters=None):
             return index.extent <= max_extent
         result, = gem.optimise.unroll_indexsum([result], predicate=predicate)
 
-    # Translate GEM -> COFFEE
+    # Translate GEM -> loopy
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, utils.ScalarType)
-
-    # Build kernel tuple
-    kernel_code = builder.construct_kernel("evaluate_kernel", [result_arg, point_arg, x_arg, f_arg], body)
+    loopy_args = [result_arg, point_arg, x_arg, f_arg]
+    loopy_kernel, _ = generate_loopy(
+        impero_c, loopy_args, utils.ScalarType,
+        kernel_name="evaluate_kernel", index_names={})
+    kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
     extruded = isinstance(cell, TensorProductCell)
@@ -136,8 +136,10 @@ static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s*
 
 int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
-    struct ReferenceCoords reference_coords;
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &reference_coords);
+    /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
+    double found_ref_cell_dist_l1 = DBL_MAX;
+    struct ReferenceCoords temp_reference_coords, found_reference_coords;
+    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1);
     if (cell == -1) {
         return -1;
     }
@@ -152,9 +154,9 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     cell = cell / nlayers;
 #endif
 
-    wrap_evaluate(result, reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
+    wrap_evaluate(result, found_reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
     return 0;
 }
 """
 
-    return (evaluate_template_c % code) + kernel_code.gencode()
+    return (evaluate_template_c % code) + kernel_code

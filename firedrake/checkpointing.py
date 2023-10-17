@@ -1,6 +1,5 @@
 import functools
 import pickle
-import weakref
 from petsc4py.PETSc import ViewerHDF5
 import ufl
 from pyop2 import op2
@@ -41,6 +40,9 @@ r"""The prefix attached to the name of the Firedrake objects when saving them wi
 
 PREFIX_EXTRUDED = "_".join([PREFIX, "extruded"])
 r"""The prefix attached to the attributes associated with extruded meshes."""
+
+PREFIX_IMMERSED = "_".join([PREFIX, "immersed"])
+r"""The prefix attached to the attributes associated with immersed meshes."""
 
 PREFIX_EMBEDDED = "_".join([PREFIX, "embedded"])
 r"""The prefix attached to the DG function resulting from projecting the original function to the embedding DG space."""
@@ -84,7 +86,7 @@ class DumbCheckpoint(object):
 
     .. warning::
 
-       DumbCheckpoint class will be deprecated after 01/01/2023.
+       DumbCheckpoint class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -93,7 +95,7 @@ class DumbCheckpoint(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
@@ -363,7 +365,7 @@ class HDF5File(object):
 
     .. warning::
 
-       HDF5File class will be deprecated after 01/01/2023.
+       HDF5File class will soon be deprecated.
        Use :class:`~.CheckpointFile` class instead.
 
     """
@@ -371,7 +373,7 @@ class HDF5File(object):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("HDF5File class will be deprecated after 01/01/2023; use CheckpointFile class instead.",
+            warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
@@ -517,10 +519,6 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-    # Cache for loaded meshes.
-    _mesh_cache = weakref.WeakValueDictionary()
-    _tmesh_cache = weakref.WeakValueDictionary()
-
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
@@ -573,6 +571,7 @@ class CheckpointFile(object):
                 path = self._path_to_topology_extruded(tmesh.name)
                 self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
+                self.set_attr(path, PREFIX_EXTRUDED + "_periodic", tmesh.extruded_periodic)
                 self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
                 if tmesh.variable_layers:
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
@@ -594,7 +593,7 @@ class CheckpointFile(object):
             if mesh.name not in self.require_group(path):
                 path = self._path_to_mesh(tmesh.name, mesh.name)
                 self.require_group(path)
-                self.set_attr(path, PREFIX + "_coordinate_element", self._pickle(mesh._coordinates.function_space().ufl_element()))
+                self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
                 self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
                 self._save_function_topology(mesh._coordinates)
                 if hasattr(mesh, PREFIX + "_radial_coordinates"):
@@ -602,7 +601,7 @@ class CheckpointFile(object):
                     # This will cause infinite recursion.
                     self.set_attr(path, PREFIX + "_radial_coordinate_function", mesh.radial_coordinates.name())
                     radial_coordinates = mesh.radial_coordinates.topological
-                    self.set_attr(path, PREFIX + "_radial_coordinate_element", self._pickle(radial_coordinates.function_space().ufl_element()))
+                    self._save_ufl_element(path, PREFIX + "_radial_coordinate_element", radial_coordinates.function_space().ufl_element())
                     self.set_attr(path, PREFIX + "_radial_coordinates", radial_coordinates.name())
                     self._save_function_topology(radial_coordinates)
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
@@ -620,7 +619,7 @@ class CheckpointFile(object):
                 path = self._path_to_mesh(tmesh.name, mesh.name)
                 self.require_group(path)
                 # Save Firedrake coodinates.
-                self.set_attr(path, PREFIX + "_coordinate_element", self._pickle(mesh._coordinates.function_space().ufl_element()))
+                self._save_ufl_element(path, PREFIX + "_coordinate_element", mesh._coordinates.function_space().ufl_element())
                 self.set_attr(path, PREFIX + "_coordinates", mesh._coordinates.name())
                 self._save_function_topology(mesh._coordinates)
                 # Save DMPlex coordinates for a complete representation of the plex.
@@ -628,6 +627,29 @@ class CheckpointFile(object):
                 with self.opts.inserted_options():
                     tmesh.topology_dm.coordinatesView(viewer=self.viewer)
                 self._update_mesh_name_topology_name_map({mesh.name: tmesh.name})
+                # Save cell_orientations for immersed meshes.
+                if hasattr(mesh, "_cell_orientations"):
+                    path = self._path_to_mesh_immersed(tmesh.name, mesh.name)
+                    self.require_group(path)
+                    self.set_attr(path, PREFIX_IMMERSED + "_cell_orientations", mesh._cell_orientations.name())
+                    cell_orientations_tV = mesh._cell_orientations.function_space()
+                    self._save_function_space_topology(cell_orientations_tV)
+                    # Compute "canonical" cell_orientations array.
+                    # This is the mesh._cell_orientations array (for manifold orientation) that the mesh would
+                    # have if all cell orientations of the reference-physical cell mappings were "0" (matching
+                    # plex cone ordering).
+                    # This can be done by flipping values (0 <-> 1) for cells for which "reflection" have been
+                    # introduced relative to orientation 0.
+                    canonical_cell_orientations = np.copy(mesh._cell_orientations.dat.data_ro[:tmesh.cell_set.size])
+                    o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
+                    reflected = o_r_map[tmesh.entity_orientations[:tmesh.cell_set.size, -1]]
+                    reflected_indices = (reflected == 1)
+                    canonical_cell_orientations[reflected_indices] = 1 - canonical_cell_orientations[reflected_indices]
+                    cell_orientations_iset = PETSc.IS().createGeneral(canonical_cell_orientations, comm=tmesh._comm)
+                    cell_orientations_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
+                    self.viewer.pushGroup(path)
+                    cell_orientations_iset.view(self.viewer)
+                    self.viewer.popGroup()
 
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
@@ -723,11 +745,11 @@ class CheckpointFile(object):
                 # Save UFL element
                 path = self._path_to_function_space(tmesh.name, mesh.name, V_name)
                 self.require_group(path)
-                self.set_attr(path, PREFIX + "_ufl_element", self._pickle(element))
-                # Test if the pickled UFL element matches the original element
-                loaded_element = self._unpickle(self.get_attr(path, PREFIX + "_ufl_element"))
+                self._save_ufl_element(path, PREFIX + "_ufl_element", element)
+                # Test if the loaded UFL element matches the original element
+                loaded_element = self._load_ufl_element(path, PREFIX + "_ufl_element")
                 if loaded_element != element:
-                    raise RuntimeError(f"pickled UFL element ({loaded_element}) does not match the original element ({element})")
+                    raise RuntimeError(f"Loaded UFL element ({loaded_element}) does not match the original element ({element})")
 
     @PETSc.Log.EventDecorator("SaveFunctionSpaceTopology")
     def _save_function_space_topology(self, tV):
@@ -790,9 +812,9 @@ class CheckpointFile(object):
             tf = f.topological
             tV = tf.function_space()
             tmesh = tV.mesh()
-            element = tV.ufl_element()
             self._update_function_name_function_space_name_map(tmesh.name, mesh.name, {f.name(): V_name})
             # Embed if necessary
+            element = V.ufl_element()
             _element = get_embedding_element_for_checkpointing(element)
             if _element != element:
                 path = self._path_to_function_embedded(tmesh.name, mesh.name, V_name, f.name())
@@ -868,87 +890,98 @@ class CheckpointFile(object):
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
             base_tmesh.init()
-            tmesh_key = self._generate_mesh_key_from_names(tmesh_name,
-                                                           base_tmesh._distribution_name,
-                                                           base_tmesh._permutation_name)
-            if tmesh_key in self._tmesh_cache:
-                tmesh = self._tmesh_cache[tmesh_key]
+            periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
+            variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
+            if variable_layers:
+                cell = base_tmesh.ufl_cell()
+                element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                _ = self._load_function_space_topology(base_tmesh, element)
+                base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
+                                                                    base_tmesh._distribution_name,
+                                                                    base_tmesh._permutation_name)
+                sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
+                _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
+                nroots, _, _ = lsf.getGraph()
+                layers_a = np.empty(nroots, dtype=utils.IntType)
+                layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self._comm)
+                layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
+                self.viewer.pushGroup(path)
+                layers_a_iset.load(self.viewer)
+                self.viewer.popGroup()
+                layers_a = layers_a_iset.getIndices()
+                layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
+                unit = MPI._typedict[np.dtype(utils.IntType).char]
+                lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
+                lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
             else:
-                variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
-                if variable_layers:
-                    cell = base_tmesh.ufl_cell()
-                    element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
-                    _ = self._load_function_space_topology(base_tmesh, element)
-                    base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
-                                                                        base_tmesh._distribution_name,
-                                                                        base_tmesh._permutation_name)
-                    sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
-                    _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
-                    nroots, _, _ = lsf.getGraph()
-                    layers_a = np.empty(nroots, dtype=utils.IntType)
-                    layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self._comm)
-                    layers_a_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
-                    self.viewer.pushGroup(path)
-                    layers_a_iset.load(self.viewer)
-                    self.viewer.popGroup()
-                    layers_a = layers_a_iset.getIndices()
-                    layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
-                    unit = MPI._typedict[np.dtype(utils.IntType).char]
-                    lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
-                    lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
-                else:
-                    layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
-                tmesh = ExtrudedMeshTopology(base_tmesh, layers, name=tmesh_name)
-                self._tmesh_cache[tmesh_key] = tmesh
+                layers = self.get_attr(path, PREFIX_EXTRUDED + "_layers")
+            tmesh = ExtrudedMeshTopology(base_tmesh, layers, periodic=periodic, name=tmesh_name)
             # -- Load mesh --
-            mesh_key = self._generate_mesh_key_from_names(name,
-                                                          base_tmesh._distribution_name,
-                                                          base_tmesh._permutation_name)
-            if mesh_key in self._mesh_cache:
-                mesh = self._mesh_cache[mesh_key]
-            else:
-                path = self._path_to_mesh(tmesh_name, name)
-                coord_element = self._unpickle(self.get_attr(path, PREFIX + "_coordinate_element"))
-                coord_name = self.get_attr(path, PREFIX + "_coordinates")
-                coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-                mesh = make_mesh_from_coordinates(coordinates, name)
-                if self.has_attr(path, PREFIX + "_radial_coordinates"):
-                    radial_coord_element = self._unpickle(self.get_attr(path, PREFIX + "_radial_coordinate_element"))
-                    radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
-                    radial_coordinates = self._load_function_topology(tmesh, radial_coord_element, radial_coord_name)
-                    tV_radial_coord = impl.FunctionSpace(tmesh, radial_coord_element)
-                    V_radial_coord = impl.WithGeometry.create(tV_radial_coord, mesh)
-                    radial_coord_function_name = self.get_attr(path, PREFIX + "_radial_coordinate_function")
-                    mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
-                # The followings are conceptually redundant, but needed.
-                path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
-                base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-                mesh._base_mesh = self.load_mesh(base_mesh_name)
-                self._mesh_cache[mesh_key] = mesh
+            path = self._path_to_mesh(tmesh_name, name)
+            coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
+            coord_name = self.get_attr(path, PREFIX + "_coordinates")
+            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
+            mesh = make_mesh_from_coordinates(coordinates, name)
+            if self.has_attr(path, PREFIX + "_radial_coordinates"):
+                radial_coord_element = self._load_ufl_element(path, PREFIX + "_radial_coordinate_element")
+                radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
+                radial_coordinates = self._load_function_topology(tmesh, radial_coord_element, radial_coord_name)
+                tV_radial_coord = impl.FunctionSpace(tmesh, radial_coord_element)
+                V_radial_coord = impl.WithGeometry.create(tV_radial_coord, mesh)
+                radial_coord_function_name = self.get_attr(path, PREFIX + "_radial_coordinate_function")
+                mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
+            # The followings are conceptually redundant, but needed.
+            path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
+            base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
+            mesh._base_mesh = self.load_mesh(base_mesh_name)
         else:
             utils._init()
             # -- Load mesh topology --
             tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
-            mesh_key = self._generate_mesh_key_from_names(name,
-                                                          tmesh._distribution_name,
-                                                          tmesh._permutation_name)
-            if mesh_key in self._mesh_cache:
-                mesh = self._mesh_cache[mesh_key]
-            else:
-                # -- Load coordinates --
-                # tmesh.topology_dm has already been redistributed.
-                path = self._path_to_mesh(tmesh_name, name)
-                # Load firedrake coordinates directly.
-                # When implementing checkpointing for MeshHierarchy in the future,
-                # we will need to postpone calling tmesh.init().
-                tmesh.init()
-                coord_element = self._unpickle(self.get_attr(path, PREFIX + "_coordinate_element"))
-                coord_name = self.get_attr(path, PREFIX + "_coordinates")
-                coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-                mesh = make_mesh_from_coordinates(coordinates, name)
-                # Load plex coordinates for a complete representation of plex.
-                tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
-                self._mesh_cache[mesh_key] = mesh
+            # -- Load coordinates --
+            # tmesh.topology_dm has already been redistributed.
+            path = self._path_to_mesh(tmesh_name, name)
+            # Load firedrake coordinates directly.
+            # When implementing checkpointing for MeshHierarchy in the future,
+            # we will need to postpone calling tmesh.init().
+            tmesh.init()
+            coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
+            coord_name = self.get_attr(path, PREFIX + "_coordinates")
+            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
+            mesh = make_mesh_from_coordinates(coordinates, name)
+            # Load plex coordinates for a complete representation of plex.
+            tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
+            # Load cell_orientations for immersed meshes.
+            path = self._path_to_mesh_immersed(tmesh.name, name)
+            if path in self.h5pyfile:
+                cell = tmesh.ufl_cell()
+                element = ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
+                cell_orientations_tV = self._load_function_space_topology(tmesh, element)
+                tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
+                                                               tmesh._distribution_name,
+                                                               tmesh._permutation_name)
+                sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
+                _, _, lsf = self._function_load_utils[tmesh_key + sd_key]
+                nroots, _, _ = lsf.getGraph()
+                cell_orientations_a = np.empty(nroots, dtype=utils.IntType)
+                cell_orientations_a_iset = PETSc.IS().createGeneral(cell_orientations_a, comm=self._comm)
+                cell_orientations_a_iset.setName("_".join([PREFIX_IMMERSED, "cell_orientations_iset"]))
+                self.viewer.pushGroup(path)
+                cell_orientations_a_iset.load(self.viewer)
+                self.viewer.popGroup()
+                cell_orientations_a = cell_orientations_a_iset.getIndices()
+                cell_orientations = np.empty((tmesh.cell_set.total_size, ), dtype=utils.IntType)
+                unit = MPI._typedict[np.dtype(utils.IntType).char]
+                lsf.bcastBegin(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
+                lsf.bcastEnd(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
+                # Convert the loaded ("canonical") cell_orientations array for use on the loaded mesh
+                # by flipping the values (0 <-> 1) for cells that are mapped "reflected" relative to orientation 0.
+                o_r_map = np.array(list(cell_orientations_tV.finat_element.cell.cell_orientation_reflection_map().values()), dtype=np.int32)
+                reflected = o_r_map[tmesh.entity_orientations[:, -1]]
+                reflected_indices = (reflected == 1)
+                cell_orientations[reflected_indices] = 1 - cell_orientations[reflected_indices]
+                cell_orientations_name = self.get_attr(path, PREFIX_IMMERSED + "_cell_orientations")
+                mesh._cell_orientations = CoordinatelessFunction(cell_orientations_tV, val=cell_orientations, name=cell_orientations_name, dtype=np.int32)
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
@@ -987,65 +1020,57 @@ class CheckpointFile(object):
             distribution_name = None
             permutation_name = None
             perm_is = None
-        # This is only to return the same tmesh object if the same set of arguments are given.
-        # Multiple tmesh_key might end up having the same value, but it is hard to process
-        # all distribution and reorder options at this stage (many things happen in MeshTopology constructor).
-        tmesh_key = self._generate_mesh_key(tmesh_name, distribution_name, permutation_name, reorder, distribution_parameters)
-        if tmesh_key in self._tmesh_cache:
-            tmesh = self._tmesh_cache[tmesh_key]
+        plex = PETSc.DMPlex()
+        plex.create(comm=self._comm)
+        plex.setName(tmesh_name)
+        # Check format
+        path = os.path.join(self._path_to_topology(tmesh_name), "topology")
+        if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
+                                                os.path.join(path, "cones"),
+                                                os.path.join(path, "order"),
+                                                os.path.join(path, "orientation")]):
+            raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
+        format = ViewerHDF5.Format.HDF5_PETSC
+        self.viewer.pushFormat(format=format)
+        plex.distributionSetName(distribution_name)
+        sfXB = plex.topologyLoad(self.viewer)
+        plex.distributionSetName(None)
+        self.viewer.popFormat()
+        if load_distribution_permutation:
+            chart_size = np.empty(1, dtype=utils.IntType)
+            chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
+            chart_sizes_iset.setName("chart_sizes")
+            path = self._path_to_distribution(tmesh_name, distribution_name)
+            self.viewer.pushGroup(path)
+            chart_sizes_iset.load(self.viewer)
+            self.viewer.popGroup()
+            chart_size = chart_sizes_iset.getIndices().item()
+            perm = np.empty(chart_size, dtype=utils.IntType)
+            perm_is = PETSc.IS().createGeneral(perm, comm=self._comm)
+            path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
+            self.viewer.pushGroup(path)
+            perm_is.setName("permutation")
+            perm_is.load(self.viewer)
+            perm_is.setName(None)
+            self.viewer.popGroup()
         else:
-            plex = PETSc.DMPlex()
-            plex.create(comm=self._comm)
-            plex.setName(tmesh_name)
-            # Check format
-            path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-            if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
-                                                    os.path.join(path, "cones"),
-                                                    os.path.join(path, "order"),
-                                                    os.path.join(path, "orientation")]):
-                raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
-            format = ViewerHDF5.Format.HDF5_PETSC
-            self.viewer.pushFormat(format=format)
-            plex.distributionSetName(distribution_name)
-            sfXB = plex.topologyLoad(self.viewer)
-            plex.distributionSetName(None)
-            self.viewer.popFormat()
-            if load_distribution_permutation:
-                chart_size = np.empty(1, dtype=utils.IntType)
-                chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
-                chart_sizes_iset.setName("chart_sizes")
-                path = self._path_to_distribution(tmesh_name, distribution_name)
-                self.viewer.pushGroup(path)
-                chart_sizes_iset.load(self.viewer)
-                self.viewer.popGroup()
-                chart_size = chart_sizes_iset.getIndices().item()
-                perm = np.empty(chart_size, dtype=utils.IntType)
-                perm_is = PETSc.IS().createGeneral(perm, comm=self._comm)
-                path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
-                self.viewer.pushGroup(path)
-                perm_is.setName("permutation")
-                perm_is.load(self.viewer)
-                perm_is.setName(None)
-                self.viewer.popGroup()
-            else:
-                perm_is = None
-            # -- Construct Mesh (Topology) --
-            # Use public API so pass user comm (self.comm)
-            tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
-                                 distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
-                                 distribution_name=distribution_name, permutation_name=permutation_name,
-                                 comm=self.comm)
-            self.viewer.pushFormat(format=format)
-            # tmesh.topology_dm has already been redistributed.
-            sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
-            plex.labelsLoad(self.viewer, sfXCtemp)
-            self.viewer.popFormat()
-            # These labels are distribution dependent.
-            # We should be able to save/load labels selectively.
-            plex.removeLabel("pyop2_core")
-            plex.removeLabel("pyop2_owned")
-            plex.removeLabel("pyop2_ghost")
-            self._tmesh_cache[tmesh_key] = tmesh
+            perm_is = None
+        # -- Construct Mesh (Topology) --
+        # Use public API so pass user comm (self.comm)
+        tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
+                             distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
+                             distribution_name=distribution_name, permutation_name=permutation_name,
+                             comm=self.comm)
+        self.viewer.pushFormat(format=format)
+        # tmesh.topology_dm has already been redistributed.
+        sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
+        plex.labelsLoad(self.viewer, sfXCtemp)
+        self.viewer.popFormat()
+        # These labels are distribution dependent.
+        # We should be able to save/load labels selectively.
+        plex.removeLabel("pyop2_core")
+        plex.removeLabel("pyop2_owned")
+        plex.removeLabel("pyop2_ghost")
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
@@ -1071,7 +1096,7 @@ class CheckpointFile(object):
         elif self._is_function_space(tmesh.name, mesh.name, name):
             # Load function space data
             path = self._path_to_function_space(tmesh.name, mesh.name, name)
-            element = self._unpickle(self.get_attr(path, PREFIX + "_ufl_element"))
+            element = self._load_ufl_element(path, PREFIX + "_ufl_element")
             tV = self._load_function_space_topology(tmesh, element)
             # Construct function space
             V = impl.WithGeometry.create(tV, mesh)
@@ -1307,6 +1332,9 @@ class CheckpointFile(object):
     def _path_to_mesh(self, tmesh_name, mesh_name):
         return os.path.join(self._path_to_meshes(tmesh_name), mesh_name)
 
+    def _path_to_mesh_immersed(self, tmesh_name, mesh_name):
+        return os.path.join(self._path_to_mesh(tmesh_name, mesh_name), PREFIX_IMMERSED)
+
     def _path_to_function_spaces(self, tmesh_name, mesh_name):
         return os.path.join(self._path_to_mesh(tmesh_name, mesh_name), PREFIX + "_function_spaces")
 
@@ -1384,6 +1412,18 @@ class CheckpointFile(object):
         the_dict = getattr(self, "_get_" + name)(*args)
         the_dict.update(new_item)
         getattr(self, "_set_" + name)(*args, the_dict)
+
+    def _save_ufl_element(self, path, name, elem):
+        self.set_attr(path, name + "_repr", repr(elem))
+
+    def _load_ufl_element(self, path, name):
+        if self.has_attr(path, name + "_repr"):
+            globals = {}
+            locals = {}
+            exec("from ufl import *", globals, locals)
+            return eval(self.get_attr(path, name + "_repr"), globals, locals)
+        else:
+            return self._unpickle(self.get_attr(path, name))  # backward compat.
 
     def _set_mesh_name_topology_name_map(self, new_item):
         path = self._path_to_topologies()

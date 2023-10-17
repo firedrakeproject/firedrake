@@ -95,20 +95,3 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
 @pytest.mark.parallel
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
-
-
-@pytest.mark.parallel(nprocs=8)
-@pytest.mark.parametrize('test_params', [(1, 1, 3, 1.9),
-                                         (2, 0, 2, 3.0),
-                                         (3, 0, 2, 4.0)])
-def test_firedrake_helmholtz_scalar_convergence_on_hex(test_params):
-    # "cube_hex.msh" contains all possible facet orientations.
-    degree, refmin, refmax, convrate = test_params
-    meshfile = join(cwd, "..", "meshes", "cube_hex.msh")
-    mesh = Mesh(meshfile)
-    meshes = MeshHierarchy(mesh, refmax)
-    nref = refmax - refmin
-    l2err = np.zeros(nref + 1)
-    for i in range(nref + 1):
-        l2err[i] = helmholtz(None, None, degree=degree, mesh=meshes[refmin + i])[0]
-    assert (np.array([np.log2(l2err[i]/l2err[i + 1]) for i in range(nref)]) > convrate).all()

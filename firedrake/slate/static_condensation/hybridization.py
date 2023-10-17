@@ -37,7 +37,7 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
@@ -92,10 +92,10 @@ class HybridizationPC(SCBase):
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Function(V_d)
+        self.broken_solution = Cofunction(V_d.dual())
         self.broken_residual = Function(V_d)
         self.trace_solution = Function(TraceSpace)
-        self.unbroken_solution = Function(V)
+        self.unbroken_solution = Cofunction(V.dual())
         self.unbroken_residual = Function(V)
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
@@ -107,8 +107,7 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)})
 
         instructions = """
         for i, j
@@ -204,7 +203,7 @@ class HybridizationPC(SCBase):
         schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
 
         # Assemble the Schur complement operator and right-hand side
-        self.schur_rhs = Function(TraceSpace)
+        self.schur_rhs = Cofunction(TraceSpace.dual())
         self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
                                                form_compiler_parameters=self.ctx.fc_params).assemble
 
@@ -350,8 +349,7 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (broken_res_hdiv, INC)})
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -405,8 +403,7 @@ class HybridizationPC(SCBase):
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (unbroken_hdiv, INC)})
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

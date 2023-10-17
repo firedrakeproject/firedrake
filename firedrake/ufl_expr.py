@@ -1,15 +1,16 @@
 import ufl
 import ufl.argument
-from ufl.assertions import ufl_assert
+from ufl.duals import is_dual
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, function, cofunction
+from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Argument', 'TestFunction', 'TrialFunction',
+__all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
            'action', 'CellSize', 'FacetNormal']
@@ -29,6 +30,12 @@ class Argument(ufl.argument.Argument):
        :func:`TestFunction`, with a number of ``1`` it is used as
        a :func:`TrialFunction`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Coargument(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
     def __init__(self, function_space, number, part=None):
         super(Argument, self).__init__(function_space.ufl_function_space(),
                                        number, part=part)
@@ -63,12 +70,81 @@ class Argument(ufl.argument.Argument):
         if number is self._number and part is self._part \
            and function_space is self.function_space():
             return self
-        ufl_assert(isinstance(number, int),
-                   "Expecting an int, not %s" % number)
-        ufl_assert(function_space.ufl_element().value_shape()
-                   == self.ufl_element().value_shape(),
-                   "Cannot reconstruct an Argument with a different value shape.")
+        if not isinstance(number, int):
+            raise TypeError(f"Expecting an int, not {number}")
+        if function_space.ufl_element().value_shape() != self.ufl_element().value_shape():
+            raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
+
+
+class Coargument(ufl.argument.Coargument):
+    """Representation of an argument to a form in a dual space.
+
+    :arg function_space: the :class:`.FunctionSpace` the argument
+        corresponds to.
+    :arg number: the number of the argument being constructed.
+    :kwarg part: optional index (mostly ignored).
+    """
+
+    def __init__(self, function_space, number, part=None):
+        super(Coargument, self).__init__(function_space.ufl_function_space(),
+                                         number, part=part)
+        self._function_space = function_space
+
+    @utils.cached_property
+    def cell_node_map(self):
+        return self.function_space().cell_node_map
+
+    @utils.cached_property
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map
+
+    @utils.cached_property
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map
+
+    def function_space(self):
+        return self._function_space
+
+    def make_dat(self):
+        return self.function_space().make_dat()
+
+    def _analyze_form_arguments(self, outer_form=None):
+        # Returns the argument found in the Coargument object
+        self._coefficients = ()
+        # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
+        # So they have one argument in the primal space and one in the dual space.
+        # However, when they are composed with linear forms with dual arguments, such as BaseFormOperators,
+        # the primal argument is discarded when analysing the argument as Coarguments.
+        if not outer_form:
+            self._arguments = (Argument(self.function_space().dual(), 0), self)
+        else:
+            self._arguments = (self,)
+
+    def reconstruct(self, function_space=None,
+                    number=None, part=None):
+        if function_space is None or function_space == self.function_space():
+            function_space = self.function_space()
+        if number is None or number == self._number:
+            number = self._number
+        if part is None or part == self._part:
+            part = self._part
+        if number is self._number and part is self._part \
+           and function_space is self.function_space():
+            return self
+        if not isinstance(number, int):
+            raise TypeError(f"Expecting an int, not {number}")
+        if function_space.ufl_element().value_shape() != self.ufl_element().value_shape():
+            raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
+        return Coargument(function_space, number, part=part)
+
+    def equals(self, other):
+        if type(other) is not Coargument:
+            return False
+        if self is other:
+            return True
+        return (self._function_space == other._function_space
+                and self._number == other._number and self._part == other._part)
 
 
 @PETSc.Log.EventDecorator()
@@ -145,9 +221,11 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise TypeError(
             f"Cannot take the derivative of a {type(form).__name__}"
         )
-    # TODO: What about Constant?
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    uc, = (u,) if u_is_x else extract_coefficients(u)
+    if u_is_x or isinstance(u, Constant):
+        uc = u
+    else:
+        uc, = extract_coefficients(u)
     if not u_is_x and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
@@ -157,43 +235,49 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Expression to be differentiated has no ufl domain."
                          "\nDo you need to add a domain to your Constant?")
     is_dX = u_is_x or u is mesh.coordinates
+
     try:
         args = form.arguments()
     except AttributeError:
         args = extract_arguments(form)
-
-    def argument(V):
-        if du is None:
-            n = max(a.number() for a in args) if args else -1
-            return Argument(V, n + 1)
-        else:
-            return du
+    # UFL arguments need unique indices within a form
+    n = max(a.number() for a in args) if args else -1
 
     if is_dX:
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-        du = argument(V)
-        cds = {coords: du}
-        if coefficient_derivatives is not None:
-            cds.update(coefficient_derivatives)
-        coefficient_derivatives = cds
-    elif isinstance(uc, firedrake.Function):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
         V = uc.function_space()
-        du = argument(V)
     elif isinstance(uc, firedrake.Constant):
         if uc.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")
+        # Replace instances of the constant with a new argument ``x``
+        # and differentiate wrt ``x``.
         V = firedrake.FunctionSpace(mesh, "Real", 0)
-        du = argument(V)
+        x = ufl.Coefficient(V, n + 1)
+        n += 1
+        # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
+        form = ufl.replace(form, {u: x})
+        u = x
     else:
         raise RuntimeError("Can't compute derivative for form")
+
+    if du is None:
+        du = Argument(V, n + 1)
+
+    if is_dX:
+        internal_coefficient_derivatives = {coords: du}
+    else:
+        internal_coefficient_derivatives = {}
+    if coefficient_derivatives:
+        internal_coefficient_derivatives.update(coefficient_derivatives)
 
     if u.ufl_shape != du.ufl_shape:
         raise ValueError("Shapes of u and du do not match.\n"
                          "If you passed an indexed part of split(u) into "
                          "derivative, you need to provide an appropriate du as well.")
-    return ufl.derivative(form, u, du, coefficient_derivatives)
+    return ufl.derivative(form, u, du, internal_coefficient_derivatives)
 
 
 @PETSc.Log.EventDecorator()
@@ -270,3 +354,41 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
+
+
+def extract_domains(func):
+    """Extract the domain from `func`.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return [func.function_space().mesh()]
+    else:
+        return ufl.domain.extract_domains(func)
+
+
+def extract_unique_domain(func):
+    """Extract the single unique domain `func` is defined on.
+
+    Parameters
+    ----------
+    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+        The function to extract the domain from.
+
+    Returns
+    -------
+    list of firedrake.mesh.MeshGeometry
+        Extracted domains.
+    """
+    if isinstance(func, (function.Function, cofunction.Cofunction)):
+        return func.function_space().mesh()
+    else:
+        return ufl.domain.extract_unique_domain(func)

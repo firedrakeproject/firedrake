@@ -14,7 +14,9 @@ from itertools import chain
 from functools import partial
 import numpy
 from ufl import VectorElement, MixedElement
+from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
+from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
 import ctypes
@@ -150,7 +152,7 @@ def matrix_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell or interior facet integrals")
@@ -197,7 +199,7 @@ def matrix_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -209,6 +211,10 @@ def matrix_funptr(form, state):
                 map_ = get_map(c_)
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
+
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
@@ -240,7 +246,7 @@ def residual_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell integrals or interior_facet integrals")
@@ -287,7 +293,7 @@ def residual_funptr(form, state):
             c = form.ufl_domain().cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -300,8 +306,12 @@ def residual_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
+
         if kinfo.integral_type == "interior_facet":
-            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -509,7 +519,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         coeffs.append(form.ufl_domain().cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(form.ufl_domain().cell_sizes)
-    for n, indices in kernel.kinfo.coefficient_map:
+    for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:
             if indices != (0, ):
@@ -534,6 +544,11 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                 if k not in seen:
                     map_args.append(k)
                     seen.add(k)
+
+    all_constants = extract_firedrake_constants(form)
+    for constant_index in kernel.kinfo.constant_numbers:
+        data_args.extend(all_constants[constant_index].dat._kernel_args_)
+
     if require_facet_number:
         data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
@@ -747,14 +762,14 @@ class PatchBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r", ctx)
+            raise ValueError("Don't know how to get form from %r" % ctx)
 
         if P.getType() == "python":
             ictx = P.getPythonContext()
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r", ictx)
+                raise ValueError("Don't know how to get form from %r" % ictx)
             J = ictx.a
             bcs = ictx.row_bcs
             if bcs != ictx.col_bcs:
@@ -855,7 +870,7 @@ class PatchBase(PCSNESBase):
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
                 facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
-                point2facet = F.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+                point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,
                                                  point2facet=point2facet)

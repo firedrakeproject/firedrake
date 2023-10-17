@@ -4,13 +4,39 @@ modules:
 	@echo "    Building extension modules"
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
+# Adds file annotations to Github Actions (only useful on CI)
+GITHUB_ACTIONS_FORMATTING=0
+ifeq ($(GITHUB_ACTIONS_FORMATTING), 1)
+	FLAKE8_FORMAT=--format='::error file=%(path)s,line=%(row)d,col=%(col)d,title=%(code)s::%(path)s:%(row)d:%(col)d: %(code)s %(text)s'
+else
+	FLAKE8_FORMAT=
+endif
+
 lint:
 	@echo "    Linting firedrake codebase"
-	@python -m flake8 firedrake
+	@python -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake test suite"
-	@python -m flake8 tests
+	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting firedrake scripts"
-	@python -m flake8 scripts --filename=*
+	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+
+actionlint:
+	@echo "    Pull latest actionlint image"
+	@docker pull rhysd/actionlint:latest
+	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
+
+dockerlint:
+	@echo "    Pull latest hadolint image"
+	@docker pull hadolint/hadolint:latest
+	@for DOCKERFILE in docker/Dockerfile.*; \
+		do \
+		echo "    Linting $$DOCKERFILE"; \
+		docker run --rm \
+			-e HADOLINT_IGNORE=DL3005,DL3007,DL3008,DL3015,DL3059 \
+			-i hadolint/hadolint \
+			< $$DOCKERFILE \
+			|| exit 1; \
+	done
 
 clean:
 	@echo "    Cleaning extension modules"

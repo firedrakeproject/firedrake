@@ -5,7 +5,7 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, UFLException, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor, VectorElement
 import finat
 
 import pyop2 as op2
@@ -19,7 +19,7 @@ from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
@@ -324,7 +324,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, firedrake.Function):
+        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
             if g.function_space() != self.function_space():
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
@@ -347,11 +347,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 g = as_ufl(g)
                 self._function_arg = g
-            except UFLException:
+            except ValueError:
                 try:
                     # Recurse to handle this through interpolation.
                     self.function_arg = as_ufl(as_tensor(g))
-                except UFLException:
+                except ValueError:
                     raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
