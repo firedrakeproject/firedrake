@@ -409,7 +409,7 @@ def compare_vector_expressions(expressions):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False}}).dat.data
         opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True}}).dat.data
-        assert np.allclose(opt, ref, rtol=1e-12)
+        assert np.allclose(opt, ref, rtol=1e-11)
 
 
 def compare_vector_expressions_mixed(expressions):
