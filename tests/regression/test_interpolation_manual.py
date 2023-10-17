@@ -110,7 +110,7 @@ def test_cross_mesh():
 
     assert np.isclose(f_dest.at(0.5, 0.5), 1.0)
 
-    assemble(interpolator.interpolate(output=f_dest))
+    assemble(interpolator.interpolate(), tensor=f_dest)
     f_dest.at(0.5, 0.5)  # now returns x_src^2 + y_src^2 = 0.5
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)

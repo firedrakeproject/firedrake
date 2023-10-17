@@ -33,7 +33,7 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
-def test_assemble_interp_operator(V1, V2, f1):
+def test_assemble_interp_operator(V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
     assert isinstance(If1, ufl.Interpolate)
@@ -71,7 +71,7 @@ def test_assemble_interp_tlm(V1, V2, f1):
     assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
 
 
-def test_assemble_interp_adjoint_matrix(V1, V2, f1):
+def test_assemble_interp_adjoint_matrix(V1, V2):
     # -- Adjoint(I(v1, V2)) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
@@ -88,7 +88,7 @@ def test_assemble_interp_adjoint_matrix(V1, V2, f1):
     assert np.allclose(res.dat.data, c1.dat.data)
 
 
-def test_assemble_interp_adjoint_model(V1, V2, f1):
+def test_assemble_interp_adjoint_model(V1, V2):
     # -- Action(Adjoint(I(v1, v2)), fstar) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
@@ -227,7 +227,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
-    F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(w), grad(u2))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})

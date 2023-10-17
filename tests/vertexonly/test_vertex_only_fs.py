@@ -127,7 +127,7 @@ def functionspace_tests(vm):
     h2 = assemble(I.interpolate())
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     h2.zero()
-    assemble(I.interpolate(output=h2))
+    assemble(I.interpolate(), tensor=h2)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
@@ -230,7 +230,7 @@ def vectorfunctionspace_tests(vm):
     h2 = assemble(I.interpolate())
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     h2.zero()
-    assemble(I.interpolate(output=h2))
+    assemble(I.interpolate(), tensor=h2)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)

@@ -63,7 +63,7 @@ class Interpolate(ufl.Interpolate):
         # -- Interpolate data (e.g. subset or access) -- #
         interp_data = interp_data or {}
         # Add the interpolator into `interp_data` (if not already there)
-        default_missing_val = interp_data.pop('default_missing_val', None)
+        default_missing_val = interp_data.pop("default_missing_val", None)
         interpolator = interp_data.pop("interpolator", None)
 
         if not interpolator:
@@ -79,6 +79,7 @@ class Interpolate(ufl.Interpolate):
             interpolator = Interpolator(expr,
                                         self.function_space(),
                                         **interp_data)
+
         self.interp_data = {"default_missing_val": default_missing_val,
                             "interpolator": interpolator,
                             **interp_data}
@@ -88,7 +89,7 @@ class Interpolate(ufl.Interpolate):
 
     def _ufl_expr_reconstruct_(self, expr, v=None, interp_data=None):
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v,
-                                                      interp_data=interp_data or self.interp_data)
+                                                      interp_data=interp_data or self.interp_data.copy())
 
 
 # Current behaviour of interpolation in Firedrake:
@@ -263,8 +264,25 @@ class Interpolator(abc.ABC):
         self.bcs = bcs
         self._allow_missing_dofs = allow_missing_dofs
         self.callable = None
+        # Cope with the different convention of `Interpolate` and `Interpolator`:
+        #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
+        #  -> Interpolator(Argument(V1, 0), V2)
+        expr_args = extract_arguments(expr)
+        if expr_args and expr_args[0].number() == 0:
+            v, = expr_args
+            expr = replace(expr, {v: Argument(v.function_space(),
+                                              number=1,
+                                              part=v.part())})
+        self.expr_renumbered = expr
 
     def _interpolate_future(self, *function, transpose=False, default_missing_val=None):
+        """
+        Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
+
+        .. note::
+            This method is the default future behaviour of interpolation. In a future release, the
+            ``Interpolator.interpolate`` method will be replaced by this method.
+        """
 
         V = self.V
         if isinstance(V, firedrake.Function):
@@ -272,17 +290,8 @@ class Interpolator(abc.ABC):
 
         interp_data = {'interpolator': self,
                        'default_missing_val': default_missing_val}
-        # Cope with the different convention of `Interpolate` and `Interpolator`:
-        #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
-        #  -> Interpolator(Argument(V1, 0), V2)
-        expr = self.expr
-        expr_args = extract_arguments(expr)
-        if expr_args and expr_args[0].number() == 0:
-            v2, = expr_args
-            expr = replace(expr, {v2: Argument(v2.function_space(),
-                                               number=1,
-                                               part=v2.part())})
-        interp = Interpolate(expr, V, interp_data=interp_data)
+
+        interp = Interpolate(self.expr_renumbered, V, interp_data=interp_data)
         if transpose:
             interp = adjoint(interp)
 
@@ -296,7 +305,7 @@ class Interpolator(abc.ABC):
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
         """
-        Compute the interpolation.
+        Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
         :arg function: If the expression being interpolated contains an
             :class:`ufl.Argument`, then the :class:`.Function` value to
@@ -361,6 +370,14 @@ the derivative, and then assemble the resulting form.
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
+        """
+        Compute the interpolation operation of interest.
+
+        .. note::
+            This method is called when an :class:`Interpolate` object is being assembled.
+            For instance, calling ``Interpolator.interpolate`` results in defining an :class:`Interpolate`
+            object and assembling it, which in turn calls this method.
+        """
         pass
 
 
@@ -559,7 +576,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolate = Interpolate(self.expr, P0DG_vom)
+        self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
         # The parallel decomposition of the nodes of V_dest in the DESTINATION
         # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
         # VOM. This again is an interpolation operation, which, under the hood

@@ -143,7 +143,6 @@ def base_form_preorder_traversal(expr, visitor, visited={}):
                 unvisited_children.append(arg)
 
         if unvisited_children:
-            stack.append(e)
             stack.extend(unvisited_children)
 
         visited[e] = visitor(e)
@@ -514,10 +513,12 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
         if len(args) != 1:
             raise TypeError("Not enough operands for Adjoint")
         mat, = args
+        res = tensor.petscmat if tensor else PETSc.Mat()
         petsc_mat = mat.petscmat
-        petsc_mat.hermitianTranspose()
+        # Out-of-place Hermitian transpose
+        petsc_mat.hermitianTranspose(out=res)
         (row, col) = mat.arguments()
-        return matrix.AssembledMatrix((col, row), bcs, petsc_mat,
+        return matrix.AssembledMatrix((col, row), bcs, res,
                                       appctx=appctx,
                                       options_prefix=options_prefix)
     elif isinstance(expr, ufl.Action):
@@ -565,14 +566,18 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
             res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
             return firedrake.Cofunction(V, res)
         elif all(isinstance(op, ufl.Matrix) for op in args):
+            res = tensor.petscmat if tensor else PETSc.Mat()
             is_set = False
             for (op, w) in zip(args, expr.weights()):
-                petsc_mat = op.petscmat
+                # Make a copy to avoid in-place scaling
+                petsc_mat = op.petscmat.copy()
                 petsc_mat.scale(w)
                 if is_set:
-                    res = res + petsc_mat
+                    # Modify output tensor in-place
+                    res += petsc_mat
                 else:
-                    res = petsc_mat
+                    # Copy to output tensor
+                    petsc_mat.copy(result=res)
                     is_set = True
             return matrix.AssembledMatrix(expr, bcs, res,
                                           appctx=appctx,
@@ -601,7 +606,7 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
         # Get the interpolator
         interp_data = expr.interp_data
         interpolator = interp_data["interpolator"]
-        default_missing_val = interp_data.get('default_missing_val', None)
+        default_missing_val = interp_data.get("default_missing_val", None)
         # Assembly
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.
@@ -614,12 +619,17 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
             # Assembling the operator
             return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
         elif rank == 2:
-            # Return the interpolation matrix
+            res = tensor.petscmat if tensor else PETSc.Mat()
+            # Get the interpolation matrix
             op2_mat = interpolator.callable()
             petsc_mat = op2_mat.handle
             if is_adjoint:
-                petsc_mat.hermitianTranspose()
-            return matrix.AssembledMatrix(expr.arguments(), bcs, petsc_mat,
+                # Out-of-place Hermitian transpose
+                petsc_mat.hermitianTranspose(out=res)
+            else:
+                # Copy the interpolation matrix into the output tensor
+                petsc_mat.copy(result=res)
+            return matrix.AssembledMatrix(expr.arguments(), bcs, res,
                                           appctx=appctx,
                                           options_prefix=options_prefix)
         else:
