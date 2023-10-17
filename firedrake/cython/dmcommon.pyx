@@ -1207,10 +1207,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         bint variable, extruded, on_base_
 
     dm = mesh.topology_dm
-
     if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
-
     variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
     extruded_periodic = mesh.cell_set._extruded_periodic
@@ -1226,19 +1224,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
                 nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - 1) for i in range(2))
             else:
                 nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
-
     section = PETSc.Section().create(comm=mesh._comm)
-
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
-    if isinstance(dm, PETSc.DMPlex):
-        # Renumbering only implemented for DMPlex
-        renumbering = mesh._plex_renumbering
-        CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+    renumbering = mesh._plex_renumbering
+    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
-
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
-
     for i in range(dimension + 1):
         get_depth_stratum(dm.dm, i, &pStart, &pEnd)
         if not variable:
@@ -1846,7 +1838,7 @@ def _set_dg_coordinates(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
+def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, reference_coord=False):
     """Return coordinates for the dm, reordered according to the
     global numbering permutation for the coordinate function space.
 
@@ -1890,16 +1882,19 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
         # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
-        dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape).astype(ScalarType)
+        if reference_coord:
+            swarm_field_name = "refcoord"
+        else:
+            swarm_field_name = "DMSwarmPIC_coor"
+        dm_coords = dm.getField(swarm_field_name).reshape(shape).astype(ScalarType)
         coords = np.empty_like(dm_coords)
         for v in range(vStart, vEnd):
             CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
             for i in range(dim):
                 coords[offset, i] = dm_coords[v - vStart, i]
-        dm.restoreField("DMSwarmPIC_coor")
+        dm.restoreField(swarm_field_name)
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
-
     return coords
 
 @cython.boundscheck(False)
@@ -3373,53 +3368,6 @@ def clear_adjacency_callback(PETSc.DM dm not None):
         dm.removeLabel("ghost_region")
         CHKERR(DMLabelDestroy(&label))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def fill_reference_coordinates_function(reference_coordinates_f):
-    """
-    Fill the PyOP2 dat of an input vector valued function on a
-    VertexOnlyMesh `reference_coordinates_f` with the reference
-    coordinates of each vertex in their relevant reference cells.
-
-    :arg reference_coordinates_f: A vector valued function on a
-        VertexOnlyMesh (with vector dimension the topological dimension
-        of the parent mesh) which will have its dat modified.
-
-    :returns: The updated `reference_coordinates_f`.
-    """
-    cdef:
-        PetscInt num_vertices, i, gdim, parent_tdim
-        PETSc.DM swarm
-
-    from firedrake.mesh import VertexOnlyMeshTopology
-    assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
-
-    gdim = reference_coordinates_f.function_space().mesh().geometric_dimension()
-    parent_tdim, = reference_coordinates_f.function_space().ufl_element().value_shape()
-
-    swarm = reference_coordinates_f.function_space().mesh().topology_dm
-
-    num_vertices = swarm.getLocalSize()
-
-    shape = reference_coordinates_f.dat.shape
-    if parent_tdim == 1:
-        # PyOP2 inconsistency, it removes the shape if it is (1,)
-        assert shape == (num_vertices, )
-    else:
-        assert shape == (num_vertices, parent_tdim)
-
-    # get reference coord field - NOTE isn't copied so could have GC issues!
-    reference_coords = swarm.getField("refcoord").reshape(shape)
-
-    # store reference coord field in Function Dat.
-    reference_coordinates_f.dat.data_with_halos[:] = reference_coords[:]
-
-    # have to restore fields once accessed to allow access again
-    swarm.restoreField("refcoord")
-
-    return reference_coordinates_f
 
 
 @cython.boundscheck(False)

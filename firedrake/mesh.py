@@ -75,6 +75,15 @@ def _generate_default_mesh_coordinates_name(name):
     return "_".join([name, "coordinates"])
 
 
+def _generate_default_mesh_reference_coordinates_name(name):
+    """Generate the default mesh reference coordinates name from the mesh name.
+
+    :arg name: the mesh name.
+    :returns: the default mesh reference coordinates name.
+    """
+    return "_".join([name, "reference_coordinates"])
+
+
 def _generate_default_mesh_topology_name(name):
     """Generate the default mesh topology name from the mesh name.
 
@@ -1572,6 +1581,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             else:
                 dmcommon.mark_entity_classes(self.topology_dm)
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
+                                                               self._entity_classes,
+                                                               None)
 
             # Derive a cell numbering from the Swarm numbering
             entity_dofs = np.zeros(tdim+1, dtype=IntType)
@@ -1667,9 +1679,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
         self.topology_dm.restoreField("parentcellnum")
-        # remove invalid entries
-        cell_parent_cell_list = cell_parent_cell_list[cell_parent_cell_list >= 0]
-        return cell_parent_cell_list
+        return cell_parent_cell_list[self.cell_closure[:, -1]]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
@@ -1688,9 +1698,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
         cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum"))
         self.topology_dm.restoreField("parentcellbasenum")
-        # remove invalid entries
-        cell_parent_base_cell_list = cell_parent_base_cell_list[cell_parent_base_cell_list >= 0]
-        return cell_parent_base_cell_list
+        return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
@@ -1711,9 +1719,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight"))
         self.topology_dm.restoreField("parentcellextrusionheight")
-        # remove invalid entries
-        cell_parent_extrusion_height_list = cell_parent_extrusion_height_list[cell_parent_extrusion_height_list >= 0]
-        return cell_parent_extrusion_height_list
+        return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
@@ -1790,20 +1796,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        sf = PETSc.SF().create(comm=self.comm)
         nroots = self.input_ordering.num_cells()
-        input_ranks = self.topology_dm.getField("inputrank")
-        self.topology_dm.restoreField("inputrank")
-        input_indices = self.topology_dm.getField("inputindex")
-        self.topology_dm.restoreField("inputindex")
-        nleaves = len(input_ranks)
-        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        # local looks like the below, which means we can just pass in None
-        # local = numpy.arange(nleaves, dtype=IntType)
-        sf.setGraph(nroots, None, input_ranks_and_idxs)
-        return sf
+        e_p_map = self.cell_closure[:, -1]  # cell-entity -> swarm-point map
+        ilocal = np.empty_like(e_p_map)
+        if len(e_p_map) > 0:
+            cStart = e_p_map.min()  # smallest swarm point number
+            ilocal[e_p_map - cStart] = np.arange(len(e_p_map))
+        return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_without_halos_sf(self):
@@ -1811,29 +1810,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's non-halo vertices as leaves.
         """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        sf = PETSc.SF().create(comm=self.comm)
-        nroots = self.input_ordering.num_cells()
-        ranks = self.topology_dm.getField("DMSwarm_rank")
-        self.topology_dm.restoreField("DMSwarm_rank")
-        input_ranks = self.topology_dm.getField("inputrank")
-        self.topology_dm.restoreField("inputrank")
-        input_index = self.topology_dm.getField("inputindex")
-        self.topology_dm.restoreField("inputindex")
-        # only include leaves where points are on this rank. This will exclude
-        # any points where the point was not found on the mesh.
-        idxs_to_include = ranks == self.comm.rank
-        input_ranks = input_ranks[idxs_to_include]
-        input_indices = input_index[idxs_to_include]
-        nleaves = len(input_ranks)
-        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        # local looks like the below, which means we can just pass in None
-        # local = numpy.arange(nleaves, dtype=IntType)
-        sf.setGraph(nroots, None, input_ranks_and_idxs)
-        return sf
+        # The leaves have been ordered according to the pyop2 classes with non-halo
+        # cells first; self.cell_set.size is the number of rank-local non-halo cells.
+        return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -2478,6 +2457,7 @@ def make_vom_from_vom_topology(topology, name):
         The mesh.
 
     """
+    import firedrake.functionspaceimpl as functionspaceimpl
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
@@ -2490,12 +2470,15 @@ def make_vom_from_vom_topology(topology, name):
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
     if parent_tdim > 0:
-        reference_coordinates_fs = functionspace.VectorFunctionSpace(
-            vmesh, "DG", 0, dim=parent_tdim
-        )
-        vmesh.reference_coordinates = dmcommon.fill_reference_coordinates_function(
-            function.Function(reference_coordinates_fs)
-        )
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
+        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
+                                                               (topology.num_vertices(), parent_tdim),
+                                                               reference_coord=True)
+        reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
+                                                                val=reference_coordinates_data,
+                                                                name=_generate_default_mesh_reference_coordinates_name(name))
+        refCoordV = functionspaceimpl.WithGeometry.create(reference_coordinates_fs, vmesh)
+        vmesh.reference_coordinates = function.Function(refCoordV, val=reference_coordinates)
     else:
         # We can't do this in 0D so leave it undefined.
         vmesh.reference_coordinates = None
@@ -3777,24 +3760,6 @@ def _parent_mesh_embedding(
     owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
     input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
     input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
-
-    if not exclude_halos and parent_mesh.comm.size > 1:
-        # Reorder the halos so that off rank points are at the end of the local
-        # ordering. This is required for dat views to work correctly.
-        owned_ranks_tosort = owned_ranks.copy()
-        # seting all off rank points to comm.size will ensure they are at the
-        # end when we sort by rank (but before any points that are not found on
-        # any rank which will have been set to comm.size + 1)
-        owned_ranks_tosort[owned_ranks != parent_mesh.comm.rank] = parent_mesh.comm.size
-        # now a sort by rank will give us the ordering we want
-        idxs = np.argsort(owned_ranks_tosort)
-        coords_embedded = coords_embedded[idxs]
-        global_idxs = global_idxs[idxs]
-        reference_coords = reference_coords[idxs]
-        parent_cell_nums = parent_cell_nums[idxs]
-        owned_ranks = owned_ranks[idxs]
-        input_ranks = input_ranks[idxs]
-        input_coords_idxs = input_coords_idxs[idxs]
 
     return (
         coords_embedded,
