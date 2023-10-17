@@ -28,7 +28,7 @@ from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
-from pyadjoint import stop_annotating
+from pyadjoint import stop_annotating, no_annotations
 
 __all__ = (
     "interpolate",
@@ -417,6 +417,7 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(
         self,
         expr,
@@ -450,10 +451,6 @@ class CrossMeshInterpolator(Interpolator):
 
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
-        if self.nargs and self.arguments[0] != self.expr:
-            raise NotImplementedError(
-                "Can't yet create an interpolator from an expression with arguments."
-            )
 
         if self._allow_missing_dofs:
             missing_points_behaviour = MissingPointsBehaviour.IGNORE
@@ -627,7 +624,19 @@ class CrossMeshInterpolator(Interpolator):
             f_src = self.expr
 
         if transpose:
-            V_dest = self.expr.function_space()
+            try:
+                V_dest = self.expr.function_space()
+            except AttributeError:
+                if self.nargs:
+                    V_dest = self.arguments[0].function_space()
+                else:
+                    coeffs = extract_coefficients(self.expr)
+                    if len(coeffs):
+                        V_dest = coeffs[0].function_space()
+                    else:
+                        raise ValueError(
+                            "Can't transpose interpolate an expression with no coefficients or arguments."
+                        )
         else:
             if isinstance(self.V, firedrake.Function):
                 V_dest = self.V.function_space()
@@ -754,6 +763,7 @@ class SameMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
         super().__init__(expr, V, subset, freeze_expr, access, bcs)
         try:

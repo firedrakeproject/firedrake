@@ -623,24 +623,23 @@ def interpolator_expression(
 ):
     f_src = Function(V_src).interpolate(expr_src)
 
-    with pytest.raises(NotImplementedError):
-        interpolator = Interpolator(2 * TestFunction(V_src), V_dest)
-        f_dest = assemble(interpolator.interpolate(f_src))
-        assert extract_unique_domain(f_dest) is m_dest
-        got = f_dest.at(coords)
-        assert np.allclose(got, 2 * expected, atol=atol)
-        cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-        cofunction_dest_on_src = assemble(interpolator.interpolate(
-            cofunction_dest, transpose=True
-        ))
-        assert extract_unique_domain(cofunction_dest_on_src) is m_src
-        assert not np.allclose(
-            f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=atol
-        )
-        cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
-        assert not np.allclose(
-            cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
-        )
+    interpolator = Interpolator(2 * TestFunction(V_src), V_dest)
+    f_dest = assemble(interpolator.interpolate(f_src))
+    assert extract_unique_domain(f_dest) is m_dest
+    got = f_dest.at(coords)
+    assert np.allclose(got, 2 * expected, atol=2 * atol)
+    cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
+    cofunction_dest_on_src = assemble(interpolator.interpolate(
+        cofunction_dest, transpose=True
+    ))
+    assert extract_unique_domain(cofunction_dest_on_src) is m_src
+    assert not np.allclose(
+        f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=2 * atol
+    )
+    cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
+    assert not np.allclose(
+        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=2 * atol
+    )
 
 
 def test_missing_dofs():

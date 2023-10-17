@@ -110,7 +110,7 @@ have yet to create binary wheels for 3.11.x, but we have generated these
 for the major supported platforms.
 The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
 or later, the system installed Python 3 is supported and tested. On
-MacOS, the homebrew_ installed Python 3 is supported and tested::
+MacOS, the homebrew_ installed Python 3 is supported::
 
   brew install python3
 
