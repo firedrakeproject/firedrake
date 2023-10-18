@@ -125,6 +125,14 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
+def test_duality_pairing(a, f):
+    c = assemble(a)
+    with f.dat.vec_ro as x, c.dat.vec_ro as y:
+        expected = x.dot(y)
+    assert np.isclose(assemble(action(c, f)), expected)
+    assert np.isclose(c(f), expected)
+
+
 def test_vector_formsum(a):
     res = assemble(a)
     preassemble = assemble(a + a)
