@@ -58,7 +58,7 @@ class Term(object):
 
     def has_label(
         self,
-        *labels: Union[Sequence["Label"], "Label"],
+        *labels: "Label",
         return_tuple: bool = False
     ) -> Union[Tuple[bool], bool]:
         """
