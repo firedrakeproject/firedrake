@@ -180,7 +180,7 @@ class LabelledForm(object):
     A form, broken down into terms that pair individual forms with labels.
 
     The LabelledForm object holds a list of terms, which pair
-    ufl.Form objects with .Label\\ s. The label_map
+    :class:`ufl.Form` objects with :class:`Label` s. The label_map
     routine allows the terms to be manipulated or selected based on particular
     filters.
     """
