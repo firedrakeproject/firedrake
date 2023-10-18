@@ -2530,7 +2530,7 @@ def Mesh(meshfile, **kwargs):
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         try:
             from ngsPETSc import FiredrakeMesh
-        except ImportError as e:
+        except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
