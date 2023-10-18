@@ -6,6 +6,7 @@ import operator
 
 import loopy as lp
 import numpy as np
+import pytools
 from petsc4py import PETSc
 
 from pyop2 import (
@@ -827,6 +828,10 @@ class MixedDat(AbstractDat, VecAccessMixin):
     @property
     def dat_version(self):
         return sum(d.dat_version for d in self._dats)
+
+    @property
+    def _halo_frozen(self):
+        return pytools.single_valued(d._halo_frozen for d in self._dats)
 
     def increment_dat_version(self):
         for d in self:

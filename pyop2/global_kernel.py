@@ -6,8 +6,9 @@ import os
 from typing import Optional, Tuple
 
 import loopy as lp
-from petsc4py import PETSc
 import numpy as np
+import pytools
+from petsc4py import PETSc
 
 from pyop2 import compilation, mpi
 from pyop2.caching import Cached
@@ -180,6 +181,16 @@ class MixedDatKernelArg:
 
     def __len__(self):
         return len(self.arguments)
+
+    @property
+    def is_direct(self):
+        """Is the data getting accessed directly?"""
+        return pytools.single_valued(a.is_direct for a in self.arguments)
+
+    @property
+    def is_indirect(self):
+        """Is the data getting accessed indirectly?"""
+        return pytools.single_valued(a.is_indirect for a in self.arguments)
 
     @property
     def cache_key(self):

@@ -465,7 +465,6 @@ def test_composed_map_extrusion(variable, subset):
         indices = np.array([1], dtype=np.int32)
         setC = op2.Subset(setC, indices)
     op2.par_loop(k, setC, datC(op2.WRITE, mapC), datA(op2.READ, mapA))
-    print(datC.data)
     assert (datC.data == expected).all()
 
 

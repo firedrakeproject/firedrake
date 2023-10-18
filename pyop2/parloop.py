@@ -1,7 +1,7 @@
 import abc
-from dataclasses import dataclass
-import functools
 import itertools
+import operator
+from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 import loopy as lp
@@ -295,8 +295,10 @@ class Parloop:
     def _g2l_begin_ops(self):
         ops = []
         for idx in self._g2l_idxs:
-            op = functools.partial(Dat.global_to_local_begin,
-                                   access_mode=self.accesses[idx])
+            op = operator.methodcaller(
+                "global_to_local_begin",
+                access_mode=self.accesses[idx],
+            )
             ops.append((idx, op))
         return tuple(ops)
 
@@ -304,8 +306,10 @@ class Parloop:
     def _g2l_end_ops(self):
         ops = []
         for idx in self._g2l_idxs:
-            op = functools.partial(Dat.global_to_local_end,
-                                   access_mode=self.accesses[idx])
+            op = operator.methodcaller(
+                "global_to_local_end",
+                access_mode=self.accesses[idx],
+            )
             ops.append((idx, op))
         return tuple(ops)
 
@@ -314,7 +318,7 @@ class Parloop:
         seen = set()
         indices = []
         for i, (lknl_arg, gknl_arg, pl_arg) in enumerate(self.zipped_arguments):
-            if (isinstance(gknl_arg, DatKernelArg) and pl_arg.data not in seen
+            if (isinstance(gknl_arg, (DatKernelArg, MixedDatKernelArg)) and pl_arg.data not in seen
                     and gknl_arg.is_indirect and lknl_arg.access is not Access.WRITE):
                 indices.append(i)
                 seen.add(pl_arg.data)
@@ -336,8 +340,10 @@ class Parloop:
     def _l2g_begin_ops(self):
         ops = []
         for idx in self._l2g_idxs:
-            op = functools.partial(Dat.local_to_global_begin,
-                                   insert_mode=self.accesses[idx])
+            op = operator.methodcaller(
+                "local_to_global_begin",
+                insert_mode=self.accesses[idx],
+            )
             ops.append((idx, op))
         return tuple(ops)
 
@@ -345,8 +351,10 @@ class Parloop:
     def _l2g_end_ops(self):
         ops = []
         for idx in self._l2g_idxs:
-            op = functools.partial(Dat.local_to_global_end,
-                                   insert_mode=self.accesses[idx])
+            op = operator.methodcaller(
+                "local_to_global_end",
+                insert_mode=self.accesses[idx],
+            )
             ops.append((idx, op))
         return tuple(ops)
 
@@ -355,7 +363,7 @@ class Parloop:
         seen = set()
         indices = []
         for i, (lknl_arg, gknl_arg, pl_arg) in enumerate(self.zipped_arguments):
-            if (isinstance(gknl_arg, DatKernelArg) and pl_arg.data not in seen
+            if (isinstance(gknl_arg, (DatKernelArg, MixedDatKernelArg)) and pl_arg.data not in seen
                     and gknl_arg.is_indirect
                     and lknl_arg.access in {Access.INC, Access.MIN, Access.MAX}):
                 indices.append(i)
