@@ -1017,15 +1017,6 @@ class MeshTopology(AbstractMeshTopology):
             # there are lots of parameters that can change distributions.
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
-            if reorder:
-                with PETSc.Log.Event("Mesh: reorder"):
-                    old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-                    reordering = np.empty_like(old_to_new)
-                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
-            else:
-                # No reordering
-                reordering = None
-            self._did_reordering = bool(reorder)
             # Mark OP2 entities and derive the resulting Plex renumbering
             with PETSc.Log.Event("Mesh: numbering"):
                 dmcommon.mark_entity_classes(self.topology_dm)
@@ -1033,9 +1024,8 @@ class MeshTopology(AbstractMeshTopology):
                 if perm_is:
                     self._plex_renumbering = perm_is
                 else:
-                    self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
-                                                                       self._entity_classes,
-                                                                       reordering)
+                    self._plex_renumbering = self._default_renumbering(reorder)
+                self._did_reordering = bool(reorder)
                 # Derive a cell numbering from the Plex renumbering
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
@@ -1052,6 +1042,22 @@ class MeshTopology(AbstractMeshTopology):
     def __del__(self):
         if hasattr(self, "_comm"):
             decref(self._comm)
+
+    @property
+    def _default_reordering(self):
+        with PETSc.Log.Event("Mesh: reorder"):
+            old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+            reordering = np.empty_like(old_to_new)
+            reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+        return reordering
+
+    def _default_renumbering(self, reorder):
+        if reorder:
+            reordering = self._default_reordering
+        else:
+            # No reordering
+            reordering = None
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1526,7 +1532,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, tolerance=0.5):
+    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, perm_is=None, tolerance=0.5):
         """
         Half-initialise a mesh topology.
 
@@ -1544,11 +1550,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
 
         super().__init__(name, tolerance=tolerance)
-
-        # TODO: As a performance optimisation, we should renumber the
-        # swarm to in parent-cell order so that we traverse efficiently.
-        if reorder:
-            raise NotImplementedError("Mesh reordering not implemented for vertex only meshes yet.")
 
         dmcommon.validate_mesh(swarm)
         swarm.setFromOptions()
@@ -1573,18 +1574,18 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         cell = ufl.Cell("vertex")
         self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
-
-        # Mark OP2 entities and derive the resulting Swarm numbering
+        # Mark OP2 entities and derive the resulting Plex renumbering
         with PETSc.Log.Event("Mesh: numbering"):
             if isinstance(self._parent_mesh, MeshTopology):
                 dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
             else:
                 dmcommon.mark_entity_classes(self.topology_dm)
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
-            self._plex_renumbering = dmcommon.plex_renumbering(self.topology_dm,
-                                                               self._entity_classes,
-                                                               None)
-
+            if perm_is:
+                self._plex_renumbering = perm_is
+            else:
+                self._plex_renumbering = self._default_renumbering(reorder)
+            self._did_reordering = bool(reorder)
             # Derive a cell numbering from the Swarm numbering
             entity_dofs = np.zeros(tdim+1, dtype=IntType)
             entity_dofs[-1] = 1
@@ -1594,6 +1595,25 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             entity_dofs[0] = 1
             self._vertex_numbering = self.create_section(entity_dofs)
         self.original_swarm = original_swarm
+
+    def _default_renumbering(self, reorder):
+        if reorder:
+            swarm = self.topology_dm
+            parent = self._parent_mesh.topology_dm
+            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+            parent_renum = self._parent_mesh._plex_renumbering.getIndices()
+            pStart, _ = parent.getChart()
+            parent_renum_inv = np.empty_like(parent_renum)
+            parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
+            # Use kind = 'stable' to make the ordering deterministic.
+            perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+            swarm.restoreField("DMSwarm_cellid")
+            perm_is = PETSc.IS().create(comm=swarm.comm)
+            perm_is.setType("general")
+            perm_is.setIndices(perm)
+            return perm_is
+        else:
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -2821,7 +2841,7 @@ class VertexOnlyMeshMissingPointsError(Exception):
 
 
 @PETSc.Log.EventDecorator()
-def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
+def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='error',
                    tolerance=None, redundant=True, name=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
@@ -2829,6 +2849,10 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
     :arg mesh: The unstructured mesh in which to immerse the vertex only mesh.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
+    :kwarg reorder: optional flag indicating whether to reorder
+           meshes for better cache locality.  If not supplied the
+           default value in ``parameters["reorder_meshes"]``
+           is used.
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
@@ -2879,6 +2903,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         mesh.tolerance = tolerance
     mesh.init()
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
+    if reorder is None:
+        reorder = parameters["reorder_meshes"]
     gdim = mesh.geometric_dimension()
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
@@ -2920,7 +2946,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         swarm,
         mesh.topology,
         name=swarm.getName(),
-        reorder=False,
+        reorder=reorder,
         original_swarm=original_swarm,
     )
     vmesh_out = make_vom_from_vom_topology(topology, name)
