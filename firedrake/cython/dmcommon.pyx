@@ -1557,14 +1557,13 @@ def facet_closure_nodes(V, sub_domain):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex, label_boundary=True):
+def label_facets(PETSc.DM plex):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
     others are marked with "interior_facets".
 
-    :arg label_boundary: if False, don't label the boundary faces
-         (they must have already been labelled)."""
+    """
     cdef:
         PetscInt fStart, fEnd, facet, pStart, pEnd
         char *ext_label = <char *>"exterior_facets"
@@ -1572,17 +1571,20 @@ def label_facets(PETSc.DM plex, label_boundary=True):
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
+    if get_topological_dimension(plex) == 0:
+        return
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
     plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
-
-    # Mark boundaries as exterior_facets
-    if label_boundary:
+    # Mark boundaries as exterior_facets.
+    # Note.  This must come before distribution, because otherwise
+    # DMPlex will consider facets on the domain boundary to be
+    # exterior, which is wrong.
+    if not plex.isDistributed():
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
-
     CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
@@ -1597,6 +1599,8 @@ def complete_facet_labels(PETSc.DM dm):
     the closure of the facets."""
     cdef PETSc.DMLabel label
 
+    if get_topological_dimension(dm) == 0:
+        return
     for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
         if dm.hasLabel(name):
             label = dm.getLabel(name)
