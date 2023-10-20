@@ -56,7 +56,7 @@ jobs:
           rm -rf firedrake_venv
       - name: Build Firedrake
         run: |
-          unset PETSC_DIR, PETSC_ARCH, SLEPC_DIR
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
@@ -83,7 +83,7 @@ jobs:
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
-          unset PETSC_DIR, PETSC_ARCH, SLEPC_DIR
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
@@ -91,7 +91,7 @@ jobs:
           python -m pip list
       - name: Test Firedrake
         run: |
-          unset PETSC_DIR, PETSC_ARCH, SLEPC_DIR
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
@@ -108,7 +108,7 @@ jobs:
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
-          unset PETSC_DIR, PETSC_ARCH, SLEPC_DIR
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
           python -m pytest \
