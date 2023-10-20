@@ -117,8 +117,8 @@ def test_poisson_gmg_parallel_newtonfas():
 
 @pytest.mark.skipcomplex
 def test_baseform_coarsening():
-    base = UnitSquareMesh(4, 4)
-    hierarchy = MeshHierarchy(base, 2)
+    base = UnitSquareMesh(1, 1)
+    hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
     mesh = hierarchy[-1]
 
     V = FunctionSpace(mesh, "CG", 1)

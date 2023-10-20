@@ -89,6 +89,9 @@ def prolong(coarse, fine):
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual)
+    assert isinstance(fine_dual, firedrake.Cofunction)
+    assert isinstance(coarse_dual, firedrake.Cofunction)
+
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()
     if len(Vc) > 1:
@@ -123,7 +126,7 @@ def restrict(fine_dual, coarse_dual):
             Vc = next.function_space()
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
-            next = firedrake.Function(Vc)
+            next = firedrake.Cofunction(Vc.dual())
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
