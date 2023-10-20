@@ -64,6 +64,7 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level - 1]
 
 
+@coarsen.register(ufl.BaseForm)
 @coarsen.register(ufl.classes.Expr)
 def coarse_expr(expr, self, coefficient_mapping=None):
     if expr is None:
@@ -104,6 +105,12 @@ def coarsen_form(form, self, coefficient_mapping=None):
     return form
 
 
+@coarsen.register(ufl.FormSum)
+def coarsen_formsum(form, self, coefficient_mapping=None):
+    return type(form)(*[(self(i, self, coefficient_mapping=coefficient_mapping), wi)
+                        for i, wi in zip(form.ufl_operands, form.weights())])
+
+
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
@@ -113,6 +120,7 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
+@coarsen.register(firedrake.functionspaceimpl.FiredrakeDualSpace)
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
 def coarsen_function_space(V, self, coefficient_mapping=None):
@@ -133,7 +141,10 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
     mesh = self(V.mesh(), self)
 
-    V = firedrake.FunctionSpace(mesh, V.ufl_element())
+    if isinstance(V, firedrake.functionspaceimpl.FiredrakeDualSpace):
+        V = firedrake.functionspace.DualSpace(mesh, V.ufl_element())
+    else:
+        V = firedrake.FunctionSpace(mesh, V.ufl_element())
 
     for i in reversed(indices):
         V = V.sub(i)
@@ -170,7 +181,23 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
         V = self(expr.function_space(), self)
         new = firedrake.Function(V, name="coarse_%s" % expr.name())
+        # Primal restriction
         manager.inject(expr, new)
+    return new
+
+
+@coarsen.register(firedrake.Cofunction)
+def coarsen_cofunction(expr, self, coefficient_mapping=None):
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    new = coefficient_mapping.get(expr)
+    if new is None:
+        V = expr.function_space()
+        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
+        V = self(expr.function_space(), self)
+        new = firedrake.Cofunction(V, name="coarse_%s" % expr.name())
+        # Dual restriction
+        manager.restrict(expr, new)
     return new
 
 
