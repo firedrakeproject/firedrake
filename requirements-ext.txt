@@ -14,3 +14,4 @@ requests
 scipy
 sympy
 vtk>=9.0.1
+checkpoint_schedules
