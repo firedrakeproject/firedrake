@@ -328,20 +328,22 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
 
 
 class Interpolation(object):
-    def __init__(self, cfn, ffn, manager, cbcs=None, fbcs=None):
-        self.cfn = cfn
-        self.ffn = ffn
+    def __init__(self, coarse, fine, manager, cbcs=None, fbcs=None):
+        self.cprimal = coarse
+        self.fprimal = fine
+        self.cdual = coarse.riesz_representation(riesz_map="l2")
+        self.fdual = fine.riesz_representation(riesz_map="l2")
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
         self.manager = manager
 
     def mult(self, mat, x, y, inc=False):
-        with self.cfn.dat.vec_wo as v:
+        with self.cprimal.dat.vec_wo as v:
             x.copy(v)
-        self.manager.prolong(self.cfn, self.ffn)
+        self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
-            bc.zero(self.ffn)
-        with self.ffn.dat.vec_ro as v:
+            bc.zero(self.fprimal)
+        with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -355,12 +357,12 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
     def multTranspose(self, mat, x, y, inc=False):
-        with self.ffn.dat.vec_wo as v:
+        with self.fdual.dat.vec_wo as v:
             x.copy(v)
-        self.manager.restrict(self.ffn, self.cfn)
+        self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
-            bc.zero(self.cfn)
-        with self.cfn.dat.vec_ro as v:
+            bc.zero(self.cdual)
+        with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:

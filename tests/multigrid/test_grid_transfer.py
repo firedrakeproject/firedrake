@@ -141,8 +141,7 @@ def run_restriction(hierarchy, vector, space, degrees):
         return assemble(inner(f, TestFunction(V))*dx)
 
     def functional(victim, dual):
-        with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
-            return dv.dot(v)
+        return assemble(action(dual, victim))
 
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
