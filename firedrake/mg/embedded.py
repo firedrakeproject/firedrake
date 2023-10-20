@@ -263,8 +263,8 @@ class TransferManager(object):
         :arg gf: The source (fine grid) dual function.
         :arg gc: The target (coarse grid) dual function.
         """
-        Vc = gc.function_space()
-        Vf = gf.function_space()
+        Vc = gc.function_space().dual()
+        Vf = gf.function_space().dual()
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
@@ -275,8 +275,8 @@ class TransferManager(object):
             for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
             return gc
-        dgf = self.DG_work(Vf).riesz_representation(riesz_map="l2")
-        dgc = self.DG_work(Vc).riesz_representation(riesz_map="l2")
+        dgf = self.DG_work(Vf)
+        dgc = self.DG_work(Vc)
         VDGf = dgf.function_space()
         VDGc = dgc.function_space()
         work = self.work_vec(Vf)
@@ -292,7 +292,9 @@ class TransferManager(object):
                 self.V_DG_mass(Vf, VDGf).mult(work, dgscratch)
 
         # g \in VDGf^* -> g \in VDGc^*
-        self.restrict(dgf, dgc)
+        fdual = dgf.riesz_representation(riesz_map="l2")
+        cdual = dgc.riesz_representation(riesz_map="l2")
+        self.restrict(fdual, cdual)
 
         # g \in VDGc^* -> g \in Vc^*
         with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
