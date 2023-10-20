@@ -113,3 +113,35 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
+
+
+@pytest.mark.skipcomplex
+def test_baseform_coarsening():
+    base = UnitSquareMesh(4, 4)
+    hierarchy = MeshHierarchy(base, 2)
+    mesh = hierarchy[-1]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    test = TestFunction(V)
+    trial = TrialFunction(V)
+    a = (inner(grad(test), grad(trial)) + inner(test, trial)) * dx
+    L = assemble(test * dx)
+    params = {
+        'ksp_rtol': 1E-10,
+        'snes_monitor': None,
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
+        'pc_type': 'mg',
+        'mg_levels_pc_type': 'jacobi',
+        'mg_coarse': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu'
+        }
+    }
+    u = Function(V)
+    problem = LinearVariationalProblem(a, L, u)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    residual = assemble(action(a, u))
+    assert np.allclose(residual.dat.data_ro, L.dat.data_ro)
