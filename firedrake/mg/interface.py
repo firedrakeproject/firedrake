@@ -11,20 +11,19 @@ __all__ = ["prolong", "restrict", "inject"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):
-    if needs_dual != isinstance(coarse, firedrake.Cofunction):
-        function_type = "Cofunction" if needs_dual else "Function"
-        raise ValueError("Coarse argument not a %s" % function_type)
-    if needs_dual != isinstance(fine, firedrake.Cofunction):
-        function_type = "Cofunction" if needs_dual else "Function"
-        raise ValueError("Fine argument not a %s" % function_type)
+    argument_type = firedrake.Cofunction if needs_dual else firedrake.Function
+    if not isinstance(coarse, argument_type):
+        raise ValueError("Coarse argument not a %s" % argument_type)
+    if not isinstance(fine, argument_type):
+        raise ValueError("Fine argument not a %s" % argument_type)
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
     if hierarchy is None:
-        raise ValueError("Coarse function not from hierarchy")
+        raise ValueError("Coarse argument not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
     if lvl >= flvl:
-        raise ValueError("Coarse function must be from coarser space")
+        raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
     if coarse.ufl_shape != fine.ufl_shape:
