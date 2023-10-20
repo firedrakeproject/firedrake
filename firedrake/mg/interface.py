@@ -10,7 +10,13 @@ from . import kernels
 __all__ = ["prolong", "restrict", "inject"]
 
 
-def check_arguments(coarse, fine):
+def check_arguments(coarse, fine, needs_dual=False):
+    if needs_dual != isinstance(coarse, firedrake.Cofunction):
+        function_type = "Cofunction" if needs_dual else "Function"
+        raise ValueError("Coarse argument not a %s" % function_type)
+    if needs_dual != isinstance(fine, firedrake.Cofunction):
+        function_type = "Cofunction" if needs_dual else "Function"
+        raise ValueError("Fine argument not a %s" % function_type)
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
@@ -88,10 +94,7 @@ def prolong(coarse, fine):
 
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
-    check_arguments(coarse_dual, fine_dual)
-    assert isinstance(fine_dual, firedrake.Cofunction)
-    assert isinstance(coarse_dual, firedrake.Cofunction)
-
+    check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()
     if len(Vc) > 1:

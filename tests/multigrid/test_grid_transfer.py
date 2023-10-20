@@ -152,7 +152,7 @@ def run_restriction(hierarchy, vector, space, degrees):
             fine_dual = dual(Vf)
             coarse_primal = victim(Vc)
 
-            coarse_dual = Function(Vc)
+            coarse_dual = Cofunction(Vc.dual())
             fine_primal = Function(Vf)
             restrict(fine_dual, coarse_dual)
             prolong(coarse_primal, fine_primal)
