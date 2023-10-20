@@ -319,7 +319,6 @@ def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
     assert m.tolerance == 0.5
-    assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
@@ -327,11 +326,9 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
-    assert m.topology.tolerance == 0.1
     vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
-    assert m.topology.tolerance == 0.0
     # See if changing the tolerance on the parent mesh changes the tolerance
     # on the VertexOnlyMesh
     m.tolerance = 0.1

@@ -499,7 +499,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, tolerance):
+    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm):
         """Initialise a mesh topology.
 
         Parameters
@@ -526,12 +526,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             Name of the entity permutation (reordering); if `None`, automatically generated.
         comm : mpi4py.MPI.Comm
             Communicator.
-        tolerance : numbers.Number
-            Relative tolerance (i.e. as defined on the
-            reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
-            rectilinear distance) so will scale with the dimension of the mesh.
 
         """
         utils._init()
@@ -600,9 +594,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
-        if not isinstance(tolerance, numbers.Number):
-            raise TypeError("tolerance must be a number")
-        self._tolerance = tolerance
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
         # Cell subsets for integration over subregions
@@ -925,17 +916,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         else:
             raise ValueError("Unknown integral type '%s'" % integral_type)
 
-    @property
-    def tolerance(self):
-        """The relative tolerance (i.e. as defined on the reference cell) for
-        the distance a point can be from a cell and still be considered to be
-        in the cell.
-
-        Should always be set via :attr:`MeshGeometry.tolerance` to ensure
-        the spatial index is updated as necessary.
-        """
-        return self._tolerance
-
     @abc.abstractmethod
     def mark_entities(self, tf, label_value, label_name=None):
         """Mark selected entities.
@@ -962,7 +942,7 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD, tolerance=0.5):
+    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
         """Initialise a mesh topology.
 
         Parameters
@@ -991,12 +971,6 @@ class MeshTopology(AbstractMeshTopology):
             Name of the entity permutation (reordering); if `None`, automatically generated.
         comm : mpi4py.MPI.Comm
             Communicator.
-        tolerance : numbers.Number
-            Relative tolerance (i.e. as defined on the
-            reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
-            rectilinear distance) so will scale with the dimension of the mesh.
 
         """
         self._distribution_parameters = {}
@@ -1012,7 +986,7 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, tolerance)
+        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -1361,20 +1335,13 @@ class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, layers, periodic=False, name=None, tolerance=0.5):
+    def __init__(self, mesh, layers, periodic=False, name=None):
         """Build an extruded mesh topology from an input mesh topology
 
         :arg mesh:           the unstructured base mesh topology
         :arg layers:         number of occurence of base layer in the "vertical" direction.
         :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
         :arg name:           optional name of the extruded mesh topology.
-        :kwarg tolerance:    The relative tolerance (i.e. as defined on the
-                             reference cell) for the distance a point can be
-                             from a cell and still be considered to be in the
-                             cell. Note that this tolerance
-                             uses an L1 distance (aka 'manhattan', 'taxicab' or
-                             rectilinear distance) so will scale with the
-                             dimension of the mesh.
         """
 
         # TODO: refactor to call super().__init__
@@ -1397,7 +1364,6 @@ class ExtrudedMeshTopology(MeshTopology):
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
-        self._tolerance = tolerance
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -1588,7 +1554,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, perm_is=None, distribution_name=None, permutation_name=None, tolerance=0.5):
+    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -1613,12 +1579,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             Name of the parallel distribution; if `None`, automatically generated.
         permutation_name : str
             Name of the entity permutation (reordering); if `None`, automatically generated.
-        tolerance : numbers.Number
-            Relative tolerance (i.e. as defined on the
-            reference cell) for the distance a point can be from a cell and
-            still be considered to be in the cell. Note that
-            this tolerance uses an L1 distance (aka 'manhattan', 'taxicab' or
-            rectilinear distance) so will scale with the dimension of the mesh.
 
         """
         if MPI.Comm.Compare(parentmesh.comm, swarm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
@@ -1627,7 +1587,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "partitioner_type": None,
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.original_swarm = original_swarm
-        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm, tolerance)
+        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._parent_mesh = parentmesh
 
     def _distribute(self):
@@ -1941,7 +1901,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
-        :arg coordinates: a coordinateless function containing the coordinates
+        Parameters
+        ----------
+        coordinates : CoordinatelessFunction
+            The `CoordinatelessFunction` containing the coordinates.
+
         """
         topology = coordinates.function_space().mesh()
 
@@ -2116,20 +2080,18 @@ values from f.)"""
 
         Notes
         -----
-        Modifying this property will modify the :attr:`AbstractMeshTopology.tolerance`
-        property of the underlying mesh topology. Furthermore, after changing
-        it any requests for :attr:`spatial_index` will cause the spatial index
-        to be rebuilt with the new tolerance which may take some time.
+        After changing tolerance any requests for :attr:`spatial_index` will cause
+        the spatial index to be rebuilt with the new tolerance which may take some time.
         """
-        return self.topology.tolerance
+        return self._tolerance
 
     @tolerance.setter
     def tolerance(self, value):
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
-        if value != self.topology.tolerance:
+        if value != self._tolerance:
             self.clear_spatial_index()
-            self.topology._tolerance = value
+            self._tolerance = value
 
     def clear_spatial_index(self):
         """Reset the :attr:`spatial_index` on this mesh geometry.
@@ -2475,11 +2437,23 @@ values from f.)"""
 
 
 @PETSc.Log.EventDecorator()
-def make_mesh_from_coordinates(coordinates, name):
+def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
-    :arg coordinates: A :class:`~.Function`.
-    :arg name: The name of the mesh.
+    Parameters
+    ----------
+    coordinates : CoordinatelessFunction
+        The `CoordinatelessFunction` from which mesh is made.
+    name : str
+        The name of the mesh.
+    tolerance : numbers.Number
+        The tolerance; see `Mesh`.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
     """
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
@@ -2500,10 +2474,28 @@ def make_mesh_from_coordinates(coordinates, name):
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
+    mesh._tolerance = tolerance
     return mesh
 
 
-def make_mesh_from_mesh_topology(topology, name):
+def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
+    """Make mesh from tpology.
+
+    Parameters
+    ----------
+    topology : MeshTopology
+        The `MeshTopology` from which mesh is made.
+    name : str
+        The name of the mesh.
+    tolerance : numbers.Number
+        The tolerance; see `Mesh`.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    """
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
@@ -2517,10 +2509,11 @@ def make_mesh_from_mesh_topology(topology, name):
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
     mesh.name = name
+    mesh._tolerance = tolerance
     return mesh
 
 
-def make_vom_from_vom_topology(topology, name):
+def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     """Make `VertexOnlyMesh` from a mesh topology.
 
     Parameters
@@ -2529,6 +2522,8 @@ def make_vom_from_vom_topology(topology, name):
         The `VertexOnlyMeshTopology`.
     name : str
         The name of the mesh.
+    tolerance : numbers.Number
+        The tolerance; see `Mesh`.
 
     Returns
     -------
@@ -2562,6 +2557,7 @@ def make_vom_from_vom_topology(topology, name):
         # We can't do this in 0D so leave it undefined.
         vmesh.reference_coordinates = None
     vmesh.name = name
+    vmesh._tolerance = tolerance
     return vmesh
 
 
@@ -2712,11 +2708,12 @@ def Mesh(meshfile, **kwargs):
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
-                            comm=user_comm, tolerance=tolerance)
+                            comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
         mesh = netgen_firedrake_mesh.firedrakeMesh
+    mesh._tolerance = tolerance
     return mesh
 
 
@@ -2825,7 +2822,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         # layer_height is a scalar; equi-distant layers are fine
         pass
 
-    topology = ExtrudedMeshTopology(mesh.topology, layers, periodic=periodic, tolerance=tolerance)
+    topology = ExtrudedMeshTopology(mesh.topology, layers, periodic=periodic)
 
     if extrusion_type == "uniform":
         pass
@@ -2869,7 +2866,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
                                     layer_height, extrusion_type="radial", kernel=kernel)
-
+    self._tolerance = tolerance
     return self
 
 
@@ -2930,7 +2927,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         ``redundant = False``: see the note below for more information.
     :kwarg name: Optional name for the new ``VertexOnlyMesh``. If none is
         specified a name will be generated from the parent mesh name.
-
 
     .. note::
 
@@ -3008,7 +3004,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         reorder=reorder,
         original_swarm=original_swarm,
     )
-    vmesh_out = make_vom_from_vom_topology(topology, name)
+    vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
     vmesh_out.init()
     return vmesh_out
