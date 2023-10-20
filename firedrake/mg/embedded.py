@@ -265,6 +265,8 @@ class TransferManager(object):
         """
         Vc = gc.function_space()
         Vf = gf.function_space()
+        dgf = self.DG_work(Vf).riesz_representation(riesz_map="l2")
+        dgc = self.DG_work(Vc).riesz_representation(riesz_map="l2")
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
@@ -275,8 +277,8 @@ class TransferManager(object):
             for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
                 self.restrict(source_, target_)
             return gc
-        dgf = self.DG_work(Vf)
-        dgc = self.DG_work(Vc)
+        dgf = self.DG_work(Vf).riesz_representation(riesz_map="l2")
+        dgc = self.DG_work(Vc).riesz_representation(riesz_map="l2")
         VDGf = dgf.function_space()
         VDGc = dgc.function_space()
         work = self.work_vec(Vf)
