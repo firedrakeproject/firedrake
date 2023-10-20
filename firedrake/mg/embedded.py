@@ -265,8 +265,6 @@ class TransferManager(object):
         """
         Vc = gc.function_space()
         Vf = gf.function_space()
-        dgf = self.DG_work(Vf).riesz_representation(riesz_map="l2")
-        dgc = self.DG_work(Vc).riesz_representation(riesz_map="l2")
 
         source_element = Vf.ufl_element()
         target_element = Vc.ufl_element()
