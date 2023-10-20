@@ -560,3 +560,54 @@ def test_p_fas_nonlinear_scalar():
     check_coarsen_quadrature(solver_npmg)
     iter_npmg = solver_npmg.snes.getLinearSolveIterations()
     assert 2*iter_pfas <= iter_npmg
+
+
+@pytest.mark.skipcomplex
+def test_baseform_coarsening():
+    base = UnitSquareMesh(4, 4)
+    hierarchy = MeshHierarchy(base, refinement_levels=2)
+    mesh = hierarchy[-1]
+    x, y = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    f = Function(V).interpolate(sin(x)*cos(y))
+    L = assemble(inner(f, v)*dx)
+
+    lu_params = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu'
+    }
+
+    params = {
+        'ksp_monitor': None,
+        'ksp_converged_reason': None,
+        'ksp_type': 'richardson',
+        'ksp_rtol': 1e-5,
+        'pc_type': 'mg',
+        'mg': {
+            'levels': {
+                    'pc_type': 'jacobi',
+            },
+            'coarse': lu_params
+        }
+    }
+
+    u = Function(V).zero()
+
+    problem = LinearVariationalProblem(A, L, u)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+
+    solver.solve()
+
+    res = Function(V.dual())
+    petsc_mat = assemble(A).petscmat
+    with u.dat.vec_ro as v_vec:
+        with res.dat.vec as res_vec:
+            petsc_mat.mult(v_vec, res_vec)
+
+    assert np.allclose(res.dat.data_ro, L.dat.data_ro)
