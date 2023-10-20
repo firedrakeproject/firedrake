@@ -213,6 +213,11 @@ def parameters(request):
     elif request.param == "spheresphere":
         m_src = UnitCubedSphereMesh(5, name="src_sphere")
         m_dest = UnitIcosahedralSphereMesh(5, name="dest_sphere")
+        # Align m_dest with the z axis
+        phi = (1 + 5 ** 0.5) / 2
+        Q, _ = np.linalg.qr([[1, phi, 0], [phi, 0, 1], [0, 1, phi]])
+        x_dest = m_dest.coordinates.dat.data_with_halos
+        x_dest[:] = np.dot(x_dest, Q[:, ::-1])
         coords = np.array(
             [
                 [0, 1, 0],
@@ -235,9 +240,9 @@ def parameters(request):
         expr_src = reduce(add, SpatialCoordinate(m_src))
         expr_dest = reduce(add, SpatialCoordinate(m_dest))
         expected = reduce(add, coords.T)
-        V_src = FunctionSpace(m_src, FiniteElement("CG", m_src.ufl_cell(), degree=3, variant="equispaced"))
-        V_dest = FunctionSpace(m_dest, FiniteElement("CG", m_dest.ufl_cell(), degree=4, variant="equispaced"))
-        V_dest_2 = FunctionSpace(m_dest, FiniteElement("DG", m_dest.ufl_cell(), degree=2, variant="equispaced"))
+        V_src = FunctionSpace(m_src, "CG", 3)
+        V_dest = FunctionSpace(m_dest, FiniteElement("CG", cell=m_dest.ufl_cell(), degree=4, variant="equispaced"))
+        V_dest_2 = FunctionSpace(m_dest, "DG", 2)
     elif request.param == "sphereextrudedsphereextruded":
         m_src = ExtrudedMesh(UnitIcosahedralSphereMesh(1), 2, extrusion_type="radial")
         # Note we need to use the same base sphere otherwise it's hard to check
