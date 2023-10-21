@@ -716,6 +716,7 @@ def get_minimal_petsc_packages():
 
 
 def get_petsc_options(minimal=False):
+    # The logic in this function is getting out of hand...
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -726,6 +727,10 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+        # These three lines are used to inspect the MacOS Command Line Tools (CLT) version
+        cmd = ["pkgutil", "--pkg-info=com.apple.pkg.CLTools_Executables"]
+        output = subprocess.run(cmd, stdout=subprocess.PIPE, encoding="UTF-8")
+        clt = {k.strip(): v.strip() for k, v in [line.split(':') for line in output.stdout.split('\n') if line]}
     elif osname == "Linux":
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
@@ -776,18 +781,28 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
     elif osname == "Darwin":
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        if Version(clt["version"]) >= Version("15"):
+            # CLT >= 15 requires legacy linking behaviour
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        else:
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
     if not minimal:
         for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
