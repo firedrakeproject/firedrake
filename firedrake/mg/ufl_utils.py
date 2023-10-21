@@ -171,33 +171,23 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     return V
 
 
+@coarsen.register(firedrake.Cofunction)
 @coarsen.register(firedrake.Function)
 def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        V = expr.function_space()
-        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
-        V = self(expr.function_space(), self)
-        new = firedrake.Function(V, name="coarse_%s" % expr.name())
-        # Primal restriction
-        manager.inject(expr, new)
-    return new
-
-
-@coarsen.register(firedrake.Cofunction)
-def coarsen_cofunction(expr, self, coefficient_mapping=None):
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    new = coefficient_mapping.get(expr)
-    if new is None:
-        V = expr.function_space()
-        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
-        V = self(expr.function_space(), self)
-        new = firedrake.Cofunction(V, name="coarse_%s" % expr.name())
-        # Dual restriction
-        manager.restrict(expr, new)
+        Vf = expr.function_space()
+        manager = firedrake.dmhooks.get_transfer_manager(Vf.dm)
+        Vc = self(Vf, self)
+        new = firedrake.Function(Vc, name="coarse_%s" % expr.name())
+        if isinstance(expr, firedrake.Cofunction):
+            # Dual restriction
+            manager.restrict(expr, new)
+        else:
+            # Primal restriction
+            manager.inject(expr, new)
     return new
 
 
