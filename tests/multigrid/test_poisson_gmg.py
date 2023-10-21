@@ -139,8 +139,9 @@ def test_baseform_coarsening(typ):
 
     # These are equivalent right-hand sides
     sources = [sum(forms),  # purely symbolic linear form
-               assemble(sum(forms)),  # numerical cofunction
+               assemble(sum(forms)),  # purely numerical cofunction
                sum(assemble(form) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble(sum(forms[1:])), # symbolic plus numerical
                ]
     solutions = []
     for L in sources:
