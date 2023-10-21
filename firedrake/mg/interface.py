@@ -13,9 +13,9 @@ __all__ = ["prolong", "restrict", "inject"]
 def check_arguments(coarse, fine, needs_dual=False):
     argument_type = firedrake.Cofunction if needs_dual else firedrake.Function
     if not isinstance(coarse, argument_type):
-        raise ValueError("Coarse argument not a %s" % argument_type)
+        raise TypeError("Coarse argument not a %s" % argument_type)
     if not isinstance(fine, argument_type):
-        raise ValueError("Fine argument not a %s" % argument_type)
+        raise TypeError("Fine argument not a %s" % argument_type)
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())

@@ -3,7 +3,7 @@ import numpy
 import pytest
 
 
-def run_poisson(typ):
+def solver_parameters(typ):
     if typ == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
@@ -62,7 +62,11 @@ def run_poisson(typ):
                       "npc_snes_convergence_test": "skip"}
     else:
         raise RuntimeError("Unknown parameter set '%s' request", typ)
+    return parameters
 
+
+def run_poisson(typ):
+    parameters = solver_parameters(typ)
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -115,33 +119,36 @@ def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
 
 
-@pytest.mark.skipcomplex
-def test_baseform_coarsening():
-    base = UnitSquareMesh(1, 1)
-    hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
-    mesh = hierarchy[-1]
+@pytest.mark.parametrize("typ",
+                         ["mg", "mgmatfree", "fas", "newtonfas"])
+def test_baseform_coarsening(typ):
+    parameters = solver_parameters(typ)
+    base = UnitSquareMesh(2, 2)
+    mh = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = mh[-1]
 
     V = FunctionSpace(mesh, "CG", 1)
     test = TestFunction(V)
     trial = TrialFunction(V)
-    a = (inner(grad(test), grad(trial)) + inner(test, trial)) * dx
-    L = assemble(test * dx)
-    params = {
-        'ksp_rtol': 1E-10,
-        'snes_monitor': None,
-        'ksp_monitor': None,
-        'ksp_converged_reason': None,
-        'pc_type': 'mg',
-        'mg_levels_pc_type': 'jacobi',
-        'mg_coarse': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu'
-        }
-    }
-    u = Function(V)
-    problem = LinearVariationalProblem(a, L, u)
-    solver = LinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
+    a = (inner(grad(trial), grad(test)) + inner(trial, test)) * dx
 
-    residual = assemble(action(a, u))
-    assert np.allclose(residual.dat.data_ro, L.dat.data_ro)
+    x = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
+    g = Constant(1)
+    forms = [inner(test, f) * dx, inner(test, g) * ds(1)]
+
+    # These are equivalent right-hand sides
+    sources = [sum(forms),  # purely symbolic linear form
+               assemble(sum(forms)),  # numerical cofunction
+               sum(assemble(form) for form in forms),  # symbolic combination of numerical cofunctions
+               ]
+    solutions = []
+    for L in sources:
+        u = Function(V)
+        problem = LinearVariationalProblem(a, L, u)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+        solver.solve()
+        solutions.append(u)
+
+    for s in solutions[1:]:
+        assert np.allclose(s.dat.data_ro, solutions[0].dat.data_ro, rtol=1E-14)
