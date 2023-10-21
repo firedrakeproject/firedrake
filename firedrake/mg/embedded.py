@@ -1,8 +1,6 @@
 import firedrake
 import ufl
-from functools import reduce
 from enum import IntEnum
-from operator import and_
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 
@@ -10,7 +8,7 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
+native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "Crouzeix-Raviart"])
 
 
 class Op(IntEnum):
@@ -54,7 +52,7 @@ class TransferManager(object):
         if element in self.native_transfers.keys():
             return True
         if isinstance(element.cell(), ufl.TensorProductCell) and len(element.sub_elements()) > 0:
-            return reduce(and_, map(self.is_native, element.sub_elements()))
+            return all(self.is_native(e) for e in element.sub_elements())
         return element.family() in native
 
     def _native_transfer(self, element, op):

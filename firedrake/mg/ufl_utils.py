@@ -164,6 +164,8 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
+    if hasattr(expr, "_coarse"):
+        return coefficient_mapping.setdefault(expr, expr._coarse)
     new = coefficient_mapping.get(expr)
     if new is None:
         V = expr.function_space()
@@ -298,6 +300,43 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse.set_nullspace(coarse._near_nullspace, ises, transpose=False, near=True)
 
     return coarse
+
+
+@coarsen.register(firedrake.slate.AssembledVector)
+def coarsen_slate_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form)
+
+
+@coarsen.register(firedrake.slate.BlockAssembledVector)
+def coarsen_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    block = self(tensor.block, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form, *block.children, block.indices)
+
+
+@coarsen.register(firedrake.slate.Block)
+def coarsen_slate_block(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, indices=tensor._indices)
+
+
+@coarsen.register(firedrake.slate.Factorization)
+def coarsen_slate_factorization(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, decomposition=tensor.decomposition)
+
+
+@coarsen.register(firedrake.slate.Tensor)
+def coarsen_slate_tensor(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form, diagonal=tensor.diagonal)
+
+
+@coarsen.register(firedrake.slate.TensorOp)
+def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children)
 
 
 class Interpolation(object):
