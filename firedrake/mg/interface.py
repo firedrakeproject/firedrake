@@ -125,10 +125,10 @@ def restrict(fine_dual, coarse_dual):
         if j == repeat - 1:
             coarse_dual.dat.zero()
             next = coarse_dual
-            Vc = next.function_space()
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Cofunction(Vc.dual())
+        Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)

@@ -310,9 +310,9 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
         mesh = extract_unique_domain(coordinates)
-        v = firedrake.TestFunction(Vc.dual()) if isinstance(Vc, FiredrakeDualSpace) else firedrake.TestFunction(Vc)
-        evaluate_code = compile_element(v, Vf)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
