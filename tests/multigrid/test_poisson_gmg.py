@@ -145,9 +145,7 @@ def test_baseform_coarsening(typ):
     solutions = []
     for L in sources:
         u = Function(V)
-        problem = LinearVariationalProblem(a, L, u)
-        solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
-        solver.solve()
+        solve(a == L, u, solver_parameters=parameters)
         solutions.append(u)
 
     for s in solutions[1:]:
