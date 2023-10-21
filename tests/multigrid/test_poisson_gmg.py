@@ -128,26 +128,31 @@ def test_baseform_coarsening(typ):
     mesh = mh[-1]
 
     V = FunctionSpace(mesh, "CG", 1)
-    test = TestFunction(V)
-    trial = TrialFunction(V)
-    a = (inner(grad(trial), grad(test)) + inner(trial, test)) * dx
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    bcs = DirichletBC(V, 1.0, (1, 2, 3, 4))
 
     x = SpatialCoordinate(mesh)
-    f = Function(V).interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
     g = Constant(1)
-    forms = [inner(test, f) * dx, inner(test, g) * ds(1)]
+    f = Function(V)
+    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
+    forms = [inner(f, v) * dx, inner(g, v) * ds(1)]
 
+    # Need to zero out BC DOFs on the assembled cofunctions
+    bcs.homogenize()
     # These are equivalent right-hand sides
     sources = [sum(forms),  # purely symbolic linear form
-               assemble(sum(forms)),  # purely numerical cofunction
-               sum(assemble(form) for form in forms),  # symbolic combination of numerical cofunctions
-               forms[0] + assemble(sum(forms[1:])),  # symbolic plus numerical
+               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
+               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
                ]
+    bcs.restore()
     solutions = []
     for L in sources:
-        u = Function(V)
-        solve(a == L, u, solver_parameters=parameters)
-        solutions.append(u)
+        uh = Function(V)
+        solve(a == L, uh, bcs=bcs, solver_parameters=parameters)
+        solutions.append(uh)
 
     for s in solutions[1:]:
         assert np.allclose(s.dat.data_ro, solutions[0].dat.data_ro, rtol=1E-14)
