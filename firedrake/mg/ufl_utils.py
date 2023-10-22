@@ -107,8 +107,9 @@ def coarsen_form(form, self, coefficient_mapping=None):
 
 @coarsen.register(ufl.FormSum)
 def coarsen_formsum(form, self, coefficient_mapping=None):
-    return type(form)(*[(self(i, self, coefficient_mapping=coefficient_mapping), wi)
-                        for i, wi in zip(form.ufl_operands, form.weights())])
+    return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
+                         self(wi, self, coefficient_mapping=coefficient_mapping))
+                        for ci, wi in zip(form.components(), form.weights())])
 
 
 @coarsen.register(firedrake.DirichletBC)
