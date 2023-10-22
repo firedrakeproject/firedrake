@@ -256,8 +256,8 @@ class TransferManager(object):
     def inject(self, uf, uc):
         """Inject a function (primal restriction)
 
-        :arg uc: The source (fine grid) function.
-        :arg uf: The target (coarse grid) function.
+        :arg uf: The source (fine grid) function.
+        :arg uc: The target (coarse grid) function.
         """
         self.op(uf, uc, transfer_op=Op.INJECT)
 
