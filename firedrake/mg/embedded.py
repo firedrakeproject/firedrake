@@ -200,8 +200,8 @@ class TransferManager(object):
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
-        :arg source: The source :class:`Function`.
-        :arg target: The target :class:`Function`.
+        :arg source: The source :class:`.Function`.
+        :arg target: The target :class:`.Function`.
         :arg transfer_op: The transfer operation for the DG space.
         """
         Vs = source.function_space()
@@ -264,8 +264,8 @@ class TransferManager(object):
     def restrict(self, source, target):
         """Restrict a dual function.
 
-        :arg source: The source (fine grid) :class:`Cofunction`.
-        :arg target: The target (coarse grid) :class:`Cofunction`.
+        :arg source: The source (fine grid) :class:`.Cofunction`.
+        :arg target: The target (coarse grid) :class:`.Cofunction`.
         """
         Vs_star = source.function_space()
         Vt_star = target.function_space()
