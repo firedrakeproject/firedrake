@@ -5,7 +5,7 @@ Generic routines for replacing functions using FML.
 import ufl
 from .form_manipulation_language import Term, subject
 from firedrake import split, MixedElement, Function, Argument
-from typing import Callable, Union
+from typing import Callable, Optional, Union
 
 __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 
@@ -16,13 +16,13 @@ __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 def _replace_dict(
     old: Union[Function, Argument],
     new: Union[Function, Argument],
-    old_idx: Union[int, None],
-    new_idx: Union[int, None],
+    old_idx: Optional[int],
+    new_idx: Optional[int],
     replace_type: str
 ) -> dict:
-    """
-    Build a dictionary to pass to the ufl.replace routine. The dictionary
-    matches variables in the old term with those in the new.
+    """Build a dictionary to pass to the ufl.replace routine.
+
+    The dictionary matches variables in the old term with those in the new.
 
     Does not check types unless indexing is required (leave type-checking to
     ufl.replace).
@@ -59,6 +59,7 @@ def _replace_dict(
     ValueError
         If the new_idx argument is not provided when an indexable variable is to
         be replace something not of the same shape.
+
     """
 
     mixed_old = type(old.ufl_element()) is MixedElement
@@ -136,11 +137,10 @@ def _replace_dict(
 # ---------------------------------------------------------------------------- #
 def replace_test_function(
     new_test: Argument,
-    old_idx: Union[int, None] = None,
-    new_idx: Union[int, None] = None
-) -> Callable:
-    """
-    A routine to replace the test function in a term with a new test function.
+    old_idx: Optional[int] = None,
+    new_idx: Optional[int] = None
+) -> Callable[[Term], Term]:
+    """Replace the test function in a term with a new test function.
 
     Parameters
     ----------
@@ -159,12 +159,13 @@ def replace_test_function(
         A function that takes in t, a .Term, and returns a new
         .Term with form containing the ``new_test`` and
         ``labels=t.labels``
+
     """
 
     def repl(t: Term) -> Term:
-        """
-        Replaces the test function in a term with a new expression. This is
-        built around the ufl replace routine.
+        """Replace the test function in a term with a new expression.
+
+        This is built around the UFL replace routine.
 
         Parameters
         ----------
@@ -175,6 +176,7 @@ def replace_test_function(
         -------
         Term
             The new term.
+
         """
         old_test = t.form.arguments()[0]
         replace_dict = _replace_dict(old_test, new_test,
@@ -195,11 +197,10 @@ def replace_test_function(
 
 def replace_trial_function(
     new_trial: Union[Argument, Function],
-    old_idx: Union[int, None] = None,
-    new_idx: Union[int, None] = None
-) -> Callable:
-    """
-    A routine to replace the trial function in a term with a new expression.
+    old_idx: Optional[int] = None,
+    new_idx: Optional[int] = None
+) -> Callable[[Term], Term]:
+    """Replace the trial function in a term with a new expression.
 
     Parameters
     ----------
@@ -218,12 +219,13 @@ def replace_trial_function(
         A function that takes in t, a Term, and returns a new
         Term with form containing the ``new_test`` and
         ``labels=t.labels``
+
     """
 
     def repl(t: Term) -> Term:
-        """
-        Replaces the trial function in a term with a new expression. This is
-        built around the ufl replace routine.
+        """Replace the trial function in a term with a new expression.
+
+        This is built around the UFL replace routine.
 
         Parameters
         ----------
@@ -239,6 +241,7 @@ def replace_trial_function(
         -------
         Term
             The new term.
+
         """
         if len(t.form.arguments()) != 2:
             raise TypeError('Trying to replace trial function of a form that is not linear')
@@ -261,11 +264,10 @@ def replace_trial_function(
 
 def replace_subject(
     new_subj: ufl.core.expr.Expr,
-    old_idx: Union[int, None] = None,
-    new_idx: Union[int, None] = None
-) -> Callable:
-    """
-    A routine to replace the subject in a term with a new variable.
+    old_idx: Optional[int] = None,
+    new_idx: Optional[int] = None
+) -> Callable[[Term], Term]:
+    """Replace the subject in a term with a new variable.
 
     Parameters
     ----------
@@ -283,11 +285,12 @@ def replace_subject(
     Callable
         A function that takes in t, a Term, and returns a new Term with
         form containing the ``new_test`` and ``labels=t.labels``
+
     """
     def repl(t: Term) -> Term:
-        """
-        Replaces the subject in a term with a new expression. This is built
-        around the ufl replace routine.
+        """Replace the subject in a term with a new expression.
+
+        This is built around the UFL replace routine.
 
         Parameters
         ----------
@@ -304,6 +307,7 @@ def replace_subject(
         -------
         Term
             The new term.
+
         """
 
         old_subj = t.get(subject)

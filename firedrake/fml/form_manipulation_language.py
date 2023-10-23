@@ -4,7 +4,7 @@ import ufl
 import functools
 import operator
 from firedrake import Constant, Function
-from typing import Any, Callable, Mapping, Sequence, Tuple, Union
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
 
 __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
@@ -13,10 +13,76 @@ __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
 # ---------------------------------------------------------------------------- #
 # Core routines for filtering terms
 # ---------------------------------------------------------------------------- #
-identity = lambda t: t
-drop = lambda t: None
-all_terms = lambda t: True
-keep = identity
+
+
+def identity(t: "Term") -> "Term":
+    """ The identity map.
+
+    Parameters
+    ----------
+    t
+        A term.
+
+    Returns
+    -------
+    Term
+        The same term.
+
+    """
+    return t
+
+
+def drop(t: "Term") -> None:
+    """Map all terms to ``None``.
+
+    Parameters
+    ----------
+    t
+        A term.
+
+    Returns
+    -------
+    None
+        None.
+
+    """
+    return None
+
+
+def keep(t: "Term") -> "Term":
+    """Keep all terms.
+
+    Functionally equivalent to identity.
+
+    Parameters
+    ----------
+    t
+        A term.
+
+    Returns
+    -------
+    Term
+        The same term.
+
+    """
+    return t
+
+
+def all_terms(t: "Term") -> bool:
+    """Map all terms to ``True``.
+
+    Parameters
+    ----------
+    t
+        A term.
+
+    Returns
+    -------
+    bool
+        True.
+
+    """
+    return True
 
 
 # ---------------------------------------------------------------------------- #
@@ -29,6 +95,7 @@ class Term(object):
 
     def __init__(self, form: ufl.Form, label_dict: Mapping = None):
         """
+
         Parameters
         ----------
         form
@@ -36,13 +103,13 @@ class Term(object):
         label_dict
             Dictionary of key-value pairs corresponding to current form labels.
             Defaults to None.
+
         """
         self.form = form
         self.labels = label_dict or {}
 
     def get(self, label: "Label") -> Any:
-        """
-        Returns the value of a label.
+        """The value of a label.
 
         Parameters
         ----------
@@ -53,6 +120,7 @@ class Term(object):
         -------
         Any
             The value of a label.
+
         """
         return self.labels.get(label.label)
 
@@ -61,8 +129,7 @@ class Term(object):
         *labels: "Label",
         return_tuple: bool = False
     ) -> Union[Tuple[bool], bool]:
-        """
-        Whether the term has the specified labels attached to it.
+        """Whether the term has the specified labels attached to it.
 
         Parameters
         ----------
@@ -77,6 +144,7 @@ class Term(object):
         -------
         bool
             Booleans corresponding to whether the term has the specified labels.
+
         """
         if len(labels) == 1 and not return_tuple:
             return labels[0].label in self.labels
@@ -84,8 +152,7 @@ class Term(object):
             return tuple(self.has_label(l) for l in labels)
 
     def __add__(self, other: Union["Term", "LabelledForm"]) -> "LabelledForm":
-        """
-        Adds a term or labelled form to this term.
+        """Add a term or labelled form to this term.
 
         Parameters
         ----------
@@ -96,6 +163,7 @@ class Term(object):
         -------
         LabelledForm
             A labelled form containing the terms.
+
         """
         if self is NullTerm:
             return other
@@ -111,8 +179,7 @@ class Term(object):
     __radd__ = __add__
 
     def __sub__(self, other: Union["Term", "LabelledForm"]) -> "LabelledForm":
-        """
-        Subtracts a term or labelled form from this term.
+        """Subtract a term or labelled form from this term.
 
         Parameters
         ----------
@@ -123,6 +190,7 @@ class Term(object):
         -------
         LabelledForm
             A labelled form containing the terms.
+
         """
         other = other * Constant(-1.0)
         return self + other
@@ -131,8 +199,7 @@ class Term(object):
         self,
         other: Union[float, Constant, ufl.algebra.Product]
     ) -> "Term":
-        """
-        Multiplies this term by another quantity.
+        """Multiply this term by another quantity.
 
         Parameters
         ----------
@@ -143,6 +210,7 @@ class Term(object):
         -------
         Term
             The product of the term with the quantity.
+
         """
         return Term(other*self.form, self.labels)
 
@@ -152,8 +220,7 @@ class Term(object):
         self,
         other: Union[float, Constant, ufl.algebra.Product]
     ) -> "Term":
-        """
-        Divides this term by another quantity.
+        """Divide this term by another quantity.
 
         Parameters
         ----------
@@ -164,6 +231,7 @@ class Term(object):
         -------
         Term
             The quotient of the term divided by the quantity.
+
         """
         return self * (Constant(1.0) / other)
 
@@ -208,8 +276,7 @@ class LabelledForm(object):
         self,
         other: Union[ufl.Form, Term, "LabelledForm"]
     ) -> "LabelledForm":
-        """
-        Adds a form, term or labelled form to this labelled form.
+        """Add a form, term or labelled form to this labelled form.
 
         Parameters
         ----------
@@ -220,6 +287,7 @@ class LabelledForm(object):
         -------
         LabelledForm
             A labelled form containing the terms.
+
         """
         if isinstance(other, ufl.Form):
             return LabelledForm(*self, Term(other))
@@ -238,8 +306,7 @@ class LabelledForm(object):
         self,
         other: Union[ufl.Form, Term, "LabelledForm"]
     ) -> "LabelledForm":
-        """
-        Subtracts a form, term or labelled form from this labelled form.
+        """Subtract a form, term or labelled form from this labelled form.
 
         Parameters
         ----------
@@ -250,6 +317,7 @@ class LabelledForm(object):
         -------
         LabelledForm
             A labelled form containing the terms.
+
         """
         if type(other) is Term:
             return LabelledForm(*self, Constant(-1.)*other)
@@ -265,8 +333,7 @@ class LabelledForm(object):
         self,
         other: Union[float, Constant, ufl.algebra.Product]
     ) -> "LabelledForm":
-        """
-        Multiplies this labelled form by another quantity.
+        """Multiply this labelled form by another quantity.
 
         Parameters
         ----------
@@ -278,6 +345,7 @@ class LabelledForm(object):
         -------
         LabelledForm
             The product of all terms with the quantity.
+
         """
         return self.label_map(all_terms, lambda t: Term(other*t.form, t.labels))
 
@@ -285,8 +353,7 @@ class LabelledForm(object):
         self,
         other: Union[float, Constant, ufl.algebra.Product]
     ) -> "LabelledForm":
-        """
-        Divides this labelled form by another quantity.
+        """Divide this labelled form by another quantity.
 
         Parameters
         ----------
@@ -298,27 +365,27 @@ class LabelledForm(object):
         -------
         LabelledForm
             The quotient of all terms with the quantity.
+
         """
         return self * (Constant(1.0) / other)
 
     __rmul__ = __mul__
 
     def __iter__(self) -> Sequence:
-        """Returns an iterable of the terms in the labelled form."""
+        """Iterable of the terms in the labelled form."""
         return iter(self.terms)
 
     def __len__(self) -> int:
-        """Returns the number of terms in the labelled form."""
+        """Number of terms in the labelled form."""
         return len(self.terms)
 
     def label_map(
         self,
-        term_filter: Callable,
-        map_if_true: Callable = identity,
-        map_if_false: Callable = identity
+        term_filter: Callable[[Term], bool],
+        map_if_true: Callable[[Term], Optional[Term]] = identity,
+        map_if_false: Callable[[Term], Optional[Term]] = identity
     ) -> "LabelledForm":
-        """
-        Maps selected terms in the labelled form, returning a new labelled form.
+        """Map selected terms in the labelled form, returning a new labelled form.
 
         Parameters
         ----------
@@ -335,7 +402,11 @@ class LabelledForm(object):
         -------
         LabelledForm
             A new labelled form with the terms mapped.
+
         """
+        # FIXME: The rendered docstring for this method is a mess, the lambda
+        # hackery at the top goes some way to fix this, but this is probably a
+        # bug in napoleon.
 
         new_labelled_form = LabelledForm(
             functools.reduce(operator.add,
@@ -357,8 +428,7 @@ class LabelledForm(object):
 
     @property
     def form(self) -> ufl.Form:
-        """
-        Provides the whole form from the labelled form.
+        """Provide the whole form from the labelled form.
 
         Raises
         ------
@@ -369,6 +439,7 @@ class LabelledForm(object):
         -------
         ufl.Form
             The whole form corresponding to all the terms.
+
         """
         # Throw an error if there is no form
         if len(self.terms) == 0:
@@ -387,7 +458,7 @@ class Label(object):
         label,
         *,
         value: Any = True,
-        validator: Union[Callable, None] = None
+        validator: Optional[Callable] = None
     ):
         """
         Parameters
@@ -400,6 +471,7 @@ class Label(object):
         validator
             Function to check the validity of any value later passed to the
             label. Defaults to None.
+
         """
         self.label = label
         self.default_value = value
@@ -410,8 +482,7 @@ class Label(object):
         target: Union[ufl.Form, Term, LabelledForm],
         value: Any = None
     ) -> Union[Term, LabelledForm]:
-        """
-        Applies the label to a form or term.
+        """Apply the label to a form or term.
 
         Parameters
         ----------
@@ -431,6 +502,7 @@ class Label(object):
         Union[Term, LabelledForm]
             A Term is returned if the target is a Term,
             otherwise a LabelledForm is returned.
+
         """
         # if value is provided, check that we have a validator function
         # and validate the value, otherwise use default value
@@ -452,8 +524,7 @@ class Label(object):
             raise ValueError("Unable to label %s" % target)
 
     def remove(self, target: Union[Term, LabelledForm]):
-        """
-        Removes a label from a term or labelled form.
+        """Remove a label from a term or labelled form.
 
         This removes any Label with this ``label`` from
         ``target``. If called on an LabelledForm, it acts term-wise.
@@ -467,6 +538,7 @@ class Label(object):
         ------
         ValueError
             If the `target` is not a Term or a LabelledForm.
+
         """
 
         if isinstance(target, LabelledForm):
@@ -482,8 +554,7 @@ class Label(object):
             raise ValueError("Unable to unlabel %s" % target)
 
     def update_value(self, target: Union[Term, LabelledForm], new: Any):
-        """
-        Updates the label of a term or labelled form.
+        """Update the label of a term or labelled form.
 
         This updates the value of any Label with this ``label`` from
         ``target``. If called on an LabelledForm, it acts term-wise.
@@ -500,6 +571,7 @@ class Label(object):
         ------
         ValueError
             If the `target` is not a Term or a LabelledForm.
+
         """
 
         if isinstance(target, LabelledForm):
