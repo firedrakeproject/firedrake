@@ -80,16 +80,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             mpi.decref(self._comm)
 
     def __call__(self, primal):
-        r"""Compute the duality pairing, this is to evaluate this
+        r"""Return the symbolic duality pairing, this is to evaluate this
         :class:`.Cofunction` at a :class:`.Function`, equivalent to taking the
         dot product of the vectors of coefficients of the dual and primal
         arguments.
 
         :arg primal: the :class:`.Function` to be paired with this :class:`.Cofunction`.
 
-        :returns: the scalar result of the duality pairing.
+        :returns: the symbolic duality pairing.
         """
-        return firedrake.assemble(ufl.action(self, primal))
+        return ufl.action(self, primal)
 
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.

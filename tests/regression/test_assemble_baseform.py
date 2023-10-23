@@ -129,8 +129,9 @@ def test_duality_pairing(a, f):
     c = assemble(a)
     with f.dat.vec_ro as x, c.dat.vec_ro as y:
         expected = x.dot(y)
-    assert np.isclose(assemble(action(c, f)), expected)
-    assert np.isclose(c(f), expected)
+    assert np.isclose(assemble(a(f)), expected, rtol=1e-14)
+    assert np.isclose(assemble(action(c, f)), expected, rtol=1e-14)
+    assert np.isclose(assemble(c(f)), expected, rtol=1e-14)
 
 
 def test_vector_formsum(a):
