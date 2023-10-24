@@ -64,7 +64,7 @@ jobs:
           git clone --branch JDBetteridge/include_headers https://github.com/JDBetteridge/rtree.git
           cd rtree
           ./ci/install_libspatialindex.bash
-          python -m build --wheel
+          python3 -m build --wheel
       # REMOVE before merging ^^^
       - name: Build Firedrake
         run: |
