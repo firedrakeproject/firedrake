@@ -1935,7 +1935,6 @@ if mode == "install":
     except ValueError:
         pass
     packages.remove("petsc4py")
-    packages.remove("firedrake")
 
 else:
     # Update mode
