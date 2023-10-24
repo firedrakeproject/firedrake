@@ -58,13 +58,13 @@ jobs:
       ### REMOVE before merging vvv
       - name: Build Rtree wheel
         run: |
+          cd ..
           sudo apt-get update
           sudo apt-get install unzip python3-build python3-virtualenv
           git clone --branch JDBetteridge/include_headers https://github.com/JDBetteridge/rtree.git
           cd rtree
           ./ci/install_libspatialindex.bash
           python -m build --wheel
-          cd ..
       ### REMOVE before merging ^^^
       - name: Build Firedrake
         run: |
