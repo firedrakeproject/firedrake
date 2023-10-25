@@ -213,11 +213,6 @@ def parameters(request):
     elif request.param == "spheresphere":
         m_src = UnitCubedSphereMesh(5, name="src_sphere")
         m_dest = UnitIcosahedralSphereMesh(5, name="dest_sphere")
-        # Align m_dest with the z axis
-        phi = (1 + 5 ** 0.5) / 2
-        Q, _ = np.linalg.qr([[1, phi, 0], [phi, 0, 1], [0, 1, phi]])
-        x_dest = m_dest.coordinates.dat.data_with_halos
-        x_dest[:] = np.dot(x_dest, Q[:, ::-1])
         coords = np.array(
             [
                 [0, 1, 0],
@@ -241,7 +236,7 @@ def parameters(request):
         expr_dest = reduce(add, SpatialCoordinate(m_dest))
         expected = reduce(add, coords.T)
         V_src = FunctionSpace(m_src, "CG", 3)
-        V_dest = FunctionSpace(m_dest, FiniteElement("CG", cell=m_dest.ufl_cell(), degree=4, variant="equispaced"))
+        V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
     elif request.param == "sphereextrudedsphereextruded":
         m_src = ExtrudedMesh(UnitIcosahedralSphereMesh(1), 2, extrusion_type="radial")
@@ -636,13 +631,17 @@ def interpolator_expression(
     assert np.allclose(got, 2 * expected, atol=2 * atol)
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
     cofunction_dest_on_src = interpolator.interpolate(cofunction_dest, transpose=True)
+    with cofunction_dest.dat.vec_ro as c:
+        _, cmax = c.max()
+        _, cmin = c.min()
+    ctol = 2 * atol * max(abs(cmax), abs(cmin))
     assert extract_unique_domain(cofunction_dest_on_src) is m_src
     assert not np.allclose(
-        f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=2 * atol
+        f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=ctol
     )
     cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
     assert not np.allclose(
-        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=2 * atol
+        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=ctol
     )
 
 
