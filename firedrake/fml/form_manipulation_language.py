@@ -109,7 +109,7 @@ class Term(object):
         self.labels = label_dict or {}
 
     def get(self, label: "Label") -> Any:
-        """The value of a label.
+        """Return the value of a label.
 
         Parameters
         ----------
@@ -129,7 +129,7 @@ class Term(object):
         *labels: "Label",
         return_tuple: bool = False
     ) -> Union[Tuple[bool], bool]:
-        """Whether the term has the specified labels attached to it.
+        """Return whether the specified labels are attached to this term.
 
         Parameters
         ----------
