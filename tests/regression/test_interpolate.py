@@ -231,7 +231,7 @@ def test_cellvolume():
 
 def test_cellvolume_higher_order_coords():
     m = UnitTriangleMesh()
-    V = VectorFunctionSpace(m, "CG", 3)
+    V = VectorFunctionSpace(m, 'P', 3)
     f = Function(V)
     f.interpolate(m.coordinates)
 
