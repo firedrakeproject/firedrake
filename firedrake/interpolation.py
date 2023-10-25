@@ -493,7 +493,7 @@ class CrossMeshInterpolator(Interpolator):
                             "Can't transpose interpolate an expression with no coefficients or arguments."
                         )
         else:
-            if isinstance(self.V, firedrake.Function):
+            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 V_dest = self.V.function_space()
             else:
                 V_dest = self.V
@@ -501,7 +501,7 @@ class CrossMeshInterpolator(Interpolator):
             if output.function_space() != V_dest:
                 raise ValueError("Given output has the wrong function space!")
         else:
-            if isinstance(self.V, (firedrake.Function, function.Cofunction)):
+            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 output = self.V
             else:
                 output = firedrake.Function(V_dest)
@@ -585,9 +585,7 @@ class CrossMeshInterpolator(Interpolator):
             # VOM. This has the parallel decomposition V_dest on our orinally
             # specified dest_mesh. We can therefore safely create a P0DG
             # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values. NOTE: we
-            # can't yet use actual cofunctions, so we use Functions in their
-            # place.
+            # decomposition and ordering) and assign the dat values.
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
                 self.to_input_ordering_interpolator.V.dual()
             )
