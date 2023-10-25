@@ -3,6 +3,7 @@ from pyop2 import op2
 import firedrake
 from firedrake import ufl_expr
 from firedrake.petsc import PETSc
+from ufl.duals import is_dual
 from . import utils
 from . import kernels
 
@@ -11,10 +12,10 @@ __all__ = ["prolong", "restrict", "inject"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):
-    if coarse._dual != needs_dual:
+    if is_dual(coarse) != needs_dual:
         expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
         raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
-    if fine._dual != needs_dual:
+    if is_dual(fine) != needs_dual:
         expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
         raise TypeError("Fine argument is a %s, not a %s" % (type(fine).__name__, expected_type.__name__))
     cfs = coarse.function_space()

@@ -131,7 +131,7 @@ def test_baseform_coarsening(typ):
     v = TestFunction(V)
     u = TrialFunction(V)
     a = inner(grad(u), grad(v)) * dx
-    bcs = DirichletBC(V, 1.0, (1, 2, 3, 4))
+    bcs = DirichletBC(V, 1.0, (2, 3, 4))
 
     x = SpatialCoordinate(mesh)
     g = Constant(1)

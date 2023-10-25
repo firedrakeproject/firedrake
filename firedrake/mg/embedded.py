@@ -173,17 +173,18 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A Function in the embedding DG space.
         """
+        needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V.ufl_element())
-        key = (V.dim(), V._dual)
+        key = (V.dim(), needs_dual)
         try:
             return cache._DG_work[key]
         except KeyError:
+            if needs_dual:
+                primal = self.DG_work(V.dual())
+                dual = primal.riesz_representation(riesz_map="l2")
+                return cache._DG_work.setdefault(key, dual)
             DG = firedrake.FunctionSpace(V.mesh(), cache.embedding_element)
-            primal = firedrake.Function(DG)
-            dual = primal.riesz_representation(riesz_map="l2")
-            cache._DG_work.set_default((V.dim(), primal._dual), primal)
-            cache._DG_work.set_default((V.dim(), dual._dual), dual)
-            return cache._DG_work[key]
+            return cache._DG_work.setdefault(key, firedrake.Function(DG))
 
     def work_vec(self, V):
         """A work Vec for V
