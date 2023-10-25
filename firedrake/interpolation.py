@@ -480,14 +480,14 @@ class CrossMeshInterpolator(Interpolator):
 
         if transpose:
             try:
-                V_dest = self.expr.function_space()
+                V_dest = self.expr.function_space().dual()
             except AttributeError:
                 if self.nargs:
-                    V_dest = self.arguments[0].function_space()
+                    V_dest = self.arguments[0].function_space().dual()
                 else:
                     coeffs = extract_coefficients(self.expr)
                     if len(coeffs):
-                        V_dest = coeffs[0].function_space()
+                        V_dest = coeffs[0].function_space().dual()
                     else:
                         raise ValueError(
                             "Can't transpose interpolate an expression with no coefficients or arguments."
@@ -501,10 +501,10 @@ class CrossMeshInterpolator(Interpolator):
             if output.function_space() != V_dest:
                 raise ValueError("Given output has the wrong function space!")
         else:
-            if isinstance(self.V, firedrake.Function):
+            if isinstance(self.V, (firedrake.Function, function.Cofunction)):
                 output = self.V
             else:
-                output = firedrake.Function(V_dest).zero()
+                output = firedrake.Function(V_dest)
 
         if len(self.sub_interpolators):
             # MixedFunctionSpace case
@@ -588,8 +588,8 @@ class CrossMeshInterpolator(Interpolator):
             # decomposition and ordering) and assign the dat values. NOTE: we
             # can't yet use actual cofunctions, so we use Functions in their
             # place.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolator.V
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
+                self.to_input_ordering_interpolator.V.dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
@@ -617,9 +617,6 @@ class CrossMeshInterpolator(Interpolator):
             self.point_eval_interpolator.interpolate(
                 f_src_at_src_node_coords, transpose=True, output=output
             )
-            # FIXME we cannot yet use actual cofunctions, see the note above
-            if not isinstance(output, firedrake.Cofunction):
-                output = output.riesz_representation("l2")
 
         return output
 
