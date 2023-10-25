@@ -617,6 +617,9 @@ class CrossMeshInterpolator(Interpolator):
             self.point_eval_interpolator.interpolate(
                 f_src_at_src_node_coords, transpose=True, output=output
             )
+            # FIXME we cannot yet use actual cofunctions, see the note above
+            if not isinstance(output, firedrake.Cofunction):
+                output = output.riesz_representation("l2")
 
         return output
 
