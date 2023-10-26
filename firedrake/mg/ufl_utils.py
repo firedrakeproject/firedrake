@@ -219,7 +219,6 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                 bc.apply(finectx._x)
 
     V = problem.u.function_space()
-    finectx = get_appctx(V.dm)
     if not hasattr(V, "_coarse"):
         # The hook is persistent and cummulative, but also problem-independent.
         # Therefore, we are only adding it once.
@@ -236,7 +235,6 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         coefficient_mapping = {}
     for c in coefficients:
         if c not in seen:
-            push_appctx(c.function_space().dm, finectx)
             coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
             seen.add(c)
 

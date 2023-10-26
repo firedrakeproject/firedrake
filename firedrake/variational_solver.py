@@ -238,7 +238,21 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             TransferManager interface.
         :raises ValueError: if called after the transfer manager is setup.
         """
+        from firedrake import function, cofunction
         self._ctx.transfer_manager = manager
+        problem = self._problem
+        ctx = self._ctx
+        seen = set()
+        coefficients = problem.F.coefficients() + problem.J.coefficients()
+        if problem.Jp is not None:
+            coefficients = coefficients + problem.Jp.coefficients()
+        for val in chain(coefficients, (bc.function_arg for bc in problem.bcs)):
+            if isinstance(val, (function.Function, cofunction.Cofunction)):
+                V = val.function_space()
+                if V not in seen:
+                    dm = V.dm
+                    dmhooks.push_appctx(dm, ctx)
+                    seen.add(V)
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
