@@ -753,15 +753,10 @@ def get_petsc_options(minimal=False):
             # Non-free license.
             petsc_options.add("--download-parmetis")
 
-    if options["petsc_int_type"] == "int32":
-        if not options["minimal_petsc"]:
-            # AMG
-            petsc_options.add("--download-ml")
-    else:
+    if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
 
     if options.get("mpiexec") is not None:
