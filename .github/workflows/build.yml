@@ -79,6 +79,8 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch fiat pbrubeck/dmat-without-sympy \
+            --package-branch tsfc pbrubeck/simplex-spectral \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
