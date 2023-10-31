@@ -128,7 +128,7 @@ Eike H. Mueller
 
 Reuben W. Nixon-Hill..........<https://www.imperial.ac.uk/people/reuben.nixon-hill10>
 
-Alberto Paganini..............<https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>
+Alberto Paganini..............<https://le.ac.uk/people/alberto-paganini>
 
 Francis J. Poulin
 
