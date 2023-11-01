@@ -63,17 +63,16 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
     Vf = FunctionSpace(hierarchy[1], family, degree)
     if transfer_op == "prolong":
         op = transfer.prolong
-        source = Function(Vc)
-        target = Function(Vf)
+        Vsource, Vtarget = Vc, Vf
     elif transfer_op == "restrict":
         op = transfer.restrict
-        source = Function(Vf)
-        target = Function(Vc)
+        Vsource, Vtarget = Vf.dual(), Vc.dual()
     elif transfer_op == "inject":
         op = transfer.inject
-        source = Function(Vf)
-        target = Function(Vc)
+        Vsource, Vtarget = Vf, Vc
 
+    source = Function(Vsource)
+    target = Function(Vtarget)
     if complex_mode and ((family == "DG" and transfer_op == "inject")
                          or family not in {"CG", "DG"}):
         with pytest.raises(NotImplementedError):
@@ -81,7 +80,7 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
         return
 
     # Test that the operator produces an output for an unrecognized input
-    source.assign(1)
+    source.dat.data_wo[...] = 1
     op(source, target)
     assert not numpy.allclose(target.dat.data_ro, 0.0)
 
@@ -92,13 +91,13 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
         assert target.dat.dat_version == dat_version
 
     # Modify the input, test that the output is regenerated
-    source.assign(2)
+    source.dat.data_wo[...] = 2
     dat_version = target.dat.dat_version
     op(source, target)
     assert target.dat.dat_version > dat_version
 
     # Modify the output, test that the output is regenerated
-    target.assign(3)
+    target.dat.data_wo[...] = 3
     dat_version = target.dat.dat_version
     op(source, target)
     assert target.dat.dat_version > dat_version
