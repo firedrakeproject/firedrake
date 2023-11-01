@@ -122,3 +122,7 @@ def test_VV_ne_VVV():
     W0 = V * V
     W1 = V * V * V
     assert W0 != W1
+
+
+def test_function_space_dir(cg1):
+    dir(cg1)
