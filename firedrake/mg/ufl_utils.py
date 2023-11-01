@@ -182,7 +182,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         Vf = expr.function_space()
         manager = firedrake.dmhooks.get_transfer_manager(Vf.dm)
         Vc = self(Vf, self)
-        new = firedrake.Function(Vc, name="coarse_%s" % expr.name())
+        new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
         if isinstance(expr, firedrake.Cofunction):
             # Dual restriction
             manager.restrict(expr, new)
