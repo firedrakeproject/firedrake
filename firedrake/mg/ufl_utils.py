@@ -220,7 +220,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     V = problem.u.function_space()
     if not hasattr(V, "_coarse"):
-        # The hook is persistent and cummulative, but also problem-independent.
+        # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
