@@ -64,6 +64,7 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level - 1]
 
 
+@coarsen.register(ufl.BaseForm)
 @coarsen.register(ufl.classes.Expr)
 def coarse_expr(expr, self, coefficient_mapping=None):
     if expr is None:
@@ -104,6 +105,13 @@ def coarsen_form(form, self, coefficient_mapping=None):
     return form
 
 
+@coarsen.register(ufl.FormSum)
+def coarsen_formsum(form, self, coefficient_mapping=None):
+    return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
+                         self(wi, self, coefficient_mapping=coefficient_mapping))
+                        for ci, wi in zip(form.components(), form.weights())])
+
+
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
@@ -113,6 +121,7 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
+@coarsen.register(firedrake.functionspaceimpl.FiredrakeDualSpace)
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
 def coarsen_function_space(V, self, coefficient_mapping=None):
@@ -133,7 +142,10 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
     mesh = self(V.mesh(), self)
 
-    V = firedrake.FunctionSpace(mesh, V.ufl_element())
+    if isinstance(V, firedrake.functionspaceimpl.FiredrakeDualSpace):
+        V = firedrake.functionspace.DualSpace(mesh, V.ufl_element())
+    else:
+        V = firedrake.FunctionSpace(mesh, V.ufl_element())
 
     for i in reversed(indices):
         V = V.sub(i)
@@ -160,17 +172,23 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     return V
 
 
+@coarsen.register(firedrake.Cofunction)
 @coarsen.register(firedrake.Function)
 def coarsen_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        V = expr.function_space()
-        manager = firedrake.dmhooks.get_transfer_manager(expr.function_space().dm)
-        V = self(expr.function_space(), self)
-        new = firedrake.Function(V, name="coarse_%s" % expr.name())
-        manager.inject(expr, new)
+        Vf = expr.function_space()
+        manager = firedrake.dmhooks.get_transfer_manager(Vf.dm)
+        Vc = self(Vf, self)
+        new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
+        if isinstance(expr, firedrake.Cofunction):
+            # Dual restriction
+            manager.restrict(expr, new)
+        else:
+            # Primal restriction
+            manager.inject(expr, new)
     return new
 
 
@@ -301,20 +319,22 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
 
 
 class Interpolation(object):
-    def __init__(self, cfn, ffn, manager, cbcs=None, fbcs=None):
-        self.cfn = cfn
-        self.ffn = ffn
+    def __init__(self, coarse, fine, manager, cbcs=None, fbcs=None):
+        self.cprimal = coarse
+        self.fprimal = fine
+        self.cdual = coarse.riesz_representation(riesz_map="l2")
+        self.fdual = fine.riesz_representation(riesz_map="l2")
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
         self.manager = manager
 
     def mult(self, mat, x, y, inc=False):
-        with self.cfn.dat.vec_wo as v:
+        with self.cprimal.dat.vec_wo as v:
             x.copy(v)
-        self.manager.prolong(self.cfn, self.ffn)
+        self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
-            bc.zero(self.ffn)
-        with self.ffn.dat.vec_ro as v:
+            bc.zero(self.fprimal)
+        with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -328,12 +348,12 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
     def multTranspose(self, mat, x, y, inc=False):
-        with self.ffn.dat.vec_wo as v:
+        with self.fdual.dat.vec_wo as v:
             x.copy(v)
-        self.manager.restrict(self.ffn, self.cfn)
+        self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
-            bc.zero(self.cfn)
-        with self.cfn.dat.vec_ro as v:
+            bc.zero(self.cdual)
+        with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
