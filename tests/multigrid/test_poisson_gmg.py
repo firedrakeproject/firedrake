@@ -155,4 +155,4 @@ def test_baseform_coarsening(typ):
         solutions.append(uh)
 
     for s in solutions[1:]:
-        assert np.allclose(s.dat.data_ro, solutions[0].dat.data_ro, rtol=1E-14)
+        assert errornorm(s, solutions[0]) < 1E-14
