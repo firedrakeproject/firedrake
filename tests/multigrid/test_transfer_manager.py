@@ -8,7 +8,7 @@ from firedrake.utils import complex_mode
 @pytest.fixture(scope="module")
 def hierarchy():
     mesh = UnitSquareMesh(1, 1)
-    return MeshHierarchy(mesh, 1)
+    return MeshHierarchy(mesh, 2)
 
 
 @pytest.fixture
@@ -55,24 +55,29 @@ def test_transfer_manager_inside_coarsen(sub, mesh):
     assert numpy.allclose(bc.function_arg.dat.data_ro, expect.dat.data_ro)
 
 
+@pytest.fixture(params=["CG", "DG", "RT"])
+def spaces(hierarchy, request):
+    family = request.param
+    return tuple(FunctionSpace(mesh, family, 1) for mesh in hierarchy)
+
+
+@pytest.mark.parametrize("action", ("unmodified", "modify_source", "modify_target", "new_dats", "same_dats"))
 @pytest.mark.parametrize("transfer_op", ("prolong", "restrict", "inject"))
-@pytest.mark.parametrize("family", ("CG", "DG", "RT"))
-def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
-    degree = 1
-    Vc = FunctionSpace(hierarchy[0], family, degree)
-    Vf = FunctionSpace(hierarchy[1], family, degree)
+def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
+    Vcoarse, Vfine = spaces[0], spaces[-1]
     if transfer_op == "prolong":
         op = transfer.prolong
-        Vsource, Vtarget = Vc, Vf
+        Vsource, Vtarget = Vcoarse, Vfine
     elif transfer_op == "restrict":
         op = transfer.restrict
-        Vsource, Vtarget = Vf.dual(), Vc.dual()
+        Vsource, Vtarget = Vfine.dual(), Vcoarse.dual()
     elif transfer_op == "inject":
         op = transfer.inject
-        Vsource, Vtarget = Vf, Vc
+        Vsource, Vtarget = Vfine, Vcoarse
 
     source = Function(Vsource)
     target = Function(Vtarget)
+    family = Vsource.ufl_element().family()
     if complex_mode and ((family == "DG" and transfer_op == "inject")
                          or family not in {"CG", "DG"}):
         with pytest.raises(NotImplementedError):
@@ -84,37 +89,45 @@ def test_transfer_manager_dat_version_cache(hierarchy, family, transfer_op):
     op(source, target)
     assert not numpy.allclose(target.dat.data_ro, 0.0)
 
-    # Test no-op for unmodified input
-    for k in range(2):
+    if action == "unmodified":
+        # Test no-op for unmodified input and outputs
+        for k in range(2):
+            dat_version = target.dat.dat_version
+            op(source, target)
+            assert target.dat.dat_version == dat_version
+
+    elif action == "modify_source":
+        # Modify the input, test that the output is regenerated
+        source.dat.data_wo[...] = 2
         dat_version = target.dat.dat_version
+        op(source, target)
+        assert target.dat.dat_version > dat_version
+
+    elif action == "modify_target":
+        # Modify the output, test that the output is regenerated
+        target.dat.data_wo[...] = 3
+        dat_version = target.dat.dat_version
+        op(source, target)
+        assert target.dat.dat_version > dat_version
+
+    elif action == "new_dats":
+        # Test that the operator produces an output for an unrecognized input
+        source = Function(source)
+        target = Function(target)
+        dat_version = target.dat.dat_version
+        op(source, target)
+        assert target.dat.dat_version > dat_version
+
+    elif action == "same_dats":
+        # Wrap old dats with new functions, test that old dats are still recognized
+        dat_version = target.dat.dat_version
+        old_dats = (source.dat, target.dat)
+        source = Function(Vsource, val=source.dat)
+        target = Function(Vtarget, val=target.dat)
+        assert (source.dat, target.dat) == old_dats
+        assert target.dat.dat_version == dat_version
         op(source, target)
         assert target.dat.dat_version == dat_version
 
-    # Modify the input, test that the output is regenerated
-    source.dat.data_wo[...] = 2
-    dat_version = target.dat.dat_version
-    op(source, target)
-    assert target.dat.dat_version > dat_version
-
-    # Modify the output, test that the output is regenerated
-    target.dat.data_wo[...] = 3
-    dat_version = target.dat.dat_version
-    op(source, target)
-    assert target.dat.dat_version > dat_version
-
-    # Test that the operator produces an output for an unrecognized input
-    source = Function(source)
-    target = Function(target)
-    dat_version = target.dat.dat_version
-    op(source, target)
-    assert target.dat.dat_version > dat_version
-
-    # Wrap old dats with new functions, test that old dats are still recognized
-    dat_version = target.dat.dat_version
-    old_dats = (source.dat, target.dat)
-    source = Function(source.function_space(), val=source.dat)
-    target = Function(target.function_space(), val=target.dat)
-    assert (source.dat, target.dat) == old_dats
-    assert target.dat.dat_version == dat_version
-    op(source, target)
-    assert target.dat.dat_version == dat_version
+    else:
+        raise ValueError(f"Unrecognized action {action}")
