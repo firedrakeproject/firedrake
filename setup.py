@@ -53,8 +53,8 @@ cythonfiles = [("dmcommon", ["petsc"]),
                ("hdf5interface", ["petsc"]),
                ("mgimpl", ["petsc"]),
                ("patchimpl", ["petsc"]),
-               ("spatialindex", ["spatialindex_c"]),
-               ("supermeshimpl", ["supermesh", "petsc", "spatialindex_c"])]
+               ("spatialindex", None),
+               ("supermeshimpl", ["supermesh", "petsc"])]
 
 
 petsc_dirs = get_petsc_dir()
@@ -62,8 +62,10 @@ if os.environ.get("HDF5_DIR"):
     petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
 include_dirs = [np.get_include(), petsc4py.get_include(), rtree.core.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
-dirs = (sys.prefix, *petsc_dirs, os.path.dirname(rtree.core.get_libraries()))
+dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
+link_args += [os.path.join(rtree.core.get_libraries(), rtree.core.get_library_name())]
+link_args += ["-Wl,-rpath,%s" % rtree.core.get_libraries()]
 
 extensions = [Extension("firedrake.cython.{}".format(ext),
                         sources=[os.path.join("firedrake", "cython", "{}.pyx".format(ext))],
