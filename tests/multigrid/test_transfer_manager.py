@@ -78,8 +78,8 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
     source = Function(Vsource)
     target = Function(Vtarget)
     family = Vsource.ufl_element().family()
-    if complex_mode and ((family == "DG" and transfer_op == "inject")
-                         or family not in {"CG", "DG"}):
+    if complex_mode and ((family == "Discontinuous Lagrange" and transfer_op == "inject")
+                         or family not in {"Lagrange", "Discontinuous Lagrange"}):
         with pytest.raises(NotImplementedError):
             op(source, target)
         return
