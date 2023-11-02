@@ -600,6 +600,10 @@ class SolveVarFormBlock(GenericSolveBlock):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
 
+    def __str__(self):
+        return "solve({} = {})".format(ufl2unicode(self.lhs),
+                                       ufl2unicode(self.rhs))
+
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J,
