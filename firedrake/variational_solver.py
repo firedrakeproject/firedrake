@@ -2,11 +2,8 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 
-from firedrake import dmhooks
-from firedrake import slate
-from firedrake import solving_utils
-from firedrake import ufl_expr
-from firedrake import utils
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import function, cofunction
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -61,8 +58,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
         """
-        from firedrake import solving
-        from firedrake import function
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
@@ -238,7 +233,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             TransferManager interface.
         :raises ValueError: if called after the transfer manager is setup.
         """
-        from firedrake import function, cofunction
         self._ctx.transfer_manager = manager
         problem = self._problem
         ctx = self._ctx
