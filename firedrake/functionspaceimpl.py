@@ -289,7 +289,7 @@ class WithGeometryBase(object):
         return val
 
     def __dir__(self):
-        current = super(type(self), self).__dir__()
+        current = super().__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
     def boundary_nodes(self, sub_domain):

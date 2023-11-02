@@ -41,7 +41,8 @@ jobs:
     secrets: inherit
   # Firedrake container (Firedrake and friends)
   docker_firedrake:
-    needs: docker_vanilla
+    # Artificial dependency on docker_complex due to CI race condition
+    needs: [docker_vanilla, docker_complex]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake
@@ -50,7 +51,8 @@ jobs:
     secrets: inherit
   # Firedrake container with documentation dependencies and TeX
   docker_docdeps:
-    needs: docker_vanilla
+    # Artificial dependency on docker_complex due to CI race condition
+    needs: [docker_vanilla, docker_complex]
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-docdeps

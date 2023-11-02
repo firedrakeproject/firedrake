@@ -150,7 +150,7 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
-    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, (ufl.Form, ufl.Cofunction)):
+    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.BaseForm):
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters)

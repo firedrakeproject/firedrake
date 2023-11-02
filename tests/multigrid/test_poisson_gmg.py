@@ -3,7 +3,7 @@ import numpy
 import pytest
 
 
-def run_poisson(typ):
+def solver_parameters(typ):
     if typ == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
@@ -62,7 +62,11 @@ def run_poisson(typ):
                       "npc_snes_convergence_test": "skip"}
     else:
         raise RuntimeError("Unknown parameter set '%s' request", typ)
+    return parameters
 
+
+def run_poisson(typ):
+    parameters = solver_parameters(typ)
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -113,3 +117,42 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
+
+
+@pytest.mark.parametrize("typ",
+                         ["mg", "mgmatfree", "fas", "newtonfas"])
+def test_baseform_coarsening(typ):
+    parameters = solver_parameters(typ)
+    base = UnitSquareMesh(2, 2)
+    mh = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = mh[-1]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    bcs = DirichletBC(V, 1.0, (2, 3, 4))
+
+    x = SpatialCoordinate(mesh)
+    g = Constant(1)
+    f = Function(V)
+    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
+    forms = [inner(f, v) * dx, inner(g, v) * ds(1)]
+
+    # Need to zero out BC DOFs on the assembled cofunctions
+    bcs.homogenize()
+    # These are equivalent right-hand sides
+    sources = [sum(forms),  # purely symbolic linear form
+               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
+               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
+               ]
+    bcs.restore()
+    solutions = []
+    for L in sources:
+        uh = Function(V)
+        solve(a == L, uh, bcs=bcs, solver_parameters=parameters)
+        solutions.append(uh)
+
+    for s in solutions[1:]:
+        assert errornorm(s, solutions[0]) < 1E-14
