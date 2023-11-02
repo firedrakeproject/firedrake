@@ -3,8 +3,8 @@ import numpy
 import pytest
 
 
-def solver_parameters(typ):
-    if typ == "mg":
+def solver_parameters(solver_type):
+    if solver_type == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
                       "pc_type": "mg",
@@ -12,7 +12,7 @@ def solver_parameters(typ):
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
-    elif typ == "mgmatfree":
+    elif solver_type == "mgmatfree":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
                       "mat_type": "matfree",
@@ -25,7 +25,7 @@ def solver_parameters(typ):
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
-    elif typ == "fas":
+    elif solver_type == "fas":
         parameters = {"snes_type": "fas",
                       "snes_fas_type": "full",
                       "fas_coarse_snes_type": "ksponly",
@@ -39,7 +39,7 @@ def solver_parameters(typ):
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip"}
-    elif typ == "newtonfas":
+    elif solver_type == "newtonfas":
         parameters = {"snes_type": "newtonls",
                       "ksp_type": "preonly",
                       "pc_type": "none",
@@ -61,12 +61,12 @@ def solver_parameters(typ):
                       "npc_snes_max_it": 1,
                       "npc_snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", typ)
+        raise RuntimeError("Unknown parameter set '%s' request", solver_type)
     return parameters
 
 
-def run_poisson(typ):
-    parameters = solver_parameters(typ)
+def run_poisson(solver_type):
+    parameters = solver_parameters(solver_type)
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -94,10 +94,10 @@ def run_poisson(typ):
     return norm(assemble(exact - u))
 
 
-@pytest.mark.parametrize("typ",
+@pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_poisson_gmg(typ):
-    assert run_poisson(typ) < 4e-6
+def test_poisson_gmg(solver_type):
+    assert run_poisson(solver_type) < 4e-6
 
 
 @pytest.mark.parallel
@@ -119,10 +119,10 @@ def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
 
 
-@pytest.mark.parametrize("typ",
+@pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_baseform_coarsening(typ):
-    parameters = solver_parameters(typ)
+def test_baseform_coarsening(solver_type):
+    parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
     parameters["snes_rtol"] = 1.0E-10
     parameters["snes_atol"] = 0.0
@@ -164,8 +164,10 @@ def test_baseform_coarsening(typ):
         assert errornorm(s, solutions[0]) < 1E-14
 
 
-def run_helmholtz(typ):
-    parameters = solver_parameters(typ)
+@pytest.mark.parametrize("solver_type",
+                         ["mg", "mgmatfree"])
+def test_reinjection_mass_then_poisson(solver_type):
+    parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
     parameters["ksp_type"] = "gmres"
     parameters["ksp_rtol"] = 1.0E-12
@@ -179,7 +181,6 @@ def run_helmholtz(typ):
     R = FunctionSpace(mesh, 'R', 0)
     V = FunctionSpace(mesh, 'CG', 1)
     v = TestFunction(V)
-    u = TrialFunction(V)
     uh = Function(V)
     alpha = Function(R)
     one = Function(R)
@@ -193,33 +194,34 @@ def run_helmholtz(typ):
 
     # The problem is parametrized such that
     # alpha = 0 gives the mass matrix, and alpha = 1 gives Poisson
-    a = inner((one - alpha) * u, v)*dx + inner(alpha * grad(u), grad(v))*dx
-    L = a(v, uexact)
+    a = lambda v, u: inner((one - alpha) * u, v)*dx + inner(alpha * grad(u), grad(v))*dx
+    F = a(v, uh - uexact)
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
 
     transfer = TransferManager()
-    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    problem = NonlinearVariationalProblem(F, uh, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
     solver.set_transfer_manager(transfer)
 
+    # We first solve a problem with the mass matrix, then change the
+    # coefficients to obtain Poisson, and test that the second solve propagates
+    # the updated coefficients across the multigrid hierarchy
     for val in (0.0, 1.0):
         alpha.assign(val)
         uh.assign(0)
         solver.solve()
-        its_reused = solver.snes.ksp.getIterationNumber()
-        res_reused = solver.snes.getFunctionNorm()
+    ksp_its_reused = solver.snes.ksp.getIterationNumber()
+    snes_its_reused = solver.snes.getIterationNumber()
+    res_reused = solver.snes.getFunctionNorm()
 
-    new_solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+    # Test that the reused solver behaves like a new solver
+    new_solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
     new_solver.set_transfer_manager(transfer)
     uh.assign(0)
     new_solver.solve()
-    its_new = new_solver.snes.ksp.getIterationNumber()
+    ksp_its_new = new_solver.snes.ksp.getIterationNumber()
+    snes_its_new = new_solver.snes.getIterationNumber()
     res_new = new_solver.snes.getFunctionNorm()
-    assert its_reused == its_new
+    assert ksp_its_reused == ksp_its_new
+    assert snes_its_reused == snes_its_new
     assert numpy.isclose(res_reused, res_new)
-
-
-@pytest.mark.parametrize("typ",
-                         ["mg", "mgmatfree"])
-def test_reinjection(typ):
-    run_helmholtz(typ)
