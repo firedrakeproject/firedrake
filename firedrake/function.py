@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import rtree
 import sys
 import ufl
 from ufl.duals import is_dual
@@ -757,10 +759,19 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
-    return compilation.load(src, "c", c_name,
-                            cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix]
-                            + ["-I%s/include" % d for d in get_petsc_dir()],
-                            ldargs=ldargs,
-                            comm=function.comm)
+    libspatialindex_so = os.path.join(
+        rtree.core.get_libraries(),
+        rtree.core.get_library_name()
+    )
+    lsi_runpath = f"-Wl,-rpath,{rtree.core.get_libraries()}"
+    ldargs += [libspatialindex_so, lsi_runpath]
+    return compilation.load(
+        src, "c", c_name,
+        cppargs=[
+            f"-I{path.dirname(__file__)}",
+            f"-I{sys.prefix}/include",
+            f"-I{rtree.core.get_include()}"
+        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+        ldargs=ldargs,
+        comm=function.comm
+    )
