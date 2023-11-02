@@ -601,8 +601,7 @@ class SolveVarFormBlock(GenericSolveBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        return f"solve({ufl2unicode(self.lhs)} == {ufl2unicode(self.rhs)})"
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
