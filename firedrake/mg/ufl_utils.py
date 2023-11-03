@@ -238,7 +238,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 @coarsen.register(firedrake.VectorSpaceBasis)
 def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
     coarse_vecs = [self(vec, self, coefficient_mapping=coefficient_mapping) for vec in basis._vecs]
-    vsb = firedrake.VectorSpaceBasis(coarse_vecs, constant=basis._constant, comm=basis._comm)
+    vsb = firedrake.VectorSpaceBasis(coarse_vecs, constant=basis._constant, comm=basis.comm)
     vsb.orthonormalize()
     return vsb
 
