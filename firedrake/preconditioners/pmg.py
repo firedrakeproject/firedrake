@@ -346,7 +346,7 @@ class PMGBase(PCSNESBase):
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
-                coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant, comm=fine_nullspace._comm)
+                coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant, comm=fine_nullspace.comm)
                 coarse_nullspace.orthonormalize()
             else:
                 return fine_nullspace
