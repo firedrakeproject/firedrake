@@ -221,7 +221,7 @@ def test_constant_jacobian_lvs():
     assert not (norm(assemble(out*5 - f)) < 2e-7)
 
 
-def test_linear_solve_cofunction_rhs():
+def test_solve_cofunction_rhs():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -240,7 +240,7 @@ def test_linear_solve_cofunction_rhs():
     assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)
 
 
-def test_nonlinear_solve_cofunction_rhs():
+def test_solve_cofunction_lhs():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
