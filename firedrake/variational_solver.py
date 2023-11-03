@@ -77,7 +77,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J = J or ufl_expr.derivative(F, u)
+        self.J = J or ufl.lhs(ufl_expr.derivative(F, u))
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
