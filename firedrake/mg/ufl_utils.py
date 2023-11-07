@@ -205,7 +205,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         finectx = get_appctx(fine)
         coefficients = finectx.F.coefficients() + finectx.J.coefficients()
         if finectx.Jp is not None:
-            coefficients.extend(finectx.Jp.coefficients())
+            coefficients += problem.Jp.coefficients()
         coefficients = tuple(OrderedDict.fromkeys(coefficients))
         for fine in coefficients:
             if hasattr(fine, '_child'):

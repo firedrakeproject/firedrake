@@ -259,7 +259,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         seen = {problem.u.function_space()}
         coefficients = problem.F.coefficients() + problem.J.coefficients()
         if problem.Jp is not None:
-            coefficients.extend(problem.Jp.coefficients())
+            coefficients += problem.Jp.coefficients()
         for val in coefficients:
             if isinstance(val, (function.Function, cofunction.Cofunction)):
                 V = val.function_space()
@@ -281,8 +281,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(),
-                                  *(dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in reversed(problem_dms))),
+                for ctx in chain([self.inserted_options()],
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in reversed(problem_dms)],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
