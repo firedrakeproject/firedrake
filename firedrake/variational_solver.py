@@ -234,19 +234,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         :raises ValueError: if called after the transfer manager is setup.
         """
         self._ctx.transfer_manager = manager
-        problem = self._problem
-        ctx = self._ctx
-        seen = set()
-        coefficients = problem.F.coefficients() + problem.J.coefficients()
-        if problem.Jp is not None:
-            coefficients = coefficients + problem.Jp.coefficients()
-        for val in chain(coefficients, (bc.function_arg for bc in problem.bcs)):
-            if isinstance(val, (function.Function, cofunction.Cofunction)):
-                V = val.function_space()
-                if V not in seen:
-                    dm = V.dm
-                    dmhooks.push_appctx(dm, ctx)
-                    seen.add(V)
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
@@ -266,8 +253,20 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to the DM before we solve.
-        dm = self.snes.getDM()
+        # Make sure appcontext is attached to every coefficient DM before we solve.
+        problem = self._problem
+        problem_dms = [self.snes.getDM()]
+        seen = {problem.u.function_space()}
+        coefficients = problem.F.coefficients() + problem.J.coefficients()
+        if problem.Jp is not None:
+            coefficients = coefficients + problem.Jp.coefficients()
+        for val in chain(coefficients, (bc.function_arg for bc in problem.bcs)):
+            if isinstance(val, (function.Function, cofunction.Cofunction)):
+                V = val.function_space()
+                if V not in seen:
+                    problem_dms.append(V.dm)
+                    seen.add(V)
+
         for dbc in self._problem.dirichlet_bcs():
             dbc.apply(self._problem.u)
 
@@ -275,13 +274,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             lower, upper = bounds
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
+
         work = self._work
-        with self._problem.u.dat.vec as u:
+        with problem.u.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
+                for ctx in chain((self.inserted_options(),
+                                  *(dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in reversed(problem_dms))),
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)

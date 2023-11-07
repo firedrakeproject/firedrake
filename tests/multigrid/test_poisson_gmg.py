@@ -1,6 +1,7 @@
 from firedrake import *
 import numpy
 import pytest
+import warnings
 
 
 def solver_parameters(solver_type):
@@ -209,7 +210,10 @@ def test_reinjection_mass_then_poisson(solver_type):
     for val in (0.0, 1.0):
         alpha.assign(val)
         uh.assign(0)
-        solver.solve()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+            solver.solve()
+
     ksp_its_reused = solver.snes.ksp.getIterationNumber()
     snes_its_reused = solver.snes.getIterationNumber()
     res_reused = solver.snes.getFunctionNorm()
@@ -218,7 +222,10 @@ def test_reinjection_mass_then_poisson(solver_type):
     new_solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
     new_solver.set_transfer_manager(transfer)
     uh.assign(0)
-    new_solver.solve()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        new_solver.solve()
+
     ksp_its_new = new_solver.snes.ksp.getIterationNumber()
     snes_its_new = new_solver.snes.getIterationNumber()
     res_new = new_solver.snes.getFunctionNorm()
