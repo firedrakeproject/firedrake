@@ -228,7 +228,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     seen = set()
     coefficients = problem.F.coefficients() + problem.J.coefficients()
     if problem.Jp is not None:
-        coefficients = coefficients + problem.Jp.coefficients()
+        coefficients.extend(problem.Jp.coefficients())
 
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:

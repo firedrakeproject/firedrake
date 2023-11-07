@@ -259,8 +259,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         seen = {problem.u.function_space()}
         coefficients = problem.F.coefficients() + problem.J.coefficients()
         if problem.Jp is not None:
-            coefficients = coefficients + problem.Jp.coefficients()
-        for val in chain(coefficients, (bc.function_arg for bc in problem.bcs)):
+            coefficients.extend(problem.Jp.coefficients())
+        for val in coefficients:
             if isinstance(val, (function.Function, cofunction.Cofunction)):
                 V = val.function_space()
                 if V not in seen:
