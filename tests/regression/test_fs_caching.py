@@ -248,7 +248,7 @@ def test_extruded_mixed_fs_misses_cache():
 
     V0 = TensorProductElement(U0, U1)
 
-    V2 = FunctionSpace(e, HCurlElement(V0))
+    V2 = FunctionSpace(e, HCurl(V0))
 
     W1 = V1*V2
 
