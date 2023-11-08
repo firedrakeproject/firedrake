@@ -347,7 +347,7 @@ class PMGBase(PCSNESBase):
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
-                coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant)
+                coarse_nullspace = VectorSpaceBasis(coarse_vecs, constant=fine_nullspace._constant, comm=fine_nullspace.comm)
                 coarse_nullspace.orthonormalize()
             else:
                 return fine_nullspace
@@ -1400,6 +1400,7 @@ class StandaloneInterpolationMatrix(object):
         """
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
         element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
@@ -1420,7 +1421,12 @@ class StandaloneInterpolationMatrix(object):
                    Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
         }}
         """
-        restrict_kernel = op2.Kernel(restrict_code, "restriction", requires_zeroed_output_arguments=True)
+        restrict_kernel = op2.Kernel(
+            restrict_code,
+            "restriction",
+            requires_zeroed_output_arguments=True,
+            events=matrix_kernel.events,
+        )
         return prolong_kernel, restrict_kernel, coefficients
 
     def multTranspose(self, mat, rf, rc):
