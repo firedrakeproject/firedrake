@@ -1153,6 +1153,56 @@ class RealFunctionSpace(FunctionSpace):
         return None
 
 
+class RestrictedFunctionSpace(FunctionSpace):
+    def __init__(self, function_space, name=None, bcs=[]):
+        super().__init__(function_space.mesh, function_space.element, name)
+        # 1: make a call to __super__ for __init__ using function_space.mesh etc 
+        # 2: create self.boundary_set (the union of all bc.sub_domain)
+        # 3: self.function_space = function_space
+        self.function_space = function_space
+        self.boundary_set = set()
+        self.bcs = bcs
+        for bc in bcs:
+            self.boundary_set = self.boundary_set.union(set(bc.sub_domain))
+    
+    def __eq__(self, other):
+        # 1: check if other isInstance(RestrictedFunctionSpace)
+        # 2: check if self.function_space = other.function_space (__super__)
+        # 3: check if self.boundary_set == other.boundary_set
+        if not isinstance(other, RestrictedFunctionSpace):
+            return False
+        return super().__eq__(self.function_space, other.function_space) and \ 
+               self.boundary_set == other.boundary_set
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        # 1: want to do like before but also add bc.sub_domain
+        return hash((self.function_space.mesh(), self.function_space.dof_dset, 
+                     self.function_space.ufl_element(), self.boundary_set))
+    
+    def __repr__(self):
+        # 1: Look at previous __repr__
+        # 2: Want to display "RestrictedFunctionSpace(FunctionSpace.name, ..., self.boundary_set or bcs?)"
+        return "RestrictedFunctionSpace(function_space=%r, name=%r, bcs=%r)" % (
+                                                   self.function_space.name
+                                                   self.name, 
+                                                   self.bcs)
+    
+    def __str__(self):
+        # __str__ == __repr
+        return __repr__(self)
+    
+    def dof_count(self):
+        # we might need to remove boundary dofs?
+        raise NotImplementedError
+
+    def local_to_global_map(self, bcs, lgmap=None)
+        # discussed already - can probably create a helper function for most of it
+        raise NotImplementedError
+
+
 @dataclass
 class FunctionSpaceCargo:
     """Helper class carrying data for a :class:`WithGeometryBase`.
