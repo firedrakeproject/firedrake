@@ -136,7 +136,7 @@ def test_extruded_ope_misses_cache():
 
     W0 = TensorProductElement(U0, U1)
 
-    W2 = FunctionSpace(e, HCurlElement(W0))
+    W2 = FunctionSpace(e, HCurl(W0))
 
     assert W1 != W2
 
