@@ -43,10 +43,10 @@ def W(mesh):
         W1_h = FiniteElement("DG", "triangle", 0)
 
     W0_v = FiniteElement("DG", "interval", 0)
-    W0 = HDivElement(TensorProductElement(W0_h, W0_v))
+    W0 = HDiv(TensorProductElement(W0_h, W0_v))
 
     W1_v = FiniteElement("CG", "interval", 1)
-    W1 = HDivElement(TensorProductElement(W1_h, W1_v))
+    W1 = HDiv(TensorProductElement(W1_h, W1_v))
 
     return FunctionSpace(mesh, W0+W1)
 

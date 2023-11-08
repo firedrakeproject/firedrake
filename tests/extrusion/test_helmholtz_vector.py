@@ -22,7 +22,7 @@ def test_scalar_convergence(extmesh, testcase, convrate):
 
         horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
         vert_elt = FiniteElement(vfamily, "interval", vdegree)
-        product_elt = HDivElement(TensorProductElement(horiz_elt, vert_elt))
+        product_elt = HDiv(TensorProductElement(horiz_elt, vert_elt))
         V1 = FunctionSpace(mesh, product_elt)
 
         if ori == "h":

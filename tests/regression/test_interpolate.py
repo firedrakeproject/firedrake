@@ -130,7 +130,7 @@ def test_compound_expression():
 def test_hdiv_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
-    U = FunctionSpace(mesh, HDivElement(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
+    U = FunctionSpace(mesh, HDiv(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
     expr = as_vector([x[0], x[1]])
     u = interpolate(expr, U)
     u_proj = project(expr, U)
@@ -141,7 +141,7 @@ def test_hdiv_extruded_interval():
 def test_hcurl_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
-    U = FunctionSpace(mesh, HCurlElement(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
+    U = FunctionSpace(mesh, HCurl(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
     expr = as_vector([x[0], x[1]])
     u = interpolate(expr, U)
     u_proj = project(expr, U)

@@ -20,8 +20,8 @@ def test_feec(extmesh, horiz_complex, vert_complex):
 
     # W0, W1, W2, W3 will be our product complex, where
     # W0 = U0 x V0
-    # W1 = HCurlElement(U1 x V0) + HCurlElement(U0 x V1)
-    # W2 = HDivElement(U2 x V0) + HDivElement(U1 x V1)
+    # W1 = HCurl(U1 x V0) + HCurl(U0 x V1)
+    # W2 = HDiv(U2 x V0) + HDiv(U1 x V1)
     # W3 = U2 x V1
     mesh = extmesh(2, 2, 4)
     if len(U0) == 2:
@@ -51,8 +51,8 @@ def test_feec_quadrilateral(extmesh, horiz_complex, vert_complex):
 
     # W0, W1, W2, W3 will be our product complex, where
     # W0 = U0 x V0
-    # W1 = HCurlElement(U1 x V0) + HCurlElement(U0 x V1)
-    # W2 = HDivElement(U2 x V0) + HDivElement(U1 x V1)
+    # W1 = HCurl(U1 x V0) + HCurl(U0 x V1)
+    # W2 = HDiv(U2 x V0) + HDiv(U1 x V1)
     # W3 = U2 x V1
     mesh = extmesh(2, 2, 4, quadrilateral=True)
     U0 = FiniteElement(U0[0], "quadrilateral", U0[1])
@@ -67,12 +67,12 @@ def test_feec_quadrilateral(extmesh, horiz_complex, vert_complex):
 def run_feec(mesh, U0, U1, U2, V0, V1):
     W0_elt = TensorProductElement(U0, V0)
 
-    W1_a = HCurlElement(TensorProductElement(U1, V0))
-    W1_b = HCurlElement(TensorProductElement(U0, V1))
+    W1_a = HCurl(TensorProductElement(U1, V0))
+    W1_b = HCurl(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
 
-    W2_a = HDivElement(TensorProductElement(U2, V0))
-    W2_b = HDivElement(TensorProductElement(U1, V1))
+    W2_a = HDiv(TensorProductElement(U2, V0))
+    W2_b = HDiv(TensorProductElement(U1, V1))
     W2_elt = W2_a + W2_b
 
     W3_elt = TensorProductElement(U2, V1)

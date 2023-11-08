@@ -105,14 +105,14 @@ def test_extruded_ope_hits_cache():
 
     W0 = TensorProductElement(U0, U1)
 
-    W1 = FunctionSpace(e, HDivElement(W0))
+    W1 = FunctionSpace(e, HDiv(W0))
 
     U0 = FiniteElement('DG', 'triangle', 0)
     U1 = FiniteElement('CG', 'interval', 2)
 
     W0 = TensorProductElement(U0, U1)
 
-    W2 = FunctionSpace(e, HDivElement(W0))
+    W2 = FunctionSpace(e, HDiv(W0))
 
     assert W1 == W2
     assert W1.topological == W2.topological
@@ -129,7 +129,7 @@ def test_extruded_ope_misses_cache():
 
     W0 = TensorProductElement(U0, U1)
 
-    W1 = FunctionSpace(e, HDivElement(W0))
+    W1 = FunctionSpace(e, HDiv(W0))
 
     U0 = FiniteElement('CG', 'triangle', 1)
     U1 = FiniteElement('DG', 'interval', 2)
@@ -213,7 +213,7 @@ def test_extruded_mixed_fs_hits_cache():
 
     V0 = TensorProductElement(U0, U1)
 
-    V1 = FunctionSpace(e, HDivElement(V0))
+    V1 = FunctionSpace(e, HDiv(V0))
 
     U0 = FiniteElement('CG', 'triangle', 1)
     U1 = FiniteElement('DG', 'interval', 2)
@@ -241,7 +241,7 @@ def test_extruded_mixed_fs_misses_cache():
 
     V0 = TensorProductElement(U0, U1)
 
-    V1 = FunctionSpace(e, HDivElement(V0))
+    V1 = FunctionSpace(e, HDiv(V0))
 
     U0 = FiniteElement('CG', 'triangle', 1)
     U1 = FiniteElement('DG', 'interval', 2)

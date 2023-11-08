@@ -17,7 +17,7 @@ mesh = ExtrudedMesh(m, layers, layer_height=0.25)
 
 horiz = FiniteElement("BDM", "triangle", 1)
 vert = FiniteElement("DG", "interval", 0)
-prod = HDivElement(OuterProductElement(horiz, vert))
+prod = HDiv(OuterProductElement(horiz, vert))
 W = FunctionSpace(mesh, prod)
 
 X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)

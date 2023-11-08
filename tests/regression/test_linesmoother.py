@@ -57,9 +57,9 @@ def test_linesmoother(mesh, S1family, expected, backend):
         T0 = FiniteElement("CG", interval, degree+1)
         T1 = FiniteElement("DG", interval, degree)
 
-        V2h_elt = HDivElement(TensorProductElement(S1, T1))
+        V2h_elt = HDiv(TensorProductElement(S1, T1))
         V2t_elt = TensorProductElement(S2, T0)
-        V2v_elt = HDivElement(V2t_elt)
+        V2v_elt = HDiv(V2t_elt)
         V3_elt = TensorProductElement(S2, T1)
         V2_elt = V2h_elt + V2v_elt
 

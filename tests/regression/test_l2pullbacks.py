@@ -23,7 +23,7 @@ def get_complex(family, hdegree, vdegree=None):
         l2_horiz = FiniteElement("DG L2", "interval", hdegree-1)
         h1_vert = FiniteElement("CG", "interval", vdegree)
         l2_vert = FiniteElement("DG L2", "interval", vdegree-1)
-        hdivelem = HDivElement(TensorProductElement(h1_horiz, l2_vert)) + HDivElement(TensorProductElement(l2_horiz, h1_vert))
+        hdivelem = HDiv(TensorProductElement(h1_horiz, l2_vert)) + HDiv(TensorProductElement(l2_horiz, h1_vert))
         l2elem = TensorProductElement(l2_horiz, l2_vert)
     return hdivelem, l2elem
 
