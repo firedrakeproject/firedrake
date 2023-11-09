@@ -1940,6 +1940,9 @@ if mode == "install":
     for p in packages:
         pip_requirements(p, compiler_env)
 
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+
     with environment(**compiler_env):
         build_and_install_h5py()
         build_and_install_libsupermesh()
