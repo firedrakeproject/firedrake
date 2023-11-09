@@ -1,4 +1,3 @@
-import copy
 import enum
 import math
 import numpy as np
@@ -668,8 +667,42 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     return collection
 
 
+class _FiredrakeFunctionPath(matplotlib.collections.PathCollection):
+    # A distinct class to distinguish MPL PathCollection from the same object
+    # used for plotting a Firedrake function (mainly for legend handling)
+    pass
+
+
+class _HandlerFiredrakeFunctionPath(matplotlib.legend_handler.HandlerLine2D):
+    # Legend handler for _FiredrakeFunctionPath
+    def create_artists(
+        self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans
+    ):
+        xdata, xdata_marker = self.get_xdata(
+            legend, xdescent, ydescent, width, height, fontsize
+        )
+        ydata = np.full_like(xdata, (height - ydescent) / 2)
+        l = Line2D(xdata, ydata)
+        self.update_prop(l, orig_handle, legend)
+        l.set_transform(trans)
+        return [l]
+
+    def _default_update_prop(self, legend_handle, orig_handle):
+        # We need to override the default update property method as
+        # PathCollection and Line2D are incompatible
+        super(type(legend_handle), legend_handle).update_from(orig_handle)
+        legend_handle._linestyle = orig_handle._linestyles[0][1] or '-'
+        legend_handle._linewidth = orig_handle._linewidths[0]
+        legend_handle._color = orig_handle._original_edgecolor
+
+
+matplotlib.legend.Legend.update_default_handler_map(
+    {_FiredrakeFunctionPath: _HandlerFiredrakeFunctionPath()}
+)
+
+
 @PETSc.Log.EventDecorator()
-def plot(function, *args, bezier=False, num_sample_points=10, complex_component="real", **kwargs):
+def plot(function, *args, num_sample_points=10, complex_component="real", **kwargs):
     r"""Plot a 1D Firedrake :class:`~.Function`
 
     :arg function: The :class:`~.Function` to plot
@@ -677,35 +710,42 @@ def plot(function, *args, bezier=False, num_sample_points=10, complex_component=
     :arg num_sample_points: number of sample points for high-degree functions
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
-    :arg kwargs: same as for matplotlib
+    :arg kwargs: same as for matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
-    if isinstance(function, MeshGeometry):
-        raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
-
-    if extract_unique_domain(function).geometric_dimension() > 1:
-        raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
-                         "see tricontourf, tripcolor, quiver, trisurf")
-
-    if function.ufl_shape != ():
-        raise NotImplementedError("Plotting vector-valued 1D functions is not supported")
-
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    if function.ufl_element().degree() < 4:
-        result = _bezier_plot(function, axes, complex_component=complex_component, **kwargs)
-    else:
-        degree = function.ufl_element().degree()
-        num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
-        function_plotter = FunctionPlotter(function.function_space().mesh(), num_sample_points)
-        x_vals = function_plotter(function.function_space().mesh().coordinates)
-        y_vals = function_plotter(function)
-        points = np.array([x_vals, y_vals])
-        num_cells = function.function_space().mesh().num_cells()
-        result = _interp_bezier(points, num_cells, axes, **kwargs)
+    result = []
+    for ii, line in enumerate([function, *args]):
+        if isinstance(line, MeshGeometry):
+            raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
+
+        if extract_unique_domain(line).geometric_dimension() > 1:
+            raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
+                             "see tricontourf, tripcolor, quiver, trisurf")
+
+        if line.ufl_shape != ():
+            raise NotImplementedError("Plotting vector-valued 1D functions is not supported")
+
+        if 'label' in kwargs.keys():
+            label = kwargs['label'][ii]
+        else:
+            label = line.name()
+
+        if line.ufl_element().degree() < 4:
+            result.append(_bezier_plot(line, axes, complex_component=complex_component, label=label, **kwargs))
+        else:
+            degree = line.ufl_element().degree()
+            num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
+            function_plotter = FunctionPlotter(line.function_space().mesh(), num_sample_points)
+            x_vals = function_plotter(line.function_space().mesh().coordinates)
+            y_vals = function_plotter(line)
+            points = np.array([x_vals, y_vals])
+            num_cells = line.function_space().mesh().num_cells()
+            result.append(_interp_bezier(points, num_cells, axes, label=label, **kwargs))
 
     _autoscale_view(axes, None)
     return result
@@ -763,28 +803,19 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     path = Path(vertices, np.tile(codes[deg],
                 function.function_space().cell_node_list.shape[0]))
 
-    # ~ kwargs["facecolor"] = kwargs.pop("facecolor", "red")
-    # ~ kwargs["edgecolor"] = kwargs.pop("edgecolor", "blue")
-    # ~ kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
-    # ~ patch = matplotlib.patches.PathPatch(path, **kwargs)
-    # ~ axes.add_patch(patch)
-
-    # ~ kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
-    # ~ x, y = path.vertices.T
-    # ~ line = Line2D(x, y, **kwargs)
-    # ~ line._path = path
-    # ~ line._xorig = copy.copy(x_vals)
-    # ~ print(x_vals)
-    # ~ line._yorig = copy.copy(y_vals)
-    # ~ print(y_vals)
-    # ~ line._invalidx = True
-    # ~ line._invalidy = True
-    # ~ line.stale = True
-    # ~ axes.add_line(line)
-
-    kwargs["facecolor"] = kwargs.pop("facecolor", "none")
-    kwargs["edgecolor"] = kwargs.pop("edgecolor", "blue")
-    patch = matplotlib.collections.PathCollection([path], **kwargs)
+    # We never want to color the interior arc of a line
+    kwargs["facecolor"] = "none"
+    # _get_patches_for_fill is used for patches, but we really DO want _get_lines
+    # becasue we are pretending this _is_ a line
+    kwargs["edgecolor"] = kwargs.pop(
+        "edgecolor",
+        axes._get_lines.get_next_color()
+    )
+    kwargs["linewidth"] = kwargs.pop(
+        "linewidth",
+        plt.rcParams['lines.linewidth']
+    )
+    patch = _FiredrakeFunctionPath([path], **kwargs)
     axes.add_collection(patch)
     return patch
 
@@ -822,9 +853,19 @@ def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
                     vertices.shape[0] // 4)
     path = Path(vertices, codes)
 
-    kwargs["facecolor"] = kwargs.pop("facecolor", "none")
-    kwargs["linewidth"] = kwargs.pop("linewidth", 2.)
-    patch = matplotlib.patches.PathPatch(path, **kwargs)
+    # We never want to color the interior arc of a line
+    kwargs["facecolor"] = "none"
+    # _get_patches_for_fill is used for patches, but we really DO want _get_lines
+    # becasue we are pretending this _is_ a line
+    kwargs["edgecolor"] = kwargs.pop(
+        "edgecolor",
+        axes._get_lines.get_next_color()
+    )
+    kwargs["linewidth"] = kwargs.pop(
+        "linewidth",
+        plt.rcParams['lines.linewidth']
+    )
+    patch = _FiredrakeFunctionPath(path, **kwargs)
     axes.add_patch(patch)
     return patch
 
