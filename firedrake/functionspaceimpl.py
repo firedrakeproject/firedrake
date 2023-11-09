@@ -1155,7 +1155,7 @@ class RealFunctionSpace(FunctionSpace):
 
 class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
-        super().__init__(function_space.mesh, function_space.element, name)
+        super().__init__(function_space.mesh, function_space.element, function_space.name)
         # 1: make a call to __super__ for __init__ using function_space.mesh etc 
         # 2: create self.boundary_set (the union of all bc.sub_domain)
         # 3: self.function_space = function_space
@@ -1164,7 +1164,10 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.bcs = bcs
         for bc in bcs:
             self.boundary_set = self.boundary_set.union(set(bc.sub_domain))
-    
+        self.name = name or (function_space.name + "_"  
+                             + "_".join(sorted(
+                                [str(i) for i in self.boundary_set])))
+        
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
         # 2: check if self.function_space = other.function_space (__super__)
@@ -1178,24 +1181,24 @@ class RestrictedFunctionSpace(FunctionSpace):
         return not self.__eq__(other)
 
     def __hash__(self):
-        # 1: want to do like before but also add bc.sub_domain
+        # 1: I want to do a hash similar to before but also add bc.sub_domain
         return hash((self.function_space.mesh(), self.function_space.dof_dset, 
                      self.function_space.ufl_element(), self.boundary_set))
     
     def __repr__(self):
         # 1: Look at previous __repr__
-        # 2: Want to display "RestrictedFunctionSpace(FunctionSpace.name, ..., self.boundary_set or bcs?)"
-        return "RestrictedFunctionSpace(function_space=%r, name=%r, bcs=%r)" % (
-                                                   self.function_space.name
+        # 2: Want to display "RestrictedFunctionSpace(FunctionSpace(), ..., bcs)"
+        return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
+                                                   repr(self.function_space)
                                                    self.name, 
                                                    self.bcs)
     
     def __str__(self):
-        # __str__ == __repr
+        # __str__ == __repr__
         return __repr__(self)
     
     def dof_count(self):
-        # we might need to remove boundary dofs?
+        # we might need to remove boundary dofs
         raise NotImplementedError
 
     def local_to_global_map(self, bcs, lgmap=None)
