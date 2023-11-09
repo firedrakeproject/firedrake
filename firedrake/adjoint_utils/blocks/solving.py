@@ -179,8 +179,10 @@ class GenericSolveBlock(Block, Backend):
         kwargs["bcs"] = bcs
         dFdu = self.compat.assemble_adjoint_value(dFdu_adj_form, **kwargs)
 
+        dJdu_func = dJdu.riesz_representation(riesz_map="l2")
         for bc in bcs:
-            bc.apply(dJdu)
+            bc.apply(dJdu_func)
+        dJdu.assign(dJdu_func.riesz_representation(riesz_map="l2"))
 
         adj_sol = self.compat.create_function(self.function_space)
         self.compat.linalg_solve(
@@ -819,7 +821,7 @@ class SupermeshProjectBlock(Block, Backend):
             self.add_dependency(bc, no_duplicates=True)
 
     def apply_mixedmass(self, a):
-        b = self.backend.Function(self.target_space)
+        b = self.backend.Cofunction(self.target_space.dual())
         with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)
         return b

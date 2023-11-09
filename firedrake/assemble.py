@@ -574,7 +574,7 @@ def _check_inputs(form, tensor, bcs, diagonal):
     elif rank == 1:
         test, = form.arguments()
 
-        if tensor is not None and test.function_space() != tensor.function_space():
+        if tensor is not None and test.function_space() != tensor.function_space().dual():
             raise ValueError("Form's argument does not match provided result tensor")
     elif rank == 2 and diagonal:
         test, trial = form.arguments()
