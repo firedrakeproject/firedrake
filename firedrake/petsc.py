@@ -5,6 +5,7 @@ import itertools
 import os
 import subprocess
 import sys
+import warnings
 
 from contextlib import contextmanager
 from pyop2 import mpi
@@ -23,7 +24,10 @@ else:
 from petsc4py import PETSc
 
 
-__all__ = ("PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup")
+__all__ = (
+    "PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup",
+    "garbage_view",
+)
 
 
 class FiredrakePETScError(Exception):
@@ -294,10 +298,19 @@ def garbage_cleanup(obj):
 
     :arg obj: Any Firedrake object or any comm
     """
+    # We are manually calling the Python cyclic garbage collection routine to
+    # get as many unreachable reference cycles swept up before we call the PETSc
+    # cleanup routine. This routine is designed to free up as much memory as
+    # possible for memory constrained systems
     gc.collect()
     comm = _extract_comm(obj)
     if comm:
         PETSc.garbage_cleanup(comm)
+    else:
+        warnings.warn(
+            "No comm on extracted from object, "
+            "not calling `PETSc.garbage_cleanup`"
+        )
 
 
 def garbage_view(obj):
@@ -305,7 +318,14 @@ def garbage_view(obj):
 
     :arg obj: Any Firedrake object or any comm
     """
+    # We are manually calling the Python cyclic garbage collection routine so
+    # that as many unreachable PETSc objects are visible in the garbage view.
     gc.collect()
     comm = _extract_comm(obj)
     if comm:
         PETSc.garbage_view(comm)
+    else:
+        warnings.warn(
+            "No comm on extracted from object, "
+            "not calling `PETSc.garbage_view`"
+        )
