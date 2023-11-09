@@ -9,6 +9,7 @@ import warnings
 
 from contextlib import contextmanager
 from pyop2 import mpi
+from typing import Any
 
 # When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
 # crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
@@ -289,10 +290,14 @@ def _extract_comm(obj):
     return comm
 
 
-def garbage_cleanup(obj):
+def garbage_cleanup(obj: Any):
     """ Clean up garbage PETSc objects on Firedrake object or any comm
 
-    :arg obj: Any Firedrake object or any comm
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object or any comm
+
     """
     # We are manually calling the Python cyclic garbage collection routine to
     # get as many unreachable reference cycles swept up before we call the PETSc
@@ -309,10 +314,14 @@ def garbage_cleanup(obj):
         )
 
 
-def garbage_view(obj):
+def garbage_view(obj: Any):
     """ View garbage PETSc objects on Firedrake object or any comm
 
-    :arg obj: Any Firedrake object or any comm
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object or any comm
+
     """
     # We are manually calling the Python cyclic garbage collection routine so
     # that as many unreachable PETSc objects are visible in the garbage view.
