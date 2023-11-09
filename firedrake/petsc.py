@@ -290,7 +290,7 @@ def _extract_comm(obj):
 
 
 def garbage_cleanup(obj):
-    """ Cleans up garbage PETSc objects on Firedrake object or any comm
+    """ Clean up garbage PETSc objects on Firedrake object or any comm
 
     :arg obj: Any Firedrake object or any comm
     """
