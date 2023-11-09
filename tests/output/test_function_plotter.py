@@ -3,7 +3,7 @@ import numpy as np
 from firedrake import *
 
 try:
-    from firedrake.plot import FunctionPlotter
+    from firedrake.pyplot import FunctionPlotter
 except ImportError:
     # Matplotlib is not installed
     pass

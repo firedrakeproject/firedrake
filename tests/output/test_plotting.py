@@ -3,7 +3,7 @@ import numpy as np
 from firedrake import *
 
 try:
-    from firedrake.plot import *
+    from firedrake.pyplot import *
     import matplotlib.pyplot as plt
     import matplotlib.colors
     from matplotlib.animation import FuncAnimation
