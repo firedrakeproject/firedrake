@@ -63,7 +63,7 @@ def test_demo_runs(py_file, env):
         except ImportError:
             pytest.skip(msg="SLEPc unavailable, skipping qgbasinmodes.py")
 
-    if basename(py_file) == "DG_advection.py":
+    if basename(py_file) in ("DG_advection.py", "qgbasinmodes.py"):
         try:
             import matplotlib  # noqa: F401
         except ImportError:
