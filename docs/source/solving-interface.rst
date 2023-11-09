@@ -142,8 +142,8 @@ pass in.  In the pre-assembled case, we are solving a linear system:
 Where :math:`A` is a known matrix, :math:`\vec{b}` is a known right
 hand side vector and :math:`\vec{x}` is the unknown solution vector.
 In Firedrake, :math:`A` is represented as a
-:py:class:`~.Matrix`, while :math:`\vec{b}` and
-:math:`\vec{x}` are both :py:class:`~.Function`\s.
+:py:class:`~.MatrixBase`, while :math:`\vec{b}` and
+:math:`\vec{x}` can be :py:class:`~.Function`\s or :py:class:`~.Cofunction`\s.
 We build these values by calling ``assemble`` on the UFL forms that
 define our problem, which, as before are denoted ``a`` and ``L``.
 Similarly to the linear variational case, we first need a function in

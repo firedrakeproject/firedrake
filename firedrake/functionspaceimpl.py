@@ -250,7 +250,8 @@ class WithGeometryBase(object):
 
     def __eq__(self, other):
         try:
-            return self.topological == other.topological and \
+            return type(self) == type(other) and \
+                self.topological == other.topological and \
                 self.mesh() is other.mesh()
         except AttributeError:
             return False
