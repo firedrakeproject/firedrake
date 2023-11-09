@@ -10,6 +10,7 @@ pylint
 pylit
 pytest
 pytest-xdist
+recursivenodes
 requests
 scipy
 sympy
