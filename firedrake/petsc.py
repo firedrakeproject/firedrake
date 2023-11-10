@@ -12,6 +12,7 @@ import warnings
 from contextlib import contextmanager
 from pyop2 import mpi
 from typing import Any
+from mpi4py import MPI
 
 
 __all__ = (
@@ -258,7 +259,20 @@ class OptionsManager(object):
                 del self.options_object[self.options_prefix + k]
 
 
-def _extract_comm(obj):
+def _extract_comm(obj: Any) -> MPI.Comm:
+    """ Extract Firedrake internal comm off given object
+
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object or any comm
+
+    Returns
+    -------
+    MPI.Comm
+        Internal communicator
+
+    """
     comm = None
     if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
         try:
@@ -297,10 +311,7 @@ def garbage_cleanup(obj: Any):
     if comm:
         PETSc.garbage_cleanup(comm)
     else:
-        warnings.warn(
-            "No comm on extracted from object, "
-            "not calling `PETSc.garbage_cleanup`"
-        )
+        warnings.warn("No comm found, skipping garbage cleanup")
 
 
 def garbage_view(obj: Any):
@@ -319,7 +330,4 @@ def garbage_view(obj: Any):
     if comm:
         PETSc.garbage_view(comm)
     else:
-        warnings.warn(
-            "No comm on extracted from object, "
-            "not calling `PETSc.garbage_view`"
-        )
+        warnings.warn("No comm found, skipping garbage view")
