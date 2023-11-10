@@ -414,12 +414,57 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
+        # UFCInterval:            0---2---1
+        #
+        # PETSc.DM.PolytopeType.  1---0---2
+        # SEGMENT:
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
+        # UFCTriangle:            1 
+        #                         | \
+        #                         5   3
+        #                         |  6   \
+        #                         0---4---2
+        #
+        # PETSc.DM.PolytopeType.  4
+        # TRIANGLE:               | \
+        #                         3   1
+        #                         |  0   \
+        #                         6---2---5
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
+        # UFCTetrahedron:         0---9---1---9---0
+        #                          \ 12  / \ 13  /
+        # cell = 15                 7   5   6   8
+        #                            \ / 10  \ /
+        #                             3---4---2
+        #                              \ 11  /
+        #                               7   8
+        #                                \ /
+        #                                 0
+        #         
+        # PETSc.DM.PolytopeType. 14--10--13--10---14
+        # TETRAHEDRON:             \  3  / \  4  /
+        #                           8   7   6   9
+        # cell = 0                   \ /  1  \ /
+        #                            11---5---12
+        #                              \  2  /
+        #                               8   9
+        #                                \ /
+        #                                14
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
+        # UFCQuadrilateral:       1---7---3
+        #                         |       |
+        #                         4   8   5
+        #                         |       |
+        #                         0---6---2
+        #
+        # PETSc.DM.PolytopeType.  5---4---8
+        # QUADRILATERAL:          |       |
+        #                         1   0   3
+        #                         |       |
+        #                         6---2---7
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron:            3--19---7     3--19---7
@@ -1212,6 +1257,33 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def _make_entity_permutations_c(entity_dofs,
+                                entity_permutations):
+    entity_permutations_list = []
+    num_orientations_list = []
+    for dim in sorted(entity_dofs.keys()):
+        for entity_num in xrange(len(entity_dofs[dim])):
+            perm = entity_permutations[dim][entity_num]
+            # Remember number of possible orientations for this entity
+            num_orientations_list.append(len(perm))
+            # Assert orientations are [0, 1, 2, ..., n-1]
+            assert sorted(perm) == list(range(len(perm)))
+            for orient in sorted(perm):
+                # Concatenate all permutation arrays
+                entity_permutations_list.extend(perm[orient])
+    entity_permutations_size = len(entity_permutations_list)
+    num_orientations_size = len(num_orientations_list)
+    entity_permutations_c = np.empty(entity_permutations_size, dtype=IntType)
+    num_orientations_c = np.empty(num_orientations_size, dtype=IntType)
+    for i in range(entity_permutations_size):
+        entity_permutations_c[i] = entity_permutations_list[i]
+    for i in range(num_orientations_size):
+        num_orientations_c[i] = num_orientations_list[i]
+    return entity_permutations_c, num_orientations_c
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_cell_nodes(mesh,
                    PETSc.Section global_numbering,
                    entity_dofs,
@@ -1240,8 +1312,8 @@ def get_cell_nodes(mesh,
         PetscInt entity_permutations_size, num_orientations_size, perm_offset
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        int *entity_permutations_c = NULL
-        int *num_orientations_c = NULL
+        np.ndarray[PetscInt, ndim=1, mode="c"] entity_permutations_c
+        np.ndarray[PetscInt, ndim=1, mode="c"] num_orientations_c
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
@@ -1283,26 +1355,7 @@ def get_cell_nodes(mesh,
         flat_index[i] = flat_index_list[i]
     # Preprocess entity_permutations
     if entity_permutations is not None:
-        entity_permutations_list = []
-        num_orientations_list = []
-        for dim in sorted(entity_dofs.keys()):
-            for entity_num in xrange(len(entity_dofs[dim])):
-                perm = entity_permutations[dim][entity_num]
-                # Remember number of possible orientations for this entity
-                num_orientations_list.append(len(perm))
-                # Assert orientations are [0, 1, 2, ..., n-1]
-                assert sorted(perm) == list(range(len(perm)))
-                for orient in sorted(perm):
-                    # Concatenate all permutation arrays
-                    entity_permutations_list.extend(perm[orient])
-        entity_permutations_size = len(entity_permutations_list)
-        num_orientations_size = len(num_orientations_list)
-        CHKERR(PetscMalloc1(entity_permutations_size, &entity_permutations_c))
-        CHKERR(PetscMalloc1(num_orientations_size, &num_orientations_c))
-        for i in range(entity_permutations_size):
-            entity_permutations_c[i] = entity_permutations_list[i]
-        for i in range(num_orientations_size):
-            num_orientations_c[i] = num_orientations_list[i]
+        entity_permutations_c, num_orientations_c = _make_entity_permutations_c(entity_dofs, entity_permutations)
     # Fill cell nodes
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
     cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
@@ -1344,9 +1397,6 @@ def get_cell_nodes(mesh,
                             k += 1
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
-    if entity_permutations is not None:
-        CHKERR(PetscFree(entity_permutations_c))
-        CHKERR(PetscFree(num_orientations_c))
     return cell_nodes
 
 
@@ -1625,6 +1675,175 @@ def cell_facet_labeling(PETSc.DM plex,
     return cell_facets
 
 
+def _get_firedrake_plex_permutation_dg_transitive_closure(PETSc.DM dm):
+    # PETSc DG1 whose DoFs are ordered according to the order
+    # of vertices appering in the transitive closure of the cell.
+    # This is the default PETSc DG coordinate representation,
+    # which works with the default PETSc CG coordinate FE
+    # in refinement.
+    # See _reorder_plex_closure for the transitive closure orderings.
+    cStart, cEnd = dm.getHeightStratum(0)
+    if cEnd == cStart:
+        dm_cell_type = -1
+    else:
+        dm_cell_type = dm.getCellType(0)  # assume single cell type
+    dm_cell_type = dm.comm.tompi4py().allreduce(dm_cell_type, op=MPI.MAX)
+    if dm_cell_type == PETSc.DM.PolytopeType.POINT:
+        ndofs = np.array([1], dtype=IntType)
+        perm = np.array([0], dtype=IntType)
+    elif dm_cell_type == PETSc.DM.PolytopeType.SEGMENT:
+        ndofs = np.array([2, 0], dtype=IntType)
+        perm = np.array([0, 1], dtype=IntType)
+    elif dm_cell_type == PETSc.DM.PolytopeType.TRIANGLE:
+        ndofs = np.array([3, 0, 0], dtype=IntType)
+        perm = np.array([2, 0, 1], dtype=IntType)
+    elif dm_cell_type == PETSc.DM.PolytopeType.TETRAHEDRON:
+        ndofs = np.array([4, 0, 0, 0], dtype=IntType)
+        perm = np.array([3, 2, 1, 0], dtype=IntType)
+    elif dm_cell_type == PETSc.DM.PolytopeType.QUADRILATERAL:
+        ndofs = np.array([4, 0, 0], dtype=IntType)
+        perm = np.array([1, 0, 2, 3], dtype=IntType)
+    elif dm_cell_type == PETSc.DM.PolytopeType.HEXAHEDRON:
+        ndofs = np.array([8, 0, 0, 0], dtype=IntType)
+        perm = np.array([0, 4, 1, 7, 3, 5, 2, 6], dtype=IntType)
+    else:
+        raise NotImplementedError(f"Not implemented for dm_cell_type ({dm_cell_type})")
+    perm_offsets = np.add.accumulate(np.concatenate((np.array([0], dtype=IntType), ndofs)), dtype=IntType)
+    return ndofs, perm, perm_offsets
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_vec_from_firedrake_to_petsc(PETSc.DM dm,
+                                          finat_element,
+                                          PETSc.Section firedrake_sec,
+                                          PETSc.Vec firedrake_vec,
+                                          PETSc.Section petsc_sec,
+                                          PETSc.Vec petsc_vec,
+                                          use_transitive_closure_dg=False):
+    """Transform Firedrake vec to PETSc vec.
+
+    Parameters
+    ----------
+    dm: PETSc.DM
+        `PETSc.DM`.
+    finat_element: finat.finiteelementbase.FiniteElementBase
+        FInAT element.
+    firedrake_sec: PETSc.Section
+        `PETSc.Section` representing the Firedrake DoF layout.
+    firedrake_vec: PETSc.Vec
+        `PETSc.Vec` representing the Firedrake DoF vector.
+    petsc_sec: PETSc.Section
+        `PETSc.Section` representing the PETSc DoF layout.
+    petsc_vec: PETSc.Vec
+        `PETSc.Vec` representing the PETSc DoF vector.
+    use_transitive_closure_dg: bool
+        Whether to use PETSc DG element whose DoFs are ordered according to the transitive closure of the cell.
+
+    """
+    cdef:
+        const PetscScalar *firedrake_array
+        PetscScalar *petsc_array
+        PetscInt n, bs, petsc_n, petsc_bs, pStart, pEnd, firedrake_pStart, firedrake_pEnd, petsc_pStart, petsc_pEnd, p, firedrake_dof, petsc_dof, total_dof = 0, firedrake_offset, petsc_offset, i, j, height
+        np.ndarray[PetscInt, ndim=1, mode="c"] ndofs, perm, perm_offsets
+
+    n, _ = firedrake_vec.getSizes()
+    petsc_n, _ = petsc_vec.getSizes()
+    if petsc_n != n:
+        raise RuntimeError(f"petsc_vec local size ({petsc_n}) != firedrake_vec local size ({n})")
+    bs = firedrake_vec.getBlockSize()
+    petsc_bs = petsc_vec.getBlockSize()
+    if petsc_bs != bs:
+        raise RuntimeError(f"petsc_vec block size ({petsc_bs}) != firedrake_vec block size ({bs})")
+    firedrake_pStart, firedrake_pEnd = firedrake_sec.getChart()
+    petsc_pStart, petsc_pEnd = petsc_sec.getChart()
+    pStart = firedrake_pStart if firedrake_pStart > petsc_pStart else petsc_pStart
+    pEnd = firedrake_pEnd if firedrake_pEnd < petsc_pEnd else petsc_pEnd
+    if use_transitive_closure_dg:
+        ndofs, perm, perm_offsets = _get_firedrake_plex_permutation_dg_transitive_closure(dm)
+    else:
+        raise NotImplementedError("Currently not implemented for {finat_element}")
+    CHKERR(VecGetArrayRead(firedrake_vec.vec, &firedrake_array))
+    CHKERR(VecGetArray(petsc_vec.vec, &petsc_array))
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(firedrake_sec.sec, p, &firedrake_dof))  # scalar offset
+        CHKERR(PetscSectionGetDof(petsc_sec.sec, p, &petsc_dof))
+        if petsc_dof != bs * firedrake_dof:
+            raise RuntimeError(f"petsc_dof ({petsc_dof}) != bs * firedrake_dof ({bs} * {firedrake_dof})")
+        CHKERR(DMPlexGetPointHeight(dm.dm, p, &height))
+        CHKERR(PetscSectionGetOffset(firedrake_sec.sec, p, &firedrake_offset))  # scalar offset
+        CHKERR(PetscSectionGetOffset(petsc_sec.sec, p, &petsc_offset))
+        for i in range(ndofs[height]):
+            for j in range(bs):
+                petsc_array[petsc_offset + bs * perm[perm_offsets[height] + i] + j] = firedrake_array[bs * firedrake_offset + bs * i + j]
+        total_dof += petsc_dof
+    CHKERR(VecRestoreArray(petsc_vec.vec, &petsc_array))
+    CHKERR(VecRestoreArrayRead(firedrake_vec.vec, &firedrake_array))
+    if total_dof != n:
+        raise RuntimeError(f"total number of local dofs ({total_dof}) != local vec size ({n})")
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def _set_dg_coordinates(PETSc.DM dm,
+                        finat_element,
+                        PETSc.Section firedrake_dg_coord_sec,
+                        PETSc.Vec firedrake_dg_coord_vec):
+    """Set DG coordinates in plex for a periodic mesh.
+
+    Parameters
+    ----------
+    dm: PETSc.DM
+        `PETSc.DM` representing the periodic mesh topology.
+    finat_element: finat.finiteelementbase.FiniteElementBase
+        Scalar DG finat element.
+    firedrake_dg_coord_sec: Function
+        `PETSc.Section` containing the Firedrake scalar DG DoF layout.
+    firedrake_dg_coord_vec: Function
+        `PETSc.Vec` containing the Firedrake DG coordinates.
+
+    """
+    cdef:
+        PETSc.DM coord_dm, dg_coord_dm
+        PETSc.Section dg_coord_sec
+        PETSc.Vec dg_coord_vec
+        PetscScalar *dg_coords
+        const PetscScalar *firedrake_dg_coords
+        PetscInt n, gdim, cStart, cEnd, c, offset, firedrake_offset, i, j, coord_size, ndof
+
+    gdim = firedrake_dg_coord_vec.getBlockSize()
+    coord_dm = dm.getCoordinateDM()
+    dg_coord_dm = coord_dm.clone()
+    dm.setCellCoordinateDM(dg_coord_dm)
+    dg_coord_sec = PETSc.Section().create(comm=dm.comm)
+    dg_coord_sec.setNumFields(1)
+    dg_coord_sec.setFieldComponents(0, gdim)
+    cStart, cEnd = dm.getHeightStratum(0)
+    dg_coord_sec.setChart(cStart, cEnd)
+    if finat_element.entity_closure_dofs() != finat_element.entity_dofs():
+        raise RuntimeError(f"Expecting discontinuous element: got {finat_element}")
+    ndof = finat_element.space_dimension()
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionSetDof(dg_coord_sec.sec, c, ndof * gdim))
+        CHKERR(PetscSectionSetFieldDof(dg_coord_sec.sec, c, 0, ndof * gdim))
+    dg_coord_sec.setUp()
+    dm.setCellCoordinateSection(gdim, dg_coord_sec)  # gdim ignored
+    dm.setCoordinateDim(gdim)
+    coord_size = dg_coord_sec.getStorageSize()
+    dg_coord_vec = PETSc.Vec().create(comm=PETSc.COMM_SELF)
+    dg_coord_vec.setName("coordinates_dg")
+    dg_coord_vec.setSizes((coord_size, PETSc.DETERMINE), gdim)
+    dg_coord_vec.setType(dm.getCoordinatesLocal().getType())
+    transform_vec_from_firedrake_to_petsc(dm,
+                                          finat_element,
+                                          firedrake_dg_coord_sec,
+                                          firedrake_dg_coord_vec,
+                                          dg_coord_sec,
+                                          dg_coord_vec,
+                                          True)
+    dm.setCellCoordinatesLocal(dg_coord_vec)
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
@@ -1633,23 +1852,40 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
 
     Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
     cdef:
-        PETSc.Section dm_sec
-        PetscInt v, vStart, vEnd, offset, dm_offset
-        PetscInt i, dim = shape[1]
+        PETSc.Section dm_sec, coord_sec
+        PetscInt v, vStart, vEnd, offset, dm_offset, c, cStart, cEnd
+        PetscInt i, j, dim = shape[1]
         np.ndarray[PetscScalar, ndim=2, mode="c"] dm_coords, coords
+        np.ndarray[PetscInt, ndim=1, mode="c"] ndofs, perm, perm_offsets
 
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
-
     if isinstance(dm, PETSc.DMPlex):
-        dm_sec = dm.getCoordinateSection()
-        dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
-        coords = np.empty_like(dm_coords)
-        for v in range(vStart, vEnd):
-            CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
-            CHKERR(PetscSectionGetOffset(dm_sec.sec, v, &dm_offset))
-            dm_offset = dm_offset//dim
-            for i in range(dim):
-                coords[offset, i] = dm_coords[dm_offset, i]
+        if not dm.getCoordinatesLocalized():
+            # Use CG coordiantes.
+            dm_sec = dm.getCoordinateSection()
+            dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
+            coords = np.empty_like(dm_coords)
+            for v in range(vStart, vEnd):
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+                CHKERR(PetscSectionGetOffset(dm_sec.sec, v, &dm_offset))
+                dm_offset = dm_offset//dim
+                for i in range(dim):
+                    coords[offset, i] = dm_coords[dm_offset, i]
+        else:
+            # Use DG coordiantes.
+            get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+            dim = dm.getCoordinateDim()
+            ndofs, perm, perm_offsets = _get_firedrake_plex_permutation_dg_transitive_closure(dm)
+            dm_sec = dm.getCellCoordinateSection()
+            dm_coords = dm.getCellCoordinatesLocal().array.reshape(((cEnd - cStart) * ndofs[0], dim))
+            coords = np.empty_like(dm_coords)
+            for c in range(cStart, cEnd):
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))  # scalar offset
+                CHKERR(PetscSectionGetOffset(dm_sec.sec, c, &dm_offset))
+                dm_offset = dm_offset // dim
+                for j in range(ndofs[0]):
+                    for i in range(dim):
+                        coords[offset + j, i] = dm_coords[dm_offset + perm[perm_offsets[0] + j], i]
     elif isinstance(dm, PETSc.DMSwarm):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
