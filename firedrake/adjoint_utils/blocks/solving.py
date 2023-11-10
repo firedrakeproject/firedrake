@@ -79,7 +79,7 @@ class GenericSolveBlock(Block, Backend):
         else:
             raise NotImplementedError(
                 "The self.rhs type is not supported in this method yet."
-                )
+            )
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
