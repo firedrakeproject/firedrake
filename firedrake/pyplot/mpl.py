@@ -743,7 +743,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
             result.append(_bezier_plot(line, axes, complex_component=complex_component, label=label, **kwargs))
         else:
             degree = line.ufl_element().degree()
-            sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
+            sample_points = max(num_sample_points, 2 * degree)
             function_plotter = FunctionPlotter(line.function_space().mesh(), sample_points)
             x_vals = function_plotter(line.function_space().mesh().coordinates)
             y_vals = function_plotter(line)
@@ -876,6 +876,9 @@ def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
 
 class FunctionPlotter:
     def __init__(self, mesh, num_sample_points):
+        # num_sample_points must be of the form 3k + 1 for cubic Bezier plotting
+        if num_sample_points % 3 != 1:
+            num_sample_points = (num_sample_points // 3) * 3 + 1
         if mesh.topological_dimension() == 1:
             self._setup_1d(mesh, num_sample_points)
         else:
