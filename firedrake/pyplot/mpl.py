@@ -718,6 +718,10 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
+    label_list = kwargs.pop('label', [])
+    if isinstance(label_list, str):
+        label_list = [label_list]
+
     result = []
     for ii, line in enumerate([function, *args]):
         if isinstance(line, MeshGeometry):
@@ -730,17 +734,17 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if line.ufl_shape != ():
             raise NotImplementedError("Plotting vector-valued 1D functions is not supported")
 
-        if 'label' in kwargs.keys():
-            label = kwargs['label'][ii]
-        else:
+        try:
+            label = label_list[ii]
+        except IndexError:
             label = line.name()
 
         if line.ufl_element().degree() < 4:
             result.append(_bezier_plot(line, axes, complex_component=complex_component, label=label, **kwargs))
         else:
             degree = line.ufl_element().degree()
-            num_sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
-            function_plotter = FunctionPlotter(line.function_space().mesh(), num_sample_points)
+            sample_points = max((num_sample_points // 3) * 3 + 1, 2 * degree)
+            function_plotter = FunctionPlotter(line.function_space().mesh(), sample_points)
             x_vals = function_plotter(line.function_space().mesh().coordinates)
             y_vals = function_plotter(line)
             points = np.array([x_vals, y_vals])
@@ -865,8 +869,8 @@ def _interp_bezier(pts, num_cells, axes, complex_component="real", **kwargs):
         "linewidth",
         plt.rcParams['lines.linewidth']
     )
-    patch = _FiredrakeFunctionPath(path, **kwargs)
-    axes.add_patch(patch)
+    patch = _FiredrakeFunctionPath([path], **kwargs)
+    axes.add_collection(patch)
     return patch
 
 
