@@ -1,3 +1,4 @@
+from numbers import Number
 import numpy
 import ufl
 from ufl import replace
@@ -69,8 +70,16 @@ class GenericSolveBlock(Block, Backend):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        if isinstance(self.rhs, ufl.Form) or isinstance(self.rhs, Number):
+            return "solve({} = {})".format(ufl2unicode(self.lhs),
+                                           ufl2unicode(self.rhs))
+        elif isinstance(self.rhs, firedrake.Cofunction):
+            return "solve({} = {})".format(ufl2unicode(self.lhs),
+                                           str(self.rhs))
+        else:
+            raise NotImplementedError(
+                "The self.rhs type is not supported in this method yet."
+                )
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
