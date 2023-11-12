@@ -2960,7 +2960,7 @@ def exchange_cell_orientations(
         raise ValueError("Don't know how to create datatype for %r", PETSc.IntType)
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
-    if plex.comm.size > 1:
+    if plex.comm.size > 1 and plex.isDistributed():
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
