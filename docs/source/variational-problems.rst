@@ -663,4 +663,4 @@ problems.
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold
-.. _recursivenodes: https://pypi.org/project/recursivenodes/
+.. _recursivenodes: https://tisaac.gitlab.io/recursivenodes/
