@@ -86,7 +86,7 @@ Alternatively, one can use the interpolator to set the value of an existing :py:
    f = Function(V)
    interpolator.interpolate(output=f)
 
-If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+If `expression` contains a :py:func:`~ufl.TestFunction` then
 the interpolator acts to interpolate :py:class:`~.Function`\s in the
 test space to those in the target space. For example:
 
@@ -98,9 +98,9 @@ test space to those in the target space. For example:
 Here, `interpolator` acts as the interpolation matrix from the
 :py:func:`~.FunctionSpace` W into the
 :py:func:`~.FunctionSpace` V. Such that if `f` is a
-:py:class:`~.Function` in `W` then `interpolator(f)` is its
-interpolation into `g`. As before, the `output` parameter can be used
-to write into an existing :py:class:`~.Function`. Passing the
+:py:class:`~.Function` in `W` then `g.Interpolator.interpolate(f)` is its
+interpolation into a function `g` in `V`. As before, the `output` parameter can
+be used to write into an existing :py:class:`~.Function`. Passing the
 `transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
 cause the transpose interpolation to occur. This is equivalent to the
 multigrid restriction operation which interpolates assembled 1-forms
