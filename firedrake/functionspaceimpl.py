@@ -7,6 +7,7 @@ classes for attaching extra information to instances of these.
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
+import weakref
 
 import numpy
 
@@ -100,10 +101,7 @@ class WithGeometryBase(object):
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+        weakref.finalize(self, mpi.decref, self._comm)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -520,6 +518,7 @@ class FunctionSpace(object):
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
 
     def set_shared_data(self):
         element = self.ufl_element()
@@ -541,10 +540,6 @@ class FunctionSpace(object):
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
                            name=f"{self.name}_nodes_dset")
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.

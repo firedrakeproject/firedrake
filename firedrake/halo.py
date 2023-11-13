@@ -2,6 +2,7 @@ from pyop2 import mpi, op2, utils
 from mpi4py import MPI
 import numpy
 from functools import partial
+import weakref
 
 from firedrake.petsc import PETSc
 import firedrake.cython.dmcommon as dmcommon
@@ -94,16 +95,13 @@ class Halo(op2.Halo):
         super(Halo, self).__init__()
         self.comm = comm
         self._comm = mpi.internal_comm(comm)
+        weakref.finalize(self, mpi.decref, self._comm)
         # Use a DM to create the halo SFs
         if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
         self.dm = PETSc.DMShell().create(self._comm)
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     @utils.cached_property
     def sf(self):

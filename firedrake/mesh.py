@@ -537,10 +537,14 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
+
+        # User comm
         self.user_comm = comm
-        r"The user comm."
+        # Internal comm
         self._comm = internal_comm(self.user_comm)
-        r"The internal comm."
+        weakref.finalize(self, decref, self._comm)
+
+        dmcommon.label_facets(self.topology_dm)
         self._distribute()
         self._grown_halos = False
 
@@ -603,10 +607,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     layers = None
     """No layers on unstructured mesh"""
@@ -990,10 +990,6 @@ class MeshTopology(AbstractMeshTopology):
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
@@ -1364,6 +1360,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._base_mesh = mesh
         self.user_comm = mesh.comm
         self._comm = internal_comm(mesh._comm)
+        weakref.finalize(self, decref, self._comm)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"

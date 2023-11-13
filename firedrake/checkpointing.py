@@ -20,6 +20,7 @@ import firedrake
 import numpy as np
 import os
 import h5py
+import weakref
 
 
 __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
@@ -99,6 +100,7 @@ class DumbCheckpoint(object):
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         self.mode = mode
 
         self._single = single_file
@@ -341,9 +343,6 @@ class DumbCheckpoint(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-            del self._comm
 
 
 class HDF5File(object):
@@ -377,6 +376,7 @@ class HDF5File(object):
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
 
         self._filename = filename
         self._mode = file_mode
@@ -501,8 +501,6 @@ class HDF5File(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
 
 class CheckpointFile(object):
@@ -524,6 +522,7 @@ class CheckpointFile(object):
         self.filename = filename
         self.comm = comm
         self._comm = internal_comm(comm)
+        weakref.finalize(self, decref, self._comm)
         r"""The neme of the checkpoint file."""
         self.viewer.create(filename, mode=mode, comm=self._comm)
         self.commkey = self._comm.py2f()
@@ -532,10 +531,6 @@ class CheckpointFile(object):
         self._function_load_utils = {}
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
         r"""DMPlex HDF5 version options."""
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     def __enter__(self):
         return self
