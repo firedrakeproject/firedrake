@@ -9,6 +9,7 @@ from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
 from pyop2.mpi import internal_comm, decref
+import weakref
 
 __all__ = ["LinearSolver"]
 
@@ -58,6 +59,7 @@ class LinearSolver(OptionsManager):
         self.A = A
         self.comm = A.comm
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         self.P = P if P is not None else A
 
         # Set up parameters mixin
@@ -101,10 +103,6 @@ class LinearSolver(OptionsManager):
         # Set from options now (we're not allowed to change parameters
         # anyway).
         self.set_from_options(self.ksp)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @cached_property
     def test_space(self):

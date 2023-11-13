@@ -8,6 +8,7 @@ import cachetools
 import ctypes
 from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
+import weakref
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -66,6 +67,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self.comm = function_space.comm
         # Internal comm
         self._comm = mpi.internal_comm(function_space.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
@@ -79,10 +81,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     @utils.cached_property
     def topological(self):
