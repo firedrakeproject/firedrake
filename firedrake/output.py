@@ -4,6 +4,7 @@ import numpy
 import os
 import ufl
 import finat.ufl
+import weakref
 from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
@@ -401,6 +402,7 @@ class File(object):
 
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
 
         if self._comm.rank == 0 and mode == "w":
             outdir = os.path.dirname(os.path.abspath(filename))
@@ -446,10 +448,6 @@ class File(object):
         self._fnames = None
         self._topology = None
         self._adaptive = adaptive
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @no_annotations
     def _prepare_output(self, function, max_elem):

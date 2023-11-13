@@ -1,4 +1,5 @@
 import numpy
+import weakref
 
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
 
@@ -59,10 +60,7 @@ class VectorSpaceBasis(object):
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
         self._comm = internal_comm(self.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
+        weakref.finalize(self, decref, self._comm)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -229,6 +227,7 @@ class MixedVectorSpaceBasis(object):
         self._function_space = function_space
         self.comm = function_space.comm
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -245,10 +244,6 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.

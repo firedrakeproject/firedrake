@@ -1,5 +1,7 @@
 import numpy as np
 import ufl
+import weakref
+
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
 import firedrake.assemble
@@ -58,6 +60,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self.comm = V.comm
         # Internal comm
         self._comm = mpi.internal_comm(V.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
         self._function_space = V
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
@@ -74,10 +77,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         if isinstance(function_space, Cofunction):
             self.dat.copy(function_space.dat)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.

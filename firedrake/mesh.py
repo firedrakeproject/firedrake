@@ -522,10 +522,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-
     layers = None
     """No layers on unstructured mesh"""
 
@@ -939,6 +935,7 @@ class MeshTopology(AbstractMeshTopology):
         self.user_comm = comm
         # Internal comm
         self._comm = internal_comm(self.user_comm)
+        weakref.finalize(self, decref, self._comm)
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
@@ -1039,10 +1036,6 @@ class MeshTopology(AbstractMeshTopology):
                 facet_numbering = self.create_section(entity_dofs)
                 self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1330,6 +1323,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._base_mesh = mesh
         self.user_comm = mesh.comm
         self._comm = internal_comm(mesh._comm)
+        weakref.finalize(self, decref, self._comm)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
@@ -1557,6 +1551,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Set up the comms the same as the parent mesh
         self.user_comm = parentmesh.comm
         self._comm = internal_comm(parentmesh._comm)
+        weakref.finalize(self, decref, self._comm)
         if MPI.Comm.Compare(swarm.comm.tompi4py(), self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             ValueError("Parent mesh communicator and swarm communicator are not congruent")
 

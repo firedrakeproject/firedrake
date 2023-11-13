@@ -1,5 +1,6 @@
 import itertools
 import ufl
+import weakref
 
 from pyop2 import op2
 from pyop2.mpi import internal_comm, decref
@@ -40,6 +41,7 @@ class MatrixBase(ufl.Matrix):
         self.bcs = bcs
         self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
@@ -53,10 +55,6 @@ class MatrixBase(ufl.Matrix):
             return self.a.arguments()
         else:
             return self._arguments
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @property
     def has_bcs(self):

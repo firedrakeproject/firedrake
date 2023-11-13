@@ -7,6 +7,7 @@ classes for attaching extra information to instances of these.
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
+import weakref
 
 import numpy
 
@@ -50,10 +51,7 @@ class WithGeometryBase(object):
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+        weakref.finalize(self, mpi.decref, self._comm)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -415,6 +413,7 @@ class FunctionSpace(object):
         self.comm = mesh.comm
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -426,10 +425,6 @@ class FunctionSpace(object):
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
