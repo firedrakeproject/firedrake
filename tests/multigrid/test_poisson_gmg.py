@@ -1,10 +1,11 @@
 from firedrake import *
 import numpy
 import pytest
+import warnings
 
 
-def solver_parameters(typ):
-    if typ == "mg":
+def solver_parameters(solver_type):
+    if solver_type == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
                       "pc_type": "mg",
@@ -12,7 +13,7 @@ def solver_parameters(typ):
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
-    elif typ == "mgmatfree":
+    elif solver_type == "mgmatfree":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
                       "mat_type": "matfree",
@@ -25,7 +26,7 @@ def solver_parameters(typ):
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": 2,
                       "mg_levels_pc_type": "jacobi"}
-    elif typ == "fas":
+    elif solver_type == "fas":
         parameters = {"snes_type": "fas",
                       "snes_fas_type": "full",
                       "fas_coarse_snes_type": "ksponly",
@@ -39,7 +40,7 @@ def solver_parameters(typ):
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip"}
-    elif typ == "newtonfas":
+    elif solver_type == "newtonfas":
         parameters = {"snes_type": "newtonls",
                       "ksp_type": "preonly",
                       "pc_type": "none",
@@ -61,12 +62,12 @@ def solver_parameters(typ):
                       "npc_snes_max_it": 1,
                       "npc_snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", typ)
+        raise RuntimeError("Unknown parameter set '%s' request", solver_type)
     return parameters
 
 
-def run_poisson(typ):
-    parameters = solver_parameters(typ)
+def run_poisson(solver_type):
+    parameters = solver_parameters(solver_type)
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -94,10 +95,10 @@ def run_poisson(typ):
     return norm(assemble(exact - u))
 
 
-@pytest.mark.parametrize("typ",
+@pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_poisson_gmg(typ):
-    assert run_poisson(typ) < 4e-6
+def test_poisson_gmg(solver_type):
+    assert run_poisson(solver_type) < 4e-6
 
 
 @pytest.mark.parallel
@@ -119,10 +120,16 @@ def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
 
 
-@pytest.mark.parametrize("typ",
+@pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_baseform_coarsening(typ):
-    parameters = solver_parameters(typ)
+def test_baseform_coarsening(solver_type):
+    parameters = solver_parameters(solver_type)
+    parameters = dict(parameters)
+    parameters["snes_rtol"] = 1.0E-10
+    parameters["snes_atol"] = 0.0
+    parameters["ksp_type"] = "gmres"
+    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_atol"] = 0.0
     base = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(base, 2, refinements_per_level=2)
     mesh = mh[-1]
@@ -156,3 +163,72 @@ def test_baseform_coarsening(typ):
 
     for s in solutions[1:]:
         assert errornorm(s, solutions[0]) < 1E-14
+
+
+@pytest.mark.parametrize("solver_type",
+                         ["mg", "mgmatfree"])
+def test_reinjection_mass_then_poisson(solver_type):
+    parameters = solver_parameters(solver_type)
+    parameters = dict(parameters)
+    parameters["ksp_type"] = "gmres"
+    parameters["ksp_rtol"] = 1.0E-12
+    parameters["ksp_atol"] = 0.0
+
+    base = UnitSquareMesh(10, 10)
+    nlevel = 4
+
+    mh = MeshHierarchy(base, nlevel)
+    mesh = mh[-1]
+    R = FunctionSpace(mesh, 'R', 0)
+    V = FunctionSpace(mesh, 'CG', 1)
+    v = TestFunction(V)
+    uh = Function(V)
+    alpha = Function(R)
+    one = Function(R)
+    one.assign(1.0)
+
+    # Choose a forcing function such that the exact solution is not an
+    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
+    # iterations of ilu fails to converge this problem sufficiently.
+    x = SpatialCoordinate(V.mesh())
+    uexact = sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])
+
+    # The problem is parametrized such that
+    # alpha = 0 gives the mass matrix, and alpha = 1 gives Poisson
+    a = lambda v, u: inner((one - alpha) * u, v)*dx + inner(alpha * grad(u), grad(v))*dx
+    F = a(v, uh - uexact)
+    bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
+
+    transfer = TransferManager()
+    problem = NonlinearVariationalProblem(F, uh, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    solver.set_transfer_manager(transfer)
+
+    # We first solve a problem with the mass matrix, then change the
+    # coefficients to obtain Poisson, and test that the second solve propagates
+    # the updated coefficients across the multigrid hierarchy
+    for val in (0.0, 1.0):
+        alpha.assign(val)
+        uh.assign(0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+            solver.solve()
+
+    ksp_its_reused = solver.snes.ksp.getIterationNumber()
+    snes_its_reused = solver.snes.getIterationNumber()
+    res_reused = solver.snes.getFunctionNorm()
+
+    # Test that the reused solver behaves like a new solver
+    new_solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    new_solver.set_transfer_manager(transfer)
+    uh.assign(0)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        new_solver.solve()
+
+    ksp_its_new = new_solver.snes.ksp.getIterationNumber()
+    snes_its_new = new_solver.snes.getIterationNumber()
+    res_new = new_solver.snes.getFunctionNorm()
+    assert ksp_its_reused == ksp_its_new
+    assert snes_its_reused == snes_its_new
+    assert numpy.isclose(res_reused, res_new)
