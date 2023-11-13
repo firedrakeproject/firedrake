@@ -141,8 +141,7 @@ def run_restriction(hierarchy, vector, space, degrees):
         return assemble(inner(f, TestFunction(V))*dx)
 
     def functional(victim, dual):
-        with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
-            return dv.dot(v)
+        return assemble(action(dual, victim))
 
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
@@ -152,7 +151,7 @@ def run_restriction(hierarchy, vector, space, degrees):
             fine_dual = dual(Vf)
             coarse_primal = victim(Vc)
 
-            coarse_dual = Function(Vc)
+            coarse_dual = Cofunction(Vc.dual())
             fine_primal = Function(Vf)
             restrict(fine_dual, coarse_dual)
             prolong(coarse_primal, fine_primal)

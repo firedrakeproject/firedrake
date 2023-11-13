@@ -4,6 +4,7 @@ from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
 import firedrake
 from firedrake.mg import utils
 
@@ -304,8 +305,9 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
         mesh = extract_unique_domain(coordinates)
-        evaluate_code = compile_element(firedrake.TestFunction(Vc), Vf)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
