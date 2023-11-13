@@ -1,4 +1,5 @@
 import numpy
+import weakref
 
 from pyop2.mpi import COMM_WORLD, internal_comm
 
@@ -58,7 +59,8 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
+        self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -224,7 +226,8 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm, self)
+        self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue

@@ -20,6 +20,7 @@ import firedrake
 import numpy as np
 import os
 import h5py
+import weakref
 
 
 __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
@@ -98,7 +99,8 @@ class DumbCheckpoint(object):
             warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
+        self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
         self.mode = mode
 
         self._single = single_file
@@ -373,7 +375,8 @@ class HDF5File(object):
             warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
+        self._comm = internal_comm(self.comm)
+        weakref.finalize(self, decref, self._comm)
 
         self._filename = filename
         self._mode = file_mode
@@ -518,7 +521,8 @@ class CheckpointFile(object):
         self.viewer = ViewerHDF5()
         self.filename = filename
         self.comm = comm
-        self._comm = internal_comm(comm, self)
+        self._comm = internal_comm(comm)
+        weakref.finalize(self, decref, self._comm)
         r"""The neme of the checkpoint file."""
         self.viewer.create(filename, mode=mode, comm=self._comm)
         self.commkey = self._comm.py2f()

@@ -7,6 +7,7 @@ classes for attaching extra information to instances of these.
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
+import weakref
 
 import numpy
 
@@ -99,7 +100,8 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
+        self._comm = mpi.internal_comm(mesh.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -516,6 +518,7 @@ class FunctionSpace(object):
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
 
     def set_shared_data(self):
         element = self.ufl_element()

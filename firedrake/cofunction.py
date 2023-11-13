@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+import weakref
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
@@ -58,7 +59,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # User comm
         self.comm = V.comm
         # Internal comm
-        self._comm = mpi.internal_comm(V.comm, self)
+        self._comm = mpi.internal_comm(V.comm)
+        weakref.finalize(self, mpi.decref, self._comm)
         self._function_space = V
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
