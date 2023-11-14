@@ -257,10 +257,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         problem_dms = [self.snes.getDM()]
         seen = {problem.u.function_space()}
-        coefficients = problem.F.coefficients() + problem.J.coefficients()
-        if problem.Jp is not None:
-            coefficients += problem.Jp.coefficients()
-        for val in coefficients:
+        forms = (problem.F, problem.J, problem.Jp)
+        for val in chain.from_iterable(form.coefficients() for form in forms if form is not None):
             if isinstance(val, (function.Function, cofunction.Cofunction)):
                 V = val.function_space()
                 if V not in seen:

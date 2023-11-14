@@ -8,6 +8,7 @@ def solver_parameters(solver_type):
     if solver_type == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
+                      "mat_type": "aij",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
                       "mg_levels_ksp_type": "chebyshev",
@@ -66,6 +67,19 @@ def solver_parameters(solver_type):
     return parameters
 
 
+def manufacture_solution(V):
+    # Choose a forcing function such that the exact solution is not an
+    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
+    # iterations of ilu fails to converge this problem sufficiently.
+    x = SpatialCoordinate(V.mesh())
+    f = function.Function(V)
+    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
+
+    exact = Function(V[-1])
+    exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
+    return exact, f
+
+
 def run_poisson(solver_type):
     parameters = solver_parameters(solver_type)
     mesh = UnitSquareMesh(10, 10)
@@ -75,22 +89,13 @@ def run_poisson(solver_type):
     mh = MeshHierarchy(mesh, nlevel)
 
     V = FunctionSpace(mh[-1], 'CG', 2)
-
+    exact, f = manufacture_solution(V)
     u = function.Function(V)
-    f = function.Function(V)
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
-    # Choose a forcing function such that the exact solution is not an
-    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
-    # iterations of ilu fails to converge this problem sufficiently.
-    x = SpatialCoordinate(V.mesh())
-    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
 
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
-
-    exact = Function(V[-1])
-    exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
 
     return norm(assemble(exact - u))
 
@@ -118,6 +123,47 @@ def test_poisson_gmg_parallel_fas():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
     assert run_poisson("newtonfas") < 4e-6
+
+
+@pytest.mark.parametrize("solver_type", ["mg", "mgmatfree"])
+def test_preconditioner_coarsening(solver_type):
+    nlevel = 2
+    base = UnitSquareMesh(10, 10)
+    mh = MeshHierarchy(base, nlevel)
+    mesh = mh[-1]
+    V = FunctionSpace(mesh, 'CG', 2)
+    R = FunctionSpace(mesh, 'R', 0)
+    alpha = Function(R)
+    alpha.assign(1)
+    beta = Function(R)
+    beta.assign(100)
+
+    exact, f = manufacture_solution(V)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = inner(alpha * grad(u), grad(v))*dx
+    # Rescaled a as the preconditioner
+    Jp = inner(beta * grad(u), grad(v))*dx
+    bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
+    L = inner(f, v)*dx
+
+    uh = function.Function(V)
+    # If we are providing Jp we need to also specify a python preconditioner
+    # This is to force a separate _SNESContext for the preconditioner
+    parameters = {
+        "mat_type": "matfree",
+        "snes_type": "ksponly",
+        "ksp_convergence_test": "skip",
+        "ksp_type": "richardson",
+        "ksp_max_it": 1,
+        "ksp_richardson_scale": float(beta),  # undo the rescaling
+        "pc_type": "python",
+        "pc_python_type": "firedrake.AssembledPC",
+        "assembled": solver_parameters(solver_type)
+    }
+    solve(a == L, uh, bcs=bcs, J=a, Jp=Jp, solver_parameters=parameters)
+
+    assert norm(assemble(exact - uh)) < 4e-6
 
 
 @pytest.mark.parametrize("solver_type",
@@ -187,11 +233,7 @@ def test_reinjection_mass_then_poisson(solver_type):
     one = Function(R)
     one.assign(1.0)
 
-    # Choose a forcing function such that the exact solution is not an
-    # eigenmode.  This stresses the preconditioner much more.  e.g. 10
-    # iterations of ilu fails to converge this problem sufficiently.
-    x = SpatialCoordinate(V.mesh())
-    uexact = sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])
+    uexact, _ = manufacture_solution(V)
 
     # The problem is parametrized such that
     # alpha = 0 gives the mass matrix, and alpha = 1 gives Poisson

@@ -6,7 +6,6 @@ from ufl.duals import is_dual
 
 from functools import singledispatch, partial
 from itertools import chain
-from collections import OrderedDict
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
@@ -199,17 +198,16 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     if hasattr(problem, "_coarse"):
         return problem._coarse
 
-    def get_coefficients(form):
-        return tuple() if form is None else form.coefficients()
-
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         from firedrake.bcs import DirichletBC
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
-        coefficients = chain.from_iterable(map(get_coefficients, (finectx.F, finectx.J, finectx.Jp)))
-        coefficients = tuple(OrderedDict.fromkeys(coefficients))
-        for fine in coefficients:
-            if hasattr(fine, '_child'):
+        seen = set()
+        forms = (finectx.F, finectx.J, finectx.Jp)
+        for fine in chain.from_iterable(form.coefficients()
+                                        for form in forms if form is not None):
+            if fine not in seen and hasattr(fine, '_child'):
+                seen.add(fine)
                 coarse = fine._child
                 if is_dual(fine):
                     manager.restrict(fine, coarse)
@@ -227,12 +225,11 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     # Build set of coefficients we need to coarsen
     seen = set()
-    coefficients = chain.from_iterable(map(get_coefficients, (problem.F, problem.J, problem.Jp)))
-
+    forms = (problem.F, problem.J, problem.Jp)
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
         coefficient_mapping = {}
-    for c in coefficients:
+    for c in chain.from_iterable(form.coefficients() for form in forms if form is not None):
         if c not in seen:
             coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
             seen.add(c)
