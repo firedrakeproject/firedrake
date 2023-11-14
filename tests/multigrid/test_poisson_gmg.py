@@ -156,7 +156,7 @@ def test_preconditioner_coarsening(solver_type):
         "ksp_convergence_test": "skip",
         "ksp_type": "richardson",
         "ksp_max_it": 1,
-        "ksp_richardson_scale": float(beta),  # undo the rescaling
+        "ksp_richardson_scale": float(beta / alpha),  # undo the rescaling
         "pc_type": "python",
         "pc_python_type": "firedrake.AssembledPC",
         "assembled": solver_parameters(solver_type)
