@@ -26,10 +26,7 @@ else:
 from petsc4py import PETSc
 
 
-__all__ = (
-    "PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup",
-    "garbage_view",
-)
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
 
 
 class FiredrakePETScError(Exception):
