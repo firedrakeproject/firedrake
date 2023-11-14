@@ -15,10 +15,7 @@ from typing import Any
 from mpi4py import MPI
 
 
-__all__ = (
-    "PETSc", "OptionsManager", "get_petsc_variables", "garbage_cleanup",
-    "garbage_view",
-)
+__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
 
 
 def flatten_parameters(parameters, sep="_"):
