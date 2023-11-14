@@ -199,13 +199,14 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     if hasattr(problem, "_coarse"):
         return problem._coarse
 
+    def get_coefficients(form):
+        return tuple() if form is None else form.coefficients()
+
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         from firedrake.bcs import DirichletBC
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
-        coefficients = finectx.F.coefficients() + finectx.J.coefficients()
-        if finectx.Jp is not None:
-            coefficients += problem.Jp.coefficients()
+        coefficients = chain.from_iterable(map(get_coefficients, (finectx.F, finectx.J, finectx.Jp)))
         coefficients = tuple(OrderedDict.fromkeys(coefficients))
         for fine in coefficients:
             if hasattr(fine, '_child'):
@@ -226,9 +227,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     # Build set of coefficients we need to coarsen
     seen = set()
-    coefficients = problem.F.coefficients() + problem.J.coefficients()
-    if problem.Jp is not None:
-        coefficients.extend(problem.Jp.coefficients())
+    coefficients = chain.from_iterable(map(get_coefficients, (problem.F, problem.J, problem.Jp)))
 
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
