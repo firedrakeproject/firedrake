@@ -134,7 +134,7 @@ def test_preconditioner_coarsening(solver_type):
     V = FunctionSpace(mesh, 'CG', 2)
     R = FunctionSpace(mesh, 'R', 0)
     alpha = Function(R)
-    alpha.assign(1)
+    alpha.assign(0.01)
     beta = Function(R)
     beta.assign(100)
 
@@ -145,7 +145,7 @@ def test_preconditioner_coarsening(solver_type):
     # Rescaled a as the preconditioner
     Jp = inner(beta * alpha * grad(u), grad(v))*dx
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
-    L = inner(f, v)*dx
+    L = inner(alpha * f, v)*dx
 
     uh = function.Function(V)
     # If we are providing Jp we need to also specify a python preconditioner
