@@ -143,7 +143,7 @@ def test_preconditioner_coarsening(solver_type):
     u = TrialFunction(V)
     a = inner(alpha * grad(u), grad(v))*dx
     # Rescaled a as the preconditioner
-    Jp = inner(beta * grad(u), grad(v))*dx
+    Jp = inner(beta * alpha * grad(u), grad(v))*dx
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
     L = inner(f, v)*dx
 
@@ -156,7 +156,7 @@ def test_preconditioner_coarsening(solver_type):
         "ksp_convergence_test": "skip",
         "ksp_type": "richardson",
         "ksp_max_it": 1,
-        "ksp_richardson_scale": float(beta / alpha),  # undo the rescaling
+        "ksp_richardson_scale": float(beta),  # undo the rescaling
         "pc_type": "python",
         "pc_python_type": "firedrake.AssembledPC",
         "assembled": solver_parameters(solver_type)
