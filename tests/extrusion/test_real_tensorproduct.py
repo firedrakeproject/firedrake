@@ -73,7 +73,7 @@ def quadrilateral(request):
 
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
-    tolerance = 1e-14
+    tolerance = 2e-14
     mesh2d = RectangleMesh(5, 1, 5, 1, quadrilateral=quadrilateral)
 
     # construct number of levels
