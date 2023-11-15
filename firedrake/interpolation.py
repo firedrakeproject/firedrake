@@ -102,15 +102,15 @@ def interpolate(
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
         When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are set to zero or to the value
+        ``True`` the corresponding values are left unchanged or set to the value
         ``default_missing_val`` if given. Ignored if interpolating within the
         same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
         :func:`.VertexOnlyMesh` in this scenario is, at present, set when
         it is created).
     :kwarg default_missing_val: For interpolation across meshes: the optional
         value to assign to DoFs in the target mesh that are outside the source
-        mesh. If this is not set then zero is used. Ignored if interpolating
-        within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        mesh. If this is not set then the values are left unchanged. Ignored if
+        interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting block on
         the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
@@ -544,7 +544,7 @@ class CrossMeshInterpolator(Interpolator):
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
-            if default_missing_val:
+            if default_missing_val is not None:
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
                 ] = default_missing_val

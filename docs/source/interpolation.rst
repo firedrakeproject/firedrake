@@ -181,7 +181,7 @@ argument:
    :lines: 72-73, 80
 
 By default the missing degrees of freedom (DoFs, the global basis function
-coefficients which could not be set) are zero:
+coefficients which could not be set) are left unchanged:
 
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
