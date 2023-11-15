@@ -36,7 +36,7 @@ def test_interpolate_vs_project(V):
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
 
-    shape = V.ufl_element().value_shape()
+    shape = V.ufl_element().value_shape
     if dim == 2:
         if len(shape) == 0:
             expression = x + y
