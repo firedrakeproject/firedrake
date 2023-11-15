@@ -1,5 +1,6 @@
 import firedrake
 import ufl
+import finat.ufl
 import weakref
 from functools import reduce
 from enum import IntEnum
@@ -55,8 +56,8 @@ class TransferManager(object):
     def is_native(self, element):
         if element in self.native_transfers.keys():
             return True
-        if isinstance(element.cell(), ufl.TensorProductCell) and len(element.sub_elements()) > 0:
-            return reduce(and_, map(self.is_native, element.sub_elements()))
+        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
+            return reduce(and_, map(self.is_native, element.sub_elements))
         return element.family() in native
 
     def _native_transfer(self, element, op):
@@ -233,8 +234,8 @@ class TransferManager(object):
 
         if self.is_native(source_element) and self.is_native(target_element):
             self._native_transfer(source_element, transfer_op)(source, target)
-        elif type(source_element) is ufl.MixedElement:
-            assert type(target_element) is ufl.MixedElement
+        elif type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
         else:
@@ -298,8 +299,8 @@ class TransferManager(object):
 
         if self.is_native(source_element) and self.is_native(target_element):
             self._native_transfer(source_element, Op.RESTRICT)(source, target)
-        elif type(source_element) is ufl.MixedElement:
-            assert type(target_element) is ufl.MixedElement
+        elif type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
         else:
