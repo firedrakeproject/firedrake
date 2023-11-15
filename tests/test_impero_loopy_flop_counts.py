@@ -5,10 +5,11 @@ import pytest
 import numpy
 import loopy
 from tsfc import compile_form
-from ufl import (FiniteElement, FunctionSpace, Mesh, TestFunction,
-                 TrialFunction, VectorElement, dx, grad, inner,
+from ufl import (FunctionSpace, Mesh, TestFunction,
+                 TrialFunction, dx, grad, inner,
                  interval, triangle, quadrilateral,
                  TensorProductCell)
+from finat.ufl import FiniteElement, VectorElement
 from tsfc.parameters import target
 
 

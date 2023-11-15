@@ -1,7 +1,7 @@
 import pytest
 
-from ufl import (Coefficient, FiniteElement, MixedElement,
-                 TestFunction, VectorElement, dx, inner, tetrahedron)
+from ufl import Coefficient, TestFunction, dx, inner, tetrahedron, Mesh, FunctionSpace
+from finat.ufl import FiniteElement, MixedElement, VectorElement
 
 from tsfc import compile_form
 
@@ -19,9 +19,11 @@ def test_delta_elimination(mode):
                                   dim=6, quad_scheme=scheme)
 
     element_chi_lambda = MixedElement(element_eps_p, element_lambda)
+    domain = Mesh(VectorElement("Lagrange", tetrahedron, 1))
+    space = FunctionSpace(domain, element_chi_lambda)
 
-    chi_lambda = Coefficient(element_chi_lambda)
-    delta_chi_lambda = TestFunction(element_chi_lambda)
+    chi_lambda = Coefficient(space)
+    delta_chi_lambda = TestFunction(space)
 
     L = inner(delta_chi_lambda, chi_lambda) * dx(degree=degree, scheme=scheme)
     kernel, = compile_form(L, parameters={'mode': mode})

@@ -2,7 +2,8 @@ import numpy
 from collections import namedtuple, OrderedDict
 from functools import partial
 
-from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace, FiniteElement
+from ufl import Coefficient, FunctionSpace
+from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
 
 import gem
 from gem.flop_count import count_flops
@@ -321,7 +322,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                         k += 1
                     else:
                         self.coefficient_split[coefficient] = []
-                        for j, element in enumerate(coefficient.ufl_element().sub_elements()):
+                        for j, element in enumerate(coefficient.ufl_element().sub_elements):
                             c = Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
                             self.coefficient_split[coefficient].append(c)
                             self._coefficient(c, f"w_{k}")
