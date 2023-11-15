@@ -20,6 +20,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import ufl
+import finat.ufl
 import tsfc
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -46,7 +47,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-    cell = ufl_coordinate_element.cell()
+    cell = ufl_coordinate_element.cell
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
@@ -217,7 +218,7 @@ def prolong_kernel(expression):
         assert idx == int(idx)
         assert hierarchy._meshes[int(idx)].cell_set._extruded
     key = (("prolong",)
-           + expression.ufl_element().value_shape()
+           + expression.ufl_element().value_shape
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
@@ -298,7 +299,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.ufl_element().value_shape()
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -384,7 +385,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape()
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
@@ -481,7 +482,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl.MixedElement:
+            if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))

@@ -67,7 +67,7 @@ def _get_mesh(cell_type, comm):
 def _get_expr(V):
     mesh = V.mesh()
     dim = mesh.geometric_dimension()
-    shape = V.ufl_element().value_shape()
+    shape = V.ufl_element().value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
         z = x * y
