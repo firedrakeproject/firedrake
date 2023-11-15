@@ -161,7 +161,8 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
 
     # Support FunctionSpace(mesh, MixedElement)
     if type(element) is ufl.MixedElement:
-        return MixedFunctionSpace(element, mesh=mesh, name=name)
+        new = MixedFunctionSpace(element, mesh=mesh, name=name)
+        return impl.FiredrakeDualSpace.create(new, mesh)
 
     # Check that any Vector/Tensor/Mixed modifiers are outermost.
     check_element(element)
