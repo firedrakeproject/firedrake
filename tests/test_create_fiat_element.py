@@ -102,12 +102,12 @@ def test_interval_variant(family, variant, expected_cls):
 
 
 def test_triangle_variant_spectral():
-    ufl_element = ufl.FiniteElement('DP', ufl.triangle, 2, variant='spectral')
+    ufl_element = finat.ufl.FiniteElement('DP', ufl.triangle, 2, variant='spectral')
     create_element(ufl_element)
 
 
 def test_triangle_variant_spectral_l2():
-    ufl_element = ufl.FiniteElement('DP L2', ufl.triangle, 2, variant='spectral')
+    ufl_element = finat.ufl.FiniteElement('DP L2', ufl.triangle, 2, variant='spectral')
     create_element(ufl_element)
 
 
