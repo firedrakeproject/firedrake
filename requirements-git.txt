@@ -1,7 +1,7 @@
-git+https://github.com/firedrakeproject/ufl.git@dolci/merge_upstream_2
+git+https://github.com/firedrakeproject/ufl.git#egg=ufl
 git+https://github.com/firedrakeproject/fiat.git#egg=fiat
-git+https://github.com/FInAT/FInAT.git@mscroggs/ufl-elements
-git+https://github.com/firedrakeproject/tsfc.git@mscroggs/newfl-legacy2
+git+https://github.com/FInAT/FInAT.git#egg=finat
+git+https://github.com/firedrakeproject/tsfc.git#egg=tsfc
 git+https://github.com/OP2/PyOP2.git#egg=pyop2
 git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint
 git+https://github.com/firedrakeproject/petsc.git@firedrake#egg=petsc
