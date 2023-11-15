@@ -98,7 +98,7 @@ test space to those in the target space. For example:
 Here, `interpolator` acts as the interpolation matrix from the
 :py:func:`~.FunctionSpace` W into the
 :py:func:`~.FunctionSpace` V. Such that if `f` is a
-:py:class:`~.Function` in `W` then `g.Interpolator.interpolate(f)` is its
+:py:class:`~.Function` in `W` then `g = interpolator.interpolate(f)` is its
 interpolation into a function `g` in `V`. As before, the `output` parameter can
 be used to write into an existing :py:class:`~.Function`. Passing the
 `transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
