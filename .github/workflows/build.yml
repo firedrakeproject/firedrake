@@ -79,9 +79,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch finat mscroggs/ufl-elements \
-            --package-branch tsfc mscroggs/newfl-legacy2 \
-            --package-branch ufl dolci/merge_upstream_2 \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
@@ -90,7 +87,6 @@ jobs:
           python -m pip install \
             pytest-cov pytest-timeout pytest-xdist pytest-timeout
           python -m pip list
-
       - name: Test Firedrake
         run: |
           . ../firedrake_venv/bin/activate
