@@ -206,19 +206,19 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         forms = (finectx.F, finectx.J, finectx.Jp)
         coefficients = unique(chain.from_iterable(form.coefficients()
                               for form in forms if form is not None))
-        for fine in coefficients:
-            if hasattr(fine, '_child'):
-                if is_dual(fine):
-                    manager.restrict(fine, fine._child)
+        for c in coefficients:
+            if hasattr(c, '_child'):
+                if is_dual(c):
+                    manager.restrict(c, c._child)
                 else:
-                    manager.inject(fine, fine._child)
+                    manager.inject(c, c._child)
         # Apply bcs and also inject them
         for bc in chain(*finectx._problem.bcs):
             if isinstance(bc, DirichletBC):
                 bc.apply(finectx._x)
-                fine = bc.function_arg
-                if isinstance(fine, firedrake.Function) and hasattr(fine, "_child"):
-                    manager.inject(fine, fine._child)
+                g = bc.function_arg
+                if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
+                    manager.inject(g, g._child)
 
     V = problem.u.function_space()
     if not hasattr(V, "_coarse"):
