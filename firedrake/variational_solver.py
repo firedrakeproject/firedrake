@@ -3,7 +3,7 @@ from itertools import chain
 from contextlib import ExitStack
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake import function, cofunction
+from firedrake import function
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
