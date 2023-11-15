@@ -1,7 +1,8 @@
 from tsfc import compile_form
-from ufl import (BrokenElement, Coefficient, FacetNormal, FiniteElement,
-                 FunctionSpace, Mesh, MixedElement, VectorElement, as_matrix,
+from ufl import (Coefficient, FacetNormal,
+                 FunctionSpace, Mesh, as_matrix,
                  dot, dS, ds, dx, facet, grad, inner, outer, split, triangle)
+from finat.ufl import BrokenElement, FiniteElement, MixedElement, VectorElement
 
 
 def test_physically_mapped_facet():

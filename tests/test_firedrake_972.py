@@ -1,8 +1,9 @@
 import numpy
 import pytest
 
-from ufl import (Mesh, FunctionSpace, VectorElement, TensorElement,
+from ufl import (Mesh, FunctionSpace,
                  Coefficient, TestFunction, interval, indices, dx)
+from finat.ufl import VectorElement, TensorElement
 from ufl.classes import IndexSum, Product, MultiIndex
 
 from tsfc import compile_form

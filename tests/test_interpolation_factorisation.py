@@ -2,9 +2,9 @@ from functools import partial
 import numpy
 import pytest
 
-from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
-                 TensorElement, Coefficient,
+from ufl import (Mesh, FunctionSpace, Coefficient,
                  interval, quadrilateral, hexahedron)
+from finat.ufl import FiniteElement, VectorElement, TensorElement
 
 from tsfc import compile_expression_dual_evaluation
 from tsfc.finatinterface import create_element
@@ -54,11 +54,11 @@ def test_sum_factorisation_scalar_tensor(mesh, element):
     source = element(degree - 1)
     target = element(degree)
     tensor_flops = flop_count(mesh, source, target)
-    expect = numpy.prod(target.value_shape())
+    expect = numpy.prod(target.value_shape)
     if isinstance(target, FiniteElement):
         scalar_flops = tensor_flops
     else:
-        target = target.sub_elements()[0]
-        source = source.sub_elements()[0]
+        target = target.sub_elements[0]
+        source = source.sub_elements[0]
         scalar_flops = flop_count(mesh, source, target)
     assert numpy.allclose(tensor_flops / scalar_flops, expect, rtol=1e-2)

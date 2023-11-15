@@ -1,5 +1,6 @@
-from ufl import (triangle, tetrahedron, FiniteElement,
+from ufl import (triangle, tetrahedron, FunctionSpace, Mesh,
                  TrialFunction, TestFunction, inner, grad, dx, dS)
+from finat.ufl import FiniteElement, VectorElement
 from tsfc import compile_form
 from FIAT.hdiv_trace import TraceError
 import pytest
@@ -12,8 +13,10 @@ def test_cell_error(cell, degree):
     cell triggers `gem.Failure` to raise the TraceError exception.
     """
     trace_element = FiniteElement("HDiv Trace", cell, degree)
-    lambdar = TrialFunction(trace_element)
-    gammar = TestFunction(trace_element)
+    domain = Mesh(VectorElement("Lagrange", cell, 1))
+    space = FunctionSpace(domain, trace_element)
+    lambdar = TrialFunction(space)
+    gammar = TestFunction(space)
 
     with pytest.raises(TraceError):
         compile_form(lambdar * gammar * dx)
@@ -27,8 +30,10 @@ def test_gradient_error(cell, degree):
     exception.
     """
     trace_element = FiniteElement("HDiv Trace", cell, degree)
-    lambdar = TrialFunction(trace_element)
-    gammar = TestFunction(trace_element)
+    domain = Mesh(VectorElement("Lagrange", cell, 1))
+    space = FunctionSpace(domain, trace_element)
+    lambdar = TrialFunction(space)
+    gammar = TestFunction(space)
 
     with pytest.raises(TraceError):
         compile_form(inner(grad(lambdar('+')), grad(gammar('+'))) * dS)

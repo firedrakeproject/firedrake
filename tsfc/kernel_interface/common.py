@@ -467,7 +467,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-        value_size = coefficient.ufl_element().value_size()
+        value_size = coefficient.ufl_element().value_size
         expression = gem.reshape(gem.Variable(name, (value_size,)),
                                  coefficient.ufl_shape)
         return expression
