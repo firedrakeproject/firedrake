@@ -20,6 +20,46 @@ from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
 
+def check_element(element, top=True):
+    """Run some checks on the provided element.
+
+    The :class:`~finat.ufl.VectorElement` and
+    :class:`~finat.ufl.TensorElement` modifiers must be "outermost"
+    for function space construction to work, excepting that they
+    should not wrap a :class:`~finat.ufl.MixedElement`.  Similarly,
+    a base :class:`~finat.ufl.MixedElement` must be outermost (it
+    can contain :class:`~finat.ufl.MixedElement` instances, provided
+    they satisfy the other rules). This function checks that.
+
+    :arg element: The :class:`UFL element
+        <finat.ufl.FiniteElementBase>` to check.
+    :kwarg top: Are we at the top element (in which case the modifier
+        is legal).
+    :returns: ``None`` if the element is legal.
+    :raises ValueError: if the element is illegal.
+
+    """
+    if element.cell.cellname() == "hexahedron" and \
+       element.family() not in ["Q", "DQ"]:
+        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
+    if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
+                         finat.ufl.HDivElement, finat.ufl.HCurlElement):
+        inner = (element._element, )
+    elif type(element) is finat.ufl.EnrichedElement:
+        inner = element._elements
+    elif type(element) is finat.ufl.TensorProductElement:
+        inner = element.sub_elements
+    elif isinstance(element, finat.ufl.MixedElement):
+        if not top:
+            raise ValueError("%s modifier must be outermost" % type(element))
+        else:
+            inner = element.sub_elements
+    else:
+        return
+    for e in inner:
+        check_element(e, top=False)
+
+
 class WithGeometryBase(object):
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
@@ -308,23 +348,27 @@ class WithGeometryBase(object):
     def collapse(self):
         return type(self).create(self.topological.collapse(), self.mesh())
 
-    def reconstruct(self, mesh, name=None):
+    @classmethod
+    def make_function_space(cls, mesh, element, name=None):
         r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
-        element = self.ufl_element()
         topology = mesh.topology
         if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            spaces = [space.reconstruct(topology) for space in self.subfunctions]
+            spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
             new = MixedFunctionSpace(spaces, name=name)
-        elif element.family() == "Real":
-            new = RealFunctionSpace(topology, element, name=name)
         else:
-            new = FunctionSpace(topology, element, name=name)
+            # Check that any Vector/Tensor/Mixed modifiers are outermost.
+            check_element(element)
+            if element.family() == "Real":
+                new = RealFunctionSpace(topology, element, name=name)
+            else:
+                new = FunctionSpace(topology, element, name=name)
         if mesh is not topology:
-            new = type(self).create(new, mesh)
-
-        new.index = self.index
-        new.component = self.component
+            new = cls.create(new, mesh)
         return new
+
+    def reconstruct(self, mesh, name=None):
+        element = self.ufl_element()
+        return type(self).make_function_space(mesh, element, name=name)
 
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
