@@ -126,12 +126,11 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
-@coarsen.register(firedrake.functionspaceimpl.FiredrakeDualSpace)
-@coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
-@coarsen.register(firedrake.functionspaceimpl.WithGeometry)
+@coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
+
     fine = V
     indices = []
     while True:
@@ -145,12 +144,7 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
             break
 
     mesh = self(V.mesh(), self)
-
-    if isinstance(V, firedrake.functionspaceimpl.FiredrakeDualSpace):
-        V = firedrake.functionspace.DualSpace(mesh, V.ufl_element())
-    else:
-        V = firedrake.FunctionSpace(mesh, V.ufl_element())
-
+    V = V.reconstruct(mesh, name=f"coarse_{V.name}")
     for i in reversed(indices):
         V = V.sub(i)
     V._fine = fine

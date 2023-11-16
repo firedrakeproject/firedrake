@@ -308,6 +308,24 @@ class WithGeometryBase(object):
     def collapse(self):
         return type(self).create(self.topological.collapse(), self.mesh())
 
+    def reconstruct(self, mesh, name=None):
+        r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
+        element = self.ufl_element()
+        topology = mesh.topology
+        if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+            spaces = [space.reconstruct(topology) for space in self.subfunctions]
+            new = MixedFunctionSpace(spaces, name=name)
+        elif element.family() == "Real":
+            new = RealFunctionSpace(topology, element, name=name)
+        else:
+            new = FunctionSpace(topology, element, name=name)
+        if mesh is not topology:
+            new = type(self).create(new, mesh)
+
+        new.index = self.index
+        new.component = self.component
+        return new
+
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
