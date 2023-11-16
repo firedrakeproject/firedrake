@@ -541,8 +541,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # User comm
         self.user_comm = comm
         # Internal comm
-        self._comm = internal_comm(self.user_comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.user_comm, self)
 
         dmcommon.label_facets(self.topology_dm)
         self._distribute()
@@ -1359,8 +1358,7 @@ class ExtrudedMeshTopology(MeshTopology):
         mesh.init()
         self._base_mesh = mesh
         self.user_comm = mesh.comm
-        self._comm = internal_comm(mesh._comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(mesh._comm, self)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"

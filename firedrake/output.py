@@ -4,7 +4,6 @@ import numpy
 import os
 import ufl
 import finat.ufl
-import weakref
 from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm
@@ -401,8 +400,7 @@ class File(object):
             mode = "w"
 
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
 
         if self._comm.rank == 0 and mode == "w":
             outdir = os.path.dirname(os.path.abspath(filename))

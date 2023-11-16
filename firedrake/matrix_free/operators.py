@@ -1,6 +1,5 @@
 from collections import OrderedDict
 import itertools
-import weakref
 
 from mpi4py import MPI
 import numpy
@@ -93,8 +92,7 @@ class ImplicitMatrixContext(object):
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
         self.fc_params = fc_params
         self.appctx = appctx
 
