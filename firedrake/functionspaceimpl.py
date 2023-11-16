@@ -352,16 +352,17 @@ class WithGeometryBase(object):
     def make_function_space(cls, mesh, element, name=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
         mesh.init()
-        # Check that any Vector/Tensor/Mixed modifiers are outermost.
-        check_element(element)
         topology = mesh.topology
         if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
             new = MixedFunctionSpace(spaces, name=name)
-        elif element.family() == "Real":
-            new = RealFunctionSpace(topology, element, name=name)
         else:
-            new = FunctionSpace(topology, element, name=name)
+            # Check that any Vector/Tensor/Mixed modifiers are outermost.
+            check_element(element)
+            if element.family() == "Real":
+                new = RealFunctionSpace(topology, element, name=name)
+            else:
+                new = FunctionSpace(topology, element, name=name)
         if mesh is not topology:
             new = cls.create(new, mesh)
         return new
