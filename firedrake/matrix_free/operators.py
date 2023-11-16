@@ -1,11 +1,10 @@
 from collections import OrderedDict
 import itertools
-import weakref
 
 from mpi4py import MPI
 import numpy
 
-from pyop2.mpi import internal_comm, decref, temp_internal_comm
+from pyop2.mpi import internal_comm, temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -93,8 +92,7 @@ class ImplicitMatrixContext(object):
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
         self.fc_params = fc_params
         self.appctx = appctx
 
