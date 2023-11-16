@@ -42,6 +42,7 @@ jobs:
     env:
       # PETSC_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
+      PYOP2_CI_TESTS: 1
       PETSC_ARCH: ${{ matrix.petsc_arch }}
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -79,6 +80,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyop2 JDBetteridge/check_something \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
