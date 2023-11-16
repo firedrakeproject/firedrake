@@ -1,7 +1,6 @@
 import numpy
-import weakref
 
-from pyop2.mpi import COMM_WORLD, internal_comm, decref
+from pyop2.mpi import COMM_WORLD, internal_comm
 
 from firedrake import function
 from firedrake.logging import warning
@@ -59,8 +58,7 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -226,8 +224,7 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue

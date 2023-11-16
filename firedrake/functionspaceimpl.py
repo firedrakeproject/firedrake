@@ -7,7 +7,6 @@ classes for attaching extra information to instances of these.
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
-import weakref
 
 import numpy
 
@@ -50,8 +49,7 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm)
-        weakref.finalize(self, mpi.decref, self._comm)
+        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -412,8 +410,7 @@ class FunctionSpace(object):
         # User comm
         self.comm = mesh.comm
         # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
-        weakref.finalize(self, mpi.decref, self._comm)
+        self._comm = mpi.internal_comm(self.node_set.comm, self)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)

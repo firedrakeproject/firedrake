@@ -1,7 +1,6 @@
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI, internal_comm, decref
+from pyop2.mpi import MPI, internal_comm
 from itertools import zip_longest
-import weakref
 
 __all__ = ("Ensemble", )
 
@@ -25,22 +24,19 @@ class Ensemble(object):
         # User global comm
         self.global_comm = comm
         # Internal global comm
-        self._global_comm = internal_comm(comm)
-        weakref.finalize(self, decref, self._global_comm)
+        self._global_comm = internal_comm(comm, self)
 
         # User split comm
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
         # Internal split comm
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
         """The communicator for spatial parallelism, contains a
         contiguous chunk of M processes from :attr:`global_comm`"""
 
         # User ensemble comm
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         # Internal ensemble comm
-        self._ensemble_comm = internal_comm(self.ensemble_comm)
-        weakref.finalize(self, decref, self._comm)
+        self._ensemble_comm = internal_comm(self.ensemble_comm, self)
         """The communicator for ensemble parallelism, contains all
         processes in :attr:`global_comm` which have the same rank in
         :attr:`comm`."""

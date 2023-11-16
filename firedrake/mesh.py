@@ -16,7 +16,7 @@ import abc
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple, tuplify
 
@@ -934,8 +934,7 @@ class MeshTopology(AbstractMeshTopology):
         # User comm
         self.user_comm = comm
         # Internal comm
-        self._comm = internal_comm(self.user_comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.user_comm, self)
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
@@ -1322,8 +1321,7 @@ class ExtrudedMeshTopology(MeshTopology):
         mesh.init()
         self._base_mesh = mesh
         self.user_comm = mesh.comm
-        self._comm = internal_comm(mesh._comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(mesh._comm, self)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
@@ -1550,8 +1548,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Set up the comms the same as the parent mesh
         self.user_comm = parentmesh.comm
-        self._comm = internal_comm(parentmesh._comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(parentmesh._comm, self)
         if MPI.Comm.Compare(swarm.comm.tompi4py(), self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             ValueError("Parent mesh communicator and swarm communicator are not congruent")
 
