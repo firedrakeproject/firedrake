@@ -184,7 +184,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
     if new is None:
         Vf = expr.function_space()
         Vc = self(Vf, self)
-        new = type(expr)(Vc, name=f"coarse_{expr.name()}")
+        new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
         expr._child = weakref.proxy(new)
         manager = get_transfer_manager(Vf.dm)
         if is_dual(expr):
