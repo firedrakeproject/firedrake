@@ -35,6 +35,11 @@ def fs(request, cg1, cg2, dg0):
             'cg2dg0': cg2*dg0}[request.param]
 
 
+@pytest.fixture(scope="module", params=["primal", "dual"])
+def dual(request):
+    return request.param == "dual"
+
+
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
     assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
@@ -126,3 +131,105 @@ def test_VV_ne_VVV():
 
 def test_function_space_dir(cg1):
     dir(cg1)
+
+
+@pytest.mark.parametrize("meshes", [
+    (UnitIntervalMesh(1), UnitIntervalMesh(2)),
+    (UnitIntervalMesh(2), UnitSquareMesh(1, 1)),
+    (UnitSquareMesh(3, 3, quadrilateral=True), UnitSquareMesh(2, 2)),
+    (UnitIcosahedralSphereMesh(2), UnitCubedSphereMesh(2)),
+    (UnitCubeMesh(2, 2, 2, hexahedral=True), ExtrudedMesh(UnitSquareMesh(2, 2), 2)),
+], ids=["line-line", "line-triangle", "quad-triangle", "triangle3D-quad3D", "hex-prism"])
+def test_reconstruct_mesh(meshes, dual):
+    V1 = FunctionSpace(meshes[0], "CG", 1)
+    V2 = FunctionSpace(meshes[1], "CG", 1)
+    if dual:
+        V1, V2 = V1.dual(), V2.dual()
+    assert V1.reconstruct(mesh=meshes[1], family="CG") == V2
+
+
+@pytest.mark.parametrize("family", ["CG", "DG"])
+def test_reconstruct_degree(mesh, family, dual):
+    V1 = FunctionSpace(mesh, family, 1)
+    V2 = FunctionSpace(mesh, family, 2)
+    if dual:
+        V1, V2 = V1.dual(), V2.dual()
+    assert V1.reconstruct(degree=2) == V2
+    assert V2.reconstruct(degree=1) == V1
+
+
+@pytest.mark.parametrize("family", ["CG", "DG"])
+def test_reconstruct_mesh_degree(family, dual):
+    m1 = UnitIntervalMesh(1)
+    m2 = UnitIntervalMesh(2)
+    V1 = FunctionSpace(m1, family, 1)
+    V2 = FunctionSpace(m2, family, 2)
+    if dual:
+        V1, V2 = V1.dual(), V2.dual()
+    assert V1.reconstruct(mesh=m2, degree=2) == V2
+    assert V2.reconstruct(mesh=m1, degree=1) == V1
+
+
+@pytest.mark.parametrize("family", ["CG", "DG"])
+def test_reconstruct_variant(family, dual):
+    m1 = UnitIntervalMesh(1)
+    V1 = FunctionSpace(m1, FiniteElement(family, cell=m1.ufl_cell(), degree=4, variant="spectral"))
+    V2 = FunctionSpace(m1, FiniteElement(family, cell=m1.ufl_cell(), degree=4, variant="equispaced"))
+    if dual:
+        V1, V2 = V1.dual(), V2.dual()
+    assert V1.reconstruct(variant="equispaced") == V2
+    assert V2.reconstruct(variant="spectral") == V1
+
+
+def test_reconstruct_mixed(fs, mesh2, dual):
+    W1 = fs.dual() if dual else fs
+    W2 = W1.reconstruct(mesh=mesh2)
+    assert W1.mesh() != W2.mesh()
+    assert W1.ufl_element() == W2.ufl_element()
+    for index, V in enumerate(W1):
+        V1 = W1.sub(index)
+        V2 = W2.sub(index)
+        assert V1.index == V2.index == index
+        assert V1.ufl_element() == V2.ufl_element()
+        assert V1.mesh() != V2.mesh()
+
+
+def test_reconstruct_sub(fs, mesh2, dual):
+    W = fs.dual() if dual else fs
+    for index, V in enumerate(W):
+        V1 = fs.sub(index)
+        V2 = V1.reconstruct(mesh=mesh2)
+        assert V1.mesh() != V2.mesh()
+        assert V1.index == V2.index == index
+        assert V1.component == V2.component
+        assert V1.ufl_element() == V2.ufl_element()
+
+
+@pytest.mark.parametrize("family", ["DG", "RT"])
+def test_reconstruct_component(mesh, mesh2, family, dual):
+    V = VectorFunctionSpace(mesh, family, 1)
+    if dual:
+        V = V.dual()
+    for component in range(V.value_size):
+        V1 = V.sub(component)
+        V2 = V1.reconstruct(mesh=mesh2)
+        assert V1.mesh() != V2.mesh()
+        assert V1.index == V2.index
+        assert V1.component == V2.component == component
+        assert V1.ufl_element() == V2.ufl_element()
+
+
+def test_reconstruct_sub_component(mesh, mesh2, dual):
+    Q1 = VectorFunctionSpace(mesh, "CG", 1)
+    Q2 = VectorFunctionSpace(mesh, "RT", 1)
+    space = Q1 * Q2
+    if dual:
+        space = space.dual()
+    for index, V in enumerate(space):
+        for component in range(V.value_size):
+            V1 = space.sub(index).sub(component)
+            V2 = V1.reconstruct(mesh=mesh2)
+            assert V1.mesh() != V2.mesh()
+            assert V1.parent.index == V2.parent.index == index
+            assert V1.component == V2.component == component
+            assert V1.ufl_element() == V2.ufl_element()
