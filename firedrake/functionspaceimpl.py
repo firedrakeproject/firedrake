@@ -366,10 +366,34 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh, name=None, **kwargs):
+    def reconstruct(self, mesh=None, name=None, **kwargs):
         r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
-        element = self.ufl_element().reconstruct(cell=mesh.ufl_cell(), **kwargs)
-        return type(self).make_function_space(mesh, element, name=name)
+        V = self
+        # Deal with ProxyFunctionSpace
+        indices = []
+        while True:
+            if V.index is not None:
+                indices.append(V.index)
+            if V.component is not None:
+                indices.append(V.component)
+            if V.parent is not None:
+                V = V.parent
+            else:
+                break
+
+        if mesh is None:
+            mesh = V.mesh()
+
+        element = V.ufl_element()
+        cell = mesh.topology.ufl_cell()
+        if len(kwargs) > 0 or element.cell != cell:
+            element = element.reconstruct(cell=cell, **kwargs)
+
+        V = type(self).make_function_space(mesh, element, name=name)
+
+        for i in reversed(indices):
+            V = V.sub(i)
+        return V
 
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):

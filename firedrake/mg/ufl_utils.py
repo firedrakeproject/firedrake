@@ -132,21 +132,8 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
         return V._coarse
 
     fine = V
-    indices = []
-    while True:
-        if V.index is not None:
-            indices.append(V.index)
-        if V.component is not None:
-            indices.append(V.component)
-        if V.parent is not None:
-            V = V.parent
-        else:
-            break
-
     mesh = self(V.mesh(), self)
-    V = V.reconstruct(mesh, name=f"coarse_{V.name}")
-    for i in reversed(indices):
-        V = V.sub(i)
+    V = V.reconstruct(mesh=mesh, name=f"coarse_{V.name}")
     V._fine = fine
     fine._coarse = V
 
