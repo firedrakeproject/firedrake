@@ -2,7 +2,6 @@ from pyop2 import mpi, op2, utils
 from mpi4py import MPI
 import numpy
 from functools import partial
-import weakref
 
 from firedrake.petsc import PETSc
 import firedrake.cython.dmcommon as dmcommon
@@ -94,8 +93,7 @@ class Halo(op2.Halo):
     def __init__(self, dm, section, comm):
         super(Halo, self).__init__()
         self.comm = comm
-        self._comm = mpi.internal_comm(comm)
-        weakref.finalize(self, mpi.decref, self._comm)
+        self._comm = mpi.internal_comm(comm, self)
         # Use a DM to create the halo SFs
         if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")

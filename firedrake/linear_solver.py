@@ -8,8 +8,7 @@ from firedrake import dmhooks
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
-from pyop2.mpi import internal_comm, decref
-import weakref
+from pyop2.mpi import internal_comm
 
 __all__ = ["LinearSolver"]
 
@@ -58,8 +57,7 @@ class LinearSolver(OptionsManager):
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
-        self._comm = internal_comm(self.comm)
-        weakref.finalize(self, decref, self._comm)
+        self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
         # Set up parameters mixin
