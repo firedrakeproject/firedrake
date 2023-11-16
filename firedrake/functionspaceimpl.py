@@ -350,24 +350,25 @@ class WithGeometryBase(object):
 
     @classmethod
     def make_function_space(cls, mesh, element, name=None):
-        r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
+        r"""Factory method for :class:`.WithGeometryBase`."""
+        mesh.init()
+        # Check that any Vector/Tensor/Mixed modifiers are outermost.
+        check_element(element)
         topology = mesh.topology
         if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
             new = MixedFunctionSpace(spaces, name=name)
+        elif element.family() == "Real":
+            new = RealFunctionSpace(topology, element, name=name)
         else:
-            # Check that any Vector/Tensor/Mixed modifiers are outermost.
-            check_element(element)
-            if element.family() == "Real":
-                new = RealFunctionSpace(topology, element, name=name)
-            else:
-                new = FunctionSpace(topology, element, name=name)
+            new = FunctionSpace(topology, element, name=name)
         if mesh is not topology:
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh, name=None):
-        element = self.ufl_element()
+    def reconstruct(self, mesh, name=None, **kwargs):
+        r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
+        element = self.ufl_element().reconstruct(cell=mesh.ufl_cell(), **kwargs)
         return type(self).make_function_space(mesh, element, name=name)
 
 
