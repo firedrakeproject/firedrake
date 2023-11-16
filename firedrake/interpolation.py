@@ -548,7 +548,7 @@ class CrossMeshInterpolator(Interpolator):
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
-            if default_missing_val:
+            if default_missing_val is not None:
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
                 ] = default_missing_val
