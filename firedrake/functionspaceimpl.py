@@ -55,7 +55,7 @@ def check_element(element, top=True):
         else:
             inner = element.sub_elements
     else:
-        return
+        inner = ()
     for e in inner:
         check_element(e, top=False)
 
@@ -353,6 +353,7 @@ class WithGeometryBase(object):
         r"""Factory method for :class:`.WithGeometryBase`."""
         mesh.init()
         topology = mesh.topology
+        # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
             new = MixedFunctionSpace(spaces, name=name)
@@ -363,12 +364,22 @@ class WithGeometryBase(object):
                 new = RealFunctionSpace(topology, element, name=name)
             else:
                 new = FunctionSpace(topology, element, name=name)
+        # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
         if mesh is not topology:
+            # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
             new = cls.create(new, mesh)
         return new
 
     def reconstruct(self, mesh=None, name=None, **kwargs):
-        r"""Reconstruct this :class:`.WithGeometryBase` on a different mesh."""
+        r"""Reconstruct this :class:`.WithGeometryBase` .
+
+        :kwarg mesh: the new mesh (defaults to same mesh)
+        :kwarg name: the new name (defaults to None)
+        :returns: the new function space of the same class as self.
+
+        Any extra kwargs are used to reconstruct the finite element.
+        For details see :func:`finat.ufl.FiniteElement.reconstruct`
+        """
         V = self
         # Deal with ProxyFunctionSpace
         indices = []
