@@ -141,12 +141,12 @@ def convert_finiteelement(element, **kwargs):
     kind = element.variant()
     is_interval = element.cell.cellname() == 'interval'
     if kind is None:
-        kind = 'spectral' if is_interval else 'equispaced'  # default variant
+        kind = 'spectral'  # default variant
 
     if element.family() == "Lagrange":
         if kind == 'equispaced':
             lmbda = finat.Lagrange
-        elif kind == 'spectral' and is_interval:
+        elif kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
         elif kind == 'hierarchical' and is_interval:
             lmbda = finat.IntegratedLegendre
@@ -172,7 +172,7 @@ def convert_finiteelement(element, **kwargs):
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'equispaced':
             lmbda = finat.DiscontinuousLagrange
-        elif kind == 'spectral' and is_interval:
+        elif kind == 'spectral':
             lmbda = finat.GaussLegendre
         elif kind == 'hierarchical' and is_interval:
             lmbda = finat.Legendre

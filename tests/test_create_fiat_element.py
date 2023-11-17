@@ -101,16 +101,14 @@ def test_interval_variant(family, variant, expected_cls):
     assert isinstance(create_element(ufl_element), expected_cls)
 
 
-def test_triangle_variant_spectral_fail():
+def test_triangle_variant_spectral():
     ufl_element = finat.ufl.FiniteElement('DP', ufl.triangle, 2, variant='spectral')
-    with pytest.raises(ValueError):
-        create_element(ufl_element)
+    create_element(ufl_element)
 
 
-def test_triangle_variant_spectral_fail_l2():
+def test_triangle_variant_spectral_l2():
     ufl_element = finat.ufl.FiniteElement('DP L2', ufl.triangle, 2, variant='spectral')
-    with pytest.raises(ValueError):
-        create_element(ufl_element)
+    create_element(ufl_element)
 
 
 def test_quadrilateral_variant_spectral_q():
