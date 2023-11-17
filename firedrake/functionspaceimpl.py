@@ -372,12 +372,12 @@ class WithGeometryBase(object):
     def reconstruct(self, mesh=None, name=None, **kwargs):
         r"""Reconstruct this :class:`.WithGeometryBase` .
 
-        :kwarg mesh: the new mesh (defaults to same mesh)
+        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
         :kwarg name: the new name (defaults to None)
-        :returns: the new function space of the same class as self.
+        :returns: the new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :func:`finat.ufl.FiniteElement.reconstruct`
+        For details see :func:`~finat.ufl.FiniteElement.reconstruct`.
         """
         V = self
         # Deal with ProxyFunctionSpace

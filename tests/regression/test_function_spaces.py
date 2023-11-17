@@ -207,7 +207,8 @@ def test_reconstruct_mixed(fs, mesh, mesh2, dual):
         V2 = W2.sub(index)
         assert V1.index == V2.index == index
         assert V1.ufl_element() == V2.ufl_element()
-        assert V1.mesh() != V2.mesh()
+        assert V1.mesh() == mesh
+        assert V2.mesh() == mesh2
 
 
 def test_reconstruct_sub(fs, mesh, mesh2, dual):
