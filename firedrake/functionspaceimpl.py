@@ -51,7 +51,7 @@ def check_element(element, top=True):
         inner = element.sub_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
-            raise ValueError("%s modifier must be outermost" % type(element))
+            raise ValueError(f"{type(element).__name__} modifier must be outermost")
         else:
             inner = element.sub_elements
     else:
