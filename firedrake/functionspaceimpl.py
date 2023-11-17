@@ -31,8 +31,7 @@ def check_element(element, top=True):
     can contain :class:`~finat.ufl.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
-    :arg element: The :class:`UFL element
-        <finat.ufl.FiniteElementBase>` to check.
+    :arg element: The :class:`finat.ufl.FiniteElementBase` to check.
     :kwarg top: Are we at the top element (in which case the modifier
         is legal).
     :returns: ``None`` if the element is legal.
@@ -40,7 +39,7 @@ def check_element(element, top=True):
 
     """
     if element.cell.cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "Lagrange"]:
+       element.family() not in ["Q", "DQ"]:
         raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
