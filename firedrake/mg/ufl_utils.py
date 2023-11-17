@@ -133,7 +133,8 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
 
     V_fine = V
     mesh_coarse = self(V_fine.mesh(), self)
-    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=f"coarse_{V.name}")
+    name = f"coarse_{V.name}" if V.name else None
+    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
     V_fine._coarse = V_coarse
 

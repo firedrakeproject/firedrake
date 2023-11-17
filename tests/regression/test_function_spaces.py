@@ -27,6 +27,11 @@ def dg0(mesh):
     return VectorFunctionSpace(mesh, "DG", 0)
 
 
+@pytest.fixture(scope="module")
+def rt1(mesh):
+    return VectorFunctionSpace(mesh, "RT", 1)
+
+
 @pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0'])
 def fs(request, cg1, cg2, dg0):
     return {'cg1cg1': cg1*cg1,
@@ -133,19 +138,29 @@ def test_function_space_dir(cg1):
     dir(cg1)
 
 
-@pytest.mark.parametrize("meshes", [
-    (UnitIntervalMesh(1), UnitIntervalMesh(2)),
-    (UnitIntervalMesh(2), UnitSquareMesh(1, 1)),
-    (UnitSquareMesh(3, 3, quadrilateral=True), UnitSquareMesh(2, 2)),
-    (UnitIcosahedralSphereMesh(2), UnitCubedSphereMesh(2)),
-    (UnitCubeMesh(2, 2, 2, hexahedral=True), ExtrudedMesh(UnitSquareMesh(2, 2), 2)),
-], ids=["line-line", "line-triangle", "quad-triangle", "triangle3D-quad3D", "hex-prism"])
+@pytest.fixture(scope="module", params=[
+    "line-line", "line-triangle", "quad-triangle", "triangle3D-quad3D", "hex-prism"])
+def meshes(request):
+    if request.param == "line-line":
+        return UnitIntervalMesh(1), UnitIntervalMesh(2)
+    elif request.param == "line-triangle":
+        return UnitIntervalMesh(2), UnitSquareMesh(1, 1)
+    elif request.param == "quad-triangle":
+        return UnitSquareMesh(3, 3, quadrilateral=True), UnitSquareMesh(2, 2)
+    elif request.param == "triangle3D-quad3D":
+        return UnitIcosahedralSphereMesh(2), UnitCubedSphereMesh(2)
+    elif request.param == "hex-prism":
+        return UnitCubeMesh(2, 2, 2, hexahedral=True), ExtrudedMesh(UnitSquareMesh(2, 2), 2)
+    else:
+        raise ValueError
+
+
 def test_reconstruct_mesh(meshes, dual):
-    V1 = FunctionSpace(meshes[0], "CG", 1)
-    V2 = FunctionSpace(meshes[1], "CG", 1)
+    V1 = FunctionSpace(meshes[0], "Lagrange", 1)
+    V2 = FunctionSpace(meshes[1], "Lagrange", 1)
     if dual:
         V1, V2 = V1.dual(), V2.dual()
-    assert V1.reconstruct(mesh=meshes[1], family="CG") == V2
+    assert V1.reconstruct(mesh=meshes[1], family="Lagrange") == V2
 
 
 @pytest.mark.parametrize("family", ["CG", "DG"])
@@ -181,10 +196,11 @@ def test_reconstruct_variant(family, dual):
     assert V2.reconstruct(variant="spectral") == V1
 
 
-def test_reconstruct_mixed(fs, mesh2, dual):
+def test_reconstruct_mixed(fs, mesh, mesh2, dual):
     W1 = fs.dual() if dual else fs
     W2 = W1.reconstruct(mesh=mesh2)
-    assert W1.mesh() != W2.mesh()
+    assert W1.mesh() == mesh
+    assert W2.mesh() == mesh2
     assert W1.ufl_element() == W2.ufl_element()
     for index, V in enumerate(W1):
         V1 = W1.sub(index)
@@ -194,42 +210,45 @@ def test_reconstruct_mixed(fs, mesh2, dual):
         assert V1.mesh() != V2.mesh()
 
 
-def test_reconstruct_sub(fs, mesh2, dual):
-    W = fs.dual() if dual else fs
-    for index, V in enumerate(W):
-        V1 = fs.sub(index)
+def test_reconstruct_sub(fs, mesh, mesh2, dual):
+    Z = fs.dual() if dual else fs
+    for index, Vsub in enumerate(Z):
+        V1 = Z.sub(index)
         V2 = V1.reconstruct(mesh=mesh2)
-        assert V1.mesh() != V2.mesh()
+        assert V1.mesh() == mesh
+        assert V2.mesh() == mesh2
         assert V1.index == V2.index == index
         assert V1.component == V2.component
         assert V1.ufl_element() == V2.ufl_element()
 
 
-@pytest.mark.parametrize("family", ["DG", "RT"])
-def test_reconstruct_component(mesh, mesh2, family, dual):
-    V = VectorFunctionSpace(mesh, family, 1)
+@pytest.mark.parametrize("space", ["dg0", "rt1"])
+def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
+    Z = {"dg0": dg0, "rt1": rt1}[space]
     if dual:
-        V = V.dual()
-    for component in range(V.value_size):
-        V1 = V.sub(component)
+        Z = Z.dual()
+    for component in range(Z.value_size):
+        V1 = Z.sub(component)
         V2 = V1.reconstruct(mesh=mesh2)
-        assert V1.mesh() != V2.mesh()
+        assert V1.mesh() == mesh
+        assert V2.mesh() == mesh2
         assert V1.index == V2.index
         assert V1.component == V2.component == component
         assert V1.ufl_element() == V2.ufl_element()
 
 
-def test_reconstruct_sub_component(mesh, mesh2, dual):
-    Q1 = VectorFunctionSpace(mesh, "CG", 1)
-    Q2 = VectorFunctionSpace(mesh, "RT", 1)
-    space = Q1 * Q2
+def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
+    Z = dg0 * rt1
     if dual:
-        space = space.dual()
-    for index, V in enumerate(space):
-        for component in range(V.value_size):
-            V1 = space.sub(index).sub(component)
+        Z = Z.dual()
+    for index, Vsub in enumerate(Z):
+        for component in range(Vsub.value_size):
+            V1 = Z.sub(index).sub(component)
             V2 = V1.reconstruct(mesh=mesh2)
-            assert V1.mesh() != V2.mesh()
-            assert V1.parent.index == V2.parent.index == index
-            assert V1.component == V2.component == component
+            assert V1.mesh() == mesh
+            assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
+            assert V1.component == V2.component == component
+            assert V1.parent is not None and V2.parent is not None
+            assert V1.parent.ufl_element() == V2.parent.ufl_element()
+            assert V1.parent.index == V2.parent.index == index
