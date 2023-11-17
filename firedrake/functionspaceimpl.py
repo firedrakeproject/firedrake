@@ -31,7 +31,7 @@ def check_element(element, top=True):
     can contain :class:`~finat.ufl.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
-    :arg element: The :class:`finat.ufl.FiniteElementBase` to check.
+    :arg element: The :class:`~finat.ufl.FiniteElementBase` to check.
     :kwarg top: Are we at the top element (in which case the modifier
         is legal).
     :returns: ``None`` if the element is legal.
