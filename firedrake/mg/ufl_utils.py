@@ -145,15 +145,15 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     # than which we do the MG, dm.coarsen is never called, so the
     # hooks are not attached. Instead we just call (say) inject which
     # coarsens the functionspace.
-    cdm = V.dm
-    parent = get_parent(fine.dm)
+    cdm = V_coarse.dm
+    parent = get_parent(V_fine.dm)
     try:
         add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
                  call_setup=True)
     except ValueError:
         # Not in an add_hooks context
         pass
-    return V
+    return V_coarse
 
 
 @coarsen.register(firedrake.Cofunction)
