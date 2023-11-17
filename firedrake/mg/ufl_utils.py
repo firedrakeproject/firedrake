@@ -131,11 +131,11 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
 
-    fine = V
-    mesh = self(V.mesh(), self)
-    V = V.reconstruct(mesh=mesh, name=f"coarse_{V.name}")
-    V._fine = fine
-    fine._coarse = V
+    V_fine = V
+    mesh_coarse = self(V_fine.mesh(), self)
+    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=f"coarse_{V.name}")
+    V_coarse._fine = V_fine
+    V_fine._coarse = V_coarse
 
     # FIXME: This replicates some code from dmhooks.coarsen, but we
     # can't do things there because that code calls this code.
