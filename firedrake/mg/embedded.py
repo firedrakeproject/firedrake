@@ -153,7 +153,7 @@ class TransferManager(object):
             return V
         if V.mesh().ufl_cell().is_simplex() and V.mesh().coordinates.function_space().ufl_element().degree() == 1:
             return V
-        return firedrake.FunctionSpace(V.mesh(), ufl.WithMapping(V.ufl_element(), mapping="identity"))
+        return firedrake.FunctionSpace(V.mesh(), finat.ufl.WithMapping(V.ufl_element(), mapping="identity"))
 
     def dx(self, V):
         degree = V.ufl_element().degree()
@@ -443,10 +443,10 @@ class TransferManager(object):
             with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
                 if self.use_averaging:
                     work.pointwiseDivide(sv, self.V_dof_weights(Vs))
-                    self.V_approx_inv_mass(Vs, VDGs).multTranspose(work, dgv)
+                    self.V_approx_inv_mass_piola(Vt, Vs, VDGs).multTranspose(work, dgv)
                 else:
                     self.V_inv_mass_ksp(Vs).solve(sv, work)
-                    self.V_DG_mass_piola(Vs, Vt, VDGs).multTranspose(work, dgv)
+                    self.V_DG_mass_piola(Vt, Vs, VDGs).multTranspose(work, dgv)
 
             # g \in VDGs^* -> g \in VDGt^*
             self.restrict(dgsource, dgtarget)

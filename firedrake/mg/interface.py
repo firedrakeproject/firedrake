@@ -147,8 +147,8 @@ def restrict(fine_dual, coarse_dual):
             # Move from redist mesh to original one, so we can restrict
             source = fine_dual
             target_mesh = fine_mesh.redist.orig
-            Vf = firedrake.FunctionSpace(target_mesh, element)
-            target = firedrake.Function(Vf)
+            Vf = firedrake.functionspace.DualSpace(target_mesh, element)
+            target = firedrake.Cofunction(Vf)
             fine_mesh.redist.redist2orig(source, target)
             fine_dual = target
         next_level -= 1
