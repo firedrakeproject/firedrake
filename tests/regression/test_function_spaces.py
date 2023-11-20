@@ -140,12 +140,25 @@ def test_function_space_dir(cg1):
     dir(cg1)
 
 
-def test_construct_mixed_dual_space(fs):
+def test_mixed_dual_space_from_element(fs):
     element = fs.ufl_element()
     Vstar = DualSpace(fs.mesh(), element)
     assert is_dual(Vstar)
     assert Vstar == fs.dual()
     assert Vstar.ufl_element() == element
+
+
+def test_mixed_dual_space_from_subspaces(fs):
+    element = fs.ufl_element()
+    Vstar = MixedFunctionSpace([V.dual() for V in fs])
+    assert is_dual(Vstar)
+    assert Vstar == fs.dual()
+    assert Vstar.ufl_element() == element
+
+
+def test_mixed_dual_space_validation(rt1, dg0):
+    with pytest.raises(ValueError):
+        MixedFunctionSpace([rt1, dg0.dual()])
 
 
 @pytest.fixture(scope="module", params=[
