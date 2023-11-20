@@ -438,7 +438,6 @@ class TransferManager(object):
             VDGs = dgsource.function_space().dual()
             VDGt = dgtarget.function_space().dual()
             work = self.work_vec(Vs)
-            dgwork = self.work_vec(VDGt)
 
             # g \in Vs^* -> g \in VDGs^*
             with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
