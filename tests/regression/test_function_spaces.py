@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual
 
 
@@ -137,6 +138,14 @@ def test_VV_ne_VVV():
 
 def test_function_space_dir(cg1):
     dir(cg1)
+
+
+def test_construct_mixed_dual_space(fs):
+    element = fs.ufl_element()
+    Vstar = DualSpace(fs.mesh(), element)
+    assert is_dual(Vstar)
+    assert Vstar == fs.dual()
+    assert Vstar.ufl_element() == element
 
 
 @pytest.fixture(scope="module", params=[

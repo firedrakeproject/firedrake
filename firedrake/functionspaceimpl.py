@@ -353,7 +353,7 @@ class WithGeometryBase(object):
         mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
-        if isinstance(element, finat.ufl.MixedElement) and not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        if type(element) is finat.ufl.MixedElement:
             spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
             new = MixedFunctionSpace(spaces, name=name)
         else:
@@ -379,29 +379,28 @@ class WithGeometryBase(object):
         Any extra kwargs are used to reconstruct the finite element.
         For details see :func:`~finat.ufl.FiniteElement.reconstruct`.
         """
-        V = self
+        V_parent = self
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
-            if V.index is not None:
-                indices.append(V.index)
-            if V.component is not None:
-                indices.append(V.component)
-            if V.parent is not None:
-                V = V.parent
+            if V_parent.index is not None:
+                indices.append(V_parent.index)
+            if V_parent.component is not None:
+                indices.append(V_parent.component)
+            if V_parent.parent is not None:
+                V_parent = V_parent.parent
             else:
                 break
 
         if mesh is None:
-            mesh = V.mesh()
+            mesh = V_parent.mesh()
 
-        element = V.ufl_element()
+        element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
         V = type(self).make_function_space(mesh, element, name=name)
-
         for i in reversed(indices):
             V = V.sub(i)
         return V
