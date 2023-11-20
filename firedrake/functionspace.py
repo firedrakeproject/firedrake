@@ -80,30 +80,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-<<<<<<< HEAD
-
-    # Support FunctionSpace(mesh, MixedElement)
-    if type(element) is finat.ufl.MixedElement:
-        return MixedFunctionSpace(element, mesh=mesh, name=name)
-    if mesh.ufl_cell().cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "BrokenElement"]:
-        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
-    # Check that any Vector/Tensor/Mixed modifiers are outermost.
-    check_element(element)
-
-    # Otherwise, build the FunctionSpace.
-    topology = mesh.topology
-    if element.family() == "Real":
-        new = impl.RealFunctionSpace(topology, element, name=name)
-    else:
-        new = impl.FunctionSpace(topology, element, name=name)
-    if mesh is not topology:
-        return impl.WithGeometry.create(new, mesh)
-    else:
-        return new
-=======
     return impl.WithGeometry.make_function_space(mesh, element, name=name)
->>>>>>> pbrubeck/feature/reconstruct-functionspace
 
 
 @PETSc.Log.EventDecorator()
