@@ -157,20 +157,18 @@ def resolve_doi_branches(doi):
     import requests
     import hashlib
     log.info("Installing Firedrake components specified by {}".format(doi))
-    response = requests.get("https://zenodo.org/api/records",
-                            params={"q": "doi:{}".format(doi.replace("/", r"\/"))})
-    if response.status_code >= 400:
+    # Zenodo updated their API to use elastic search so simply querying with
+    # ?q=doi:10.5281/zenodo.<id> now returns multiple results (not ideal)
+    # Instead use
+    # /<id>
+    # as documented here https://developers.zenodo.org/#retrieve
+    id_ = doi.split('.')[-1]
+    response = requests.get("https://zenodo.org/api/records/{}".format(id_))
+    if not response.ok:
         log.error("Unable to obtain Zenodo record for doi {}".format(doi))
         log.error("Response was {}".format(response.json()))
         sys.exit(1)
-    response = response.json()
-    try:
-        record, = response["hits"]["hits"]
-    except ValueError:
-        log.error("Was expecting one record for doi '{doi}', found {num}".format(
-            doi=doi, num=response["hits"]["total"]))
-        log.error("Response was {}".format(response))
-        sys.exit(1)
+    record = response.json()
     files = record["files"]
     try:
         componentjson, = (f for f in files if f["key"] == "components.json")
@@ -716,6 +714,7 @@ def get_minimal_petsc_packages():
 
 
 def get_petsc_options(minimal=False):
+    # The logic in this function is getting out of hand...
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -726,6 +725,10 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+        # These three lines are used to inspect the MacOS Command Line Tools (CLT) version
+        cmd = ["pkgutil", "--pkg-info=com.apple.pkg.CLTools_Executables"]
+        output = subprocess.run(cmd, stdout=subprocess.PIPE, encoding="UTF-8")
+        clt = {k.strip(): v.strip() for k, v in [line.split(':') for line in output.stdout.split('\n') if line]}
     elif osname == "Linux":
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
@@ -748,15 +751,10 @@ def get_petsc_options(minimal=False):
             # Non-free license.
             petsc_options.add("--download-parmetis")
 
-    if options["petsc_int_type"] == "int32":
-        if not options["minimal_petsc"]:
-            # AMG
-            petsc_options.add("--download-ml")
-    else:
+    if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
 
     if options.get("mpiexec") is not None:
@@ -776,18 +774,28 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
     elif osname == "Darwin":
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        if Version(clt["version"]) >= Version("15"):
+            # CLT >= 15 requires legacy linking behaviour
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        else:
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
     if not minimal:
         for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
@@ -1417,7 +1425,7 @@ def build_and_install_slepc():
 
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "ngsolve", "--pre"])
+    run_pip(["install", "netgen-mesher==6.2.2304.post142.dev0"])
     log.info("Installing ngsPETSc.")
     url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
     ngsPETSc_changed = False
@@ -1931,6 +1939,9 @@ if mode == "install":
 
     for p in packages:
         pip_requirements(p, compiler_env)
+
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
 
     with environment(**compiler_env):
         build_and_install_h5py()

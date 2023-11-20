@@ -21,11 +21,14 @@ current directory. Run::
 
   python3 firedrake-install --help
 
-for a full list of install options.  In particular, you may
-wish to customise the set of options used to build PETSc.  To do so,
-set the environment variable ``PETSC_CONFIGURE_OPTIONS`` before
-running ``firedrake-install``.  You can see the set of options passed
-to PETSc by providing the flag ``--show-petsc-configure-options``.
+for a full list of install options.  In particular, you may wish to
+customise PETSc by adding packages (for instance ``--download-fftw``).
+To do so, set the environment variable ``PETSC_CONFIGURE_OPTIONS``
+before running ``firedrake-install``. However, some configuration
+options (for instance ``--LDFLAGS`` and ``--CFLAGS``) should not be set
+in ``PETSC_CONFIGURE_OPTIONS`` as they are set by the install script.
+You can see the set of options passed to PETSc by providing the flag
+``--show-petsc-configure-options``.
 
 You will need to activate the venv in each shell from which you
 use Firedrake::

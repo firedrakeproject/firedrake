@@ -350,7 +350,7 @@ def test_interpolate_unitsquare_mixed():
 
     # Can't go from non-mixed to mixed
     V_src_2 = VectorFunctionSpace(m_src, "CG", 1)
-    assert V_src_2.ufl_element().value_shape() == V_src.ufl_element().value_shape()
+    assert V_src_2.ufl_element().value_shape == V_src.ufl_element().value_shape
     f_src_2 = Function(V_src_2)
     with pytest.raises(NotImplementedError):
         interpolate(f_src_2, V_dest)
@@ -595,28 +595,21 @@ def interpolator_function(
 def interpolator_function_transpose(
     interpolator, f_src, cofunction_dest, m_src, m_dest, coords, expected, atol
 ):
+    f_dest = interpolator.interpolate(f_src)
     cofunction_dest_on_src = interpolator.interpolate(cofunction_dest, transpose=True)
-    assert extract_unique_domain(cofunction_dest_on_src) is m_src
-    # knowing exactly what to expect would require careful analysis of the
-    # behaviour of adjoint interpolation (which is nontrivial for meshes which
-    # are not exact refinements of each other!) For now I check that I don't
-    # get f_src or its equivalent cofunction back!
-    assert not np.allclose(
-        cofunction_dest_on_src.dat.data_ro, f_src.dat.data_ro, atol=atol
+    assert cofunction_dest_on_src.function_space().mesh() is m_src
+    assert np.isclose(
+        assemble(action(cofunction_dest_on_src, f_src)),
+        assemble(action(cofunction_dest, f_dest)), atol=atol
     )
-    V_src = f_src.function_space()
-    cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
     if m_src.name == "src_sphere" and m_dest.name == "dest_sphere" and atol > 1e-8:
-        # In the spheresphere case we need to make sure our tolerance is back
-        # to default, since we actually DO get the same cofunction back with an
+        # In the spheresphere case we actually DO get the same cofunction back with an
         # atol of 1e-3
+        V_src = f_src.function_space()
+        cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
         assert np.allclose(
             cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
         )
-        atol = 1e-8
-    assert not np.allclose(
-        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
-    )
 
 
 def interpolator_expression(
@@ -631,13 +624,10 @@ def interpolator_expression(
     assert np.allclose(got, 2 * expected, atol=2 * atol)
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
     cofunction_dest_on_src = interpolator.interpolate(cofunction_dest, transpose=True)
-    assert extract_unique_domain(cofunction_dest_on_src) is m_src
-    assert not np.allclose(
-        f_src.dat.data_ro, cofunction_dest_on_src.dat.data_ro, atol=2 * atol
-    )
-    cofunction_src = assemble(inner(f_src, TestFunction(V_src)) * dx)
-    assert not np.allclose(
-        cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=2 * atol
+    assert cofunction_dest_on_src.function_space().mesh() is m_src
+    assert np.isclose(
+        assemble(action(cofunction_dest_on_src, f_src)),
+        assemble(action(cofunction_dest, f_dest)), atol=atol
     )
 
 

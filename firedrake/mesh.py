@@ -3,6 +3,7 @@ import ctypes
 import os
 import sys
 import ufl
+import finat.ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
@@ -33,10 +34,8 @@ from pyadjoint import stop_annotating
 
 try:
     import netgen
-    from ngsPETSc import FiredrakeMesh
 except ImportError:
     netgen = None
-    ngsPETSc = None
 
 
 __all__ = [
@@ -984,7 +983,7 @@ class MeshTopology(AbstractMeshTopology):
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
         cell = ufl.Cell(_cells[tdim][nfacets])
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
@@ -1271,8 +1270,8 @@ class MeshTopology(AbstractMeshTopology):
         elem = tV.ufl_element()
         if tV.mesh() is not self:
             raise RuntimeError(f"tf must be defined on {self}: {tf.mesh()} is not {self}")
-        if elem.value_shape() != ():
-            raise RuntimeError(f"tf must be scalar: {elem.value_shape()} != ()")
+        if elem.value_shape != ():
+            raise RuntimeError(f"tf must be scalar: {elem.value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
@@ -1347,7 +1346,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
         if layers.shape:
             self.variable_layers = True
             extents = extnum.layer_extents(self.topology_dm,
@@ -1570,7 +1569,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         tdim = 0
 
         cell = ufl.Cell("vertex")
-        self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+        self._ufl_mesh = ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
@@ -1855,7 +1854,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         uid = utils._new_uid()
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
-        assert isinstance(element, ufl.FiniteElementBase)
+        assert isinstance(element, finat.ufl.FiniteElementBase)
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
         return mesh
 
@@ -1911,7 +1910,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell().geometric_dimension()))
+                                                         (self.num_vertices(), self.ufl_coordinate_element().cell.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
@@ -2386,11 +2385,11 @@ def make_mesh_from_coordinates(coordinates, name):
 
     V = coordinates.function_space()
     element = coordinates.ufl_element()
-    if V.rank != 1 or len(element.value_shape()) != 1:
+    if V.rank != 1 or len(element.value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
     assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
     # Build coordinate element
-    cell = element.cell().reconstruct(geometric_dimension=V.value_size)
+    cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
@@ -2407,7 +2406,7 @@ def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
-    element = ufl.VectorElement("Lagrange", cell, 1)
+    element = finat.ufl.VectorElement("Lagrange", cell, 1)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
@@ -2530,6 +2529,10 @@ def Mesh(meshfile, **kwargs):
         if MPI.Comm.Compare(user_comm, plex.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `plex` must be at least congruent to the communicator used to create the mesh")
     elif netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
+        try:
+            from ngsPETSc import FiredrakeMesh
+        except ImportError:
+            raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
@@ -2687,14 +2690,14 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
 
-    helement = mesh._coordinates.ufl_element().sub_elements()[0]
+    helement = mesh._coordinates.ufl_element().sub_elements[0]
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
     else:
-        velement = ufl.FiniteElement("Lagrange", ufl.interval, 1)
-    element = ufl.TensorProductElement(helement, velement)
+        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+    element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
@@ -2709,8 +2712,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":
-        helement = mesh._coordinates.ufl_element().sub_elements()[0].reconstruct(family="CG")
-        element = ufl.TensorProductElement(helement, velement)
+        helement = mesh._coordinates.ufl_element().sub_elements[0].reconstruct(family="CG")
+        element = finat.ufl.TensorProductElement(helement, velement)
         fs = functionspace.VectorFunctionSpace(self, element, dim=gdim)
         self.radial_coordinates = function.Function(fs, name=name + "_radial_coordinates")
         eutils.make_extruded_coords(topology, mesh._coordinates, self.radial_coordinates,
@@ -2867,7 +2870,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         # Geometry
         tcell = topology.ufl_cell()
         cell = tcell.reconstruct(geometric_dimension=gdim)
-        element = ufl.VectorElement("DG", cell, 0)
+        element = finat.ufl.VectorElement("DG", cell, 0)
         # Create mesh object
         vmesh = MeshGeometry.__new__(MeshGeometry, element)
         vmesh._topology = topology
@@ -4025,8 +4028,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             plex1.createLabel(label_name)
     for f, subid in zip(indicator_functions, subdomain_ids):
         elem = f.topological.function_space().ufl_element()
-        if elem.value_shape() != ():
-            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape()} != ()")
+        if elem.value_shape != ():
+            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0

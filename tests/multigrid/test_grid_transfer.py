@@ -141,8 +141,7 @@ def run_restriction(hierarchy, vector, space, degrees):
         return assemble(inner(f, TestFunction(V))*dx)
 
     def functional(victim, dual):
-        with victim.dat.vec_ro as v, dual.dat.vec_ro as dv:
-            return dv.dot(v)
+        return assemble(action(dual, victim))
 
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
@@ -152,7 +151,7 @@ def run_restriction(hierarchy, vector, space, degrees):
             fine_dual = dual(Vf)
             coarse_primal = victim(Vc)
 
-            coarse_dual = Function(Vc)
+            coarse_dual = Cofunction(Vc.dual())
             fine_primal = Function(Vf)
             restrict(fine_dual, coarse_dual)
             prolong(coarse_primal, fine_primal)
@@ -253,17 +252,16 @@ def deformed_transfer_type(request, deformed_hierarchy):
 
 def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
     space = "Lagrange"
-    space = "DQ"
-    degrees = (0, 1, 2)
+    degrees = (1, 2)
     vector = False
     if not deformed_hierarchy.nested and deformed_transfer_type == "injection":
         pytest.skip("Not implemented")
     if deformed_transfer_type == "injection":
         if space in {"DG", "DQ"} and complex_mode:
             with pytest.raises(NotImplementedError):
-                run_injection(deformed_hierarchy, vector, space, degrees[:-1])
+                run_injection(deformed_hierarchy, vector, space, degrees[:1])
         else:
-            run_injection(deformed_hierarchy, vector, space, degrees[:-1])
+            run_injection(deformed_hierarchy, vector, space, degrees[:1])
     elif deformed_transfer_type == "restriction":
         run_restriction(deformed_hierarchy, vector, space, degrees)
     elif deformed_transfer_type == "prolongation":
