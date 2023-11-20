@@ -39,7 +39,7 @@ def check_element(element, top=True):
 
     """
     if element.cell.cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ"]:
+       element.family() not in ["Q", "DQ", "BrokenElement"]:
         raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
