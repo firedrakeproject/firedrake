@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from ufl.duals import is_dual
 
 
 @pytest.fixture(scope="module")
@@ -205,10 +206,11 @@ def test_reconstruct_mixed(fs, mesh, mesh2, dual):
     for index, V in enumerate(W1):
         V1 = W1.sub(index)
         V2 = W2.sub(index)
-        assert V1.index == V2.index == index
-        assert V1.ufl_element() == V2.ufl_element()
+        assert is_dual(V1) == is_dual(V2) == dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
+        assert V1.ufl_element() == V2.ufl_element()
+        assert V1.index == V2.index == index
 
 
 def test_reconstruct_sub(fs, mesh, mesh2, dual):
@@ -216,11 +218,12 @@ def test_reconstruct_sub(fs, mesh, mesh2, dual):
     for index, Vsub in enumerate(Z):
         V1 = Z.sub(index)
         V2 = V1.reconstruct(mesh=mesh2)
+        assert is_dual(V1) == is_dual(V2) == dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
+        assert V1.ufl_element() == V2.ufl_element()
         assert V1.index == V2.index == index
         assert V1.component == V2.component
-        assert V1.ufl_element() == V2.ufl_element()
 
 
 @pytest.mark.parametrize("space", ["dg0", "rt1"])
@@ -231,11 +234,12 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
     for component in range(Z.value_size):
         V1 = Z.sub(component)
         V2 = V1.reconstruct(mesh=mesh2)
+        assert is_dual(V1) == is_dual(V2) == dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
+        assert V1.ufl_element() == V2.ufl_element()
         assert V1.index == V2.index
         assert V1.component == V2.component == component
-        assert V1.ufl_element() == V2.ufl_element()
 
 
 def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
@@ -246,10 +250,12 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
         for component in range(Vsub.value_size):
             V1 = Z.sub(index).sub(component)
             V2 = V1.reconstruct(mesh=mesh2)
+            assert is_dual(V1) == is_dual(V2) == dual
             assert V1.mesh() == mesh
             assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
             assert V1.component == V2.component == component
             assert V1.parent is not None and V2.parent is not None
+            assert is_dual(V1.parent) == is_dual(V2.parent) == dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index
