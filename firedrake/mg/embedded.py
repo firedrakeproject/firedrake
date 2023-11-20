@@ -167,7 +167,7 @@ class TransferManager(object):
         cmesh = Vc.mesh()
         Fc = firedrake.Jacobian(cmesh)
         vector_element = get_embedding_dg_element(cmesh.coordinates.function_space().ufl_element())
-        element = ufl.TensorElement(vector_element.sub_elements()[0], shape=Fc.ufl_shape)
+        element = finat.ufl.TensorElement(vector_element.sub_elements[0], shape=Fc.ufl_shape)
 
         cache = self.cache(element)
         key = (Vc.mesh(), Vf.mesh())
