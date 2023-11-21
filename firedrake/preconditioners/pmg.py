@@ -67,12 +67,12 @@ class PMGBase(PCSNESBase):
         Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
-        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.FiniteElement`.
+        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.finiteelement.FiniteElement`.
 
         By default, this does power-of-2 coarsening in polynomial degree until
         we reach the coarse degree specified through PETSc options (1 by default).
 
-        :arg ele: a :class:`finat.ufl.FiniteElement` to coarsen.
+        :arg ele: a :class:`finat.ufl.finiteelement.FiniteElement` to coarsen.
         """
         degree = PMGBase.max_degree(ele)
         if degree <= self.coarse_degree:
