@@ -79,7 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch fiat pbrubeck/simplify-lagrange
+            --package-branch fiat pbrubeck/simplify-lagrange \
             --package-branch finat pbrubeck/fix/point-evaluation
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
