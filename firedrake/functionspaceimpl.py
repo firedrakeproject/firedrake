@@ -24,7 +24,7 @@ def check_element(element, top=True):
     """Run some checks on the provided element.
 
     The :class:`finat.ufl.mixedelement.VectorElement` and
-    :class:`finat.ufl..mixedelement.TensorElement` modifiers must be "outermost"
+    :class:`finat.ufl.mixedelement.TensorElement` modifiers must be "outermost"
     for function space construction to work, excepting that they
     should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
     a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
