@@ -397,7 +397,7 @@ class FunctionSpace(object):
         rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
         :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
         the number of components of their
-        `finat.ufl.FiniteElementBase.value_shape`."""
+        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
         self.value_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function

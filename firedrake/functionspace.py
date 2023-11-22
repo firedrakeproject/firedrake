@@ -221,7 +221,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `.FunctionSpace` is returned.  In
     this case, the provided element must have an empty
-    `finat.ufl.FiniteElementBase.value_shape`.
+    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
 
     The element that you provide need be a scalar element (with empty
     ``value_shape``), however, it should not be an existing
@@ -274,7 +274,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `FunctionSpace` is
     returned.  In this case, the provided element must have an empty
-    `finat.ufl.FiniteElementBase.value_shape`.
+    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
 
     The element that you provide must be a scalar element (with empty
     ``value_shape``).  If you already have an existing
