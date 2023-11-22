@@ -21,7 +21,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 @PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
-    """Build a scalar :class:`finat.ufl.FiniteElement`.
+    """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.
 
     :arg mesh: The mesh to determine the cell from.
     :arg family: The finite element family.
@@ -65,12 +65,12 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
 def check_element(element, top=True):
     """Run some checks on the provided element.
 
-    The :class:`~finat.ufl.VectorElement` and
-    :class:`~finat.ufl.TensorElement` modifiers must be "outermost"
+    The :class:`finat.ufl.mixedelement.VectorElement` and
+    :class:`finat.ufl..mixedelement.TensorElement` modifiers must be "outermost"
     for function space construction to work, excepting that they
-    should not wrap a :class:`~finat.ufl.MixedElement`.  Similarly,
-    a base :class:`~finat.ufl.MixedElement` must be outermost (it
-    can contain :class:`~finat.ufl.MixedElement` instances, provided
+    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
+    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
+    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
     :arg element: The :class:`UFL element
@@ -124,7 +124,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     Notes
     -----
     The ``family`` argument may be an existing
-    `finat.ufl.FiniteElementBase`, in which case all other arguments
+    :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `.FunctionSpace` is returned.
 
     """
@@ -218,16 +218,16 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     Notes
     -----
     The ``family`` argument may be an existing
-    `finat.ufl.FiniteElementBase`, in which case all other arguments
+    :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `.FunctionSpace` is returned.  In
     this case, the provided element must have an empty
     `finat.ufl.FiniteElementBase.value_shape`.
 
     The element that you provide need be a scalar element (with empty
     ``value_shape``), however, it should not be an existing
-    `~finat.ufl.VectorElement`.  If you already have an existing
-    `~finat.ufl.VectorElement`, you should pass it to `FunctionSpace`
-    directly instead.
+    :class:`finat.ufl.mixedelement.VectorElement`.  If you already have an
+    existing :class:`finat.ufl.mixedelement.VectorElement`, you should
+    pass it to `FunctionSpace` directly instead.
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
@@ -271,15 +271,15 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     Notes
     -----
     The ``family`` argument may be an existing
-    `~finat.ufl.FiniteElementBase`, in which case all other arguments
+    :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `FunctionSpace` is
     returned.  In this case, the provided element must have an empty
     `finat.ufl.FiniteElementBase.value_shape`.
 
     The element that you provide must be a scalar element (with empty
     ``value_shape``).  If you already have an existing
-    `~finat.ufl.TensorElement`, you should pass it to `FunctionSpace`
-    directly instead.
+    :class:`finat.ufl.mixedelement.TensorElement`, you should pass it to
+    `FunctionSpace` directly instead.
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
@@ -297,12 +297,12 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     spaces:
         An iterable of constituent spaces, or a
-        finat.ufl.mixedelement.MixedElement.
+        :class:`finat.ufl.mixedelement.MixedElement`.
     name:
         An optional name for the mixed function space.
     mesh:
         An optional mesh.  Must be provided if spaces is a
-        finat.ufl.mixedelement.MixedElement, ignored otherwise.
+        :class:`finat.ufl.mixedelement.MixedElement`, ignored otherwise.
 
     """
     if isinstance(spaces, finat.ufl.FiniteElementBase):
