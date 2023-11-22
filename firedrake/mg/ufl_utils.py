@@ -6,8 +6,8 @@ from ufl.duals import is_dual
 
 from functools import singledispatch, partial
 from itertools import chain
+from collections import OrderedDict
 import firedrake
-from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, push_parent, pop_parent, add_hook)
@@ -203,22 +203,20 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         from firedrake.bcs import DirichletBC
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
-        forms = (finectx.F, finectx.J, finectx.Jp)
-        coefficients = unique(chain.from_iterable(form.coefficients()
-                              for form in forms if form is not None))
-        for c in coefficients:
-            if hasattr(c, '_child'):
-                if is_dual(c):
-                    manager.restrict(c, c._child)
+        coefficients = finectx.F.coefficients() + finectx.J.coefficients()
+        if finectx.Jp is not None:
+            coefficients += problem.Jp.coefficients()
+        coefficients = tuple(OrderedDict.fromkeys(coefficients))
+        for fine in coefficients:
+            if hasattr(fine, '_child'):
+                coarse = fine._child
+                if is_dual(fine):
+                    manager.restrict(fine, coarse)
                 else:
-                    manager.inject(c, c._child)
-        # Apply bcs and also inject them
+                    manager.inject(fine, coarse)
         for bc in chain(*finectx._problem.bcs):
             if isinstance(bc, DirichletBC):
                 bc.apply(finectx._x)
-                g = bc.function_arg
-                if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
-                    manager.inject(g, g._child)
 
     V = problem.u.function_space()
     if not hasattr(V, "_coarse"):
@@ -227,13 +225,18 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
     # Build set of coefficients we need to coarsen
-    forms = (problem.F, problem.J, problem.Jp)
-    coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+    seen = set()
+    coefficients = problem.F.coefficients() + problem.J.coefficients()
+    if problem.Jp is not None:
+        coefficients.extend(problem.Jp.coefficients())
+
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
         coefficient_mapping = {}
     for c in coefficients:
-        coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
+        if c not in seen:
+            coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
+            seen.add(c)
 
     u = coefficient_mapping[problem.u]
 
@@ -306,6 +309,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
+    from itertools import chain
     for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()

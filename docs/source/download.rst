@@ -30,13 +30,6 @@ in ``PETSC_CONFIGURE_OPTIONS`` as they are set by the install script.
 You can see the set of options passed to PETSc by providing the flag
 ``--show-petsc-configure-options``.
 
-.. note::
-
-  Some MacOS users have reported issues with PETSc installation on Xcode15, 
-  and updating from Xcode15 to Xcode15 beta have sorted this installation problem.
-  If you are encountering this issue, we suggest trying this update. 
-  Please keep us informed if this solution does not work for you.
-
 You will need to activate the venv in each shell from which you
 use Firedrake::
 
@@ -218,6 +211,14 @@ To help us diagnose what's going wrong, **please include the following log files
 Likewise, if it's ``firedrake-update`` that fails, please include the
 file ``firedrake-update.log``. You can find this in the Firedrake
 virtual environment.
+
+.. note::
+
+  Some MacOS users have experienced difficulties on installing firedrake on Xcode 15,
+  and updating from Xcode 15 to the beta version has been a solution. If you are
+  encountering this issue, we recommend attempting this update as a potential solution.
+  Keep us informed if you face any challenges or if this approach does not resolve the
+  install issue.
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

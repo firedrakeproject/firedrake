@@ -21,7 +21,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 @PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree):
-    """Build a scalar :class:`finat.ufl.FiniteElement`.
+    """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.
 
     :arg mesh: The mesh to determine the cell from.
     :arg family: The finite element family.
@@ -65,12 +65,12 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
 def check_element(element, top=True):
     """Run some checks on the provided element.
 
-    The :class:`~finat.ufl.VectorElement` and
-    :class:`~finat.ufl.TensorElement` modifiers must be "outermost"
+    The :class:`finat.ufl.mixedelement.VectorElement` and
+    :class:`finat.ufl..mixedelement.TensorElement` modifiers must be "outermost"
     for function space construction to work, excepting that they
-    should not wrap a :class:`~finat.ufl.MixedElement`.  Similarly,
-    a base :class:`~finat.ufl.MixedElement` must be outermost (it
-    can contain :class:`~finat.ufl.MixedElement` instances, provided
+    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
+    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
+    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
     :arg element: The :class:`UFL element
@@ -102,20 +102,31 @@ def check_element(element, top=True):
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
-    """Create a :class:`.FunctionSpace`.
+    """Create a `.FunctionSpace`.
 
-    :arg mesh: The mesh to determine the cell from.
-    :arg family: The finite element family.
-    :arg degree: The degree of the finite element.
-    :arg name: An optional name for the function space.
-    :arg vfamily: The finite element in the vertical dimension
-        (extruded meshes only).
-    :arg vdegree: The degree of the element in the vertical dimension
-        (extruded meshes only).
+    Parameters
+    ----------
+    mesh:
+        The mesh to determine the cell from.
+    family:
+        The finite element family.
+    degree:
+        The degree of the finite element.
+    name:
+        An optional name for the function space.
+    vfamily:
+        The finite element in the vertical dimension (extruded meshes
+        only).
+    vdegree:
+        The degree of the element in the vertical dimension (extruded
+        meshes only).
 
+    Notes
+    -----
     The ``family`` argument may be an existing
     :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
-    are ignored and the appropriate :class:`.FunctionSpace` is returned.
+    are ignored and the appropriate `.FunctionSpace` is returned.
+
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
 
@@ -182,32 +193,41 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
                         name=None, vfamily=None, vdegree=None):
-    """Create a rank-1 :class:`.FunctionSpace`.
+    """Create a rank-1 `.FunctionSpace`.
 
-    :arg mesh: The mesh to determine the cell from.
-    :arg family: The finite element family.
-    :arg degree: The degree of the finite element.
-    :arg dim: An optional number of degrees of freedom per function
-       space node (defaults to the geometric dimension of the mesh).
-    :arg name: An optional name for the function space.
-    :arg vfamily: The finite element in the vertical dimension
-        (extruded meshes only).
-    :arg vdegree: The degree of the element in the vertical dimension
-        (extruded meshes only).
+    Parameters
+    ----------
+    mesh:
+        The mesh to determine the cell from.
+    family:
+        The finite element family.
+    degree:
+        The degree of the finite element.
+    dim:
+        An optional number of degrees of freedom per function space
+        node (defaults to the geometric dimension of the mesh).
+    name:
+        An optional name for the function space.
+    vfamily:
+        The finite element in the vertical dimension (extruded meshes
+        only).
+    vdegree:
+        The degree of the element in the vertical dimension (extruded
+        meshes only).
 
+    Notes
+    -----
     The ``family`` argument may be an existing
     :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
-    are ignored and the appropriate :class:`.FunctionSpace` is
-    returned.  In this case, the provided element must have an empty
-    :meth:`finat.ufl.FiniteElementBase.value_shape`.
+    are ignored and the appropriate `.FunctionSpace` is returned.  In
+    this case, the provided element must have an empty
+    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
 
-    .. note::
-
-       The element that you provide need be a scalar element (with
-       empty ``value_shape``), however, it should not be an existing
-       :class:`~finat.ufl.VectorElement`.  If you already have an
-       existing :class:`~finat.ufl.VectorElement`, you should pass
-       it to :func:`FunctionSpace` directly instead.
+    The element that you provide need be a scalar element (with empty
+    ``value_shape``), however, it should not be an existing
+    :class:`finat.ufl.mixedelement.VectorElement`.  If you already have an
+    existing :class:`finat.ufl.mixedelement.VectorElement`, you should
+    pass it to `FunctionSpace` directly instead.
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
@@ -223,33 +243,44 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
                         vdegree=None):
-    """Create a rank-2 :class:`.FunctionSpace`.
+    """Create a rank-2 FunctionSpace.
 
-    :arg mesh: The mesh to determine the cell from.
-    :arg family: The finite element family.
-    :arg degree: The degree of the finite element.
-    :arg shape: An optional shape for the tensor-valued degrees of
-       freedom at each function space node (defaults to a square
-       tensor using the geometric dimension of the mesh).
-    :arg symmetry: Optional symmetries in the tensor value.
-    :arg name: An optional name for the function space.
-    :arg vfamily: The finite element in the vertical dimension
-        (extruded meshes only).
-    :arg vdegree: The degree of the element in the vertical dimension
-        (extruded meshes only).
+    Parameters
+    ----------
+    mesh:
+        The mesh to determine the cell from.
+    family:
+        The finite element family.
+    degree:
+        The degree of the finite element.
+    shape:
+        An optional shape for the tensor-valued degrees of freedom at
+        each function space node (defaults to a square tensor using the
+        geometric dimension of the mesh).
+    symmetry:
+        Optional symmetries in the tensor value.
+    name:
+        An optional name for the function space.
+    vfamily:
+        The finite element in the vertical dimension (extruded meshes
+        only).
+    vdegree:
+        The degree of the element in the vertical dimension (extruded
+        meshes only).
 
+    Notes
+    -----
     The ``family`` argument may be an existing
-    :class:`~finat.ufl.FiniteElementBase`, in which case all other arguments
-    are ignored and the appropriate :class:`.FunctionSpace` is
+    :class:`finat.ufl.FiniteElementBase`, in which case all other arguments
+    are ignored and the appropriate `FunctionSpace` is
     returned.  In this case, the provided element must have an empty
-    :meth:`~finat.ufl.FiniteElementBase.value_shape`.
+    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
 
-    .. note::
+    The element that you provide must be a scalar element (with empty
+    ``value_shape``).  If you already have an existing
+    :class:`finat.ufl.mixedelement.TensorElement`, you should pass it to
+    `FunctionSpace` directly instead.
 
-       The element that you provide must be a scalar element (with
-       empty ``value_shape``).  If you already have an existing
-       :class:`~finat.ufl.TensorElement`, you should pass it to
-       :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
@@ -259,13 +290,20 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 @PETSc.Log.EventDecorator()
 def MixedFunctionSpace(spaces, name=None, mesh=None):
-    """Create a :class:`.MixedFunctionSpace`.
+    """Create a MixedFunctionSpace.
 
-    :arg spaces: An iterable of constituent spaces, or a
-        :class:`~finat.ufl.MixedElement`.
-    :arg name: An optional name for the mixed function space.
-    :arg mesh: An optional mesh.  Must be provided if spaces is a
-        :class:`~finat.ufl.MixedElement`, ignored otherwise.
+    Parameters
+    ----------
+
+    spaces:
+        An iterable of constituent spaces, or a
+        :class:`finat.ufl.mixedelement.MixedElement`.
+    name:
+        An optional name for the mixed function space.
+    mesh:
+        An optional mesh.  Must be provided if spaces is a
+        :class:`finat.ufl.mixedelement.MixedElement`, ignored otherwise.
+
     """
     if isinstance(spaces, finat.ufl.FiniteElementBase):
         # Build the spaces if we got a mixed element
