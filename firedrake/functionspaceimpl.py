@@ -388,7 +388,7 @@ class WithGeometryBase(object):
         :returns: the new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :func:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
         V_parent = self
         # Deal with ProxyFunctionSpace
