@@ -661,6 +661,11 @@ def test_missing_dofs():
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
     interpolator.interpolate(f_src, default_missing_val=2.0, output=f_dest)
     assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
+    f_dest = Function(V_dest).assign(Constant(1.0))
+    # make sure we have actually changed f_dest before checking interpolation
+    assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
+    interpolator.interpolate(f_src, default_missing_val=0.0, output=f_dest)
+    assert np.allclose(f_dest.at(coords), np.array([0.25, 0.0]))
 
     # Try the other way around so we can check transpose is unaffected
     m_src = UnitSquareMesh(4, 5)
