@@ -163,6 +163,10 @@ def test_mixed_primal_dual(rt1, dg0):
     Z1 = rt1.dual() * dg0
     Z2 = rt1 * dg0.dual()
     assert Z2 != Z1
+    assert not is_dual(Z1)
+    assert not is_primal(Z1)
+    assert not is_dual(Z2)
+    assert not is_primal(Z2)
 
 
 @pytest.fixture(scope="module", params=[
