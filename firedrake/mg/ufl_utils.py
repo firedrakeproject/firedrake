@@ -10,7 +10,7 @@ import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, push_parent, pop_parent, add_hook)
+                               get_parent, add_hook)
 
 from . import utils
 import weakref
