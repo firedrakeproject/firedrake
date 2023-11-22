@@ -10,7 +10,7 @@ import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, push_parent, pop_parent, add_hook)
+                               get_parent, add_hook)
 
 from . import utils
 import weakref
@@ -137,23 +137,6 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
     V_fine._coarse = V_coarse
-
-    # FIXME: This replicates some code from dmhooks.coarsen, but we
-    # can't do things there because that code calls this code.
-
-    # We need to move these operators over here because if we have
-    # fieldsplits + MG with auxiliary coefficients on spaces other
-    # than which we do the MG, dm.coarsen is never called, so the
-    # hooks are not attached. Instead we just call (say) inject which
-    # coarsens the functionspace.
-    cdm = V_coarse.dm
-    parent = get_parent(V_fine.dm)
-    try:
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
-    except ValueError:
-        # Not in an add_hooks context
-        pass
     return V_coarse
 
 
