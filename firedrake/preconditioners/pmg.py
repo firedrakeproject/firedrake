@@ -18,6 +18,7 @@ import firedrake
 import finat
 import FIAT
 import ufl
+import finat.ufl
 import loopy
 import numpy
 import os
@@ -28,8 +29,8 @@ __all__ = ("PMGPC", "PMGSNES")
 
 
 class PMGBase(PCSNESBase):
-    """
-    A class for implementing p-multigrid
+    """A class for implementing p-multigrid.
+
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
     PETSc PC of type MG and with options prefix ``pmg_``. The
@@ -45,7 +46,7 @@ class PMGBase(PCSNESBase):
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
-    This takes in a :class:`ufl.FiniteElement` and either returns a
+    This takes in a :class:`finat.ufl.finiteelement.FiniteElement` and either returns a
     new, coarser element, or raises a `ValueError` (if the supplied element
     should be the coarsest one of the hierarchy).
 
@@ -62,16 +63,18 @@ class PMGBase(PCSNESBase):
     _transfer_cache = weakref.WeakKeyDictionary()
 
     def coarsen_element(self, ele):
-        """
-        Coarsen a given element to form the next problem down in the p-hierarchy.
+        """Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
-        raise `ValueError`. Otherwise, return a new :class:`ufl.FiniteElement`.
+        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.finiteelement.FiniteElement`.
 
         By default, this does power-of-2 coarsening in polynomial degree until
         we reach the coarse degree specified through PETSc options (1 by default).
 
-        :arg ele: a :class:`ufl.FiniteElement` to coarsen.
+        Parameters
+        ----------
+        ele :
+            A :class:`finat.ufl.finiteelement.FiniteElement` to coarsen.
         """
         degree = PMGBase.max_degree(ele)
         if degree <= self.coarse_degree:
@@ -79,8 +82,7 @@ class PMGBase(PCSNESBase):
         return PMGBase.reconstruct_degree(ele, max(degree//2, self.coarse_degree))
 
     def coarsen_form(self, form, fine_to_coarse_map):
-        """
-        Coarsen a form, by replacing the solution, test and trial functions.
+        """Coarsen a form, by replacing the solution, test and trial functions.
         """
         return ufl.replace(form, fine_to_coarse_map)
 
@@ -125,7 +127,7 @@ class PMGBase(PCSNESBase):
         while True:
             try:
                 ele_ = self.coarsen_element(ele)
-                assert ele_.value_shape() == ele.value_shape()
+                assert ele_.value_shape == ele.value_shape
                 ele = ele_
             except ValueError:
                 break
@@ -383,16 +385,16 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
-        """Return the maximum degree of a :class:`ufl.FiniteElement`"""
-        if isinstance(ele, (ufl.VectorElement, ufl.TensorElement)):
+        """Return the maximum degree of a :class:`finat.ufl.finiteelement.FiniteElement`"""
+        if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
-        elif isinstance(ele, (ufl.MixedElement, ufl.TensorProductElement)):
-            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements())
-        elif isinstance(ele, ufl.EnrichedElement):
+        elif isinstance(ele, (finat.ufl.MixedElement, finat.ufl.TensorProductElement)):
+            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements)
+        elif isinstance(ele, finat.ufl.EnrichedElement):
             return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, ufl.WithMapping):
+        elif isinstance(ele, finat.ufl.WithMapping):
             return PMGBase.max_degree(ele.wrapee)
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement, ufl.RestrictedElement)):
+        elif isinstance(ele, (finat.ufl.HDivElement, finat.ufl.HCurlElement, finat.ufl.BrokenElement, finat.ufl.RestrictedElement)):
             return PMGBase.max_degree(ele._element)
         else:
             degree = ele.degree()
@@ -403,37 +405,43 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def reconstruct_degree(ele, degree):
-        """
-        Reconstruct an element, modifying its polynomial degree.
+        """Reconstruct an element, modifying its polynomial degree.
 
         By default, reconstructed EnrichedElements, TensorProductElements,
         and MixedElements will have the degree of the sub-elements shifted
         by the same amount so that the maximum degree is `degree`.
         This is useful to coarsen spaces like NCF(k) x DQ(k-1).
 
-        :arg ele: a :class:`ufl.FiniteElement` to reconstruct,
-        :arg degree: an integer degree.
+        Parameters
+        ----------
+        ele :
+            A :class:`finat.ufl.finiteelement.FiniteElement` to reconstruct.
+        degree :
+            An integer degree.
 
-        :returns: the reconstructed element
+        Returns
+        -------
+        ele :
+            The reconstructed element.
         """
-        if isinstance(ele, ufl.VectorElement):
-            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements())
-        elif isinstance(ele, ufl.TensorElement):
+        if isinstance(ele, finat.ufl.VectorElement):
+            return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements)
+        elif isinstance(ele, finat.ufl.TensorElement):
             return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), shape=ele._shape, symmetry=ele.symmetry())
-        elif isinstance(ele, ufl.EnrichedElement):
+        elif isinstance(ele, finat.ufl.EnrichedElement):
             shift = degree - PMGBase.max_degree(ele)
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele._elements))
-        elif isinstance(ele, ufl.TensorProductElement):
+        elif isinstance(ele, finat.ufl.TensorProductElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements()), cell=ele.cell())
-        elif isinstance(ele, ufl.MixedElement):
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements), cell=ele.cell)
+        elif isinstance(ele, finat.ufl.MixedElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements()))
-        elif isinstance(ele, ufl.WithMapping):
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements))
+        elif isinstance(ele, finat.ufl.WithMapping):
             return type(ele)(PMGBase.reconstruct_degree(ele.wrapee, degree), ele.mapping())
-        elif isinstance(ele, (ufl.HDivElement, ufl.HCurlElement, ufl.BrokenElement)):
+        elif isinstance(ele, (finat.ufl.HDivElement, finat.ufl.HCurlElement, finat.ufl.BrokenElement)):
             return type(ele)(PMGBase.reconstruct_degree(ele._element, degree))
-        elif isinstance(ele, ufl.RestrictedElement):
+        elif isinstance(ele, finat.ufl.RestrictedElement):
             return type(ele)(PMGBase.reconstruct_degree(ele._element, degree), restriction_domain=ele._restriction_domain)
         else:
             return ele.reconstruct(degree=degree)
@@ -625,20 +633,26 @@ def compare_element(e1, e2):
 @cached({}, key=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(V):
-    """
-    Find DOF permutation to factor out the EnrichedElement expansion into common
-    TensorProductElements. This routine exposes structure to e.g vectorize
+    """Find DOF permutation to factor out the EnrichedElement expansion
+    into common TensorProductElements.
+
+    This routine exposes structure to e.g vectorize
     prolongation of NCE or NCF accross vector components, by permuting all
     components into a common TensorProductElement.
 
     This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
 
-    :arg V: a :class:`.FunctionSpace`
+    Parameters
+    ----------
+    V :
+        A :class:`.FunctionSpace`.
 
-    :returns: a 3-tuple of the DOF permutation, the unique terms in expansion as
-              a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
-              permutations of the axes to form the element given by their shifts
-              in list of `int` tuples
+    Returns
+    -------
+    A 3-tuple of the DOF permutation, the unique terms in expansion
+    as a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
+    permutations of the axes to form the element given by their shifts
+    in list of `int` tuples
     """
     finat_element = V.finat_element
     expansion = expand_element(finat_element)
@@ -1062,7 +1076,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = ufl.Identity(Q.ufl_element().value_shape()[0])
+        tensor = ufl.Identity(Q.ufl_element().value_shape[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -1288,9 +1302,9 @@ class StandaloneInterpolationMatrix(object):
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
-                qelem = ufl.FiniteElement("DQ", cell=felem.cell(), degree=PMGBase.max_degree(felem))
-                if felem.value_shape():
-                    qelem = ufl.TensorElement(qelem, shape=felem.value_shape(), symmetry=felem.symmetry())
+                qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
+                if felem.value_shape:
+                    qelem = finat.ufl.TensorElement(qelem, shape=felem.value_shape, symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
@@ -1520,8 +1534,8 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
     mesh = Pk.mesh()
 
     fele = Pk.ufl_element()
-    if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
-        for i in range(fele.num_sub_elements()):
+    if isinstance(fele, finat.ufl.MixedElement) and not isinstance(fele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        for i in range(fele.num_sub_elements):
             Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
             P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
 
@@ -1564,7 +1578,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
 
 def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     fele = Vf.ufl_element()
-    if isinstance(fele, ufl.MixedElement) and not isinstance(fele, (ufl.VectorElement, ufl.TensorElement)):
+    if isinstance(fele, finat.ufl.MixedElement) and not isinstance(fele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
         ctx = MixedInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)

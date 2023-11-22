@@ -54,6 +54,7 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
+from finat.ufl import *
 # Set up the cache directories before importing PyOP2.
 firedrake_configuration.setup_cache_dirs()
 

@@ -11,6 +11,7 @@ from typing import Optional
 import numpy
 
 import ufl
+import finat.ufl
 
 from pyop2 import op2, mpi
 
@@ -338,14 +339,14 @@ class FunctionSpace(object):
     determined from the provided element.
 
     :arg mesh: The :func:`~.Mesh` to build the function space on.
-    :arg element: The :class:`~ufl.classes.FiniteElementBase` describing the
+    :arg element: The :class:`finat.ufl.finiteelementbase.FiniteElementBase` describing the
         degrees of freedom.
     :kwarg name: An optional name for this :class:`FunctionSpace`,
         useful for later identification.
 
     The element can be a essentially any
-    :class:`~ufl.classes.FiniteElementBase`, except for a
-    :class:`~ufl.classes.MixedElement`, for which one should use the
+    :class:`finat.ufl.finiteelementbase.FiniteElementBase`, except for a
+    :class:`finat.ufl.mixedelement.MixedElement`, for which one should use the
     :class:`MixedFunctionSpace` constructor.
 
     To determine whether the space is scalar-, vector- or
@@ -364,25 +365,25 @@ class FunctionSpace(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
-        if type(element) is ufl.MixedElement:
+        if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
         sdata = get_shared_data(mesh, element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
-        if type(element) in {ufl.TensorElement, ufl.VectorElement} \
-           or (isinstance(element, ufl.WithMapping)
-               and type(element.wrapee) in {ufl.TensorElement, ufl.VectorElement}):
+        if type(element) in {finat.ufl.TensorElement, finat.ufl.VectorElement} \
+           or (isinstance(element, finat.ufl.WithMapping)
+               and type(element.wrapee) in {finat.ufl.TensorElement, finat.ufl.VectorElement}):
             # The number of "free" dofs is given by reference_value_shape,
             # not value_shape due to symmetry specifications
-            rvs = element.reference_value_shape()
+            rvs = element.reference_value_shape
             # This requires that the sub element is not itself a
             # tensor element (which is checked by the top level
             # constructor of function spaces)
             shape_element = element
-            if isinstance(element, ufl.WithMapping):
+            if isinstance(element, finat.ufl.WithMapping):
                 shape_element = element.wrapee
-            sub = shape_element.sub_elements()[0].value_shape()
+            sub = shape_element.sub_elements[0].value_shape
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
@@ -393,10 +394,10 @@ class FunctionSpace(object):
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
         element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`~ufl.classes.VectorElement` or
-        :class:`~ufl.classes.TensorElement` instances have rank equivalent to
+        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
         the number of components of their
-        :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
+        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
         self.value_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
@@ -498,7 +499,8 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.FiniteElementBase` associated with this space."""
+        r"""The :class:`finat.ufl.finiteelementbase.FiniteElementBase` associated
+        with this space."""
         return self.ufl_function_space().ufl_element()
 
     def ufl_function_space(self):
@@ -703,7 +705,7 @@ class MixedFunctionSpace(object):
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
-                                                     ufl.MixedElement(*[s.ufl_element() for s in spaces]))
+                                                     finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
@@ -724,7 +726,7 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        r"""The :class:`~ufl.classes.MixedElement` associated with this space."""
+        r"""The :class:`finat.ufl.mixedelement.MixedElement` associated with this space."""
         return self.ufl_function_space().ufl_element()
 
     def ufl_function_space(self):
@@ -968,11 +970,11 @@ def ComponentFunctionSpace(parent, component):
     :returns: A new :class:`ProxyFunctionSpace` with the component set.
     """
     element = parent.ufl_element()
-    assert type(element) in frozenset([ufl.VectorElement, ufl.TensorElement])
+    assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
     if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.value_size))
-    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0], name=parent.name)
+    new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent
