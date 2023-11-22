@@ -46,7 +46,7 @@ class PMGBase(PCSNESBase):
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
-    This takes in a :class:`finat.ufl.finiteelement.FiniteElement` and either returns a
+    This takes in a :class:`finat.ufl.FiniteElement` and either returns a
     new, coarser element, or raises a `ValueError` (if the supplied element
     should be the coarsest one of the hierarchy).
 
@@ -67,12 +67,12 @@ class PMGBase(PCSNESBase):
         Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
-        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.finiteelement.FiniteElement`.
+        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.FiniteElement`.
 
         By default, this does power-of-2 coarsening in polynomial degree until
         we reach the coarse degree specified through PETSc options (1 by default).
 
-        :arg ele: a :class:`finat.ufl.finiteelement.FiniteElement` to coarsen.
+        :arg ele: a :class:`finat.ufl.FiniteElement` to coarsen.
         """
         degree = PMGBase.max_degree(ele)
         if degree <= self.coarse_degree:
@@ -384,7 +384,7 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
-        """Return the maximum degree of a :class:`finat.ufl.finiteelement.FiniteElement`"""
+        """Return the maximum degree of a :class:`finat.ufl.FiniteElement`"""
         if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
         elif isinstance(ele, (finat.ufl.MixedElement, finat.ufl.TensorProductElement)):
@@ -412,7 +412,7 @@ class PMGBase(PCSNESBase):
         by the same amount so that the maximum degree is `degree`.
         This is useful to coarsen spaces like NCF(k) x DQ(k-1).
 
-        :arg ele: a :class:`finat.ufl.finiteelement.FiniteElement` to reconstruct,
+        :arg ele: a :class:`finat.ufl.FiniteElement` to reconstruct,
         :arg degree: an integer degree.
 
         :returns: the reconstructed element

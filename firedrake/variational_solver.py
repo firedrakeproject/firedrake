@@ -3,7 +3,7 @@ from itertools import chain
 from contextlib import ExitStack
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake import function, cofunction
+from firedrake import function
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -255,20 +255,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         # Make sure appcontext is attached to every coefficient DM before we solve.
         problem = self._problem
-        problem_dms = [self.snes.getDM()]
-        seen = {problem.u.function_space()}
-        coefficients = problem.F.coefficients() + problem.J.coefficients()
-        if problem.Jp is not None:
-            coefficients += problem.Jp.coefficients()
-        for val in coefficients:
-            if isinstance(val, (function.Function, cofunction.Cofunction)):
-                V = val.function_space()
-                if V not in seen:
-                    problem_dms.append(V.dm)
-                    seen.add(V)
+        forms = (problem.F, problem.J, problem.Jp)
+        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        # Make sure the solution dm is visited last
+        solution_dm = self.snes.getDM()
+        problem_dms = [V.dm for V in utils.unique(c.function_space() for c in coefficients) if V.dm != solution_dm]
+        problem_dms.append(solution_dm)
 
-        for dbc in self._problem.dirichlet_bcs():
-            dbc.apply(self._problem.u)
+        for dbc in problem.dirichlet_bcs():
+            dbc.apply(problem.u)
 
         if bounds is not None:
             lower, upper = bounds
@@ -282,7 +277,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in reversed(problem_dms)],
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
