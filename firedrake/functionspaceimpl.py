@@ -6,6 +6,8 @@ classes for attaching extra information to instances of these.
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from operator import mul
+from functools import reduce
 from typing import Optional
 
 import numpy

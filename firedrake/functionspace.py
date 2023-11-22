@@ -208,17 +208,18 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         rec(spaces.sub_elements)
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
 
-    # Check that function spaces are all primal or all dual
-    try:
-        cls, = set(type(s) for s in spaces)
-    except ValueError:
-        raise ValueError("All function spaces must be either primal or dual!")
-
     # Check that function spaces are on the same mesh
     meshes = [space.mesh() for space in spaces]
     for i in range(1, len(meshes)):
         if meshes[i] is not meshes[0]:
             raise ValueError("All function spaces must be defined on the same mesh!")
+
+    try:
+        cls, = set(type(s) for s in spaces)
+    except ValueError:
+        # Neither primal nor dual
+        # We had not implemented something in between, so let's make it primal
+        cls = impl.WithGeometry
 
     # Select mesh
     mesh = meshes[0]
@@ -237,5 +238,5 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     new = impl.MixedFunctionSpace(spaces, name=name)
     if mesh is not mesh.topology:
-        return cls.create(new, mesh)
+        new = cls.create(new, mesh)
     return new
