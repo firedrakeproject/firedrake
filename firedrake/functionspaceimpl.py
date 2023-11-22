@@ -339,13 +339,13 @@ class FunctionSpace(object):
     determined from the provided element.
 
     :arg mesh: The :func:`~.Mesh` to build the function space on.
-    :arg element: The :class:`finat.ufl.FiniteElementBase` describing the
+    :arg element: The :class:`finat.ufl.finiteelementbase.FiniteElementBase` describing the
         degrees of freedom.
     :kwarg name: An optional name for this :class:`FunctionSpace`,
         useful for later identification.
 
     The element can be a essentially any
-    :class:`finat.ufl.FiniteElementBase`, except for a
+    :class:`finat.ufl.finiteelementbase.FiniteElementBase`, except for a
     :class:`finat.ufl.mixedelement.MixedElement`, for which one should use the
     :class:`MixedFunctionSpace` constructor.
 
@@ -499,7 +499,8 @@ class FunctionSpace(object):
         return self._mesh
 
     def ufl_element(self):
-        r"""The :class:`finat.ufl.FiniteElementBase` associated with this space."""
+        r"""The :class:`finat.ufl.finiteelementbase.FiniteElementBase` associated
+        with this space."""
         return self.ufl_function_space().ufl_element()
 
     def ufl_function_space(self):
