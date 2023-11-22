@@ -180,13 +180,16 @@ argument:
    :dedent:
    :lines: 72-73, 80
 
-By default the missing degrees of freedom (DoFs, the global basis function
-coefficients which could not be set) are zero:
+In this case, the missing degrees of freedom (DoFs, the global basis function
+coefficients which could not be set) are, by default, set to zero:
 
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :lines: 85
+
+If we specify an output :py:class:`~.Function` then the missing DoFs are
+unmodified.
 
 We can optionally specify a value to use for our missing DoFs. Here
 we set them to be ``nan`` ('not a number') for easy identification:
@@ -195,6 +198,9 @@ we set them to be ``nan`` ('not a number') for easy identification:
    :language: python3
    :dedent:
    :lines: 90-93
+
+If we specify an output :py:class:`~.Function`, this overwrites the missing
+DoFs.
 
 When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
 argument is set at construction:
