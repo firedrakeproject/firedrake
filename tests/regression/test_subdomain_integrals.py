@@ -44,7 +44,7 @@ def test_solve_cell_subdomains(form, u):
     solve(form == 0, u)
     expect = Function(u.function_space())
 
-    mesh = u.ufl_domain()
+    mesh = u.function_space().mesh()
     expect.interpolate(Constant(1.0), subset=mesh.cell_subset(1))
     expect.interpolate(Constant(0.5), subset=mesh.cell_subset(2))
 

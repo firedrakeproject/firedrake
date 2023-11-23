@@ -323,7 +323,7 @@ class CrossMeshInterpolator(Interpolator):
         # setup
         V_dest = V
         src_mesh = extract_unique_domain(expr)
-        dest_mesh = V_dest.ufl_domain()
+        dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
