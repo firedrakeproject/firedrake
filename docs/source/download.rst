@@ -213,12 +213,11 @@ file ``firedrake-update.log``. You can find this in the Firedrake
 virtual environment.
 
 .. note::
-
-  Some MacOS users have experienced difficulties on installing firedrake on Xcode 15,
-  and updating from Xcode 15 to the beta version has been a solution. If you are
-  encountering this issue, we recommend attempting this update as a potential solution.
-  Keep us informed if you face any challenges or if this approach does not resolve the
-  install issue.
+  MacOS users experiencing firedrake installation issues on Xcode 15 
+  can potentially resolve them by updating to the beta version of Xcode 15. 
+  The instructions for the Xcode 15 update are available on this link `link 
+  <https://github.com/firedrakeproject/firedrake/wiki/Installation-Issues-with-Firedrake-on-Xcode-15-for-MacOS-Users>`_
+  
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
