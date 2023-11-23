@@ -1188,6 +1188,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
     :arg on_base: If True, assume extruded space is actually Foo x Real.
+    :arg boundary_set: A set of boundary markers, indicating the sub-domains 
+        a boundary condition is specified on. 
     :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
         to get the true data layout.
 
@@ -1244,10 +1246,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
     
-    # change here -> does this go inside the dimension loop?
-    # same idea as in get_facet_nodes
     if boundary_set:
         for sub_domain in boundary_set:
+            if sub_domain == "on_boundary":
+                label = "exterior_facets"
+                sub_domain = (1, )
+            else:
+                label = FACE_SETS_LABEL
             for marker in sub_domain:
                 n = dm.getStratumSize(label, marker) 
             if n == 0:
@@ -1256,11 +1261,26 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
             for i in range(n):
                 p = points[i]
                 CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                # might need to deal with offset here too 
                 CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
-                # not sure how to get the indices for PetscSectionSetConstraintIndices 
-                # CHKERR(PetscSectionSetConstraintIndices(section.sec, p, None))
     section.setUp()
+    
+    if boundary_set:
+        # have to loop again as we need to call section.setUp() first
+        for sub_domain in boundary_set:
+            if sub_domain == "on_boundary":
+                label = "exterior_facets"
+                sub_domain = (1, )
+            else:
+                label = FACE_SETS_LABEL
+            for marker in sub_domain:
+                n = dm.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = dm.getStratumIS(label, marker).indices
+            for i in range(n):
+                p = points[i]
+                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, [index for index in range(dof)]))
     return section
 
 
