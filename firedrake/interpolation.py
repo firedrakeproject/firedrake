@@ -9,7 +9,7 @@ import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
-from ufl.domain import extract_unique_domain
+from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
@@ -22,7 +22,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, functionspaceimpl
+from firedrake import tsfc_interface, utils
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.adjoint_utils import annotate_interpolate
 from firedrake.petsc import PETSc
@@ -191,10 +191,7 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        if isinstance(V, functionspaceimpl.WithGeometryBase):
-            target_mesh = V.mesh()
-        else:
-            target_mesh = extract_unique_domain(V)
+        target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         if target_mesh is not source_mesh:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -705,10 +702,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
-    if isinstance(V, functionspaceimpl.WithGeometryBase):
-        target_mesh = V.mesh()
-    else:
-        target_mesh = extract_unique_domain(V)
+    target_mesh = as_domain(V)
     if len(arguments) == 0:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (
