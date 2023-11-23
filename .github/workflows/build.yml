@@ -109,6 +109,7 @@ jobs:
           cd ../firedrake_venv/src/pyadjoint
           python -m pytest \
             --durations=200 \
+            --cov firedrake \
             --timeout=600 \
             --timeout-method=thread \
             -o faulthandler_timeout=660 \
