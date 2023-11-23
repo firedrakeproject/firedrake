@@ -5,7 +5,6 @@ import itertools
 import os
 import subprocess
 import sys
-import warnings
 
 from contextlib import contextmanager
 from pyop2 import mpi
@@ -27,6 +26,10 @@ from petsc4py import PETSc
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
+
+
+class FiredrakePETScError(Exception):
+    pass
 
 
 def flatten_parameters(parameters, sep="_"):
@@ -301,13 +304,14 @@ def _extract_comm(obj: Any) -> MPI.Comm:
     return comm
 
 
+@mpi.collective
 def garbage_cleanup(obj: Any):
     """ Clean up garbage PETSc objects on Firedrake object or any comm
 
     Parameters
     ----------
     obj:
-        Any Firedrake object or any comm
+        Any Firedrake object with a comm, or any comm
 
     """
     # We are manually calling the Python cyclic garbage collection routine to
@@ -319,16 +323,17 @@ def garbage_cleanup(obj: Any):
     if comm:
         PETSc.garbage_cleanup(comm)
     else:
-        warnings.warn("No comm found, skipping garbage cleanup")
+        raise FiredrakePETScError("No comm found, cannot clean up garbage")
 
 
+@mpi.collective
 def garbage_view(obj: Any):
     """ View garbage PETSc objects on Firedrake object or any comm
 
     Parameters
     ----------
     obj:
-        Any Firedrake object or any comm
+        Any Firedrake object with a comm, or any comm.
 
     """
     # We are manually calling the Python cyclic garbage collection routine so
@@ -338,4 +343,4 @@ def garbage_view(obj: Any):
     if comm:
         PETSc.garbage_view(comm)
     else:
-        warnings.warn("No comm found, skipping garbage view")
+        raise FiredrakePETScError("No comm found, cannot view garbage")
