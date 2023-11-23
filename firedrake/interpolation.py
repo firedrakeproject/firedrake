@@ -22,7 +22,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils
+from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.adjoint_utils import annotate_interpolate
 from firedrake.petsc import PETSc
@@ -191,7 +191,10 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        target_mesh = V.ufl_domain()
+        if isinstance(V, functionspaceimpl.WithGeometryBase):
+            target_mesh = V.mesh()
+        else:
+            target_mesh = extract_unique_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         if target_mesh is not source_mesh:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -702,7 +705,10 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
-    target_mesh = V.ufl_domain()
+    if isinstance(V, functionspaceimpl.WithGeometryBase):
+        target_mesh = V.mesh()
+    else:
+        target_mesh = extract_unique_domain(V)
     if len(arguments) == 0:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (
