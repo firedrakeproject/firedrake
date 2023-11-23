@@ -1,7 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.functionspace import DualSpace
-from ufl.duals import is_dual
+from ufl.duals import is_dual, is_primal
 
 
 @pytest.fixture(scope="module")
@@ -144,6 +144,7 @@ def test_mixed_dual_space_from_element(fs):
     element = fs.ufl_element()
     Vstar = DualSpace(fs.mesh(), element)
     assert is_dual(Vstar)
+    assert not is_primal(Vstar)
     assert Vstar == fs.dual()
     assert Vstar.ufl_element() == element
 
@@ -152,13 +153,20 @@ def test_mixed_dual_space_from_subspaces(fs):
     element = fs.ufl_element()
     Vstar = MixedFunctionSpace([V.dual() for V in fs])
     assert is_dual(Vstar)
+    assert not is_primal(Vstar)
     assert Vstar == fs.dual()
     assert Vstar.ufl_element() == element
 
 
-def test_mixed_dual_space_validation(rt1, dg0):
-    with pytest.raises(ValueError):
-        MixedFunctionSpace([rt1, dg0.dual()])
+@pytest.mark.xfail
+def test_mixed_primal_dual(rt1, dg0):
+    Z1 = rt1.dual() * dg0
+    Z2 = rt1 * dg0.dual()
+    assert Z2 != Z1
+    assert not is_dual(Z1)
+    assert not is_primal(Z1)
+    assert not is_dual(Z2)
+    assert not is_primal(Z2)
 
 
 @pytest.fixture(scope="module", params=[
@@ -229,6 +237,7 @@ def test_reconstruct_mixed(fs, mesh, mesh2, dual):
         V1 = W1.sub(index)
         V2 = W2.sub(index)
         assert is_dual(V1) == is_dual(V2) == dual
+        assert is_primal(V1) == is_primal(V2) != dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
@@ -241,6 +250,7 @@ def test_reconstruct_sub(fs, mesh, mesh2, dual):
         V1 = Z.sub(index)
         V2 = V1.reconstruct(mesh=mesh2)
         assert is_dual(V1) == is_dual(V2) == dual
+        assert is_primal(V1) == is_primal(V2) != dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
@@ -257,6 +267,7 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
         V1 = Z.sub(component)
         V2 = V1.reconstruct(mesh=mesh2)
         assert is_dual(V1) == is_dual(V2) == dual
+        assert is_primal(V1) == is_primal(V2) != dual
         assert V1.mesh() == mesh
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
@@ -273,11 +284,13 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             V1 = Z.sub(index).sub(component)
             V2 = V1.reconstruct(mesh=mesh2)
             assert is_dual(V1) == is_dual(V2) == dual
+            assert is_primal(V1) == is_primal(V2) != dual
             assert V1.mesh() == mesh
             assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
             assert V1.component == V2.component == component
             assert V1.parent is not None and V2.parent is not None
             assert is_dual(V1.parent) == is_dual(V2.parent) == dual
+            assert is_primal(V1.parent) == is_primal(V2.parent) != dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index

@@ -23,20 +23,31 @@ from firedrake.petsc import PETSc
 def check_element(element, top=True):
     """Run some checks on the provided element.
 
-    The :class:`~finat.ufl.VectorElement` and
-    :class:`~finat.ufl.TensorElement` modifiers must be "outermost"
+    The :class:`finat.ufl.mixedelement.VectorElement` and
+    :class:`finat.ufl.mixedelement.TensorElement` modifiers must be "outermost"
     for function space construction to work, excepting that they
-    should not wrap a :class:`~finat.ufl.MixedElement`.  Similarly,
-    a base :class:`~finat.ufl.MixedElement` must be outermost (it
-    can contain :class:`~finat.ufl.MixedElement` instances, provided
+    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
+    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
+    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
     they satisfy the other rules). This function checks that.
 
-    :arg element: The :class:`~finat.ufl.FiniteElementBase` to check.
-    :kwarg top: Are we at the top element (in which case the modifier
-        is legal).
-    :returns: ``None`` if the element is legal.
-    :raises ValueError: if the element is illegal.
+    Parameters
+    ----------
+    element :
+        The :class:`UFL element
+        <finat.ufl.finiteelementbase.FiniteElementBase>` to check.
+    top : bool
+        Are we at the top element (in which case the modifier is legal).
 
+    Returns
+    -------
+
+    ``None`` if the element is legal.
+
+    Raises
+    ------
+    ValueError
+        If the element is illegal.
     """
     if element.cell.cellname() == "hexahedron" and \
        element.family() not in ["Q", "DQ", "BrokenElement"]:
@@ -377,7 +388,7 @@ class WithGeometryBase(object):
         :returns: the new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :func:`~finat.ufl.FiniteElement.reconstruct`.
+        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
         V_parent = self
         # Deal with ProxyFunctionSpace
