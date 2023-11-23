@@ -150,7 +150,7 @@ class CoordinateMapping(PhysicalGeometry):
 
     def jacobian_at(self, point):
         ps = PointSingleton(point)
-        expr = Jacobian(self.mt.terminal.ufl_domain())
+        expr = Jacobian(extract_unique_domain(self.mt.terminal))
         assert ps.expression.shape == (extract_unique_domain(expr).topological_dimension(), )
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
@@ -163,7 +163,7 @@ class CoordinateMapping(PhysicalGeometry):
         return map_expr_dag(context.translator, expr)
 
     def detJ_at(self, point):
-        expr = JacobianDeterminant(self.mt.terminal.ufl_domain())
+        expr = JacobianDeterminant(extract_unique_domain(self.mt.terminal))
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -202,7 +202,7 @@ class CoordinateMapping(PhysicalGeometry):
         return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(3)])
 
     def physical_edge_lengths(self):
-        expr = ufl.classes.CellEdgeVectors(self.mt.terminal.ufl_domain())
+        expr = ufl.classes.CellEdgeVectors(extract_unique_domain(self.mt.terminal))
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -217,13 +217,13 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_points(self, point_set, entity=None):
         """Converts point_set from reference to physical space"""
-        expr = SpatialCoordinate(self.mt.terminal.ufl_domain())
+        expr = SpatialCoordinate(extract_unique_domain(self.mt.terminal))
         point_shape, = point_set.expression.shape
         if entity is not None:
             e, _ = entity
             assert point_shape == e
         else:
-            assert point_shape == expr.ufl_domain().topological_dimension()
+            assert point_shape == extract_unique_domain(expr).topological_dimension()
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -330,7 +330,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
             # below).
             raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
         integrand, = o.ufl_operands
-        domain = o.ufl_domain()
+        domain = extract_unique_domain(o)
         measure = ufl.Measure(self.context.integral_type, domain=domain)
         integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
@@ -345,7 +345,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         if self.context.integral_type == "cell":
             raise ValueError("Can't take FacetAvg in cell integral")
         integrand, = o.ufl_operands
-        domain = o.ufl_domain()
+        domain = extract_unique_domain(o)
         measure = ufl.Measure(self.context.integral_type, domain=domain)
         integrand, degree, argument_multiindices = entity_avg(integrand / FacetArea(domain), measure, self.context.argument_multiindices)
 
@@ -509,7 +509,7 @@ class CellVolumeKernelInterface(ProxyKernelInterface):
 
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
-    integrand, degree = one_times(ufl.dx(domain=terminal.ufl_domain()))
+    integrand, degree = one_times(ufl.dx(domain=extract_unique_domain(terminal)))
     interface = CellVolumeKernelInterface(ctx, mt.restriction)
 
     config = {name: getattr(ctx, name)
@@ -522,7 +522,7 @@ def translate_cellvolume(terminal, mt, ctx):
 @translate.register(FacetArea)
 def translate_facetarea(terminal, mt, ctx):
     assert ctx.integral_type != 'cell'
-    domain = terminal.ufl_domain()
+    domain = extract_unique_domain(terminal)
     integrand, degree = one_times(ufl.Measure(ctx.integral_type, domain=domain))
 
     config = {name: getattr(ctx, name)
@@ -535,7 +535,7 @@ def translate_facetarea(terminal, mt, ctx):
 
 @translate.register(CellOrigin)
 def translate_cellorigin(terminal, mt, ctx):
-    domain = terminal.ufl_domain()
+    domain = extract_unique_domain(terminal)
     coords = SpatialCoordinate(domain)
     expression = construct_modified_terminal(mt, coords)
     point_set = PointSingleton((0.0,) * domain.topological_dimension())
