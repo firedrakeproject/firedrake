@@ -308,6 +308,7 @@ def restrict_kernel(Vf, Vc):
     except KeyError:
         assert ufl.duals.is_dual(Vc)
         assert ufl.duals.is_dual(Vf)
+        mesh = extract_unique_domain(coordinates)
         evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
