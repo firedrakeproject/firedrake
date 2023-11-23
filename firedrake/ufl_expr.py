@@ -246,8 +246,6 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         args = form.arguments()
     except AttributeError:
         args = extract_arguments(form)
-    # UFL arguments need unique indices within a form
-    n = max(a.number() for a in args) if args else -1
 
     if is_dX:
         coords = mesh.coordinates
@@ -261,16 +259,18 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         # Replace instances of the constant with a new argument ``x``
         # and differentiate wrt ``x``.
         V = firedrake.FunctionSpace(mesh, "Real", 0)
-        x = ufl.Coefficient(V, n + 1)
-        n += 1
+        x = ufl.Coefficient(V)
         # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
         form = ufl.replace(form, {u: x})
+        # ~ UOLD= u
         u = x
+        # ~ print('DIFFERENTIATING WRT CONSTANT')
+        # ~ import pytest; pytest.set_trace()
     else:
         raise RuntimeError("Can't compute derivative for form")
 
     if du is None:
-        du = Argument(V, n + 1)
+        du = Argument(V)
 
     if is_dX:
         internal_coefficient_derivatives = {coords: du}
