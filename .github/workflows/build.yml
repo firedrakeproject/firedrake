@@ -80,6 +80,7 @@ jobs:
             --install irksome \
             --install femlium \
             --package-branch ufl pbrubeck/ufl_domain_failure \
+            --package-branch tsfc pbrubeck/expunge-ufl-domain \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
