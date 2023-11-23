@@ -216,7 +216,7 @@ virtual environment.
   MacOS users experiencing firedrake installation issues on Xcode 15 
   can potentially resolve them by updating to the beta version of Xcode 15. 
   The instructions for the Xcode 15 update are available on this `link 
-  <https://github.com/firedrakeproject/firedrake/wiki/Installation-Issues-with-Firedrake-on-Xcode-15-for-MacOS-Users>`_
+  <https://github.com/firedrakeproject/firedrake/wiki/Installation-Issues-with-Firedrake-on-Xcode-15-for-MacOS-Users>`_.
   
 
 Recovering from a broken installation script
