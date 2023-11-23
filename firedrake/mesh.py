@@ -746,7 +746,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             to get the true data layout.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
+        # again will need to check if this is the right way to do it
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, boundary_set=boundary_set, block_size=block_size)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.

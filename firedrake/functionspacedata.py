@@ -83,8 +83,9 @@ def get_global_numbering(mesh, key, global_numbering=None):
     """
     if global_numbering:
         return global_numbering
-    nodes_per_entity, real_tensorproduct = key
-    return mesh.create_section(nodes_per_entity, real_tensorproduct)
+    # quick fix for this for now may be to have an if/else setting boundary_set to None in other cases
+    nodes_per_entity, real_tensorproduct, boundary_set = key # will need to change everywhere?!  
+    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set)
 
 
 @cached
@@ -98,8 +99,8 @@ def get_node_set(mesh, key):
         degenerate fs x Real tensorproduct.
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
-    nodes_per_entity, real_tensorproduct = key
-    global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+    nodes_per_entity, real_tensorproduct, _ = key
+    global_numbering = get_global_numbering(mesh, key)
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)

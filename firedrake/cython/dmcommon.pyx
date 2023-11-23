@@ -1179,7 +1179,7 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
+def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, block_size=1):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
@@ -1232,7 +1232,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
     dimension = get_topological_dimension(dm)
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
     for i in range(dimension + 1):
-        get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+        get_depth_stratum(dm.dm, i, &pStart, &pEnd) # gets all points at dim i 
         if not variable:
             ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
@@ -1243,6 +1243,23 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
                     layers = layer_extents[p, 1] - layer_extents[p, 0]
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
+    
+    # change here -> does this go inside the dimension loop?
+    # same idea as in get_facet_nodes
+    if boundary_set:
+        for sub_domain in boundary_set:
+            for marker in sub_domain:
+                n = dm.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = dm.getStratumIS(label, marker).indices
+            for i in range(n):
+                p = points[i]
+                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+                # might need to deal with offset here too 
+                CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
+                # not sure how to get the indices for PetscSectionSetConstraintIndices 
+                # CHKERR(PetscSectionSetConstraintIndices(section.sec, p, None))
     section.setUp()
     return section
 
