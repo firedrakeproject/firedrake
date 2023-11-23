@@ -242,6 +242,13 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
                          "\nDo you need to add a domain to your Constant?")
     is_dX = u_is_x or u is mesh.coordinates
 
+    try:
+        args = form.arguments()
+    except AttributeError:
+        args = extract_arguments(form)
+    # UFL arguments need unique indices within a form
+    n = max(a.number() for a in args) if args else -1
+
     if is_dX:
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
@@ -262,7 +269,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise RuntimeError("Can't compute derivative for form")
 
     if du is None:
-        du = Argument(V)
+        du = Argument(V, n + 1)
 
     if is_dX:
         internal_coefficient_derivatives = {coords: du}
