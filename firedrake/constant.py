@@ -10,7 +10,8 @@ from firedrake.utils import ScalarType
 from ufl.core.ufl_type import UFLType
 from ufl.corealg.multifunction import MultiFunction
 from ufl.formatting.ufl2unicode import (
-    Expression2UnicodeHandler, UC, superscript_number, PrecedenceRules
+    Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
+    colorama,
 )
 from ufl.utils.counted import Counted
 
@@ -206,8 +207,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         return str(self.dat.data_ro)
 
 
-# This monkey patches ufl2unicode support for Firedrake constants
-def unicode_format_firedrake_constant(self, o):
+# Unicode handler for Firedrake constants
+def _unicode_format_firedrake_constant(self, o):
     """Format a Firedrake constant."""
     i = o.count()
     var = "💩"
@@ -215,10 +216,11 @@ def unicode_format_firedrake_constant(self, o):
         var += UC.combining_right_arrow_above
     elif len(o.ufl_shape) > 1 and self.colorama_bold:
         var = f"{colorama.Style.BRIGHT}{var}{colorama.Style.RESET_ALL}"
-    return f"{var}{superscript_number(i)}"
+    return f"{var}{subscript_number(i)}"
 
 
-Expression2UnicodeHandler.firedrake_constant = unicode_format_firedrake_constant
+# This monkey patches ufl2unicode support for Firedrake constants
+Expression2UnicodeHandler.firedrake_constant = _unicode_format_firedrake_constant
 
 
 # This is internally done in UFL by the ufl_type decorator, but we cannot
