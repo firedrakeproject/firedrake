@@ -22,7 +22,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils
+from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.adjoint_utils import annotate_interpolate
 from firedrake.petsc import PETSc
@@ -103,15 +103,19 @@ def interpolate(
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
         When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are set to zero or to the value
-        ``default_missing_val`` if given. Ignored if interpolating within the
-        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-        :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-        it is created).
+        ``True`` the corresponding values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. In either case, if ``default_missing_val`` is specified, that
+        value is used. This does not affect transpose interpolation. Ignored if
+        interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`
+        (the behaviour of a :func:`.VertexOnlyMesh` in this scenario is, at
+        present, set when it is created).
     :kwarg default_missing_val: For interpolation across meshes: the optional
         value to assign to DoFs in the target mesh that are outside the source
-        mesh. If this is not set then zero is used. Ignored if interpolating
-        within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        mesh. If this is not set then the values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. Ignored if interpolating within the same mesh or onto a
+        :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting block on
         the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
@@ -167,13 +171,13 @@ class Interpolator(abc.ABC):
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
         When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either left unchanged in the
-        :class:`.Function` produced by the interpolation, or are set to a
-        default value if one is provided. See the ``default_missing_val`` kwarg
-        of :meth:`interpolate` for more. Ignored if interpolating within the
-        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-        :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is
-        created).
+        ``True`` the corresponding values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. Can be overwritten with the ``default_missing_val`` kwarg
+        of :meth:`interpolate`. This does not affect transpose interpolation.
+        Ignored if interpolating within the same mesh or onto a
+        :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
+        this scenario is, at present, set when it is created).
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
@@ -187,7 +191,10 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        target_mesh = V.ufl_domain()
+        if isinstance(V, functionspaceimpl.WithGeometryBase):
+            target_mesh = V.mesh()
+        else:
+            target_mesh = extract_unique_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         if target_mesh is not source_mesh:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -229,10 +236,9 @@ class Interpolator(abc.ABC):
               interpolation operator.
         :kwarg default_missing_val: For interpolation across meshes: the
             optional value to assign to DoFs in the target mesh that are
-            outside the source mesh. If this is not set and an ``output``
-            :class:`.Function` is specified, then such DoF values are left
-            unchanged. If this is not set and no ``output`` :class:`.Function`
-            is specified, then the default value is zero. This does not affect
+            outside the source mesh. If this is not set then the values are
+            either (a) unchanged if some ``output`` is specified to the
+            :meth:`interpolate` method or (b) set to zero. This does not affect
             transpose interpolation. Ignored if interpolating within the same
             mesh or onto a :func:`.VertexOnlyMesh`.
 
@@ -545,7 +551,7 @@ class CrossMeshInterpolator(Interpolator):
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
-            if default_missing_val:
+            if default_missing_val is not None:
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
                 ] = default_missing_val
@@ -699,7 +705,10 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
-    target_mesh = V.ufl_domain()
+    if isinstance(V, functionspaceimpl.WithGeometryBase):
+        target_mesh = V.mesh()
+    else:
+        target_mesh = extract_unique_domain(V)
     if len(arguments) == 0:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (

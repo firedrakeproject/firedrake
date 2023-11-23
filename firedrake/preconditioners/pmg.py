@@ -29,8 +29,8 @@ __all__ = ("PMGPC", "PMGSNES")
 
 
 class PMGBase(PCSNESBase):
-    """
-    A class for implementing p-multigrid
+    """A class for implementing p-multigrid.
+
     Internally, this sets up a DM with a custom coarsen routine
     that p-coarsens the problem. This DM is passed to an internal
     PETSc PC of type MG and with options prefix ``pmg_``. The
@@ -46,7 +46,7 @@ class PMGBase(PCSNESBase):
     - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
 
     The p-coarsening is implemented in the `coarsen_element` routine.
-    This takes in a :class:`finat.ufl.FiniteElement` and either returns a
+    This takes in a :class:`finat.ufl.finiteelement.FiniteElement` and either returns a
     new, coarser element, or raises a `ValueError` (if the supplied element
     should be the coarsest one of the hierarchy).
 
@@ -63,16 +63,18 @@ class PMGBase(PCSNESBase):
     _transfer_cache = weakref.WeakKeyDictionary()
 
     def coarsen_element(self, ele):
-        """
-        Coarsen a given element to form the next problem down in the p-hierarchy.
+        """Coarsen a given element to form the next problem down in the p-hierarchy.
 
         If the supplied element should form the coarsest level of the p-hierarchy,
-        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.FiniteElement`.
+        raise `ValueError`. Otherwise, return a new :class:`finat.ufl.finiteelement.FiniteElement`.
 
         By default, this does power-of-2 coarsening in polynomial degree until
         we reach the coarse degree specified through PETSc options (1 by default).
 
-        :arg ele: a :class:`finat.ufl.FiniteElement` to coarsen.
+        Parameters
+        ----------
+        ele :
+            A :class:`finat.ufl.finiteelement.FiniteElement` to coarsen.
         """
         degree = PMGBase.max_degree(ele)
         if degree <= self.coarse_degree:
@@ -80,8 +82,7 @@ class PMGBase(PCSNESBase):
         return PMGBase.reconstruct_degree(ele, max(degree//2, self.coarse_degree))
 
     def coarsen_form(self, form, fine_to_coarse_map):
-        """
-        Coarsen a form, by replacing the solution, test and trial functions.
+        """Coarsen a form, by replacing the solution, test and trial functions.
         """
         return ufl.replace(form, fine_to_coarse_map)
 
@@ -384,7 +385,7 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def max_degree(ele):
-        """Return the maximum degree of a :class:`finat.ufl.FiniteElement`"""
+        """Return the maximum degree of a :class:`finat.ufl.finiteelement.FiniteElement`"""
         if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             return PMGBase.max_degree(ele._sub_element)
         elif isinstance(ele, (finat.ufl.MixedElement, finat.ufl.TensorProductElement)):
@@ -404,18 +405,24 @@ class PMGBase(PCSNESBase):
 
     @staticmethod
     def reconstruct_degree(ele, degree):
-        """
-        Reconstruct an element, modifying its polynomial degree.
+        """Reconstruct an element, modifying its polynomial degree.
 
         By default, reconstructed EnrichedElements, TensorProductElements,
         and MixedElements will have the degree of the sub-elements shifted
         by the same amount so that the maximum degree is `degree`.
         This is useful to coarsen spaces like NCF(k) x DQ(k-1).
 
-        :arg ele: a :class:`finat.ufl.FiniteElement` to reconstruct,
-        :arg degree: an integer degree.
+        Parameters
+        ----------
+        ele :
+            A :class:`finat.ufl.finiteelement.FiniteElement` to reconstruct.
+        degree :
+            An integer degree.
 
-        :returns: the reconstructed element
+        Returns
+        -------
+        ele :
+            The reconstructed element.
         """
         if isinstance(ele, finat.ufl.VectorElement):
             return type(ele)(PMGBase.reconstruct_degree(ele._sub_element, degree), dim=ele.num_sub_elements)
@@ -631,20 +638,26 @@ def compare_element(e1, e2):
 @cached({}, key=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(V):
-    """
-    Find DOF permutation to factor out the EnrichedElement expansion into common
-    TensorProductElements. This routine exposes structure to e.g vectorize
+    """Find DOF permutation to factor out the EnrichedElement expansion
+    into common TensorProductElements.
+
+    This routine exposes structure to e.g vectorize
     prolongation of NCE or NCF accross vector components, by permuting all
     components into a common TensorProductElement.
 
     This is temporary while we wait for dual evaluation of :class:`finat.EnrichedElement`.
 
-    :arg V: a :class:`.FunctionSpace`
+    Parameters
+    ----------
+    V :
+        A :class:`.FunctionSpace`.
 
-    :returns: a 3-tuple of the DOF permutation, the unique terms in expansion as
-              a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
-              permutations of the axes to form the element given by their shifts
-              in list of `int` tuples
+    Returns
+    -------
+    A 3-tuple of the DOF permutation, the unique terms in expansion
+    as a list of tuples of :class:`FIAT.FiniteElements`, and the cyclic
+    permutations of the axes to form the element given by their shifts
+    in list of `int` tuples
     """
     finat_element = V.finat_element
     expansion = expand_element(finat_element)
