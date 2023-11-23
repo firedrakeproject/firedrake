@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch ufl pbrubeck/ufl_domain_failure \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
