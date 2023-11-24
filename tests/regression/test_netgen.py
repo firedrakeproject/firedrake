@@ -325,3 +325,39 @@ def test_firedrake_Adaptivity_netgen():
         msh = msh.refine_marked_elements(mark)
         File("Sol.pvd").write(uh)
     assert (abs(lam-exact) < 1e-2)
+
+
+@pytest.mark.skipcomplex
+def test_firedrake_adaptivity_3d_netgen():
+    try:
+        from netgen.csg import CSGeometry, OrthoBrick, Pnt
+        import netgen
+    except ImportError:
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+
+    # Setting up Netgen geometry and mes
+    comm = COMM_WORLD
+    if comm.Get_rank() == 0:
+        box = OrthoBrick(Pnt(0, 0, 0), Pnt(1, 1, 1))
+        box.bc("bcs")
+        geo = CSGeometry()
+        geo.Add(box)
+        ngmesh = geo.GenerateMesh(maxh=0.75)
+        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "bcs"]
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+        labels = None
+
+    labels = comm.bcast(labels, root=0)
+    msh = Mesh(ngmesh)
+    V = FunctionSpace(msh, "DG", 0)
+    mark = Function(V)
+    mark.dat.data[0] = 1
+    msh = msh.refine_marked_elements(mark)
+    assert msh.num_cells() == 48
+
+
+
+
+if __name__ == "__main__":
+    test_firedrake_adaptivity_3d_netgen()
