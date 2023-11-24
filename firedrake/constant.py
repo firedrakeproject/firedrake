@@ -7,6 +7,7 @@ from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
+from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
 from ufl.core.ufl_type import UFLType
 from ufl.corealg.multifunction import MultiFunction
 from ufl.formatting.ufl2unicode import (
@@ -222,7 +223,6 @@ def _unicode_format_firedrake_constant(self, o):
 # This monkey patches ufl2unicode support for Firedrake constants
 Expression2UnicodeHandler.firedrake_constant = _unicode_format_firedrake_constant
 
-
 # This is internally done in UFL by the ufl_type decorator, but we cannot
 # do the same here, because we want to use the class name Constant
 UFLType._ufl_num_typecodes_ += 1
@@ -230,6 +230,11 @@ UFLType._ufl_all_classes_.append(Constant)
 UFLType._ufl_all_handler_names_.add('firedrake_constant')
 UFLType._ufl_obj_init_counts_.append(0)
 UFLType._ufl_obj_del_counts_.append(0)
+
+# And doing the above does not append to these magic UFL variables...
+all_ufl_classes.add(Constant)
+ufl_classes.add(Constant)
+terminal_classes.add(Constant)
 
 # These caches need rebuilding for the new type to be registered
 MultiFunction._handlers_cache = {}
