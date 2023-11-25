@@ -202,7 +202,7 @@ class ImplicitMatrixContext(object):
     @cached_property
     def _block_diagonal(self):
         from firedrake import Function, FunctionSpace
-        from ufl import MixedElement, TensorElement, VectorElement
+        from finat.ufl import MixedElement, TensorElement, VectorElement
         assert self.on_diag
 
         bs = self.block_size[0]
@@ -210,7 +210,7 @@ class ImplicitMatrixContext(object):
         scalar_element = V.ufl_element()
         if isinstance(scalar_element, MixedElement):
             if isinstance(scalar_element, (TensorElement, VectorElement)):
-                scalar_element = scalar_element.sub_elements()[0]
+                scalar_element = scalar_element.sub_elements[0]
             else:
                 raise NotImplementedError("Block diagonal assembly not implemented")
         tensor_element = TensorElement(scalar_element, shape=(bs, bs))
