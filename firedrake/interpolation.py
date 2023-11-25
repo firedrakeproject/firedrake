@@ -852,7 +852,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                            % (expr.ufl_shape, V.ufl_element().value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:

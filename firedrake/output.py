@@ -73,7 +73,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -96,7 +96,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -135,7 +135,7 @@ def get_topology(coordinates):
     V = coordinates.function_space()
 
     nonLinear = not is_linear(V)
-    mesh = V.ufl_domain().topology
+    mesh = V.mesh().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
     value_shape = values.shape
