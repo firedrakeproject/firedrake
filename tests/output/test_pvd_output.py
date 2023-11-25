@@ -121,11 +121,16 @@ def test_append(mesh, tmpdir):
     restarted_outfile = File(str(tmpdir.join("restart_test.pvd")), mode="a")
     restarted_outfile.write(g)
 
-    files_in_tmp = [f for f in listdir(str(tmpdir)) if isfile(join(str(tmpdir), f))]
+    pvdfile_in_tmp = [f for f in listdir(str(tmpdir)) if isfile(join(str(tmpdir), f))]
 
-    expected_files = ['restart_test.pvd', 'restart_test_0.vtu', 'restart_test_1.vtu']
+    vtufiles_dir = tmpdir.join("restart_test")
+    vtufiles_in_tmp = [f for f in listdir(str(vtufiles_dir)) if isfile(join(str(vtufiles_dir), f))]
+
+    expected_pvdfile = ['restart_test.pvd']
+    expected_vtufiles = ['restart_test_0.vtu', 'restart_test_1.vtu']
 
     def compare(s, t):
         return Counter(s) == Counter(t)
 
-    assert compare(files_in_tmp, expected_files)
+    assert compare(pvdfile_in_tmp, expected_pvdfile)
+    assert compare(vtufiles_in_tmp, expected_vtufiles)
