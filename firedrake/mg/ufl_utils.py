@@ -1,7 +1,7 @@
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import extract_unique_domain
+from ufl.domain import as_domain, extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
@@ -95,7 +95,7 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = it.ufl_domain()
+        mesh = as_domain(it)
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
         if isinstance(integrand, ufl.classes.Zero):
