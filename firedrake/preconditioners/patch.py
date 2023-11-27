@@ -779,7 +779,7 @@ class PatchBase(PCSNESBase):
             J = ctx.Jp or ctx.J
             bcs = ctx._problem.bcs
 
-        V, _ = map(operator.methodcaller("function_space"), J.arguments())
+        V = J.arguments()[0].function_space()
         mesh = V.mesh()
         self.plex = mesh.topology_dm
         # We need to attach the mesh and appctx to the plex, so that
