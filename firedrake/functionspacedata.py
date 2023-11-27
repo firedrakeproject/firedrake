@@ -83,8 +83,7 @@ def get_global_numbering(mesh, key, global_numbering=None):
     """
     if global_numbering:
         return global_numbering
-    # quick fix for this for now may be to have an if/else setting boundary_set to None in other cases
-    nodes_per_entity, real_tensorproduct, boundary_set = key # will need to change everywhere?!  
+    nodes_per_entity, real_tensorproduct, boundary_set = key 
     return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set)
 
 
@@ -417,9 +416,10 @@ class FunctionSpaceData(object):
         except NotImplementedError:
             entity_permutations = None
 
+        self.boundary_set = boundary_set
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
-        key = (nodes_per_entity, real_tensorproduct)
+        key = (nodes_per_entity, real_tensorproduct, boundary_set)
         # These are keyed only on nodes per topological entity.
         global_numbering = get_global_numbering(mesh, key)
         node_set = get_node_set(mesh, key)
