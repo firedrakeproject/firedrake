@@ -1167,6 +1167,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.name = name or (function_space.name + "_"  
                              + "_".join(sorted(
                                 [str(i) for i in self.boundary_set])))
+        self.sdata = get_shared_data(function_space.mesh, function_space.element, self.boundary_set)
         
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
