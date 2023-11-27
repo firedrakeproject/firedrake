@@ -1202,11 +1202,12 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
         PETSc.DM dm
         PETSc.Section section
         PETSc.IS renumbering
-        PetscInt i, p, layers, pStart, pEnd
+        PetscInt i, p, layers, pStart, pEnd, dof
         PetscInt dimension, ndof
         np.ndarray[PetscInt, ndim=2, mode="c"] nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         bint variable, extruded, on_base_
+        list dof_array
 
     dm = mesh.topology_dm
     if isinstance(dm, PETSc.DMSwarm) and on_base:
@@ -1280,7 +1281,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
             for i in range(n):
                 p = points[i]
                 CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, [index for index in range(dof)]))
+                dof_array = [index for index in range(dof)]
+                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
     return section
 
 
