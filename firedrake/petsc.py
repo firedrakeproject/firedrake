@@ -3,7 +3,7 @@ import os
 import subprocess
 import petsc4py
 import sys
-from pyop2.mpi import COMM_WORLD
+from mpi4py.MPI import COMM_WORLD
 petsc4py.init(args=sys.argv, comm=COMM_WORLD)
 from petsc4py import PETSc
 import itertools
