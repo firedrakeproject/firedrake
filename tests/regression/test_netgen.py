@@ -42,7 +42,8 @@ def poisson(h, degree=2):
     # Assembling matrix
     A = assemble(a, bcs=bc)
     b = assemble(l)
-    bc.apply(b)
+    b_riesz = b.riesz_representation(riesz_map="l2")
+    bc.apply(b_riesz)
 
     # Solving the problem
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
@@ -90,7 +91,8 @@ def poisson3D(h, degree=2):
     # Assembling matrix
     A = assemble(a, bcs=bc)
     b = assemble(l)
-    bc.apply(b)
+    b_riesz = b.riesz_representation(riesz_map="l2")
+    bc.apply(b_riesz)
 
     # Solving the problem
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
