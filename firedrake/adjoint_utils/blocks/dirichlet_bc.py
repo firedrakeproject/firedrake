@@ -39,7 +39,7 @@ class DirichletBCBlock(Block, Backend):
         adj_output = None
         for adj_input in adj_inputs:
             if self.compat.isconstant(c):
-                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_value = self.backend.Function(self.parent_space)
                 adj_input.apply(adj_value)
                 if self.function_space != self.parent_space:
                     vec = self.compat.extract_bc_subvector(
@@ -75,18 +75,19 @@ class DirichletBCBlock(Block, Backend):
                 #       you can even use the Function outside its domain.
                 # For now we will just assume the FunctionSpace is the same for
                 # the BC and the Function.
-                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_value = self.backend.Function(self.parent_space)
                 adj_input.apply(adj_value)
-                r = self.compat.extract_bc_subvector(
+                output = self.compat.extract_bc_subvector(
                     adj_value, c.function_space(), bc
                 )
+                r = output.riesz_representation(riesz_map="l2")
             elif isinstance(c, self.compat.Expression):
-                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_value = self.backend.Function(self.parent_space)
                 adj_input.apply(adj_value)
                 output = self.compat.extract_bc_subvector(
                     adj_value, self.collapsed_space, bc
                 )
-                r = [[output, self.collapsed_space]]
+                r = [[output.riesz_representation(riesz_map="l2"), self.collapsed_space]]
             if adj_output is None:
                 adj_output = r
             else:

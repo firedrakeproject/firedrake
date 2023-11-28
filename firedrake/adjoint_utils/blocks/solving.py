@@ -192,7 +192,7 @@ class GenericSolveBlock(Block, Backend):
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self.backend.Function(
-                self.function_space.dual(),
+                self.function_space,
                 dJdu_copy.dat - self.compat.assemble_adjoint_value(self.backend.action(dFdu_adj_form, adj_sol)).dat
             )
 
