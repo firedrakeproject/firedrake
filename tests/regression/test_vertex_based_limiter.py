@@ -17,7 +17,7 @@ def mesh(request):
 
 
 def space(m):
-    element = BrokenElement(m.coordinates.function_space().ufl_element().sub_elements()[0])
+    element = BrokenElement(m.coordinates.function_space().ufl_element().sub_elements[0])
     return FunctionSpace(m, element)
 
 
@@ -143,7 +143,7 @@ def test_parallel_limiting(tmpdir):
 import pickle
 from firedrake import *
 mesh = RectangleMesh(10, 4, 5000., 1000.)
-element = BrokenElement(mesh.coordinates.function_space().ufl_element().sub_elements()[0])
+element = BrokenElement(mesh.coordinates.function_space().ufl_element().sub_elements[0])
 V = FunctionSpace(mesh, element)
 f = Function(V)
 x, *_ = SpatialCoordinate(mesh)

@@ -2,6 +2,7 @@ import numbers
 
 import numpy as np
 import ufl
+import finat.ufl
 
 import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -59,15 +60,15 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape() for Vi in V):
+        if all(Vi.ufl_element().value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space().name == "HDiv":
+            if Vi.ufl_element().sobolev_space.name == "HDiv":
                 self.vidx = i
             else:
-                assert Vi.ufl_element().sobolev_space().name == "L2"
+                assert Vi.ufl_element().sobolev_space.name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.
@@ -87,7 +88,7 @@ class HybridizationPC(SCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
+        broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
