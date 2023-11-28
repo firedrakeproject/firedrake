@@ -221,7 +221,8 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
           "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
           "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
           "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
-          "pmg_mg_coarse_mg_coarse_pc_type": "gamg"}
+          "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
+          "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()

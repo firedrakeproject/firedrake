@@ -91,7 +91,7 @@ def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant([1] * (VV.ufl_element().value_shape()[0] + 1)))
+        f.interpolate(Constant([1] * (VV.ufl_element().value_shape[0] + 1)))
 
 
 def test_function_val(V):
@@ -163,15 +163,16 @@ def test_scalar_function_zero(V):
 
 def test_scalar_function_zero_with_subset(V):
     f = Function(V)
-    # create an arbitrary subset consisting of the first three nodes
-    subset = op2.Subset(V.node_set, [0, 1, 2])
+    # create an arbitrary subset consisting of the first two nodes
+    assert V.node_set.size > 2
+    subset = op2.Subset(V.node_set, [0, 1])
 
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
     f.zero(subset=subset)
-    assert np.allclose(f.dat.data_ro[:3], 0.0)
-    assert np.allclose(f.dat.data_ro[3:], 1.0)
+    assert np.allclose(f.dat.data_ro[:2], 0.0)
+    assert np.allclose(f.dat.data_ro[2:], 1.0)
 
 
 def test_tensor_function_zero(W):
@@ -188,6 +189,7 @@ def test_tensor_function_zero(W):
 def test_tensor_function_zero_with_subset(W):
     f = Function(W)
     # create an arbitrary subset consisting of the first three nodes
+    assert W.node_set.size > 3
     subset = op2.Subset(W.node_set, [0, 1, 2])
 
     f.assign(1)

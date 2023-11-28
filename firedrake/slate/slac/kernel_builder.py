@@ -3,7 +3,7 @@ from itertools import count
 
 from collections import OrderedDict, namedtuple
 
-from ufl import MixedElement
+from finat.ufl import MixedElement
 import loopy
 
 from loopy.symbolic import SubArrayRef

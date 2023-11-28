@@ -37,6 +37,16 @@ def _init():
         op2.init(**parameters["pyop2_options"])
 
 
+def unique(iterable):
+    """ Return tuple of unique items in iterable, items must be hashable
+    """
+    # Use dict to preserve order and compare by hash
+    unique_dict = {}
+    for item in iterable:
+        unique_dict[item] = None
+    return tuple(unique_dict.keys())
+
+
 def unique_name(name, nameset):
     """Return name if name is not in nameset, or a deterministic
     uniquified name if name is in nameset. The new name is inserted into

@@ -173,7 +173,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Enable to write down c += B where c is a Cofunction
             # and B an appropriate BaseForm object
             assembled_expr = firedrake.assemble(expr)
-            return self.assign(assembled_expr)
+            return self.assign(assembled_expr, subset=subset)
 
         raise ValueError('Cannot assign %s' % expr)
 

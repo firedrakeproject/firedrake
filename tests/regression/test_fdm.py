@@ -85,7 +85,7 @@ def build_riesz_map(V, d):
 
     x = SpatialCoordinate(V.mesh())
     x -= Constant([0.5]*len(x))
-    if V.ufl_element().value_shape() == ():
+    if V.ufl_element().value_shape == ():
         u_exact = exp(-10*dot(x, x))
         u_bc = u_exact
     else:
@@ -191,7 +191,7 @@ def test_variable_coefficient(mesh):
     subs = ("on_boundary",)
     if mesh.cell_set._extruded:
         subs += ("top", "bottom")
-    bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
+    bcs = [DirichletBC(V, zero(V.ufl_element().value_shape), sub) for sub in subs]
 
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
@@ -225,7 +225,7 @@ def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
-    ncomp = fs.ufl_element().value_size()
+    ncomp = fs.ufl_element().value_size
 
     homogenize = gdim > 2
     if homogenize:

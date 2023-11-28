@@ -118,9 +118,9 @@ each supermesh cell.
     assert V_A.value_size == V_B.value_size
     orig_value_size = V_A.value_size
     if V_A.value_size > 1:
-        V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements()[0])
+        V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
     if V_B.value_size > 1:
-        V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements()[0])
+        V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements[0])
 
     assert V_A.value_size == 1
     assert V_B.value_size == 1

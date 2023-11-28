@@ -199,7 +199,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
     Q = function.function_space()
     mesh = Q.mesh()
     if len(function.ufl_shape) == 1:
-        element = function.ufl_element().sub_elements()[0]
+        element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
         function = assemble(Interpolate(sqrt(inner(function, function)), Q))
 
@@ -312,7 +312,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     _kwargs.update({"shade": False})
 
     if len(function.ufl_shape) == 1:
-        element = function.ufl_element().sub_elements()[0]
+        element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
         function = assemble(Interpolate(sqrt(inner(function, function)), Q))
 
@@ -1076,7 +1076,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:
         raise NotImplementedError("Not yet implemented for functions on extruded meshes")
-    if elem.value_shape():
+    if elem.value_shape:
         raise NotImplementedError("Currently only implemeted for scalar functions")
     coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="equispaced")
     coordV = FunctionSpace(mesh, coordelem)
