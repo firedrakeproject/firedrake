@@ -210,7 +210,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 def prolong_kernel(expression):
     meshc = extract_unique_domain(expression)
     hierarchy, level = utils.get_level(extract_unique_domain(expression))
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = extract_unique_domain(expression).coordinates
     if meshc.cell_set._extruded:
@@ -293,7 +293,7 @@ def prolong_kernel(expression):
 
 def restrict_kernel(Vf, Vc):
     hierarchy, level = utils.get_level(Vc.mesh())
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = Vc.mesh().coordinates
     if Vf.extruded:
