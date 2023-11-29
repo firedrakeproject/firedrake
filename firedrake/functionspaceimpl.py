@@ -168,7 +168,7 @@ class WithGeometryBase(object):
 
     def ufl_cell(self):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
-        return self.ufl_domain().ufl_cell()
+        return self.mesh().ufl_cell()
 
     @PETSc.Log.EventDecorator()
     def split(self):
