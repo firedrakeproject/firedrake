@@ -90,6 +90,8 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
     int PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     int PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
+    int PetscSectionSetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt)
+    int PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
