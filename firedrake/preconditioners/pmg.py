@@ -1534,7 +1534,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
     mesh = Pk.mesh()
 
     fele = Pk.ufl_element()
-    if isinstance(fele, finat.ufl.MixedElement) and not isinstance(fele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+    if type(fele) is finat.ufl.MixedElement:
         for i in range(fele.num_sub_elements):
             Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
             P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
@@ -1578,7 +1578,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
 
 def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     fele = Vf.ufl_element()
-    if isinstance(fele, finat.ufl.MixedElement) and not isinstance(fele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+    if type(fele) is finat.ufl.MixedElement:
         ctx = MixedInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
