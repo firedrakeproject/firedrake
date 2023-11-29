@@ -63,12 +63,41 @@ __all__ = [
 ]
 
 
+distribution_parameters_noop = {"partition": False,
+                                "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
+reorder_noop = False
+
+
+def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
+    dm = coords.function_space().mesh().topology.topology_dm
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("exterior_facets")
+    dm.removeLabel("interior_facets")
+    V = coords.function_space()
+    dmcommon._set_dg_coordinates(dm,
+                                 V.finat_element,
+                                 V.dm.getLocalSection(),
+                                 coords.dat._vec)
+    return mesh.Mesh(
+        dm,
+        comm=comm,
+        distribution_parameters=distribution_parameters,
+        reorder=reorder,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+    )
+
+
 @PETSc.Log.EventDecorator()
 def IntervalMesh(
     ncells,
     length_or_left,
     right=None,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -85,6 +114,7 @@ def IntervalMesh(
          be the left boundary point).
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -134,7 +164,7 @@ def IntervalMesh(
 
     m = mesh.Mesh(
         plex,
-        reorder=False,
+        reorder=reorder,
         distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
@@ -148,6 +178,7 @@ def IntervalMesh(
 def UnitIntervalMesh(
     ncells,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -159,6 +190,7 @@ def UnitIntervalMesh(
     :arg ncells: The number of the cells over the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -176,6 +208,7 @@ def UnitIntervalMesh(
         ncells,
         length_or_left=1.0,
         distribution_parameters=distribution_parameters,
+        reorder=reorder,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -188,6 +221,7 @@ def PeriodicIntervalMesh(
     ncells,
     length,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -199,6 +233,7 @@ def PeriodicIntervalMesh(
     :arg length: The length the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -214,10 +249,10 @@ def PeriodicIntervalMesh(
             "1D periodic meshes with fewer than 3 \
 cells are not currently supported"
         )
-
     m = CircleManifoldMesh(
         ncells,
-        distribution_parameters=distribution_parameters,
+        distribution_parameters=distribution_parameters_noop,
+        reorder=reorder_noop,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -263,19 +298,20 @@ cells are not currently supported"
         },
     )
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicUnitIntervalMesh(
     ncells,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -286,6 +322,7 @@ def PeriodicUnitIntervalMesh(
     :arg ncells: The number of cells in the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -299,6 +336,7 @@ def PeriodicUnitIntervalMesh(
         ncells,
         length=1.0,
         distribution_parameters=distribution_parameters,
+        reorder=reorder,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -944,8 +982,8 @@ def PeriodicRectangleMesh(
         1.0,
         0.5,
         quadrilateral=quadrilateral,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -1007,13 +1045,13 @@ def PeriodicRectangleMesh(
         },
     )
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -1147,6 +1185,7 @@ def CircleManifoldMesh(
     radius=1,
     degree=1,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -1161,6 +1200,7 @@ def CircleManifoldMesh(
            cells are straight line segments if degree=1).
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1193,7 +1233,7 @@ def CircleManifoldMesh(
     m = mesh.Mesh(
         plex,
         dim=2,
-        reorder=False,
+        reorder=reorder,
         distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
@@ -1863,8 +1903,8 @@ def PeriodicBoxMesh(
     )
     m = mesh.Mesh(
         plex,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
@@ -1928,14 +1968,13 @@ def PeriodicBoxMesh(
             "hz": (hz, READ),
         },
     )
-    m1 = mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
-    return m1
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -3043,8 +3082,8 @@ def PartiallyPeriodicRectangleMesh(
         1.0,
         longitudinal_direction="z",
         quadrilateral=quadrilateral,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         diagonal=diagonal,
         comm=comm,
         name=name,
@@ -3100,10 +3139,10 @@ def PartiallyPeriodicRectangleMesh(
         operator = np.asarray([[0, 1], [1, 0]])
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
