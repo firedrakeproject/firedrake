@@ -291,10 +291,10 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
+    hierarchy, level = utils.get_level(Vc.mesh())
     levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vc.ufl_domain().coordinates
+    coordinates = Vc.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)

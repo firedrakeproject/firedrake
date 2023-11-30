@@ -77,8 +77,9 @@ class HypreAMS(PCBase):
         zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
-
-        pc.setUp()
+        pc.setCoordinates(self.coordinates.dat.data_ro)
+        pc.setFromOptions()
+        self.pc = pc
 
     def apply(self, obj, x, y):
         self.pc.apply(x, y)

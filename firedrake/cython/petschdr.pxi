@@ -30,6 +30,8 @@ cdef extern from "petscsys.h" nogil:
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+    int DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
+    int DMPlexGetPointDepth(PETSc.PetscDM,PetscInt,PetscInt*)
 
     int DMPlexGetChart(PETSc.PetscDM,PetscInt*,PetscInt*)
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -68,11 +70,15 @@ cdef extern from "petscdmswarm.h" nogil:
 cdef extern from "petscvec.h" nogil:
     int VecGetArray(PETSc.PetscVec,PetscScalar**)
     int VecRestoreArray(PETSc.PetscVec,PetscScalar**)
+    int VecGetArrayRead(PETSc.PetscVec,const PetscScalar**)
+    int VecRestoreArrayRead(PETSc.PetscVec,const PetscScalar**)
 
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
+    int PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
+    int PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])

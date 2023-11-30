@@ -37,8 +37,8 @@ The recorded talks are available on `Vimeo <https://vimeo.com/showcase/8850810>`
 Prizes
 ------
 
-The prizes for best presentation by a student or postdoc were won by `Fabian
-Laakmann <https://www.maths.ox.ac.uk/people/fabian.laakmann>`_ and
+The prizes for best presentation by a student or postdoc were won by Fabian
+Laakmann and
 `Reuben Nixon-Hill <https://www.imperial.ac.uk/people/reuben.nixon-hill10>`_.
 
 Each winner receives a copy of `PETSc for Partial Differential Equations:

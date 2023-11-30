@@ -323,7 +323,7 @@ class CrossMeshInterpolator(Interpolator):
         # setup
         V_dest = V
         src_mesh = extract_unique_domain(expr)
-        dest_mesh = V_dest.ufl_domain()
+        dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -852,7 +852,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                            % (expr.ufl_shape, V.ufl_element().value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:

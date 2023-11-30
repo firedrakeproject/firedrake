@@ -59,7 +59,8 @@ class HypreADS(PCBase):
         pc.setHYPREDiscreteGradient(self.G)
         pc.setHYPREDiscreteCurl(self.C)
         pc.setCoordinates(self.coordinates.dat.data_ro)
-        pc.setUp()
+        pc.setFromOptions()
+        self.pc = pc
 
     def apply(self, obj, x, y):
         self.pc.apply(x, y)
