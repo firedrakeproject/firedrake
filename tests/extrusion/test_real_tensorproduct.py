@@ -28,7 +28,7 @@ def variant(request):
 
 @pytest.fixture
 def expr(variant, V, fs_kind):
-    x, y, z = SpatialCoordinate(V.ufl_domain())
+    x, y, z = SpatialCoordinate(V.mesh())
     val = {"linear": z, "sin": sin(pi*z)}[variant]
     ret = {
         "scalar": val,

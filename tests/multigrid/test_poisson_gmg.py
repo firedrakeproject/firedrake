@@ -168,7 +168,8 @@ def test_preconditioner_coarsening(solver_type):
 
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
-def test_baseform_coarsening(solver_type):
+@pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
+def test_baseform_coarsening(solver_type, mixed):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
     parameters["snes_rtol"] = 1.0E-10
@@ -179,28 +180,27 @@ def test_baseform_coarsening(solver_type):
     base = UnitSquareMesh(2, 2)
     mh = MeshHierarchy(base, 2, refinements_per_level=2)
     mesh = mh[-1]
-
     V = FunctionSpace(mesh, "CG", 1)
-    v = TestFunction(V)
-    u = TrialFunction(V)
-    a = inner(grad(u), grad(v)) * dx
-    bcs = DirichletBC(V, 1.0, (2, 3, 4))
+    _, f = manufacture_solution(V)
+    if mixed:
+        V = V * V
 
-    x = SpatialCoordinate(mesh)
-    g = Constant(1)
-    f = Function(V)
-    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
-    forms = [inner(f, v) * dx, inner(g, v) * ds(1)]
+    bcs = []
+    forms = []
+    a_terms = []
+    for Vsub, v, u in zip(V, TestFunctions(V), TrialFunctions(V)):
+        bcs.append(DirichletBC(Vsub, 1.0, (2, 3, 4)))
+        forms.extend([inner(f, v) * dx, inner(Constant(1), v) * ds(1)])
+        a_terms.append(inner(grad(u), grad(v)) * dx)
+    a = sum(a_terms)
 
-    # Need to zero out BC DOFs on the assembled cofunctions
-    bcs.homogenize()
+    assemble_bcs = lambda L: assemble(L, bcs=bcs, zero_bc_nodes=True)
     # These are equivalent right-hand sides
     sources = [sum(forms),  # purely symbolic linear form
-               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
-               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
-               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
+               assemble_bcs(sum(forms)),  # purely numerical cofunction
+               sum(assemble_bcs(form) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble_bcs(sum(forms[1:])),  # symbolic plus numerical
                ]
-    bcs.restore()
     solutions = []
     for L in sources:
         uh = Function(V)

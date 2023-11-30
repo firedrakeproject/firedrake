@@ -40,7 +40,7 @@ def V(request, mesh, degree):
 
 
 def test_div_curl_preserving(V):
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     dim = mesh.geometric_dimension()
     if dim == 2:
         x, y = SpatialCoordinate(mesh)

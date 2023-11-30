@@ -28,7 +28,7 @@ class BiharmonicProblem(object):
         return mesh
 
     def bcs(self, Z):
-        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.ufl_domain()), "on_boundary"),
+        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.mesh()), "on_boundary"),
                DirichletBC(Z.sub(1), zero(), "on_boundary")]
         return bcs
 

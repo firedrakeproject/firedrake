@@ -2400,13 +2400,16 @@ def make_mesh_from_coordinates(coordinates, name):
     return mesh
 
 
-def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
+def make_mesh_from_mesh_topology(topology, name):
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
-    element = finat.ufl.VectorElement("Lagrange", cell, 1)
+    if not topology.topology_dm.getCoordinatesLocalized():
+        element = finat.ufl.VectorElement("Lagrange", cell, 1)
+    else:
+        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
