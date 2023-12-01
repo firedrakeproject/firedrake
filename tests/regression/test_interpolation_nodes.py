@@ -34,19 +34,14 @@ def degree(request):
                 ids=lambda x: "%s" % x)
 def V(request, mesh, degree):
     space = request.param
-    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=f"integral({5*degree})")
+    over_integration = max(0, 9 - degree)
+    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=f"integral({over_integration})")
     return FunctionSpace(mesh, V_el)
 
 
 def test_div_curl_preserving(V):
     mesh = V.mesh()
     dim = mesh.geometric_dimension()
-    if dim == 3 and V.ufl_element().degree() == 3 and "Nedelec" not in V.ufl_element().family():
-        pytest.skip("N2div interpolation kernel with exact quadrature creates tensors which risk stack overflow")
-    if dim == 3 and V.ufl_element().degree() == 2 and "Nedelec" not in V.ufl_element().family():
-        # This issue is probably down to gcc attempting to constant-propagate
-        # every entry in the array.
-        pytest.skip("N2div interpolation kernel with exact quadrature takes 40 minutes!")
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
@@ -84,8 +79,7 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
             expression = as_vector([sin(x)*cos(y), exp(x)*y])
         elif dim == 3:
             expression = as_vector([sin(y)*z*cos(x), cos(x)*z*x, exp(x)*y])
-        variant = f"integral({degree+1})"
-        V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=variant)
+        V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant="integral")
         V = FunctionSpace(mesh, V_el)
         f = interpolate(expression, V)
         error_l2 = errornorm(expression, f, 'L2')
