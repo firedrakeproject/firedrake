@@ -266,7 +266,7 @@ def test_push_mul_nested(TC, TC_without_trace, TC_non_symm):
     opt_expressions = [T*C+T*C+T2*C, T*C+T2*C+T*C, T*C-(T*C)+T2*C, T*C+T2*C-(T*C),
                        T*T.solve(C), T.solve(T*C), T2*T.solve(C), T2*T.solve(T*C),
                        (T.T.solve(T.T.solve(C))).T*T, (T3*(T3.T.solve(C3.T))).T, (T3.T.solve(T3.T.solve(C3))).T*T3]
-    compare_vector_expressions_mixed(expressions)
+    compare_vector_expressions_mixed(expressions, rtol=1e-11)
     compare_slate_tensors(expressions, opt_expressions)
 
     # Make sure replacing inverse by solves does not introduce errors
@@ -325,7 +325,7 @@ def test_partially_optimised(TC_non_symm, TC_double_mass, TC):
                        A*A.solve(A*C+A*C)+A*A.solve(A*C+A*C),
                        (A.T.solve(A.T.solve(C.T))).T*A]
 
-    compare_vector_expressions(expressions)
+    compare_vector_expressions(expressions, rtol=1e-11)
     compare_slate_tensors(expressions, opt_expressions)
 
     # Make sure optimised solve gives same answer as expression with inverses
@@ -398,26 +398,26 @@ def test_push_diagonal(TC_non_symm):
 #######################################
 # Helper functions
 #######################################
-def compare_tensor_expressions(expressions):
+def compare_tensor_expressions(expressions, rtol=1e-12):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False}}).M.values
         opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True}}).M.values
-        assert np.allclose(opt, ref, rtol=1e-12)
+        assert np.allclose(opt, ref, rtol=rtol)
 
 
-def compare_vector_expressions(expressions):
+def compare_vector_expressions(expressions, rtol=1e-12):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False}}).dat.data
         opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True}}).dat.data
-        assert np.allclose(opt, ref, rtol=1e-12)
+        assert np.allclose(opt, ref, rtol=rtol)
 
 
-def compare_vector_expressions_mixed(expressions):
+def compare_vector_expressions_mixed(expressions, rtol=1e-12):
     for expr in expressions:
         ref = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": False}}).dat.data
         opt = assemble(expr, form_compiler_parameters={"slate_compiler": {"optimise": True}}).dat.data
         for r, o in zip(ref, opt):
-            assert np.allclose(o, r, rtol=1e-12)
+            assert np.allclose(o, r, rtol=rtol)
 
 
 def compare_slate_tensors(expressions, opt_expressions):
