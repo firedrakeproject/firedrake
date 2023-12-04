@@ -1554,7 +1554,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     """
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, swarm, parentmesh, name, reorder, original_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
+    def __init__(self, swarm, parentmesh, name, reorder, input_ordering_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -1568,7 +1568,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             Name of the mesh topology.
         reorder : bool
             Whether to reorder the mesh entities.
-        original_swarm : PETSc.DMSwarm
+        input_ordering_swarm : PETSc.DMSwarm
             The swarm from which the input-ordering vertex-only mesh is constructed.
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_plex_renumbering``; only
@@ -1586,7 +1586,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._distribution_parameters = {"partition": False,
                                          "partitioner_type": None,
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
-        self.original_swarm = original_swarm
+        self.input_ordering_swarm = input_ordering_swarm
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._parent_mesh = parentmesh
 
@@ -1597,7 +1597,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         pass
 
     def _mark_entity_classes(self):
-        if self.original_swarm:
+        if self.input_ordering_swarm:
             assert isinstance(self._parent_mesh, MeshTopology)
             dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
         else:
@@ -1798,11 +1798,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
         # Make the VOM which uses the original ordering of the points
-        if self.original_swarm:
+        if self.input_ordering_swarm:
             return VertexOnlyMeshTopology(
-                self.original_swarm,
+                self.input_ordering_swarm,
                 self,
-                name=self.original_swarm.getName(),
+                name=self.input_ordering_swarm.getName(),
                 reorder=False,
             )
 
@@ -2980,7 +2980,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     # implemented. Whether one or both of these is needed is unclear.
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
-    swarm, original_swarm, n_missing_points = _pic_swarm_in_mesh(
+    swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
@@ -2996,13 +2996,13 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
                 raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
     name = name if name is not None else mesh.name + "_immersed_vom"
     swarm.setName(_generate_default_mesh_topology_name(name))
-    original_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
+    input_ordering_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
     topology = VertexOnlyMeshTopology(
         swarm,
         mesh.topology,
         name=swarm.getName(),
         reorder=reorder,
-        original_swarm=original_swarm,
+        input_ordering_swarm=input_ordering_swarm,
     )
     vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
@@ -3104,9 +3104,9 @@ def _pic_swarm_in_mesh(
         the mesh halos. If False, it will but the global index of the points
         in the halos will match a global index of a point which is not in the
         halo.
-    :returns: (swarm, original_swarm, n_missing_points)
+    :returns: (swarm, input_ordering_swarm, n_missing_points)
         - swarm: the immersed DMSwarm
-        - original_swarm: a DMSwarm with points in the same order and with the
+        - input_ordering_swarm: a DMSwarm with points in the same order and with the
             same rank decomposition as the supplied ``coords`` argument. This
             includes any points which are not found in the parent mesh! Note
             that if ``redundant=True``, all points in the generated DMSwarm
@@ -3176,7 +3176,7 @@ def _pic_swarm_in_mesh(
         All PIC DMSwarm have an associated "Cell DM", if one wishes to interact
         directly with PETSc's DMSwarm API. For the ``swarm`` output, this is
         the parent mesh's topology DM (in most cases a DMPlex). For the
-        ``original_swarm`` output, this is the ``swarm`` itself.
+        ``input_ordering_swarm`` output, this is the ``swarm`` itself.
 
     """
 
