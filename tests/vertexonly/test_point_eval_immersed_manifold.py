@@ -38,7 +38,7 @@ def test_convergence_rate(point_eval):
             func = point_eval(f, test_coords)
             vom = func.function_space().ufl_domain()
             sol = np.array(func.dat.data_ro)
-            error += [np.linalg.norm(test_coords[vom.topology._plex_renumbering] - sol)]
+            error += [np.linalg.norm(test_coords[vom.topology._dm_renumbering] - sol)]
 
     convergence_rate = np.array(
         [np.log(error[i]/error[i+1])/np.log(res[i+1]/res[i])

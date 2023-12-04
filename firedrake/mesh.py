@@ -516,7 +516,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             the mesh topology is loaded from file and only passed from inside
             `~.CheckpointFile`).
         perm_is : PETSc.IS
-            `PETSc.IS` that is used as ``_plex_renumbering``; only
+            `PETSc.IS` that is used as ``_dm_renumbering``; only
             makes sense if we know the exact parallel distribution of ``plex``
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, ``reorder`` param will be ignored.
@@ -570,9 +570,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 self._mark_entity_classes()
                 self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
                 if perm_is:
-                    self._plex_renumbering = perm_is
+                    self._dm_renumbering = perm_is
                 else:
-                    self._plex_renumbering = self._renumber_entities(reorder)
+                    self._dm_renumbering = self._renumber_entities(reorder)
                 self._did_reordering = bool(reorder)
                 # Derive a cell numbering from the Plex renumbering
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
@@ -961,7 +961,7 @@ class MeshTopology(AbstractMeshTopology):
             the mesh topology is loaded from file and only passed from inside
             `~.CheckpointFile`).
         perm_is : PETSc.IS
-            `PETSc.IS` that is used as ``_plex_renumbering``; only
+            `PETSc.IS` that is used as ``_dm_renumbering``; only
             makes sense if we know the exact parallel distribution of ``plex``
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, ``reorder`` param will be ignored.
@@ -1369,7 +1369,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         self.topology_dm = mesh.topology_dm
         r"The PETSc DM representation of the mesh topology."
-        self._plex_renumbering = mesh._plex_renumbering
+        self._dm_renumbering = mesh._dm_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._did_reordering = mesh._did_reordering
@@ -1571,7 +1571,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         input_ordering_swarm : PETSc.DMSwarm
             The swarm from which the input-ordering vertex-only mesh is constructed.
         perm_is : PETSc.IS
-            `PETSc.IS` that is used as ``_plex_renumbering``; only
+            `PETSc.IS` that is used as ``_dm_renumbering``; only
             makes sense if we know the exact parallel distribution of ``plex``
             at the time of mesh topology construction like when we load mesh
             along with its distribution. If given, ``reorder`` param will be ignored.
@@ -1620,7 +1620,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
             swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
-            parent_renum = self._parent_mesh._plex_renumbering.getIndices()
+            parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
@@ -4114,7 +4114,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=distribution_parameters_noop,
-                          perm_is=tmesh._plex_renumbering,
+                          perm_is=tmesh._dm_renumbering,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
