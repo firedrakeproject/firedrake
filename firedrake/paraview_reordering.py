@@ -100,7 +100,7 @@ def vtk_hex_local_to_cart(orders):
     """
 
     sizes = tuple([o + 1 for o in orders])
-    size = np.product(sizes)
+    size = np.prod(sizes)
     loc_to_cart = np.empty(size, dtype="object")
     hexa = vtkLagrangeHexahedron()
     for loc in np.ndindex(sizes):
@@ -132,7 +132,7 @@ def vtk_quad_local_to_cart(orders):
     :return a list of arrays of floats.
     """
     sizes = tuple([o + 1 for o in orders])
-    size = np.product(sizes)
+    size = np.prod(sizes)
     loc_to_cart = np.empty(size, dtype="object")
     quad = vtkLagrangeQuadrilateral()
     for loc in np.ndindex(sizes):
@@ -169,7 +169,7 @@ def vtk_hex8_to_hex9(orders):
     :return a list of integers
     """
     sizes = tuple([o + 1 for o in orders])
-    size = np.product(sizes)
+    size = np.prod(sizes)
     nodeNums = range(size)
     hexa = vtkLagrangeHexahedron()
     return [hexa.NodeNumberingMappingFromVTK8To9(orders, x)
