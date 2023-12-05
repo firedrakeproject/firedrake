@@ -79,8 +79,8 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch fiat angus-g:warning-fix \
             || (cat firedrake-install.log && /bin/false)
+          pip install git+https://github.com/angus-g/fiat.git@warning-fix
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
