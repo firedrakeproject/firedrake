@@ -84,7 +84,7 @@ def get_global_numbering(mesh, key, global_numbering=None):
     if global_numbering:
         return global_numbering
     nodes_per_entity, real_tensorproduct, boundary_set = key 
-    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set)
+    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set=boundary_set)
 
 
 @cached

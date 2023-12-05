@@ -766,7 +766,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :returns: a new PETSc Section.
         """
         # again will need to check if this is the right way to do it
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, boundary_set=boundary_set, block_size=block_size)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
