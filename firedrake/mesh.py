@@ -737,13 +737,15 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1, boundary_set=None):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
         :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
+        :arg boundary_set: A set of boundary markers, indicating the sub-domains 
+        a boundary condition is specified on. 
         :returns: a new PETSc Section.
         """
         # again will need to check if this is the right way to do it

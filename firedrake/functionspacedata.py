@@ -400,12 +400,14 @@ class FunctionSpaceData(object):
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset", "offset_quotient",
-                 "extruded", "mesh", "global_numbering")
+                 "extruded", "mesh", "global_numbering", "boundary_set")
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element, boundary_set=None):
         if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
+        
+        self.boundary_set = boundary_set
 
         finat_element = create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
@@ -416,7 +418,7 @@ class FunctionSpaceData(object):
         except NotImplementedError:
             entity_permutations = None
 
-        self.boundary_set = boundary_set
+       
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct, boundary_set)
