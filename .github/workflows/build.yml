@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyadjoint connorjward/petsc-finalize-fix \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
