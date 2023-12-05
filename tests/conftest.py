@@ -1,6 +1,7 @@
 """Global test configuration."""
 
 import pytest
+import pytest_mpi
 
 
 def pytest_configure(config):
@@ -78,4 +79,7 @@ def pytest_sessionfinish(session, exitstatus):
     # import must be inside the function to avoid calling petsc4py initialize here
     from petsc4py import PETSc
 
-    PETSc._finalize()
+    # skip for parallel runs where finalize must be collective and xdist is not
+    # a concern (since it is not running on this "inner" process)
+    if not pytest_mpi._is_parallel_child_process():
+        PETSc._finalize()
