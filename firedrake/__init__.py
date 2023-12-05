@@ -54,6 +54,7 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
+from finat.ufl import *
 # Set up the cache directories before importing PyOP2.
 firedrake_configuration.setup_cache_dirs()
 
@@ -72,6 +73,7 @@ from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 from firedrake.assemble import *
 from firedrake.bcs import *
 from firedrake.checkpointing import *
+from firedrake.cofunction import *
 from firedrake.constant import *
 from firedrake.exceptions import *
 from firedrake.function import *
@@ -104,6 +106,7 @@ from firedrake.version import __version__ as ver, __version_info__, check  # noq
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
+from firedrake.fml import *
 
 from firedrake.logging import *
 # Set default log level

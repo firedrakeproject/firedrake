@@ -130,6 +130,15 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
+    def _ad_not_implemented(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if annotate_tape(kwargs):
+                raise NotImplementedError("Automatic differentiation is not supported for this operation.")
+            return func(*args, **kwargs)
+        return wrapper
+
+    @staticmethod
     def _ad_annotate_iadd(__iadd__):
         @wraps(__iadd__)
         def wrapper(self, other, **kwargs):
@@ -211,31 +220,27 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        from firedrake import Function, TrialFunction, TestFunction, assemble
+    def _ad_convert_riesz(self, value, options=None):
+        from firedrake import Function, Cofunction
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
+        solver_options = options.get("solver_options", {})
+        V = options.get("function_space", self.function_space())
+
+        if riesz_representation != "l2" and not isinstance(value, Cofunction):
+            raise TypeError("Expected a Cofunction")
+        elif not isinstance(value, (float, (Cofunction, Function))):
+            raise TypeError("Expected a Cofunction, Function or a float")
 
         if riesz_representation == "l2":
-            return Function(self.function_space(), val=value)
+            value = value.dat if isinstance(value, (Cofunction, Function)) else value
+            return Function(V, val=value)
 
-        elif riesz_representation == "L2":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
-            M = assemble(firedrake.inner(u, v)*firedrake.dx)
-            firedrake.solve(M, ret, value)
-            return ret
-
-        elif riesz_representation == "H1":
-            ret = Function(self.function_space())
-            u = TrialFunction(self.function_space())
-            v = TestFunction(self.function_space())
-            M = assemble(firedrake.inner(u, v)*firedrake.dx
-                         + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx)
-            firedrake.solve(M, ret, value)
+        elif riesz_representation in ("L2", "H1"):
+            ret = Function(V)
+            a = self._define_riesz_map_form(riesz_representation, V)
+            firedrake.solve(a == value, ret, **solver_options)
             return ret
 
         elif callable(riesz_representation):
@@ -244,6 +249,28 @@ class FunctionMixin(FloatingType):
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
+
+    def _define_riesz_map_form(self, riesz_representation, V):
+        from firedrake import TrialFunction, TestFunction
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        if riesz_representation == "L2":
+            a = firedrake.inner(u, v)*firedrake.dx
+
+        elif riesz_representation == "H1":
+            a = firedrake.inner(u, v)*firedrake.dx \
+                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_representation)
+        return a
+
+    @no_annotations
+    def _ad_convert_type(self, value, options=None):
+        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
+        return self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
@@ -263,7 +290,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        r.assign(self * other)
+        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        r.assign(other * self)
         return r
 
     @no_annotations
@@ -280,7 +308,7 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "l2")
         if riesz_representation == "l2":
-            return self.vector().inner(other.vector())
+            return self.dat.inner(other.dat)
         elif riesz_representation == "L2":
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":

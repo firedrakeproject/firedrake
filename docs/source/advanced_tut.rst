@@ -22,4 +22,4 @@ element systems.
    Block preconditioning for the Stokes equation.<demos/stokes.py>
    A pressure-convection-diffusion preconditioner for the Navier-Stokes equations.</demos/navier_stokes.py>
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
-   Adaptive mesh refinement and Netgen support.<demos/netgen_mesh.py>
+   Netgen support.<demos/netgen_mesh.py>

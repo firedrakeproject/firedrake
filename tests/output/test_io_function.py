@@ -2,6 +2,7 @@ from firedrake import *
 import numpy as np
 import pytest
 from os.path import abspath, dirname, join
+import os
 import functools
 from pyop2.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
@@ -17,7 +18,7 @@ func_name = "f"
 
 def _initialise_function(f, _f, method):
     if method == "project":
-        getattr(f, method)(_f, solver_parameters={"ksp_rtol": 1.e-16})
+        getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1.e-16})
     else:
         getattr(f, method)(_f)
 
@@ -26,10 +27,10 @@ def _get_mesh(cell_type, comm):
     if cell_type == "triangle":
         mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra":
-        mesh = Mesh(join(cwd, "..", "meshes", "sphere.msh"),
-                    name=mesh_name, comm=comm)
+        # TODO: Prepare more interesting mesh.
+        mesh = UnitCubeMesh(16, 16, 16, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra_large":
-        mesh = Mesh(join(cwd, "..", "meshes", "sphere_large.msh"),
+        mesh = Mesh(join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
                     name=mesh_name, comm=comm)
     elif cell_type == "quadrilateral":
         mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"),
@@ -66,7 +67,7 @@ def _get_mesh(cell_type, comm):
 def _get_expr(V):
     mesh = V.mesh()
     dim = mesh.geometric_dimension()
-    shape = V.ufl_element().value_shape()
+    shape = V.ufl_element().value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
         z = x * y

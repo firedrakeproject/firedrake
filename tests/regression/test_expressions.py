@@ -295,7 +295,7 @@ def test_assign_with_different_meshes_fails():
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape[0]+1))
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)

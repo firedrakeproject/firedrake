@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import ufl
+from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 import cachetools
@@ -14,6 +15,7 @@ from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
+from firedrake.cofunction import Cofunction
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
@@ -232,6 +234,11 @@ class Function(ufl.Coefficient, FunctionMixin):
     :class:`Function` is vector-valued then this is specified in
     the :class:`.FunctionSpace`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Cofunction(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
@@ -458,6 +465,41 @@ class Function(ufl.Coefficient, FunctionMixin):
             Assigner(self, expr, subset).assign()
         return self
 
+    def riesz_representation(self, riesz_map='L2'):
+        """Return the Riesz representation of this :class:`Function` with respect to the given Riesz map.
+
+        Example: For a L2 Riesz map, the Riesz representation is obtained by taking the action
+        of ``M`` on ``self``, where M is the L2 mass matrix, i.e. M = <u, v>
+        with u and v trial and test functions, respectively.
+
+        Parameters
+        ----------
+        riesz_map : str or collections.abc.Callable
+                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Riesz representation of this :class:`Function` with respect to the given Riesz map.
+        """
+        from firedrake.ufl_expr import action
+        from firedrake.assemble import assemble
+
+        V = self.function_space()
+        if riesz_map == "l2":
+            return Cofunction(V.dual(), val=self.dat)
+
+        elif riesz_map in ("L2", "H1"):
+            a = self._define_riesz_map_form(riesz_map, V)
+            return assemble(action(a, self))
+
+        elif callable(riesz_map):
+            return riesz_map(self)
+
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_map)
+
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
         from firedrake.assign import IAddAssigner
@@ -574,16 +616,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         dont_raise = kwargs.get('dont_raise', False)
 
         tolerance = kwargs.get('tolerance', None)
+        mesh = self.function_space().mesh()
         if tolerance is None:
-            tolerance = self.ufl_domain().tolerance
+            tolerance = mesh.tolerance
         else:
-            self.ufl_domain().tolerance = tolerance
+            mesh.tolerance = tolerance
 
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 

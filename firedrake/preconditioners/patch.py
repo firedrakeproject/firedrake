@@ -13,7 +13,7 @@ import operator
 from itertools import chain
 from functools import partial
 import numpy
-from ufl import VectorElement, MixedElement
+from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -152,7 +152,7 @@ def matrix_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell or interior facet integrals")
@@ -192,14 +192,14 @@ def matrix_funptr(form, state):
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
-            c = form.ufl_domain().cell_orientations()
+            c = mesh.cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.ufl_domain().cell_sizes
+            c = mesh.cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -212,11 +212,12 @@ def matrix_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
-        for constant in extract_firedrake_constants(form):
-            args.append(constant.dat(op2.READ))
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
-            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = mesh.interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -245,7 +246,7 @@ def residual_funptr(form, state):
     for kernel in kernels:
         kinfo = kernel.kinfo
 
-        if kinfo.subdomain_id != "otherwise":
+        if kinfo.subdomain_id != ("otherwise",):
             raise NotImplementedError("Only for full domain integrals")
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell integrals or interior_facet integrals")
@@ -285,14 +286,14 @@ def residual_funptr(form, state):
         args.append(arg)
 
         if kinfo.oriented:
-            c = form.ufl_domain().cell_orientations()
+            c = mesh.cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.ufl_domain().cell_sizes
+            c = mesh.cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        for n, indices in kinfo.coefficient_map:
+        for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
                 if indices != (0, ):
@@ -305,8 +306,9 @@ def residual_funptr(form, state):
                 arg = c_.dat(op2.READ, map_)
                 args.append(arg)
 
-        for constant in extract_firedrake_constants(form):
-            args.append(constant.dat(op2.READ))
+        all_constants = extract_firedrake_constants(form)
+        for constant_index in kinfo.constant_numbers:
+            args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
             arg = extract_unique_domain(test).interior_facets.local_facet_dat(op2.READ)
@@ -512,12 +514,13 @@ def load_c_function(code, name, comm):
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
-    coeffs = [form.ufl_domain().coordinates]
+    mesh = form.ufl_domains()[kernel.kinfo.domain_number]
+    coeffs = [mesh.coordinates]
     if kernel.kinfo.oriented:
-        coeffs.append(form.ufl_domain().cell_orientations())
+        coeffs.append(mesh.cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(form.ufl_domain().cell_sizes)
-    for n, indices in kernel.kinfo.coefficient_map:
+        coeffs.append(mesh.cell_sizes)
+    for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:
             if indices != (0, ):
@@ -543,11 +546,12 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                     map_args.append(k)
                     seen.add(k)
 
-    for constant in extract_firedrake_constants(form):
-        data_args.extend(constant.dat._kernel_args_)
+    all_constants = extract_firedrake_constants(form)
+    for constant_index in kernel.kinfo.constant_numbers:
+        data_args.extend(all_constants[constant_index].dat._kernel_args_)
 
     if require_facet_number:
-        data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
+        data_args.extend(mesh.interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
 
 
@@ -775,7 +779,8 @@ class PatchBase(PCSNESBase):
             J = ctx.Jp or ctx.J
             bcs = ctx._problem.bcs
 
-        mesh = J.ufl_domain()
+        V = J.arguments()[0].function_space()
+        mesh = V.mesh()
         self.plex = mesh.topology_dm
         # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
@@ -807,8 +812,6 @@ class PatchBase(PCSNESBase):
             Jstate = None
             is_snes = False
 
-        V, _ = map(operator.methodcaller("function_space"), J.arguments())
-
         if len(bcs) > 0:
             ghost_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=True)
                                                              for bc in bcs]))
@@ -835,7 +838,7 @@ class PatchBase(PCSNESBase):
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
             facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
-            point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+            point2facet = mesh.interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
                                              point2facet=point2facet)

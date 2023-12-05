@@ -6,9 +6,10 @@ import abc
 
 import FIAT
 import ufl
+import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
-from ufl.domain import extract_unique_domain
+from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
@@ -28,7 +29,7 @@ from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
-from pyadjoint import stop_annotating
+from pyadjoint import stop_annotating, no_annotations
 
 __all__ = (
     "interpolate",
@@ -102,15 +103,19 @@ def interpolate(
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
         When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are set to zero or to the value
-        ``default_missing_val`` if given. Ignored if interpolating within the
-        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-        :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-        it is created).
+        ``True`` the corresponding values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. In either case, if ``default_missing_val`` is specified, that
+        value is used. This does not affect transpose interpolation. Ignored if
+        interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`
+        (the behaviour of a :func:`.VertexOnlyMesh` in this scenario is, at
+        present, set when it is created).
     :kwarg default_missing_val: For interpolation across meshes: the optional
         value to assign to DoFs in the target mesh that are outside the source
-        mesh. If this is not set then zero is used. Ignored if interpolating
-        within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        mesh. If this is not set then the values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. Ignored if interpolating within the same mesh or onto a
+        :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting block on
         the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
@@ -166,13 +171,13 @@ class Interpolator(abc.ABC):
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
         When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either left unchanged in the
-        :class:`.Function` produced by the interpolation, or are set to a
-        default value if one is provided. See the ``default_missing_val`` kwarg
-        of :meth:`interpolate` for more. Ignored if interpolating within the
-        same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-        :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is
-        created).
+        ``True`` the corresponding values are either (a) unchanged if
+        some ``output`` is given to the :meth:`interpolate` method or (b) set
+        to zero. Can be overwritten with the ``default_missing_val`` kwarg
+        of :meth:`interpolate`. This does not affect transpose interpolation.
+        Ignored if interpolating within the same mesh or onto a
+        :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
+        this scenario is, at present, set when it is created).
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
@@ -186,7 +191,7 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        target_mesh = V.ufl_domain()
+        target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         if target_mesh is not source_mesh:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -228,10 +233,9 @@ class Interpolator(abc.ABC):
               interpolation operator.
         :kwarg default_missing_val: For interpolation across meshes: the
             optional value to assign to DoFs in the target mesh that are
-            outside the source mesh. If this is not set and an ``output``
-            :class:`.Function` is specified, then such DoF values are left
-            unchanged. If this is not set and no ``output`` :class:`.Function`
-            is specified, then the default value is zero. This does not affect
+            outside the source mesh. If this is not set then the values are
+            either (a) unchanged if some ``output`` is specified to the
+            :meth:`interpolate` method or (b) set to zero. This does not affect
             transpose interpolation. Ignored if interpolating within the same
             mesh or onto a :func:`.VertexOnlyMesh`.
 
@@ -276,6 +280,7 @@ class CrossMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(
         self,
         expr,
@@ -309,10 +314,6 @@ class CrossMeshInterpolator(Interpolator):
 
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
-        if self.nargs and self.arguments[0] != self.expr:
-            raise NotImplementedError(
-                "Can't yet create an interpolator from an expression with arguments."
-            )
 
         if self._allow_missing_dofs:
             missing_points_behaviour = MissingPointsBehaviour.IGNORE
@@ -322,7 +323,7 @@ class CrossMeshInterpolator(Interpolator):
         # setup
         V_dest = V
         src_mesh = extract_unique_domain(expr)
-        dest_mesh = V_dest.ufl_domain()
+        dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -349,21 +350,22 @@ class CrossMeshInterpolator(Interpolator):
         # input ordering VOM will only contain the points on rank 0!
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
-        if ufl_scalar_element.num_sub_elements():
+        if ufl_scalar_element.num_sub_elements and not isinstance(
+            ufl_scalar_element, finat.ufl.TensorProductElement
+        ):
             if all(
-                ufl_scalar_element.sub_elements()[0] == e
-                for e in ufl_scalar_element.sub_elements()
+                ufl_scalar_element.sub_elements[0] == e
+                for e in ufl_scalar_element.sub_elements
             ):
                 # For a VectorElement or TensorElement the correct
                 # VectorFunctionSpace equivalent is built from the scalar
                 # sub-element.
-                ufl_scalar_element = ufl_scalar_element.sub_elements()[0]
-                if ufl_scalar_element.value_shape() != ():
+                ufl_scalar_element = ufl_scalar_element.sub_elements[0]
+                if ufl_scalar_element.value_shape != ():
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
-            else:
-                assert type(ufl_scalar_element) is ufl.MixedElement
+            elif type(ufl_scalar_element) is finat.ufl.MixedElement:
                 # Build and save an interpolator for each sub-element
                 # separately for MixedFunctionSpaces. NOTE: since we can't have
                 # expressions for MixedFunctionSpaces we know that the input
@@ -402,6 +404,10 @@ class CrossMeshInterpolator(Interpolator):
                     )
                     self.sub_interpolators.append(sub_interpolator)
                 return
+            else:
+                raise NotImplementedError(
+                    f"Unhandled cross-mesh interpolation ufl element type: {repr(ufl_scalar_element)}"
+                )
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
         f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         dest_node_coords = f_dest_node_coords.dat.data_ro
@@ -419,7 +425,7 @@ class CrossMeshInterpolator(Interpolator):
         # I first point evaluate my expression at these locations, giving a
         # P0DG function on the VOM. As described in the manual, this is an
         # interpolation operation.
-        shape = V_dest.ufl_element().value_shape()
+        shape = V_dest.ufl_element().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
@@ -477,9 +483,21 @@ class CrossMeshInterpolator(Interpolator):
             f_src = self.expr
 
         if transpose:
-            V_dest = self.expr.function_space()
+            try:
+                V_dest = self.expr.function_space().dual()
+            except AttributeError:
+                if self.nargs:
+                    V_dest = self.arguments[0].function_space().dual()
+                else:
+                    coeffs = extract_coefficients(self.expr)
+                    if len(coeffs):
+                        V_dest = coeffs[0].function_space().dual()
+                    else:
+                        raise ValueError(
+                            "Can't transpose interpolate an expression with no coefficients or arguments."
+                        )
         else:
-            if isinstance(self.V, firedrake.Function):
+            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 V_dest = self.V.function_space()
             else:
                 V_dest = self.V
@@ -487,10 +505,10 @@ class CrossMeshInterpolator(Interpolator):
             if output.function_space() != V_dest:
                 raise ValueError("Given output has the wrong function space!")
         else:
-            if isinstance(self.V, firedrake.Function):
+            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 output = self.V
             else:
-                output = firedrake.Function(V_dest).zero()
+                output = firedrake.Function(V_dest)
 
         if len(self.sub_interpolators):
             # MixedFunctionSpace case
@@ -530,7 +548,7 @@ class CrossMeshInterpolator(Interpolator):
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
-            if default_missing_val:
+            if default_missing_val is not None:
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
                 ] = default_missing_val
@@ -571,11 +589,9 @@ class CrossMeshInterpolator(Interpolator):
             # VOM. This has the parallel decomposition V_dest on our orinally
             # specified dest_mesh. We can therefore safely create a P0DG
             # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values. NOTE: we
-            # can't yet use actual cofunctions, so we use Functions in their
-            # place.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolator.V
+            # decomposition and ordering) and assign the dat values.
+            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
+                self.to_input_ordering_interpolator.V.dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
@@ -615,6 +631,7 @@ class SameMeshInterpolator(Interpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
+    @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
         super().__init__(expr, V, subset, freeze_expr, access, bcs)
         try:
@@ -685,7 +702,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     if len(arguments) == 0:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (
@@ -788,7 +805,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
-        dims = [numpy.prod(fs.ufl_element().value_shape(), dtype=int)
+        dims = [numpy.prod(fs.ufl_element().value_shape, dtype=int)
                 for fs in V]
         loops = []
         if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
@@ -826,16 +843,16 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
 
-    if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
+    if len(expr.ufl_shape) != len(V.ufl_element().value_shape):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                           % (len(expr.ufl_shape), len(V.ufl_element().value_shape())))
+                           % (len(expr.ufl_shape), len(V.ufl_element().value_shape)))
 
-    if expr.ufl_shape != V.ufl_element().value_shape():
+    if expr.ufl_shape != V.ufl_element().value_shape:
         raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                           % (expr.ufl_shape, V.ufl_element().value_shape()))
+                           % (expr.ufl_shape, V.ufl_element().value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:
@@ -1016,7 +1033,7 @@ def rebuild(element, expr, rt_var_name):
     raise NotImplementedError(f"Cross mesh interpolation not implemented for a {element} element.")
 
 
-@rebuild.register(finat.DiscontinuousLagrange)
+@rebuild.register(finat.fiat_elements.ScalarFiatElement)
 def rebuild_dg(element, expr, rt_var_name):
     # To tabulate on the given element (which is on a different mesh to the
     # expression) we must do so at runtime. We therefore create a quadrature
@@ -1045,7 +1062,7 @@ def rebuild_dg(element, expr, rt_var_name):
     runtime_points_expr = gem.Variable(rt_var_name, (num_points, expr_tdim))
     rule_pointset = finat.point_set.UnknownPointSet(runtime_points_expr)
     try:
-        expr_fiat_cell = as_fiat_cell(expr.ufl_element().cell())
+        expr_fiat_cell = as_fiat_cell(expr.ufl_element().cell)
     except AttributeError:
         # expression must be pure function of spatial coordinates so
         # domain has correct ufl cell

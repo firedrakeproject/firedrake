@@ -11,6 +11,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
 import ufl
+import finat.ufl
 from ufl.corealg.map_dag import map_expr_dag
 
 import gem
@@ -56,7 +57,7 @@ def X_isub_dX(topological_dimension):
 
 
 def is_affine(ufl_element):
-    return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
+    return ufl_element.cell.is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
 
 
 def inside_check(fiat_cell, eps, X="X"):
@@ -126,11 +127,11 @@ def init_X(fiat_cell, parameters):
 @PETSc.Log.EventDecorator()
 def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype="double", dX_dtype=ScalarType):
     # Set up UFL form
-    cell = ufl_coordinate_element.cell()
+    cell = ufl_coordinate_element.cell
     domain = ufl.Mesh(ufl_coordinate_element)
     K = ufl.JacobianInverse(domain)
     x = ufl.SpatialCoordinate(domain)
-    x0_element = ufl.VectorElement("Real", cell, 0)
+    x0_element = finat.ufl.VectorElement("Real", cell, 0)
     x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
     expr = ufl.dot(K, x - x0)
 
@@ -205,7 +206,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-    cell = ufl_coordinate_element.cell()
+    cell = ufl_coordinate_element.cell
     extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {

@@ -1,6 +1,6 @@
 import numpy as np
 from firedrake import *
-import ufl
+import finat.ufl
 
 
 def integrate_rhs(family, degree):
@@ -14,9 +14,9 @@ def integrate_rhs(family, degree):
 
     mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
-    horiz = ufl.FiniteElement(family, "triangle", degree)
-    vert = ufl.FiniteElement(family, "interval", degree)
-    prod = ufl.TensorProductElement(horiz, vert)
+    horiz = finat.ufl.FiniteElement(family, "triangle", degree)
+    vert = finat.ufl.FiniteElement(family, "interval", degree)
+    prod = finat.ufl.TensorProductElement(horiz, vert)
 
     fs = FunctionSpace(mesh, prod, name="fs")
     f = Function(fs)

@@ -265,6 +265,26 @@ def test_interpolate_to_function_space():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_interpolate_to_function_space_cross_mesh():
+    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
+    mesh_src = UnitSquareMesh(2, 2)
+    mesh_dest = UnitSquareMesh(3, 3, quadrilateral=True)
+    V = FunctionSpace(mesh_src, "CG", 1)
+    W = FunctionSpace(mesh_dest, "DG", 1)
+    u = Function(V)
+
+    x = SpatialCoordinate(mesh_src)
+    u.interpolate(x[0])
+    c = Constant(1., domain=mesh_src)
+    w = Function(W).interpolate((u+c)*u)
+
+    J = assemble(w**2*dx)
+    rf = ReducedFunctional(J, Control(c))
+    h = Constant(0.1, domain=mesh_src)
+    assert taylor_test(rf, Constant(1., domain=mesh_src), h) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_hessian_linear_expr():
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
@@ -314,9 +334,9 @@ def test_interpolate_hessian_linear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -372,9 +392,9 @@ def test_interpolate_hessian_nonlinear_expr():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -434,9 +454,71 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(f.block_variable.adj_value, Vector)
-    assert isinstance(f.block_variable.hessian_value, Vector)
-    Hm = f.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
+    # If the new interpolate block has the right hessian, taylor test
+    # convergence rate should be as for the unmodified test.
+    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
+    # Note this is a direct copy of
+    # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
+    # with modifications where indicated.
+
+    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
+
+    # Get tape instead of creating a new one for consistency with other tests
+    tape = get_working_tape()
+
+    mesh_dest = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh_dest, "Lagrange", 1)
+
+    # Interpolate from f in another function space on another mesh to force
+    # hessian evaluation of interpolation. Functions in W form our control
+    # space c, our expansion space h and perterbation direction g.
+    mesh_src = UnitSquareMesh(11, 11)
+    W = FunctionSpace(mesh_src, "Lagrange", 2)
+    f = Function(W)
+    f.vector()[:] = 5
+    w = Function(W)
+    w.vector()[:] = 4
+    c = Constant(2., domain=mesh_src)
+    # Note that we interpolate from a nonlinear expression with 3 coefficients
+    expr_interped = Function(V).interpolate(f**2+w**2+c**2)
+
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Constant(1, domain=mesh_dest), "on_boundary")
+
+    F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
+    solve(F == 0, u, bc)
+
+    J = assemble(u ** 4 * dx)
+    Jhat = ReducedFunctional(J, Control(f))
+
+    # Note functions are in W, not V.
+    h = Function(W)
+    h.vector()[:] = 10*rand(W.dim())
+
+    J.block_variable.adj_value = 1.0
+    f.block_variable.tlm_value = h
+
+    tape.evaluate_adj()
+    tape.evaluate_tlm()
+
+    J.block_variable.hessian_value = 0
+
+    tape.evaluate_hessian()
+
+    g = f.copy(deepcopy=True)
+
+    dJdm = J.block_variable.tlm_value
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     # If the new interpolate block has the right hessian, taylor test
     # convergence rate should be as for the unmodified test.
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
@@ -638,9 +720,9 @@ def test_supermesh_project_hessian(vector):
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    assert isinstance(source.block_variable.adj_value, Vector)
-    assert isinstance(source.block_variable.hessian_value, Vector)
-    Hm = source.block_variable.hessian_value.inner(h.vector())
+    assert isinstance(source.block_variable.adj_value, Cofunction)
+    assert isinstance(source.block_variable.hessian_value, Cofunction)
+    Hm = source.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 

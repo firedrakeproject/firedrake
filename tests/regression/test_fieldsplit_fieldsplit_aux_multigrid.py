@@ -91,6 +91,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
                            "mat_type": "aij",
                            "pc_type": "lu",
                            "pc_factor_mat_solver_type": "mumps",
+                           "mat_mumps_icntl_24": 1,
                            "snes_monitor": None}
     nsp_guess = MixedVectorSpaceBasis(G, [G.sub(0), VectorSpaceBasis(constant=True)])
     solve(F_guess == 0, g, bcs=Gbcs, nullspace=nsp_guess, solver_parameters=solver_params_guess)
@@ -142,8 +143,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "fieldsplit_0_fieldsplit_1_aux_mg_coarse_assembled": {
             "mat_type": "aij",
             "pc_type": "lu",
-            "pc_factor_mat_solver_type": "mumps",
-            "mat_mumps_icntl_14": 500
+            "pc_factor_mat_solver_type": "superlu_dist",
         },
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_type": "chebyshev",
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_convergence_test": "skip",

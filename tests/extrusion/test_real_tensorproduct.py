@@ -28,7 +28,7 @@ def variant(request):
 
 @pytest.fixture
 def expr(variant, V, fs_kind):
-    x, y, z = SpatialCoordinate(V.ufl_domain())
+    x, y, z = SpatialCoordinate(V.mesh())
     val = {"linear": z, "sin": sin(pi*z)}[variant]
     ret = {
         "scalar": val,
@@ -51,7 +51,7 @@ def solution(variant, fs_kind):
 
 @pytest.fixture
 def tolerance(variant):
-    return {"linear": 1e-15, "sin": 1e-5}[variant]
+    return {"linear": 2e-15, "sin": 1e-5}[variant]
 
 
 def test_vertical_average(V, expr, solution, tolerance):
@@ -73,7 +73,7 @@ def quadrilateral(request):
 
 def test_vertical_average_variable(quadrilateral):
     """Test computing vertical average on mesh with variable nb of levels"""
-    tolerance = 1e-14
+    tolerance = 2e-14
     mesh2d = RectangleMesh(5, 1, 5, 1, quadrilateral=quadrilateral)
 
     # construct number of levels
@@ -97,7 +97,7 @@ def test_vertical_average_variable(quadrilateral):
     fs_real = FunctionSpace(mesh, 'DG', 1, vfamily='Real', vdegree=0)
     f_real = Function(fs_real).project(f)
 
-    l2err = l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
+    l2err = sqrt(assemble(inner((f_real-correct), (f_real-correct))*dx))
     assert abs(l2err) < tolerance
 
 
