@@ -1175,7 +1175,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         # 3: check if self.boundary_set == other.boundary_set
         if not isinstance(other, RestrictedFunctionSpace):
             return False
-        return super().__eq__(self.function_space, other.function_space) and \ 
+        return super().__eq__(self.function_space, other.function_space) and \
                self.boundary_set == other.boundary_set
     
     def __ne__(self, other):
@@ -1190,7 +1190,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         # 1: Look at previous __repr__
         # 2: Want to display "RestrictedFunctionSpace(FunctionSpace(), ..., bcs)"
         return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
-                                                   repr(self.function_space)
+                                                   repr(self.function_space),
                                                    self.name, 
                                                    self.bcs)
     
@@ -1202,7 +1202,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         # we might need to remove boundary dofs
         raise NotImplementedError
 
-    def local_to_global_map(self, bcs, lgmap=None)
+    def local_to_global_map(self, bcs, lgmap=None):
         # discussed already - can probably create a helper function for most of it
         raise NotImplementedError
 
