@@ -58,28 +58,31 @@ def check_empty_tape(request):
     request.addfinalizer(fin)
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_sessionfinish(session, exitstatus):
-    """Eagerly call PETSc finalize.
-
-    This is required because of a diabolical ordering issue between petsc4py and
-    pytest-xdist setup and teardown operations (see
-    https://github.com/firedrakeproject/firedrake/issues/3247). Without this
-    modification the ordering is:
-
-        pytest init -> PETSc init -> pytest finalize -> PETSc finalize
-
-    This is problematic because pytest finalize cleans up some state that causes
-    PETSc finalize to crash. To get around this we call PETSc finalize earlier
-    in the process resulting in:
-
-        pytest init -> PETSc init -> PETSc finalize -> pytest finalize
-
-    """
-    # import must be inside the function to avoid calling petsc4py initialize here
-    from petsc4py import PETSc
-
-    # skip for parallel runs where finalize must be collective and xdist is not
-    # a concern (since it is not running on this "inner" process)
-    if not pytest_mpi._is_parallel_child_process():
-        PETSc._finalize()
+# @pytest.hookimpl(tryfirst=True)
+# def pytest_sessionfinish(session, exitstatus):
+#     """Eagerly call PETSc finalize.
+#
+#     This is required because of a diabolical ordering issue between petsc4py and
+#     pytest-xdist setup and teardown operations (see
+#     https://github.com/firedrakeproject/firedrake/issues/3247). Without this
+#     modification the ordering is:
+#
+#         pytest init -> PETSc init -> pytest finalize -> PETSc finalize
+#
+#     This is problematic because pytest finalize cleans up some state that causes
+#     PETSc finalize to crash. To get around this we call PETSc finalize earlier
+#     in the process resulting in:
+#
+#         pytest init -> PETSc init -> PETSc finalize -> pytest finalize
+#
+#     """
+#     # import must be inside the function to avoid calling petsc4py initialize here
+#     from petsc4py import PETSc
+#     import pyop2
+#
+#     pyop2.mpi._free_comms()
+#
+#     # skip for parallel runs where finalize must be collective and xdist is not
+#     # a concern (since it is not running on this "inner" process)
+#     if not pytest_mpi._is_parallel_child_process():
+#         PETSc._finalize()

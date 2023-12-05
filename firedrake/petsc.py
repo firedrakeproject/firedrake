@@ -1,13 +1,19 @@
 # Utility module that imports and initialises petsc4py
-import os
-import subprocess
-import petsc4py
-import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
-import itertools
 import functools
+import itertools
+import os
+import petsc4py
+import subprocess
+import sys
 from contextlib import contextmanager
+
+if "xdist" in sys.modules:
+    assert "pytest" in sys.modules
+    petsc4py.init(sys.argv + ["-options_left", "no"])
+else:
+    petsc4py.init(sys.argv)
+
+from petsc4py import PETSc
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
