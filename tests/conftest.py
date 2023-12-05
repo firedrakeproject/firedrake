@@ -61,9 +61,9 @@ def check_empty_tape(request):
 def pytest_sessionfinish(session, exitstatus):
     """Eagerly call PETSc finalize.
 
-    This is required because of a diabolical ordering issue between petsc2py and
+    This is required because of a diabolical ordering issue between petsc4py and
     pytest-xdist setup and teardown operations (see
-    https://github.com/firedrakeproject/firedrake/issues/3245). Without this
+    https://github.com/firedrakeproject/firedrake/issues/3247). Without this
     modification the ordering is:
 
         pytest init -> PETSc init -> pytest finalize -> PETSc finalize
@@ -75,7 +75,7 @@ def pytest_sessionfinish(session, exitstatus):
         pytest init -> PETSc init -> PETSc finalize -> pytest finalize
 
     """
-    # import must be inside the function to avoid calling petsc2py initialize here
-    from petsc2py import PETSc
+    # import must be inside the function to avoid calling petsc4py initialize here
+    from petsc4py import PETSc
 
     PETSc._finalize()
