@@ -1179,7 +1179,7 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, block_size=1):
+def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary_set=None):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
