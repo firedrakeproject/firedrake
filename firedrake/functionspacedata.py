@@ -403,7 +403,7 @@ class FunctionSpaceData(object):
                  "extruded", "mesh", "global_numbering")
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, ufl_element):
+    def __init__(self, mesh, ufl_element, boundary_set=None):
         if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
@@ -512,7 +512,7 @@ class FunctionSpaceData(object):
 
 
 @PETSc.Log.EventDecorator()
-def get_shared_data(mesh, ufl_element):
+def get_shared_data(mesh, ufl_element, boundary_set=None):
     """Return the ``FunctionSpaceData`` for the given
     element.
 
@@ -527,4 +527,4 @@ def get_shared_data(mesh, ufl_element):
     if not isinstance(ufl_element, finat.ufl.finiteelement.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(ufl_element))
-    return FunctionSpaceData(mesh, ufl_element)
+    return FunctionSpaceData(mesh, ufl_element, boundary_set)
