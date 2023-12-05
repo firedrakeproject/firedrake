@@ -1279,14 +1279,15 @@ def create_section(mesh, nodes_per_entity, on_base=False, boundary_set=None, blo
             if n == 0:
                 continue
             points = dm.getStratumIS(label, marker).indices
-            
+            CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
+            CHKERR(PetscMalloc1(dof, &dof_array))
             for i in range(n):
                 p = points[i]
                 CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                CHKERR(PetscMalloc1(dof, &dof_array))
                 for j in range(dof):
                     dof_array[j] = j
                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+            CHKERR(PetscFree(dof_array))
     return section
 
 
