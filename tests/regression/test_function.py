@@ -24,6 +24,12 @@ def W_nonstandard_shape():
     return W_nonstandard_shape
 
 
+@pytest.fixture
+def Rvector():
+    mesh = UnitSquareMesh(5, 5)
+    return VectorFunctionSpace(mesh, "R", 0, dim=4)
+
+
 def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Constant(1))
@@ -198,3 +204,24 @@ def test_tensor_function_zero_with_subset(W):
     f.zero(subset=subset)
     assert np.allclose(f.dat.data_ro[:3], 0.0)
     assert np.allclose(f.dat.data_ro[3:], 1.0)
+
+
+@pytest.mark.parametrize("value", [
+    "1",
+    "[1, 2, 3, 4]",
+    "np.array([5, 6, 7, 8])",
+    "range(4)",
+    "Function(Rvector, val=[9, 10, 11, 12])",
+    "zero()"])
+def test_vector_real_space(Rvector, value):
+    value = eval(value)
+    f = Function(Rvector)
+    f.assign(value)
+
+    if not isinstance(value, np.ndarray) and value == 0:
+        expected = 0
+    elif isinstance(value, Function):
+        expected = value.dat.data_ro
+    else:
+        expected = value
+    assert np.allclose(f.dat.data_ro, expected)

@@ -6,12 +6,15 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 import cachetools
 import ctypes
-from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
+from collections.abc import Collection
+from numbers import Number
 
 from pyop2 import op2, mpi
+from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
+
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction
 from firedrake import utils
@@ -308,7 +311,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     def __dir__(self):
         current = super(Function, self).__dir__()
-        return list(OrderedDict.fromkeys(dir(self._data) + current))
+        return list(dict.fromkeys(dir(self._data) + current))
 
     @utils.cached_property
     @FunctionMixin._ad_annotate_subfunctions
@@ -450,7 +453,12 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
-        if expr == 0:
+        if subset is None and isinstance(expr, (Number, Collection)):
+            try:
+                self.dat.data_wo[...] = expr
+            except (DataTypeError, DataValueError) as e:
+                raise ValueError(e)
+        elif expr == 0:
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
