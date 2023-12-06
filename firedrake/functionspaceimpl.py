@@ -494,6 +494,9 @@ class FunctionSpace(object):
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
+        self._mesh = mesh
+
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
         element is scalar-valued (or intrinsically vector-valued) have
@@ -506,43 +509,37 @@ class FunctionSpace(object):
         r"""The total number of degrees of freedom at each function
         space node."""
 
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._mesh = mesh
         self.name = name
         r"""The (optional) descriptive name for this space."""
+        self.set_shared_data()
+
+    def set_shared_data(self):
+        element = self.ufl_element()
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
 
         # User comm
         self.comm = mesh.comm
-        if element.family() == "Real":
-            self.finat_element = None
-            self.dof_dset = op2.GlobalDataSet(self.make_dat())
-            self.node_set = self.dof_dset.set
-            self.global_numbering = None
-        else:
-            # Used for reconstruction of mixed/component spaces.
-            # sdata carries real_tensorproduct.
-            sdata = get_shared_data(mesh, element)
-            # Need to create finat element again as sdata does not
-            # want to carry finat_element.
-            self.finat_element = create_element(element)
-            self.node_set = sdata.node_set
-            r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-            self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                        name="%s_nodes_dset" % self.name)
-            r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-            degrees of freedom."""
-
-            self._shared_data = sdata
-            self.real_tensorproduct = sdata.real_tensorproduct
-            self.extruded = sdata.extruded
-            self.offset = sdata.offset
-            self.offset_quotient = sdata.offset_quotient
-            self.cell_boundary_masks = sdata.cell_boundary_masks
-            self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-            self.global_numbering = sdata.global_numbering
-
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
+        # Need to create finat element again as sdata does not
+        # want to carry finat_element.
+        self.finat_element = create_element(element)
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        sdata = get_shared_data(self.mesh(), element)
+        self._shared_data = sdata
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -1121,6 +1118,12 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
+
+    def set_shared_data(self):
+        self.finat_element = None
+        self.global_numbering = None
+        self.dof_dset = op2.GlobalDataSet(self.make_dat())
+        self.node_set = self.dof_dset.set
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
