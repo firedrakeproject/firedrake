@@ -10,10 +10,8 @@ from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
-from pyop2.exceptions import DataTypeError, DataValueError
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
-
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction
 from firedrake import utils
