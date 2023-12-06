@@ -658,7 +658,7 @@ class CheckpointFile(object):
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
         distribution_name = tmesh._distribution_name
-        perm_is = tmesh._plex_renumbering
+        perm_is = tmesh._dm_renumbering
         permutation_name = tmesh._permutation_name
         if tmesh_name in self.require_group(self._path_to_topologies()):
             # Check if the global number of DMPlex points and
@@ -1125,7 +1125,7 @@ class CheckpointFile(object):
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh._comm)
-            section.setPermutation(tmesh._plex_renumbering)
+            section.setPermutation(tmesh._dm_renumbering)
             dm.setSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
             sfXC = base_tmesh.sfXC
@@ -1276,10 +1276,10 @@ class CheckpointFile(object):
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
         if isinstance(ufl_element, finat.ufl.TensorElement):
             shape = ufl_element.reference_value_shape
-            block_size = np.product(shape)
+            block_size = np.prod(shape)
         elif isinstance(ufl_element, finat.ufl.VectorElement):
             shape = ufl_element.value_shape[:1]
-            block_size = np.product(shape)
+            block_size = np.prod(shape)
         else:
             block_size = 1
         return (nodes_per_entity, real_tensorproduct, block_size)
