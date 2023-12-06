@@ -1155,7 +1155,7 @@ class RealFunctionSpace(FunctionSpace):
 
 class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
-        super().__init__(function_space.mesh, function_space.element, function_space.name)
+        super().__init__(function_space._mesh, function_space.ufl_element(), function_space.name)
         # 1: make a call to __super__ for __init__ using function_space.mesh etc 
         # 2: create self.boundary_set (the union of all bc.sub_domain)
         # 3: self.function_space = function_space
@@ -1167,7 +1167,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.name = name or (function_space.name + "_"  
                              + "_".join(sorted(
                                 [str(i) for i in self.boundary_set])))
-        self.sdata = get_shared_data(function_space.mesh, function_space.element, self.boundary_set)
+        self.sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
         
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
