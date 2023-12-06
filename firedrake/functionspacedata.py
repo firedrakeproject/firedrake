@@ -75,10 +75,11 @@ def get_global_numbering(mesh, key, global_numbering=None):
     entities.
 
     :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple where
         nodes_per_entity is a tuple of the number of nodes per topological
         entity; real_tensorproduct is True if the function space is a
-        degenerate fs x Real tensorproduct.
+        degenerate fs x Real tensorproduct; boundary_set is a set of boundary 
+        markers, indicating sub-domains a boundary condition is specified on. 
     :returns: A new PETSc Section.
     """
     if global_numbering:
@@ -92,10 +93,11 @@ def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
     :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple where
         nodes_per_entity is a tuple of the number of nodes per topological
         entity; real_tensorproduct is True if the function space is a
-        degenerate fs x Real tensorproduct.
+        degenerate fs x Real tensorproduct; boundary_set is a set of boundary 
+        markers, indicating sub-domains a boundary condition is specified on. 
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
     nodes_per_entity, real_tensorproduct, _ = key
@@ -520,6 +522,8 @@ def get_shared_data(mesh, ufl_element, boundary_set=None):
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
+    :arg boundary_set: A set of boundary markers, indicating the sub-domains 
+        a boundary condition is specified on. 
     :raises ValueError: if mesh or ufl_element are invalid.
     :returns: a ``FunctionSpaceData`` object with the shared
         data.
