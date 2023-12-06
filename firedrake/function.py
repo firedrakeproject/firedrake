@@ -456,6 +456,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         elif self.ufl_element().family() == "Real":
             try:
+                if isinstance(expr, type(self)) and expr.ufl_element().family() == "Real":
+                    expr = expr.dat.data_ro[...]
                 self.dat.data_wo[...] = expr
                 return self
             except (DataTypeError, DataValueError) as e:

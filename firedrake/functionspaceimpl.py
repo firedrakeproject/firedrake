@@ -439,6 +439,40 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
         return WithGeometry.create(self.topological, self.mesh())
 
 
+def get_shape_rank_value_size(element):
+    # The function space shape is the number of dofs per node,
+    # hence it is not always the value_shape.  Vector and Tensor
+    # element modifiers *must* live on the outside!
+    if type(element) in {finat.ufl.TensorElement, finat.ufl.VectorElement} \
+       or (isinstance(element, finat.ufl.WithMapping)
+           and type(element.wrapee) in {finat.ufl.TensorElement, finat.ufl.VectorElement}):
+        # The number of "free" dofs is given by reference_value_shape,
+        # not value_shape due to symmetry specifications
+        rvs = element.reference_value_shape
+        # This requires that the sub element is not itself a
+        # tensor element (which is checked by the top level
+        # constructor of function spaces)
+        shape_element = element
+        if isinstance(element, finat.ufl.WithMapping):
+            shape_element = element.wrapee
+        sub = shape_element.sub_elements[0].value_shape
+        shape = rvs[:len(rvs) - len(sub)]
+    else:
+        shape = ()
+    rank = len(shape)
+    r"""The rank of this :class:`FunctionSpace`.  Spaces where the
+    element is scalar-valued (or intrinsically vector-valued) have
+    rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+    :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
+    the number of components of their
+    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
+
+    value_size = int(numpy.prod(shape, dtype=int))
+    r"""The total number of degrees of freedom at each function
+    space node."""
+    return shape, rank, value_size
+
+
 class FunctionSpace(object):
     r"""A representation of a function space.
 
@@ -476,40 +510,11 @@ class FunctionSpace(object):
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
         sdata = get_shared_data(mesh, element)
-        # The function space shape is the number of dofs per node,
-        # hence it is not always the value_shape.  Vector and Tensor
-        # element modifiers *must* live on the outside!
-        if type(element) in {finat.ufl.TensorElement, finat.ufl.VectorElement} \
-           or (isinstance(element, finat.ufl.WithMapping)
-               and type(element.wrapee) in {finat.ufl.TensorElement, finat.ufl.VectorElement}):
-            # The number of "free" dofs is given by reference_value_shape,
-            # not value_shape due to symmetry specifications
-            rvs = element.reference_value_shape
-            # This requires that the sub element is not itself a
-            # tensor element (which is checked by the top level
-            # constructor of function spaces)
-            shape_element = element
-            if isinstance(element, finat.ufl.WithMapping):
-                shape_element = element.wrapee
-            sub = shape_element.sub_elements[0].value_shape
-            self.shape = rvs[:len(rvs) - len(sub)]
-        else:
-            self.shape = ()
+        self.shape, self.rank, self.value_size = get_shape_rank_value_size(element)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._shared_data = sdata
         self._mesh = mesh
 
-        self.rank = len(self.shape)
-        r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-        element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
-        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
-        the number of components of their
-        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
-
-        self.value_size = int(numpy.prod(self.shape, dtype=int))
-        r"""The total number of degrees of freedom at each function
-        space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
@@ -534,6 +539,7 @@ class FunctionSpace(object):
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self._global_numbering = sdata.global_numbering
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -584,7 +590,7 @@ class FunctionSpace(object):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self._shared_data.global_numbering)
+                             section=self._global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -1101,11 +1107,10 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    rank = 0
-    shape = ()
-    value_size = 1
+    _global_numbering = None
 
     def __init__(self, mesh, element, name):
+        self.shape, self.rank, self.value_size = get_shape_rank_value_size(element)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
@@ -1125,17 +1130,6 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=None)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
@@ -1161,9 +1155,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
-
-    def dim(self):
-        return 1
 
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0

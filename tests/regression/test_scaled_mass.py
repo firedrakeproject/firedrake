@@ -30,27 +30,23 @@ def mesh():
                          ['scalar', 'vector', 'tensor'])
 def test_math_functions(mesh, expr, value, typ, fs_type):
     if typ == 'Function':
-        if fs_type == 'vector':
-            V = VectorFunctionSpace(mesh, 'CG', 1)
-        elif fs_type == 'tensor':
-            V = TensorFunctionSpace(mesh, 'CG', 1)
-        else:
-            V = FunctionSpace(mesh, 'CG', 1)
-        f = Function(V)
-        f.assign(value)
-        if fs_type == 'vector':
-            f = dot(f, f)
-        elif fs_type == 'tensor':
-            f = inner(f, f)
+        family, degree = 'CG', 1
     elif typ == 'Constant':
-        if fs_type == 'vector':
-            f = Constant([value, value], domain=mesh)
-            f = dot(f, f)
-        elif fs_type == 'tensor':
-            f = Constant([[value, value], [value, value]], domain=mesh)
-            f = inner(f, f)
-        else:
-            f = Constant(value, domain=mesh)
+        family, degree = 'Real', 0
+
+    if fs_type == "vector":
+        V = VectorFunctionSpace(mesh, family, degree)
+    elif fs_type == "tensor":
+        V = TensorFunctionSpace(mesh, family, degree)
+    else:
+        V = FunctionSpace(mesh, family, degree)
+
+    f = Function(V)
+    f.assign(value)
+    if fs_type == 'vector':
+        f = dot(f, f)
+    elif fs_type == 'tensor':
+        f = inner(f, f)
 
     H = FunctionSpace(mesh, 'CG', 1)
     u = TrialFunction(H)
