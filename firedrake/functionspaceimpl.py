@@ -508,13 +508,18 @@ class FunctionSpace(object):
         self.value_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
         space node."""
-
         self.name = name
         r"""The (optional) descriptive name for this space."""
+        # User comm
+        self.comm = mesh.comm
         self.set_shared_data()
 
     def set_shared_data(self):
+        mesh = self.mesh()
         element = self.ufl_element()
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        sdata = get_shared_data(mesh, element)
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
@@ -522,16 +527,11 @@ class FunctionSpace(object):
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
 
-        # User comm
-        self.comm = mesh.comm
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        sdata = get_shared_data(self.mesh(), element)
         self._shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
