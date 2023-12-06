@@ -2,17 +2,21 @@
 import functools
 import itertools
 import os
-import petsc4py
 import subprocess
 import sys
 from contextlib import contextmanager
 
-if "xdist" in sys.modules:
-    assert "pytest" in sys.modules
+# When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
+# crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
+# is because PETSc wants to complain about unused options to stderr, but by this
+# point the worker's stderr stream has already been destroyed by xdist, causing
+# a crash. To prevent this we disable unused options checking in PETSc when
+# running with xdist.
+import petsc4py
+if "PYTEST_XDIST_WORKER" in os.environ:
     petsc4py.init(sys.argv + ["-options_left", "no"])
 else:
     petsc4py.init(sys.argv)
-
 from petsc4py import PETSc
 
 
