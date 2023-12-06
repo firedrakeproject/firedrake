@@ -513,19 +513,17 @@ class FunctionSpace(object):
         # User comm
         self.comm = mesh.comm
         self.set_shared_data()
+        self.dof_dset = self.make_dof_dset()
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        self.node_set = self.dof_dset.set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        # Internal comm
+        self._comm = mpi.internal_comm(self.node_set.comm)
 
     def set_shared_data(self):
         element = self.ufl_element()
         sdata = get_shared_data(self._mesh, element)
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-
-        # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
@@ -539,6 +537,10 @@ class FunctionSpace(object):
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
         self.global_numbering = sdata.global_numbering
+
+    def make_dof_dset(self):
+        return op2.DataSet(self._shared_data.node_set, self.shape or 1,
+                           name="%s_nodes_dset" % self.name)
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -1105,6 +1107,9 @@ class RealFunctionSpace(FunctionSpace):
 
     """
 
+    finat_element = None
+    global_numbering = None
+
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
             return False
@@ -1119,10 +1124,10 @@ class RealFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.ufl_element()))
 
     def set_shared_data(self):
-        self.finat_element = None
-        self.global_numbering = None
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
-        self.node_set = self.dof_dset.set
+        pass
+
+    def make_dof_dset(self):
+        return op2.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the

@@ -49,6 +49,7 @@ def parentmesh(request):
 
 
 def one(domain):
+    return Constant(1)
     R = FunctionSpace(domain, "R", 0)
     return Function(R).assign(1.0)
 
@@ -108,7 +109,7 @@ def functionspace_tests(vm):
     # Assembly works as expected - global assembly (integration) of a
     # constant on a vertex only mesh is evaluation of that constant
     # num_vertices (globally) times
-    f.interpolate(2*one(vm))
+    f.interpolate(Constant(2))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
     if "input_ordering" in vm.name:
         assert vm.input_ordering is None
