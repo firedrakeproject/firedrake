@@ -439,40 +439,6 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
         return WithGeometry.create(self.topological, self.mesh())
 
 
-def get_shape_rank_value_size(element):
-    # The function space shape is the number of dofs per node,
-    # hence it is not always the value_shape.  Vector and Tensor
-    # element modifiers *must* live on the outside!
-    if type(element) in {finat.ufl.TensorElement, finat.ufl.VectorElement} \
-       or (isinstance(element, finat.ufl.WithMapping)
-           and type(element.wrapee) in {finat.ufl.TensorElement, finat.ufl.VectorElement}):
-        # The number of "free" dofs is given by reference_value_shape,
-        # not value_shape due to symmetry specifications
-        rvs = element.reference_value_shape
-        # This requires that the sub element is not itself a
-        # tensor element (which is checked by the top level
-        # constructor of function spaces)
-        shape_element = element
-        if isinstance(element, finat.ufl.WithMapping):
-            shape_element = element.wrapee
-        sub = shape_element.sub_elements[0].value_shape
-        shape = rvs[:len(rvs) - len(sub)]
-    else:
-        shape = ()
-    rank = len(shape)
-    r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-    element is scalar-valued (or intrinsically vector-valued) have
-    rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
-    :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
-    the number of components of their
-    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
-
-    value_size = int(numpy.prod(shape, dtype=int))
-    r"""The total number of degrees of freedom at each function
-    space node."""
-    return shape, rank, value_size
-
-
 class FunctionSpace(object):
     r"""A representation of a function space.
 
@@ -509,37 +475,74 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        sdata = get_shared_data(mesh, element)
-        self.shape, self.rank, self.value_size = get_shape_rank_value_size(element)
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._shared_data = sdata
-        self._mesh = mesh
+        # The function space shape is the number of dofs per node,
+        # hence it is not always the value_shape.  Vector and Tensor
+        # element modifiers *must* live on the outside!
+        if type(element) in {finat.ufl.TensorElement, finat.ufl.VectorElement} \
+           or (isinstance(element, finat.ufl.WithMapping)
+               and type(element.wrapee) in {finat.ufl.TensorElement, finat.ufl.VectorElement}):
+            # The number of "free" dofs is given by reference_value_shape,
+            # not value_shape due to symmetry specifications
+            rvs = element.reference_value_shape
+            # This requires that the sub element is not itself a
+            # tensor element (which is checked by the top level
+            # constructor of function spaces)
+            shape_element = element
+            if isinstance(element, finat.ufl.WithMapping):
+                shape_element = element.wrapee
+            sub = shape_element.sub_elements[0].value_shape
+            self.shape = rvs[:len(rvs) - len(sub)]
+        else:
+            self.shape = ()
+        self.rank = len(self.shape)
+        r"""The rank of this :class:`FunctionSpace`.  Spaces where the
+        element is scalar-valued (or intrinsically vector-valued) have
+        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
+        the number of components of their
+        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
+        self.value_size = int(numpy.prod(self.shape, dtype=int))
+        r"""The total number of degrees of freedom at each function
+        space node."""
+
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
+        self._mesh = mesh
         self.name = name
         r"""The (optional) descriptive name for this space."""
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
 
         # User comm
         self.comm = mesh.comm
+        if element.family() == "Real":
+            self.finat_element = None
+            self.dof_dset = op2.GlobalDataSet(self.make_dat())
+            self.node_set = self.dof_dset.set
+            self.global_numbering = None
+        else:
+            # Used for reconstruction of mixed/component spaces.
+            # sdata carries real_tensorproduct.
+            sdata = get_shared_data(mesh, element)
+            # Need to create finat element again as sdata does not
+            # want to carry finat_element.
+            self.finat_element = create_element(element)
+            self.node_set = sdata.node_set
+            r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+            self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                        name="%s_nodes_dset" % self.name)
+            r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+            degrees of freedom."""
+
+            self._shared_data = sdata
+            self.real_tensorproduct = sdata.real_tensorproduct
+            self.extruded = sdata.extruded
+            self.offset = sdata.offset
+            self.offset_quotient = sdata.offset_quotient
+            self.cell_boundary_masks = sdata.cell_boundary_masks
+            self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+            self.global_numbering = sdata.global_numbering
+
         # Internal comm
         self._comm = mpi.internal_comm(self.node_set.comm)
-        # Need to create finat element again as sdata does not
-        # want to carry finat_element.
-        self.finat_element = create_element(element)
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-        self._global_numbering = sdata.global_numbering
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -590,7 +593,7 @@ class FunctionSpace(object):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self._global_numbering)
+                             section=self.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -1105,18 +1108,6 @@ class RealFunctionSpace(FunctionSpace):
     :class:`RealFunctionSpace` objects as appropriate.
 
     """
-
-    finat_element = None
-    _global_numbering = None
-
-    def __init__(self, mesh, element, name):
-        self.shape, self.rank, self.value_size = get_shape_rank_value_size(element)
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self.name = name
-        self.comm = mesh.comm
-        self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
-        self.node_set = self.dof_dset.set
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
