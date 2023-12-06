@@ -515,11 +515,8 @@ class FunctionSpace(object):
         self.set_shared_data()
 
     def set_shared_data(self):
-        mesh = self.mesh()
         element = self.ufl_element()
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        sdata = get_shared_data(mesh, element)
+        sdata = get_shared_data(self._mesh, element)
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
@@ -532,6 +529,8 @@ class FunctionSpace(object):
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
         self._shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
