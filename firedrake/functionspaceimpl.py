@@ -1155,15 +1155,16 @@ class RealFunctionSpace(FunctionSpace):
 
 class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
-        super().__init__(function_space._mesh, function_space.ufl_element(), function_space.name)
+        super().__init__(function_space._mesh.topology, function_space.ufl_element(), function_space.name)
         # 1: make a call to __super__ for __init__ using function_space.mesh etc 
         # 2: create self.boundary_set (the union of all bc.sub_domain)
         # 3: self.function_space = function_space
         self.function_space = function_space
-        self.boundary_set = set()
+        boundary_set = set()
         self.bcs = bcs
         for bc in bcs:
-            self.boundary_set = self.boundary_set.union(set(bc.sub_domain))
+            boundary_set = boundary_set.union(set(bc.sub_domain))
+        self.boundary_set = frozenset(boundary_set)
         self.name = name or (function_space.name + "_"  
                              + "_".join(sorted(
                                 [str(i) for i in self.boundary_set])))
@@ -1190,13 +1191,13 @@ class RestrictedFunctionSpace(FunctionSpace):
         # 1: Look at previous __repr__
         # 2: Want to display "RestrictedFunctionSpace(FunctionSpace(), ..., bcs)"
         return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
-                                                   repr(self.function_space),
+                                                   str(self.function_space),
                                                    self.name, 
                                                    self.bcs)
     
     def __str__(self):
         # __str__ == __repr__
-        return __repr__(self)
+        return self.__repr__()
     
     def dof_count(self):
         # we might need to remove boundary dofs
