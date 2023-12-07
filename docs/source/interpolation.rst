@@ -251,7 +251,7 @@ proceeds as follows:
 .. code-block:: python3
 
    # First, grab the mesh.
-   m = V.ufl_domain()
+   m = V.mesh()
 
    # Now make the VectorFunctionSpace corresponding to V.
    W = VectorFunctionSpace(m, V.ufl_element())

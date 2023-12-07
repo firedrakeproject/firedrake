@@ -41,7 +41,7 @@ def tolerance(element, which):
 
 @pytest.fixture
 def expect(V, which):
-    x, y = SpatialCoordinate(V.ufl_domain())
+    x, y = SpatialCoordinate(V.mesh())
     expr = (x + y)**(V.ufl_element().degree())
     if which == "coefficient":
         return expr

@@ -1660,7 +1660,7 @@ def _as_global_kernel_arg_cell_facet(_, self):
 @_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_global_kernel_arg_cell_orientations(_, self):
     # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
-    ufl_element = finat.ufl.FiniteElement("DG", cell=self._form.ufl_domain().ufl_cell(), degree=0)
+    ufl_element = finat.ufl.FiniteElement("DG", cell=self._mesh.ufl_cell(), degree=0)
     finat_element = create_element(ufl_element)
     return self._make_dat_global_kernel_arg(finat_element)
 

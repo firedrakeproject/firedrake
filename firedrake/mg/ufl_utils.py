@@ -1,7 +1,7 @@
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import extract_unique_domain
+from ufl.domain import as_domain, extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
@@ -10,7 +10,7 @@ import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, push_parent, pop_parent, add_hook)
+                               get_parent, add_hook)
 
 from . import utils
 import weakref
@@ -95,7 +95,7 @@ def coarsen_form(form, self, coefficient_mapping=None):
     integrals = []
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
-        mesh = it.ufl_domain()
+        mesh = as_domain(it)
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
         if isinstance(integrand, ufl.classes.Zero):
@@ -126,53 +126,18 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
-@coarsen.register(firedrake.functionspaceimpl.FiredrakeDualSpace)
-@coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
-@coarsen.register(firedrake.functionspaceimpl.WithGeometry)
+@coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
         return V._coarse
-    fine = V
-    indices = []
-    while True:
-        if V.index is not None:
-            indices.append(V.index)
-        if V.component is not None:
-            indices.append(V.component)
-        if V.parent is not None:
-            V = V.parent
-        else:
-            break
 
-    mesh = self(V.mesh(), self)
-
-    if isinstance(V, firedrake.functionspaceimpl.FiredrakeDualSpace):
-        V = firedrake.functionspace.DualSpace(mesh, V.ufl_element())
-    else:
-        V = firedrake.FunctionSpace(mesh, V.ufl_element())
-
-    for i in reversed(indices):
-        V = V.sub(i)
-    V._fine = fine
-    fine._coarse = V
-
-    # FIXME: This replicates some code from dmhooks.coarsen, but we
-    # can't do things there because that code calls this code.
-
-    # We need to move these operators over here because if we have
-    # fieldsplits + MG with auxiliary coefficients on spaces other
-    # than which we do the MG, dm.coarsen is never called, so the
-    # hooks are not attached. Instead we just call (say) inject which
-    # coarsens the functionspace.
-    cdm = V.dm
-    parent = get_parent(fine.dm)
-    try:
-        add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
-                 call_setup=True)
-    except ValueError:
-        # Not in an add_hooks context
-        pass
-    return V
+    V_fine = V
+    mesh_coarse = self(V_fine.mesh(), self)
+    name = f"coarse_{V.name}" if V.name else None
+    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
+    V_coarse._fine = V_fine
+    V_fine._coarse = V_coarse
+    return V_coarse
 
 
 @coarsen.register(firedrake.Cofunction)

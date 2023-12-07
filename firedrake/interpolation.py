@@ -9,7 +9,7 @@ import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.algorithms.signature import compute_expression_signature
-from ufl.domain import extract_unique_domain
+from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import disk_cached
@@ -241,7 +241,7 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        target_mesh = V.ufl_domain()
+        target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         if target_mesh is not source_mesh:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -464,7 +464,7 @@ class CrossMeshInterpolator(Interpolator):
         # setup
         V_dest = V
         src_mesh = extract_unique_domain(expr)
-        dest_mesh = V_dest.ufl_domain()
+        dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -837,7 +837,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     if len(arguments) == 0:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (
@@ -987,7 +987,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                            % (expr.ufl_shape, V.ufl_element().value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = V.ufl_domain()
+    target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
 
     if target_mesh is not source_mesh:

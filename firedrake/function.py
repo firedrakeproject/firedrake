@@ -611,16 +611,16 @@ class Function(ufl.Coefficient, FunctionMixin):
         dont_raise = kwargs.get('dont_raise', False)
 
         tolerance = kwargs.get('tolerance', None)
+        mesh = self.function_space().mesh()
         if tolerance is None:
-            tolerance = self.ufl_domain().tolerance
+            tolerance = mesh.tolerance
         else:
-            self.ufl_domain().tolerance = tolerance
+            mesh.tolerance = tolerance
 
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 

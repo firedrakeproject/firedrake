@@ -142,6 +142,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self._function_space
 
+    def equals(self, other):
+        """Check equality."""
+        if type(other) is not Cofunction:
+            return False
+        if self is other:
+            return True
+        return self._count == other._count and self._function_space == other._function_space
+
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):

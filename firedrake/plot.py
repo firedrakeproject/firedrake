@@ -1002,7 +1002,7 @@ def _pgfplot_create_patches(f, coords, complex_component):
     fiat_cell = V.finat_element.cell
     degree = elem.degree()
     coordV = coords.function_space()
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     cdata = coords.dat.data_ro.real
     fdata = f.dat.data_ro.real if complex_component == 'real' else f.dat.data_ro.imag
     map_facet_dofs, patch_type = _pgfplot_make_perms(fiat_cell, degree)
@@ -1070,7 +1070,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
         raise NotImplementedError(f"complex_component must be {'real', 'imag'}: got {complex_component}")
     V = f.function_space()
     elem = V.ufl_element()
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     dim = mesh.geometric_dimension()
     if dim not in (2, 3):
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")

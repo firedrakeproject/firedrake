@@ -4,6 +4,7 @@ from ufl.duals import is_dual
 from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.domain import as_domain
 
 import firedrake
 from firedrake import utils, function, cofunction
@@ -231,7 +232,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 
-    mesh = form.ufl_domain()
+    mesh = as_domain(form)
     if not mesh:
         raise ValueError("Expression to be differentiated has no ufl domain."
                          "\nDo you need to add a domain to your Constant?")
