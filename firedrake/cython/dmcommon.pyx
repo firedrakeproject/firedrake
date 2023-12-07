@@ -1249,14 +1249,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
     
     if boundary_set:
-        for sub_domain in boundary_set:
-            if sub_domain == "on_boundary":
+        for marker in boundary_set:
+            if marker == "on_boundary":
                 label = "exterior_facets"
-                sub_domain = (1, )
+                marker = 1
             else:
                 label = FACE_SETS_LABEL
-            for marker in sub_domain:
-                n = dm.getStratumSize(label, marker) 
+            n = dm.getStratumSize(label, marker) 
             if n == 0:
                 continue
             points = dm.getStratumIS(label, marker).indices
@@ -1268,14 +1267,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     
     if boundary_set:
         # have to loop again as we need to call section.setUp() first
-        for sub_domain in boundary_set:
-            if sub_domain == "on_boundary":
+        for marker in boundary_set:
+            if marker == "on_boundary":
                 label = "exterior_facets"
-                sub_domain = (1, )
+                marker = 1
             else:
                 label = FACE_SETS_LABEL
-            for marker in sub_domain:
-                n = dm.getStratumSize(label, marker) 
+            n = dm.getStratumSize(label, marker) 
             if n == 0:
                 continue
             points = dm.getStratumIS(label, marker).indices
