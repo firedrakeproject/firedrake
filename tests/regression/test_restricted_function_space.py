@@ -9,14 +9,17 @@ x, y = SpatialCoordinate(mesh)
 u = TrialFunction(V)
 v = TestFunction(V)
 
+original_form = u * v * dx
 matrix = assemble(u * v * dx)
-print(matrix.M.values)
+print(matrix.M.values) # getting the 4x4 matrix values to compare with the ones later
 
-bc = DirichletBC(V, 0, "1")
-V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc]) # currently fails here from caching
+bc = DirichletBC(V, 0, 1)
+V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc]) 
 
 u2 = TrialFunction(V_res)
 v2 = TestFunction(V_res)
+restricted_form = u2 * v2 * dx
 
-matrix_res = assemble(u2 * v2 * dx)
+matrix_res = assemble(u2 * v2 * dx) # currently fails here -> size is 4 x 4
+
 print(matrix_res.M.values)
