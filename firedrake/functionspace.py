@@ -16,7 +16,7 @@ import numbers
 
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
-           "VectorFunctionSpace", "TensorFunctionSpace")
+           "VectorFunctionSpace", "TensorFunctionSpace", "RestrictedFunctionSpace")
 
 
 @PETSc.Log.EventDecorator()
@@ -305,3 +305,19 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     if mesh is not mesh.topology:
         new = cls.create(new, mesh)
     return new
+
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
+def RestrictedFunctionSpace(function_space, name=None, bcs=[]):
+    """Create a :class:`.RestrictedFunctionSpace`.
+
+    Parameters
+    ----------
+    function_space:
+        FunctionSpace object to restrict
+    name:
+        An optional name for the function space.
+    bcs :
+        Set of boundary conditions
+
+    """
+    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name, bcs=bcs), function_space.mesh())
