@@ -62,4 +62,4 @@ def test_poisson_variable_layers():
     uh = Function(V)
     solve(a == L, uh, bcs=bcs)
 
-    assert numpy.allclose(uh.dat.data_ro, assemble(interpolate(exact, V).dat.data_ro))
+    assert numpy.allclose(uh.dat.data_ro, assemble(interpolate(exact, V)).dat.data_ro)

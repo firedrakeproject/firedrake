@@ -83,7 +83,8 @@ def test_vom_manual_keyword_arguments():
 
     # Interpolating f into the P0DG space on the vertex-only mesh evaluates f at
     # the points
-    expr = assemble(interpolate(f, P0DG)*dx)
+    f_at_points = assemble(interpolate(f, P0DG))
+    expr = assemble(f_at_points * dx)
 
     assert expr == 0.0
 

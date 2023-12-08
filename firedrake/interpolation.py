@@ -43,7 +43,7 @@ __all__ = (
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v, interp_data=None):
+    def __init__(self, expr, v, **interp_data):
         r""" Symbolic representation of the interpolation operator.
 
         :arg expr: a UFL expression to interpolate.
@@ -62,7 +62,7 @@ class Interpolate(ufl.Interpolate):
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
-        self.interp_data = interp_data or {}
+        self.interp_data = interp_data
 
     def function_space(self):
         return self._function_space
