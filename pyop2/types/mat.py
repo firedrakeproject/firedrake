@@ -55,48 +55,41 @@ class Sparsity(caching.ObjectCached):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
-
-        self._block_sparse = block_sparse
-        # Split into a list of row maps and a list of column maps
-        maps, iteration_regions = zip(*maps)
-        self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
-
+        maps, iteration_regions = zip(*maps)
+        _rmaps, _cmaps = zip(*maps)
+        _maps_and_regions = {}
+        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+            rset, cset = dsets
+            for i, _ in enumerate(rset):
+                for j, _ in enumerate(cset):
+                    _maps_and_regions[(i, j)] = list(zip((rm.split[i] for rm in _rmaps),
+                                                       (cm.split[j] for cm in _cmaps),
+                                                       iteration_regions))
+        else:
+            _maps_and_regions[(0, 0)] = list(zip(_rmaps, _cmaps, iteration_regions))
+        self._maps_and_regions = _maps_and_regions
+        self._block_sparse = block_sparse
+        self.lcomm = mpi.internal_comm(self.dsets[0].comm, self)
+        self.rcomm = mpi.internal_comm(self.dsets[1].comm, self)
         if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
             self._dims = (((1, 1),),)
             self._d_nnz = None
             self._o_nnz = None
-            self.lcomm = mpi.internal_comm(
-                dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm,
-                self
-            )
-            self.rcomm = mpi.internal_comm(
-                dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm,
-                self
-            )
         else:
-            self.lcomm = mpi.internal_comm(self._rmaps[0].comm, self)
-            self.rcomm = mpi.internal_comm(self._cmaps[0].comm, self)
-
             rset, cset = self.dsets
-
             self._has_diagonal = (rset == cset)
-
-            tmp = itertools.product([x.cdim for x in self._dsets[0]],
-                                    [x.cdim for x in self._dsets[1]])
-
+            tmp = itertools.product([x.cdim for x in self.dsets[0]],
+                                    [x.cdim for x in self.dsets[1]])
             dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
             for r in range(self.shape[0]):
                 for c in range(self.shape[1]):
                     dims[r][c] = next(tmp)
-
             self._dims = tuple(tuple(d) for d in dims)
-
         if self.lcomm != self.rcomm:
             raise ValueError("Haven't thought hard enough about different left and right communicators")
         self.comm = mpi.internal_comm(self.lcomm, self)
         self._name = name or "sparsity_#x%x" % id(self)
-        self.iteration_regions = iteration_regions
         # If the Sparsity is defined on MixedDataSets, we need to build each
         # block separately
         if (isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet)) \
@@ -106,9 +99,8 @@ class Sparsity(caching.ObjectCached):
             for i, rds in enumerate(dsets[0]):
                 row = []
                 for j, cds in enumerate(dsets[1]):
-                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for
-                                                     rm, cm in maps],
-                                        iteration_regions=iteration_regions,
+                    row.append(Sparsity((rds, cds), self.rcmaps[(i, j)],
+                                        iteration_regions=self.iteration_regions[(i, j)],
                                         block_sparse=block_sparse))
                 self._blocks.append(row)
             self._d_nnz = tuple(s._d_nnz for s in self)
@@ -233,26 +225,12 @@ class Sparsity(caching.ObjectCached):
         return self._dsets
 
     @utils.cached_property
-    def maps(self):
-        """A list of pairs (rmap, cmap) where each pair of
-        :class:`Map` objects will later be used to assemble into this
-        matrix. The iterset of each of the maps in a pair must be the
-        same, while the toset of all the maps which appear first
-        must be common, this will form the row :class:`Set` of the
-        sparsity. Similarly, the toset of all the maps which appear
-        second must be common and will form the column :class:`Set` of
-        the ``Sparsity``."""
-        return list(zip(self._rmaps, self._cmaps))
+    def rcmaps(self):
+        return {key: [(_rmap, _cmap) for _rmap, _cmap, _ in val] for key, val in self._maps_and_regions.items()}
 
     @utils.cached_property
-    def cmaps(self):
-        """The list of column maps this sparsity is assembled from."""
-        return self._cmaps
-
-    @utils.cached_property
-    def rmaps(self):
-        """The list of row maps this sparsity is assembled from."""
-        return self._rmaps
+    def iteration_regions(self):
+        return {key: [_iteration_regions for _, _, _iteration_regions in val] for key, val in self._maps_and_regions.items()}
 
     @utils.cached_property
     def dims(self):
@@ -296,11 +274,10 @@ class Sparsity(caching.ObjectCached):
                 yield s
 
     def __str__(self):
-        return "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
-               (self._dsets, self._rmaps, self._cmaps, self._name)
+        raise NotImplementedError
 
     def __repr__(self):
-        return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
+        raise NotImplementedError
 
     @utils.cached_property
     def nnz(self):
@@ -332,12 +309,14 @@ class Sparsity(caching.ObjectCached):
         """Return true if other is a pair of maps in self.maps(). This
         will also return true if the elements of other have parents in
         self.maps()."""
-
-        for maps in self.maps:
-            if tuple(other) <= maps:
-                return True
-
-        return False
+        for i, rm in enumerate(other[0]):
+            for j, cm in enumerate(other[1]):
+                for maps in self.rcmaps[(i, j)]:
+                    if (rm, cm) <= maps:
+                        break
+                else:
+                    return False
+        return True
 
 
 class SparsityBlock(Sparsity):
@@ -357,13 +336,11 @@ class SparsityBlock(Sparsity):
             return
 
         self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
-        self._rmaps = tuple(m.split[i] for m in parent.rmaps)
-        self._cmaps = tuple(m.split[j] for m in parent.cmaps)
+        self._maps_and_regions = {(0, 0): parent._maps_and_regions[(i, j)]}
         self._has_diagonal = i == j and parent._has_diagonal
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
         self._blocks = [[self]]
-        self.iteration_regions = parent.iteration_regions
         self.lcomm = mpi.internal_comm(self.dsets[0].comm, self)
         self.rcomm = mpi.internal_comm(self.dsets[1].comm, self)
         # TODO: think about lcomm != rcomm
@@ -695,8 +672,8 @@ class Mat(AbstractMat):
                 for j in range(cols):
                     sparsity.fill_with_zeros(self[i, j].handle,
                                              self[i, j].sparsity.dims[0][0],
-                                             self[i, j].sparsity.maps,
-                                             self[i, j].sparsity.iteration_regions,
+                                             self[i, j].sparsity.rcmaps[(0, 0)],
+                                             self[i, j].sparsity.iteration_regions[(0, 0)],
                                              set_diag=self[i, j].sparsity._has_diagonal)
                     self[i, j].handle.assemble()
 
@@ -769,7 +746,7 @@ class Mat(AbstractMat):
         # Put zeros in all the places we might eventually put a value.
         with profiling.timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0],
-                                     self.sparsity.maps, self.sparsity.iteration_regions,
+                                     self.sparsity.rcmaps[(0, 0)], self.sparsity.iteration_regions[(0, 0)],
                                      set_diag=self.sparsity._has_diagonal)
         mat.assemble()
         mat.setOption(mat.Option.NEW_NONZERO_LOCATION_ERR, True)

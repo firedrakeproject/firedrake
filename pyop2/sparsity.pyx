@@ -141,17 +141,16 @@ def build_sparsity(sparsity):
                           bsize=1)
     preallocator.setUp()
 
-    iteration_regions = sparsity.iteration_regions
     if mixed:
         for i, r in enumerate(rset):
             for j, c in enumerate(cset):
-                maps = list(zip((m.split[i] for m in sparsity.rmaps),
-                                (m.split[j] for m in sparsity.cmaps)))
+                maps = sparsity.rcmaps[(i, j)]
+                iter_regions = sparsity.iteration_regions[(i, j)]
                 mat = preallocator.getLocalSubMatrix(isrow=rset.local_ises[i],
                                                      iscol=cset.local_ises[j])
                 fill_with_zeros(mat, (r.cdim, c.cdim),
                                 maps,
-                                iteration_regions,
+                                iter_regions,
                                 set_diag=((i == j) and sparsity._has_diagonal))
                 mat.assemble()
                 preallocator.restoreLocalSubMatrix(isrow=rset.local_ises[i],
@@ -160,8 +159,8 @@ def build_sparsity(sparsity):
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
     else:
-        fill_with_zeros(preallocator, (1, 1), sparsity.maps,
-                        iteration_regions, set_diag=sparsity._has_diagonal)
+        fill_with_zeros(preallocator, (1, 1), sparsity.rcmaps[(0, 0)],
+                        sparsity.iteration_regions[(0, 0)], set_diag=sparsity._has_diagonal)
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
         if not (sparsity._block_sparse and rset.cdim == cset.cdim):
