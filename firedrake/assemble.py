@@ -604,10 +604,14 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
         # If argument numbers have been swapped => Adjoint.
         arg_expression = ufl.algorithms.extract_arguments(expression)
         is_adjoint = (arg_expression and arg_expression[0].number() == 0)
+        # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
+        if not is_adjoint and rank != 1:
+            _, v1 = expr.arguments()
+            expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
         # Get the interpolator
         interp_data = expr.interp_data
-        interpolator = interp_data["interpolator"]
-        default_missing_val = interp_data.get("default_missing_val", None)
+        default_missing_val = interp_data.pop('default_missing_val', None)
+        interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
         # Assembly
         if rank == 1:
             # Assembling the action of the Jacobian adjoint.

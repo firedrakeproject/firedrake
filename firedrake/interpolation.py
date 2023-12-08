@@ -61,29 +61,8 @@ class Interpolate(ufl.Interpolate):
         self._function_space = vv.function_space().dual()
         super().__init__(expr, v)
 
-        # -- Interpolate data (e.g. subset or access) -- #
-        interp_data = interp_data or {}
-        # Add the interpolator into `interp_data` (if not already there)
-        default_missing_val = interp_data.pop("default_missing_val", None)
-        interpolator = interp_data.pop("interpolator", None)
-
-        if not interpolator:
-            # Cope with the different convention of Interpolate and Interpolator:
-            #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
-            #  -> Interpolator(Argument(V1, 0), V2)
-            expr_args = extract_arguments(expr)
-            if expr_args and expr_args[0].number() == 1:
-                v, = expr_args
-                expr = replace(expr, {v: Argument(v.function_space(),
-                                                  number=0,
-                                                  part=v.part())})
-            interpolator = Interpolator(expr,
-                                        self.function_space(),
-                                        **interp_data)
-
-        self.interp_data = {"default_missing_val": default_missing_val,
-                            "interpolator": interpolator,
-                            **interp_data}
+        # -- Interpolate data (e.g. `subset` or `access`) -- #
+        self.interp_data = interp_data or {}
 
     def function_space(self):
         return self._function_space
@@ -293,7 +272,9 @@ class Interpolator(abc.ABC):
         if isinstance(V, firedrake.Function):
             V = V.function_space()
 
-        interp_data = {'interpolator': self,
+        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
+                       'access': self.access, 'bcs': self.bcs,
+                       'allow_missing_dofs': self._allow_missing_dofs,
                        'default_missing_val': default_missing_val}
 
         interp = Interpolate(self.expr_renumbered, V, interp_data=interp_data)
