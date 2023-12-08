@@ -1,13 +1,23 @@
 # Utility module that imports and initialises petsc4py
+import functools
+import itertools
 import os
 import subprocess
-import petsc4py
 import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
-import itertools
-import functools
 from contextlib import contextmanager
+
+# When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
+# crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
+# is because PETSc wants to complain about unused options to stderr, but by this
+# point the worker's stderr stream has already been destroyed by xdist, causing
+# a crash. To prevent this we disable unused options checking in PETSc when
+# running with xdist.
+import petsc4py
+if "PYTEST_XDIST_WORKER" in os.environ:
+    petsc4py.init(sys.argv + ["-options_left", "no"])
+else:
+    petsc4py.init(sys.argv)
+from petsc4py import PETSc
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")

@@ -453,7 +453,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
-        if subset is None and isinstance(expr, (Number, Collection)):
+        if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
                 self.dat.data_wo[...] = expr
             except (DataTypeError, DataValueError) as e:
