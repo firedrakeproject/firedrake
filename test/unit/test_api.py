@@ -1087,21 +1087,25 @@ class TestSparsityAPI:
     def test_sparsity_mmap_getitem(self, ms):
         """Sparsity block i, j should be defined on the corresponding row and
         column DataSets and Maps."""
-        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
-            for j, (cds, cm) in enumerate(zip(ms.dsets[1], ms.cmaps)):
+        rmaps, = ms.rmaps
+        cmaps, = ms.cmaps
+        for i, (rds, rm) in enumerate(zip(ms.dsets[0], rmaps)):
+            for j, (cds, cm) in enumerate(zip(ms.dsets[1], cmaps)):
                 block = ms[i, j]
                 # Indexing with a tuple and double index is equivalent
                 assert block == ms[i][j]
                 assert (block.dsets == (rds, cds)
-                        and block.maps == [(rm.split[i], cm.split[j])])
+                        and block.maps == [(rm, cm)])
 
     def test_sparsity_mmap_getrow(self, ms):
         """Indexing a Sparsity with a single index should yield a row of
         blocks."""
-        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
-            for j, (s, cds, cm) in enumerate(zip(ms[i], ms.dsets[1], ms.cmaps)):
+        rmaps, = ms.rmaps
+        cmaps, = ms.cmaps
+        for i, (rds, rm) in enumerate(zip(ms.dsets[0], rmaps)):
+            for j, (s, cds, cm) in enumerate(zip(ms[i], ms.dsets[1], cmaps)):
                 assert (s.dsets == (rds, cds)
-                        and s.maps == [(rm.split[i], cm.split[j])])
+                        and s.maps == [(rm, cm)])
 
     def test_sparsity_mmap_shape(self, ms):
         "Sparsity shape of should be the sizes of the mixed space."
