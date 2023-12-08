@@ -2,6 +2,7 @@ from collections import OrderedDict
 
 import numpy as np
 
+from ufl.form import ZeroBaseForm
 from pyop2.mpi import internal_comm, decref
 
 import firedrake
@@ -46,14 +47,14 @@ def as_backend_type(tensor):
 
 class Vector(object):
     def __init__(self, x):
-        """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.
+        """Build a `Vector` that wraps a :class:`pyop2.types.dat.Dat` for Dolfin compatibilty.
 
         :arg x: an :class:`~.Function` to wrap or a :class:`Vector` to copy.
                 The former shares data, the latter copies data.
         """
         if isinstance(x, Vector):
             self.function = type(x.function)(x.function)
-        elif isinstance(x, firedrake.Function):
+        elif isinstance(x, (firedrake.Function, firedrake.Cofunction)):
             self.function = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
@@ -111,6 +112,8 @@ class Vector(object):
     def __add__(self, other):
         """Add other to self"""
         sum = self.copy()
+        if isinstance(other, ZeroBaseForm):
+            return sum
         try:
             sum.dat += other.dat
         except AttributeError:
@@ -122,6 +125,8 @@ class Vector(object):
 
     def __iadd__(self, other):
         """Add other to self"""
+        if isinstance(other, ZeroBaseForm):
+            return self
         try:
             self.dat += other.dat
         except AttributeError:

@@ -2,6 +2,7 @@ import numbers
 
 import numpy as np
 import ufl
+import finat.ufl
 
 import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -37,7 +38,7 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
@@ -59,15 +60,15 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape() for Vi in V):
+        if all(Vi.ufl_element().value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space().name == "HDiv":
+            if Vi.ufl_element().sobolev_space.name == "HDiv":
                 self.vidx = i
             else:
-                assert Vi.ufl_element().sobolev_space().name == "L2"
+                assert Vi.ufl_element().sobolev_space.name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.
@@ -87,15 +88,15 @@ class HybridizationPC(SCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
+        broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Function(V_d)
+        self.broken_solution = Cofunction(V_d.dual())
         self.broken_residual = Function(V_d)
         self.trace_solution = Function(TraceSpace)
-        self.unbroken_solution = Function(V)
+        self.unbroken_solution = Cofunction(V.dual())
         self.unbroken_residual = Function(V)
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
@@ -107,8 +108,7 @@ class HybridizationPC(SCBase):
         end
         """
         self.weight = Function(V[self.vidx])
-        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)},
-                 is_loopy_kernel=True)
+        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)})
 
         instructions = """
         for i, j
@@ -204,7 +204,7 @@ class HybridizationPC(SCBase):
         schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
 
         # Assemble the Schur complement operator and right-hand side
-        self.schur_rhs = Function(TraceSpace)
+        self.schur_rhs = Cofunction(TraceSpace.dual())
         self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
                                                form_compiler_parameters=self.ctx.fc_params).assemble
 
@@ -284,8 +284,8 @@ class HybridizationPC(SCBase):
         S = self.schur_builder.inner_S
 
         # Split functions and reconstruct each bit separately
-        split_residual = self.broken_residual.split()
-        split_sol = self.broken_solution.split()
+        split_residual = self.broken_residual.subfunctions
+        split_sol = self.broken_solution.subfunctions
         g = AssembledVector(split_residual[id0])
         f = AssembledVector(split_residual[id1])
         sigma = split_sol[id0]
@@ -334,8 +334,8 @@ class HybridizationPC(SCBase):
             # Transfer unbroken_rhs into broken_rhs
             # NOTE: Scalar space is already "broken" so no need for
             # any projections
-            unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
-            broken_scalar_data = self.broken_residual.split()[self.pidx]
+            unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
+            broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
             unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
             # Assemble the new "broken" hdiv residual
@@ -344,14 +344,13 @@ class HybridizationPC(SCBase):
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-            unbroken_res_hdiv = self.unbroken_residual.split()[self.vidx]
-            broken_res_hdiv = self.broken_residual.split()[self.vidx]
+            unbroken_res_hdiv = self.unbroken_residual.subfunctions[self.vidx]
+            broken_res_hdiv = self.broken_residual.subfunctions[self.vidx]
             broken_res_hdiv.assign(0)
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (broken_res_hdiv, INC)})
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -393,20 +392,19 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridProject"):
             # Project the broken solution into non-broken spaces
-            broken_pressure = self.broken_solution.split()[self.pidx]
-            unbroken_pressure = self.unbroken_solution.split()[self.pidx]
+            broken_pressure = self.broken_solution.subfunctions[self.pidx]
+            unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
             broken_pressure.dat.copy(unbroken_pressure.dat)
 
             # Compute the hdiv projection of the broken hdiv solution
-            broken_hdiv = self.broken_solution.split()[self.vidx]
-            unbroken_hdiv = self.unbroken_solution.split()[self.vidx]
+            broken_hdiv = self.broken_solution.subfunctions[self.vidx]
+            unbroken_hdiv = self.unbroken_solution.subfunctions[self.vidx]
             unbroken_hdiv.assign(0)
 
             par_loop(self.average_kernel, ufl.dx,
                      {"w": (self.weight, READ),
                       "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)},
-                     is_loopy_kernel=True)
+                      "vec_out": (unbroken_hdiv, INC)})
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)

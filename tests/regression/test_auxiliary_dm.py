@@ -28,7 +28,7 @@ class BiharmonicProblem(object):
         return mesh
 
     def bcs(self, Z):
-        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.ufl_domain()), "on_boundary"),
+        bcs = [DirichletBC(Z.sub(0), self.analytical_solution(Z.mesh()), "on_boundary"),
                DirichletBC(Z.sub(1), zero(), "on_boundary")]
         return bcs
 
@@ -131,7 +131,7 @@ def test_auxiliary_dm():
     solver.solve()
 
     # Error in L2 norm
-    (u, v, alpha) = z.split()
+    (u, v, alpha) = z.subfunctions
     u_exact = problem.analytical_solution(mesh)
     error_L2 = errornorm(u_exact, u, 'L2') / errornorm(u_exact, Function(FunctionSpace(mesh, 'CG', 1)), 'L2')
     assert error_L2 < 0.02

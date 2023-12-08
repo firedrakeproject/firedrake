@@ -41,7 +41,7 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
 
     appctx = {'trace_nullspace': nullspace_basis}
     solve(a == L, w, solver_parameters=params, appctx=appctx)
-    u_h, _ = w.split()
+    u_h, _ = w.subfunctions
     error = errornorm(u_exact, u_h)
     return error
 

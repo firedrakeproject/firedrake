@@ -34,12 +34,12 @@ class HypreADS(PCBase):
         if G_callback is None:
             G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
         else:
-            G = G_callback(NC1, P1)
+            G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
             C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
         else:
-            C = C_callback(V, NC1)
+            C = C_callback(NC1, V)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
@@ -54,7 +54,7 @@ class HypreADS(PCBase):
         linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
         pc.setCoordinates(linear_coordinates)
 
-        pc.setUp()
+        pc.setFromOptions()
         self.pc = pc
 
     def apply(self, pc, x, y):

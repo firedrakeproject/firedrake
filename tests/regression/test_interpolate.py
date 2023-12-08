@@ -1,6 +1,9 @@
+from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
+
+cwd = abspath(dirname(__file__))
 
 
 def test_constant():
@@ -204,6 +207,19 @@ def test_cell_orientation():
     assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
 
+def test_cell_orientation_curve():
+    m = CircleManifoldMesh(3)
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
+
+    V = VectorFunctionSpace(m, 'DG', 0)
+    f = interpolate(CellNormal(m), V)
+
+    assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
+                                    [-1, 0],
+                                    [1 / 2, -sqrt(3) / 2]])
+
+
 def test_cellvolume():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG', 0)
@@ -224,8 +240,7 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    f.dat.data[1, 1] = warp(1.0/3.0)
-    f.dat.data[2, 1] = warp(2.0/3.0)
+    f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
 
     mesh = Mesh(f)
     g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0))
@@ -494,7 +509,7 @@ def test_interpolation_tensor_convergence():
         V = TensorFunctionSpace(mesh, "RT", 1)
         x, y = SpatialCoordinate(mesh)
 
-        vs = V.ufl_element().value_shape()
+        vs = V.ufl_element().value_shape
         expr = as_tensor(np.asarray([
             sin(2*pi*x*(i+1))*cos(4*pi*y*i)
             for i in range(np.prod(vs, dtype=int))
@@ -524,3 +539,27 @@ def test_interpolation_tensor_symmetric():
     f = interpolate(expr, V)
     fexp = interpolate(expr, Vexp)
     assert np.isclose(norm(fexp - f), 0)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_interpolation_on_hex():
+    # "cube_hex.msh" contains all possible facet orientations.
+    meshfile = join(cwd, "..", "meshes", "cube_hex.msh")
+    mesh = Mesh(meshfile)
+    p = 4
+    V = FunctionSpace(mesh, "Q", p)
+    x, y, z = SpatialCoordinate(mesh)
+    expr = x**p * y**p * z**p
+    f = Function(V).interpolate(expr)
+    assert assemble((f - expr)**2 * dx) < 1e-13
+    assert abs(assemble(f * dx) - 1./(p + 1)**3) < 1e-11
+
+
+def test_interpolate_logical_not():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "P", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    a = interpolate(conditional(Not(x < .2), 1, 0), V)
+    b = interpolate(conditional(x >= .2, 1, 0), V)
+    assert np.allclose(a.dat.data, b.dat.data)

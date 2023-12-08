@@ -59,7 +59,7 @@ def test_miscellaneous():
     assert np.allclose(assemble(CellVolume(mesh)('+')*dS_v), sqrt(2) - 1)
     assert np.allclose(assemble(CellVolume(mesh)('-')*dS_v), sqrt(2) - 1)
 
-    with pytest.raises(UFLException):
+    with pytest.raises(ValueError):
         assemble(FacetArea(mesh)*dx)
 
     assert np.allclose(assemble(FacetArea(mesh)*ds_b), 0.5)

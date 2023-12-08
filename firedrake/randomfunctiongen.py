@@ -31,16 +31,16 @@ Example:
 BitGenerator
 ------------
 
-A :class:`.BitGenerator` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
-A :class:`.BitGenerator` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
-If ``comm.Get_rank() > 1``, :class:`.PCG64`, :class:`.PCG64DXSM`, or :class:`.Philox` should be used, as these bit generators are known to be parallel-safe.
+A ``.BitGenerator`` is the base class for bit generators; see `numpy.random.BitGenerator <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.BitGenerator.html#numpy.random.BitGenerator>`__.
+A ``.BitGenerator`` takes an additional keyword argument ``comm`` (defaulting to ``COMM_WORLD``).
+If ``comm.Get_rank() > 1``, ``.PCG64``, ``.PCG64DXSM``, or ``.Philox`` should be used, as these bit generators are known to be parallel-safe.
 
 PCG64
 ~~~~~
 
-:class:`.PCG64` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
+``.PCG64`` wraps `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__.
 If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
+To make ``.PCG64`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
 .. code-block:: python3
@@ -52,7 +52,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for :class:`.PCG64` constructor. However, one can reset the ``state`` after construction as:
+    ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -64,9 +64,9 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 PCG64DXSM
 ~~~~~~~~~
 
-:class:`.PCG64DXSM` wraps `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__.
+``.PCG64DXSM`` wraps `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__.
 If ``seed`` keyword is not provided by the user, it is set using `numpy.random.SeedSequence <https://numpy.org/doc/stable/reference/random/bit_generators/generated/numpy.random.SeedSequence.html>`__.
-To make :class:`.PCG64DXSM` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
+To make ``.PCG64DXSM`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
 
 .. code-block:: python3
@@ -78,7 +78,7 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for :class:`.PCG64DXSM` constructor. However, one can reset the ``state`` after construction as:
+    ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
 
     .. code-block:: python3
 
@@ -90,8 +90,8 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 Philox
 ~~~~~~
 
-:class:`.Philox` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
-If the ``key`` keyword is not provided by the user, :class:`.Philox` computes a default key as:
+``.Philox`` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
+If the ``key`` keyword is not provided by the user, ``.Philox`` computes a default key as:
 
 .. code-block:: python3
 
@@ -101,7 +101,6 @@ If the ``key`` keyword is not provided by the user, :class:`.Philox` computes a 
 """
 
 import inspect
-import warnings
 import numpy as np
 import numpy.random as randomgen
 
@@ -114,9 +113,9 @@ _deprecated_attributes = ['RandomGenerator', ]
 __all__ = [name for name, _ in inspect.getmembers(randomgen, inspect.isclass)] + _deprecated_attributes
 
 # >>> [name for name, _ in inspect.getmembers(numpy.random) if not name.startswith('_')]
-_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'PCG64DXSM', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+_known_attributes = ['BitGenerator', 'Generator', 'MT19937', 'PCG64', 'PCG64DXSM', 'Philox', 'RandomState', 'SFC64', 'SeedSequence', 'beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'default_rng', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'get_bit_generator', 'get_state', 'gumbel', 'hypergeometric', 'laplace', 'logistic', 'lognormal', 'logseries', 'mtrand', 'multinomial', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'poisson', 'power', 'rand', 'randint', 'randn', 'random', 'random_integers', 'random_sample', 'ranf', 'rayleigh', 'sample', 'seed', 'set_bit_generator', 'set_state', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'test', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 # >>> [name for name, _ in inspect.getmembers(numpy.random.Generator) if not name.startswith('_')]
-_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
+_known_generator_attributes = ['beta', 'binomial', 'bit_generator', 'bytes', 'chisquare', 'choice', 'dirichlet', 'exponential', 'f', 'gamma', 'geometric', 'gumbel', 'hypergeometric', 'integers', 'laplace', 'logistic', 'lognormal', 'logseries', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'normal', 'pareto', 'permutation', 'permuted', 'poisson', 'power', 'random', 'rayleigh', 'shuffle', 'spawn', 'standard_cauchy', 'standard_exponential', 'standard_gamma', 'standard_normal', 'standard_t', 'triangular', 'uniform', 'vonmises', 'wald', 'weibull', 'zipf']
 
 
 def __getattr__(module_attr):
@@ -271,7 +270,7 @@ def __getattr__(module_attr):
         for class_attr, _ in inspect.getmembers(randomgen.Generator):
             if class_attr.startswith('_'):
                 continue
-            elif class_attr in ['bit_generator', ]:
+            elif class_attr in ['bit_generator', 'spawn']:
                 continue
             elif class_attr in ['bytes', 'dirichlet', 'integers', 'multinomial', 'multivariate_hypergeometric', 'multivariate_normal', 'shuffle', 'permutation', 'permuted']:
                 # These methods are not to be used with V.
@@ -312,7 +311,11 @@ def __getattr__(module_attr):
                     return func
                 _dict[class_attr] = funcgen(class_attr)
             else:
-                warnings.warn("Unknown attribute: Firedrake needs to wrap numpy.random.Generator.%s." % class_attr)
+                def funcgen(c_a):
+                    def func(self, *args, **kwargs):
+                        raise NotImplementedError(f"Firedrake has not yet wrapped numpy.random.{c_a}")
+                    return func
+                _dict[class_attr] = funcgen(class_attr)
         _Wrapper = type(module_attr, (_Base,), _dict)
         return _Wrapper
     elif module_attr == "RandomGenerator":
@@ -401,22 +404,7 @@ def __getattr__(module_attr):
         return getattr(randomgen, module_attr)
     elif not module_attr.startswith('_'):
         # module_attr not in _known_attributes + _deprecated_attributes
-        warnings.warn("Found unknown attribute: Firedrake needs to wrap numpy.random.%s." % module_attr)
 
         def _wrapper(*args, **kwargs):
             raise NotImplementedError("Firedrake has not yet wrapped numpy.random.%s." % module_attr)
         return _wrapper
-
-
-# Module level __getattr__ is only available with 3.7+
-
-import sys
-
-if sys.version_info < (3, 7, 0):
-    class Wrapper(object):
-        __all__ = __all__
-
-        def __getattr__(self, attr):
-            return __getattr__(attr)
-
-    sys.modules[__name__] = Wrapper()

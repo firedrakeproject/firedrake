@@ -54,7 +54,7 @@ class HypreAMS(PCBase):
         if G_callback is None:
             G = chop(Interpolator(grad(TestFunction(P1)), V).callable().handle)
         else:
-            G = G_callback(V, P1)
+            G = G_callback(P1, V)
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
@@ -71,7 +71,7 @@ class HypreAMS(PCBase):
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
         pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
-        pc.setUp()
+        pc.setFromOptions()
         self.pc = pc
 
     def apply(self, pc, x, y):

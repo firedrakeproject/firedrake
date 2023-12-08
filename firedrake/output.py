@@ -3,6 +3,8 @@ import itertools
 import numpy
 import os
 import ufl
+import finat.ufl
+from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
 from pyop2.utils import as_tuple
@@ -10,10 +12,15 @@ from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
-from .paraview_reordering import vtk_lagrange_tet_reorder,\
-    vtk_lagrange_hex_reorder, vtk_lagrange_interval_reorder,\
-    vtk_lagrange_triangle_reorder, vtk_lagrange_quad_reorder,\
-    vtk_lagrange_wedge_reorder
+from .paraview_reordering import (
+    vtk_lagrange_tet_reorder,
+    vtk_lagrange_hex_reorder,
+    vtk_lagrange_interval_reorder,
+    vtk_lagrange_triangle_reorder,
+    vtk_lagrange_quad_reorder,
+    vtk_lagrange_wedge_reorder,
+)
+
 __all__ = ("File", )
 
 
@@ -53,6 +60,8 @@ cells = {
     (ufl_wedge, True): VTK_LAGRANGE_WEDGE,
     (ufl_hex, False): VTK_HEXAHEDRON,
     (ufl_hex, True): VTK_LAGRANGE_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), False): VTK_HEXAHEDRON,
+    (ufl.Cell("hexahedron"), True): VTK_LAGRANGE_HEXAHEDRON,
 }
 
 
@@ -64,7 +73,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -87,7 +96,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -99,7 +108,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     :returns: A ufl element containing all elements.
     """
     try:
-        cell, = set(e.cell() for e in elements)
+        cell, = set(e.cell for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
@@ -110,10 +119,9 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
             family = "DG"
         else:
             family = "DQ"
-    return ufl.FiniteElement(family,
-                             cell=cell,
-                             degree=degree if max_degree is None else max_degree,
-                             variant="equispaced")
+    return finat.ufl.FiniteElement(
+        family, cell=cell, degree=degree if max_degree is None else max_degree,
+        variant="equispaced")
 
 
 @PETSc.Log.EventDecorator()
@@ -127,7 +135,7 @@ def get_topology(coordinates):
     V = coordinates.function_space()
 
     nonLinear = not is_linear(V)
-    mesh = V.ufl_domain().topology
+    mesh = V.mesh().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
     value_shape = values.shape
@@ -370,7 +378,7 @@ class File(object):
         :kwarg mode: "w" to overwrite any existing file, "a" to append to an existing file.
         :kwarg target_degree: override the degree of the output space.
         :kwarg target_continuity: override the continuity of the output space;
-            A UFL :class:`~.SobolevSpace` object: `H1` for a
+            A UFL :class:`ufl.sobolevspace.SobolevSpace` object: `H1` for a
             continuous output and `L2` for a discontinuous output.
         :kwarg adaptive: allow different meshes at different exports if `True`.
 
@@ -460,16 +468,16 @@ class File(object):
         # Build appropriate space for output function.
         shape = function.ufl_shape
         if len(shape) == 0:
-            V = FunctionSpace(function.ufl_domain(), max_elem)
+            V = FunctionSpace(extract_unique_domain(function), max_elem)
         elif len(shape) == 1:
             if numpy.prod(shape) > 3:
                 raise ValueError("Can't write vectors with more than 3 components")
-            V = VectorFunctionSpace(function.ufl_domain(), max_elem,
+            V = VectorFunctionSpace(extract_unique_domain(function), max_elem,
                                     dim=shape[0])
         elif len(shape) == 2:
             if numpy.prod(shape) > 9:
                 raise ValueError("Can't write tensors with more than 9 components")
-            V = TensorFunctionSpace(function.ufl_domain(), max_elem,
+            V = TensorFunctionSpace(extract_unique_domain(function), max_elem,
                                     shape=shape)
         else:
             raise ValueError("Unsupported shape %s" % (shape, ))
@@ -494,7 +502,7 @@ class File(object):
         for f in functions:
             if not isinstance(f, Function):
                 raise ValueError("Can only output Functions or a single mesh, not %r" % type(f))
-        meshes = tuple(f.ufl_domain() for f in functions)
+        meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
 

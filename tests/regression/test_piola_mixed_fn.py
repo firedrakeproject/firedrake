@@ -34,7 +34,7 @@ def test_sphere_project():
     W = U1*U2*U3
 
     f = Function(W)
-    f1, f2, f3 = f.split()
+    f1, f2, f3 = f.subfunctions
     f1.assign(1)
     f2.assign(2)
     f3.assign(3)

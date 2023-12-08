@@ -25,7 +25,7 @@ def run_CG_problem(r, degree, quads=False):
 
     # Set up function spaces
     e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
-    Z = FunctionSpace(mesh, MixedElement(InteriorElement(e), FacetElement(e)))
+    Z = FunctionSpace(mesh, MixedElement(RestrictedElement(e, "interior"), RestrictedElement(e, "facet")))
     z = Function(Z)
     u = sum(split(z))
 

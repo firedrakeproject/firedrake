@@ -118,7 +118,7 @@ def run(solver, solution, permute):
     solver.solve()
     sol = solver._problem.u
     errors = tuple(errornorm(expect, actual, 'L2') for
-                   expect, actual in zip(solution, permute(*sol.split())))
+                   expect, actual in zip(solution, permute(*sol.subfunctions)))
     diff = numpy.abs(errors - numpy.asarray([0.02551217479,
                                              0.01991075140,
                                              0.22550499155,

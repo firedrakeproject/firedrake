@@ -2,34 +2,38 @@ import numpy
 import string
 from fractions import Fraction
 from pyop2 import op2
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType_c, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
 import firedrake
 from firedrake.mg import utils
 
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.corealg.map_dag import map_expr_dags
+from ufl.domain import extract_unique_domain
 
-import coffee.base as ast
+import loopy as lp
+import pymbolic as pym
 
 import gem
 import gem.impero_utils as impero_utils
 
 import ufl
+import finat.ufl
 import tsfc
 
-import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
-from tsfc.coffee import generate as generate_coffee
+from tsfc.loopy import generate as generate_loopy
 from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 from tsfc.finatinterface import create_element
 from finat.quadrature import make_quadrature
-from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, compute_celldist
-from firedrake.pointquery_utils import to_reference_coordinates as to_reference_coordinates_body
+from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
+from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -43,12 +47,12 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-    cell = ufl_coordinate_element.cell()
+    cell = ufl_coordinate_element.cell
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "to_reference_coords": to_reference_coordinates_body(ufl_coordinate_element, parameters),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
@@ -61,6 +65,8 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 #include <stdio.h>
 #include <petsc.h>
 
+%(to_reference_coords_newton_step)s
+
 static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
@@ -70,12 +76,11 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
      */
 
 %(init_X)s
-    double x[space_dim];
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
         double dX[%(topological_dimension)d] = { 0.0 };
-%(to_reference_coords)s
+        to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
             converged = 1;
@@ -94,7 +99,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
     :arg dual_space: if the expression has an argument, should we also distribute residual data?
-    :returns: Some coffee AST
+    :returns: The generated code (:class:`loopy.TranslationUnit`)
     """
     if parameters is None:
         parameters = default_parameters()
@@ -128,13 +133,13 @@ def compile_element(expression, dual_space=None, parameters=None,
         coefficient = False
 
     # Replace coordinates (if any)
-    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType_c)
-    domain = expression.ufl_domain()
+    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
+    domain = extract_unique_domain(expression)
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
     point = gem.Variable('X', (dim,))
-    point_arg = ast.Decl(ScalarType_c, ast.Symbol('X', rank=(dim,)))
+    point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
@@ -161,11 +166,11 @@ def compile_element(expression, dual_space=None, parameters=None,
     if coefficient:
         if expression.ufl_shape:
             return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=expression.ufl_shape))
+            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=expression.ufl_shape)
             result = gem.Indexed(result, tensor_indices)
         else:
             return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
-            result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=(1,)))
+            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=(1,))
 
     else:
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
@@ -175,13 +180,13 @@ def compile_element(expression, dual_space=None, parameters=None,
             if elem.value_shape:
                 var = gem.Indexed(gem.Variable("b", elem.value_shape),
                                   tensor_indices)
-                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=elem.value_shape))]
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=elem.value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
-                b_arg = [ast.Decl(ScalarType_c, ast.Symbol("b", rank=(1, )))]
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
             result = gem.Product(result, var)
 
-        result_arg = ast.Decl(ScalarType_c, ast.Symbol('R', rank=finat_elem.index_shape))
+        result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=finat_elem.index_shape)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -190,50 +195,46 @@ def compile_element(expression, dual_space=None, parameters=None,
             return index.extent <= max_extent
         result, = gem.optimise.unroll_indexsum([result], predicate=predicate)
 
-    # Translate GEM -> COFFEE
+    # Translate GEM -> loopy
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
-    body = generate_coffee(impero_c, {}, ScalarType)
 
-    # Build kernel tuple
-    kernel_code = builder.construct_kernel("pyop2_kernel_" + name, [result_arg] + b_arg + f_arg + [point_arg], body)
+    loopy_args = [result_arg] + b_arg + f_arg + [point_arg]
+    kernel_code, _ = generate_loopy(
+        impero_c, loopy_args, ScalarType,
+        kernel_name="pyop2_kernel_"+name, index_names={})
 
-    return kernel_code
+    return lp.generate_code_v2(kernel_code).device_code()
 
 
 def prolong_kernel(expression):
-    meshc = expression.ufl_domain()
-    hierarchy, level = utils.get_level(expression.ufl_domain())
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    meshc = extract_unique_domain(expression)
+    hierarchy, level = utils.get_level(extract_unique_domain(expression))
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = expression.ufl_domain().coordinates
+    coordinates = extract_unique_domain(expression).coordinates
     if meshc.cell_set._extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        level_ratio = (hierarchy._meshes[int(idx)].layers - 1) // (meshc.layers - 1)
-    else:
-        level_ratio = 1
-    key = (("prolong", level_ratio)
-           + expression.ufl_element().value_shape()
+        assert hierarchy._meshes[int(idx)].cell_set._extruded
+    key = (("prolong",)
+           + expression.ufl_element().value_shape
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
-        mesh = coordinates.ufl_domain()
-        evaluate_kernel = compile_element(expression)
+        mesh = extract_unique_domain(coordinates)
+        eval_code = compile_element(expression)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
-        eval_args = evaluate_kernel.args[:-1]
         coords_element = create_element(coordinates.ufl_element())
 
-        args = eval_args[-1].gencode(not_scope=True)
-        R, coarse = (a.sym.symbol for a in eval_args)
         my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -248,7 +249,7 @@ def prolong_kernel(expression):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 if (celldist < bestdist) {
                     bestdist = celldist;
                     bestcell = i;
@@ -270,22 +271,19 @@ def prolong_kernel(expression):
                     abort();
                 }
             }
-            const PetscScalar *coarsei = %(coarse)s + cell*%(coarse_cell_inc)d;
+            const PetscScalar *coarsei = f + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
-                %(R)s[i] = 0;
+                R[i] = 0;
             }
-            pyop2_kernel_evaluate(%(R)s, coarsei, Xref);
+            pyop2_kernel_evaluate(R, coarsei, Xref);
         }
         """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": str(evaluate_kernel),
-               "args": args,
-               "R": R,
+               "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
-               "coarse": coarse,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "tdim": mesh.topological_dimension()}
@@ -294,37 +292,33 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    hierarchy, level = utils.get_level(Vc.mesh())
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vc.ufl_domain().coordinates
+    coordinates = Vc.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
-        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-    else:
-        level_ratio = 1
-    key = (("restrict", level_ratio)
-           + Vf.ufl_element().value_shape()
+    key = (("restrict",)
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
-        mesh = coordinates.ufl_domain()
-        evaluate_kernel = compile_element(firedrake.TestFunction(Vc), Vf)
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
+        mesh = extract_unique_domain(coordinates)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
-        eval_args = evaluate_kernel.args[:-1]
-        args = eval_args[-1].gencode(not_scope=True)
-        R, fine = (a.sym.symbol for a in eval_args)
+
         my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, %(args)s, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -339,7 +333,7 @@ def restrict_kernel(Vf, Vc):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
                 fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
                 if (celldist < bestdist) {
@@ -364,37 +358,34 @@ def restrict_kernel(Vf, Vc):
             }
 
             {
-            const PetscScalar *Ri = %(R)s + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(Ri, %(fine)s, Xref);
+            const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
+            pyop2_kernel_evaluate(Ri, b, Xref);
             }
         }
         """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": str(evaluate_kernel),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
+               "evaluate": evaluate_code,
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "compute_celldist": compute_celldist(element.cell, X="Xref", celldist="celldist"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "args": args,
                "spacedim": element.cell.get_spatial_dimension(),
-               "R": R,
-               "fine": fine,
                "tdim": mesh.topological_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
 
 def inject_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
+    hierarchy, level = utils.get_level(Vc.mesh())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vf.ufl_domain().coordinates
+    coordinates = Vf.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape()
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
@@ -406,9 +397,10 @@ def inject_kernel(Vf, Vc):
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coordinates = Vf.ufl_domain().coordinates
-        evaluate_kernel = compile_element(ufl.Coefficient(Vf))
+        coordinates = Vf.mesh().coordinates
+        evaluate_code = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+
         coords_element = create_element(coordinates.ufl_element())
         Vf_element = create_element(Vf.ufl_element())
         kernel = """
@@ -431,7 +423,7 @@ def inject_kernel(Vf, Vc):
                     break;
                 }
 
-                %(compute_celldist)s
+                celldist = %(celldist_l1_c_expr)s;
                 if (celldist < bestdist) {
                     bestdist = celldist;
                     bestcell = i;
@@ -460,11 +452,11 @@ def inject_kernel(Vf, Vc):
         }
         """ % {
             "to_reference": str(to_reference_kernel),
-            "evaluate": str(evaluate_kernel),
+            "evaluate": evaluate_code,
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
-            "compute_celldist": compute_celldist(Vc.finat_element.cell, X="Xref", celldist="celldist"),
-            "tdim": Vc.ufl_domain().topological_dimension(),
+            "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
+            "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
@@ -490,7 +482,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl.MixedElement:
+            if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))
@@ -498,7 +490,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
     def set_coordinates(self, domain):
         """Prepare the coordinate field.
 
-        :arg domain: :class:`ufl.Domain`
+        :arg domain: :class:`ufl.AbstractDomain`
         """
         # Create a fake coordinate coefficient for a domain.
         f = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
@@ -509,8 +501,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         element = create_element(coefficient.ufl_element())
         shape = self.shape + element.index_shape
         size = numpy.prod(shape, dtype=int)
-        funarg = ast.Decl(ScalarType_c, ast.Symbol(name), pointers=[("restrict", )],
-                          qualifiers=["const"])
+        funarg = lp.GlobalArg(name, dtype=ScalarType, shape=(size,))
         expression = gem.reshape(gem.Variable(name, (size, )), shape)
         expression = gem.partial_indexed(expression, self.indices)
         self.coefficient_map[coefficient] = expression
@@ -522,7 +513,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake.slate.slac import compile_expression
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
-    macro_builder = MacroKernelBuilder(ScalarType_c, ncell)
+    macro_builder = MacroKernelBuilder(ScalarType, ncell)
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -544,7 +535,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(f.ufl_domain())),
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
                                            complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
@@ -552,7 +543,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     info = TSFCIntegralDataInfo(domain=Vc.mesh(),
                                 integral_type="cell",
-                                subdomain_id="otherwise",
+                                subdomain_id=("otherwise",),
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
@@ -642,34 +633,135 @@ def dg_injection_kernel(Vf, Vc, ncell):
         name_multiindex(multiindex, name)
 
     index_names.extend(zip(macro_builder.indices, ["entity"]))
-    body = generate_coffee(impero_c, index_names, ScalarType)
 
-    retarg = ast.Decl(ScalarType_c, ast.Symbol("R", rank=(Vce.space_dimension(), )))
-    local_tensor = coarse_builder.generate_arg_from_expression(coarse_builder.return_variables, is_output=True)
-    local_tensor.init = ast.ArrayInit(numpy.zeros(Vce.space_dimension(), dtype=ScalarType))
-    body.children.insert(0, local_tensor)
-    macro_coordinates_arg = macro_builder.generate_arg_from_expression(macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
-    coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
-    args = [retarg] + macro_builder.kernel_args + [macro_coordinates_arg,
-                                                   coarse_coordinates_arg]
+    # now construct the outermost kernel
+    domains = []
+    instructions = []
+    kernel_data = []
+    subkernels = []
+    depends_on = frozenset()
+    local_tensor = coarse_builder.generate_arg_from_expression(coarse_builder.return_variables)
 
-    # Now we have the kernel that computes <f, phi_c>dx_c
+    # 1. Zero the local tensor
+    iname = "i0"
+    domains.append(f"{{ [{iname}]: 0 <= {iname} < {Vce.space_dimension()} }}")
+    instructions.append(
+        lp.Assignment(
+            pym.subscript(pym.var(local_tensor.name), (pym.var(iname),)), 0,
+            within_inames=frozenset({iname}), id="zero", depends_on=depends_on))
+    kernel_data.append(
+        lp.TemporaryVariable(local_tensor.name, shape=local_tensor.shape, dtype=local_tensor.dtype))
+    depends_on |= {"zero"}
+
+    # 2. Fill the local tensor
+    macro_coordinates_arg = macro_builder.generate_arg_from_expression(
+        macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
+    coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(
+        coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
+    eval_args = [
+        lp.GlobalArg(
+            local_tensor.name, dtype=local_tensor.dtype, shape=local_tensor.shape,
+            is_input=True, is_output=True),
+        *macro_builder.kernel_args,
+        macro_coordinates_arg,
+        coarse_coordinates_arg,
+    ]
+    eval_kernel, _ = generate_loopy(
+        impero_c, eval_args,
+        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+    subkernels.append(eval_kernel)
+
+    fill_insn, extra_domains = _generate_call_insn(
+        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        depends_on=depends_on, within_inames_is_final=True)
+    instructions.append(fill_insn)
+    domains.extend(extra_domains)
+    depends_on |= {fill_insn.id}
+
+    # 3. Now we have the kernel that computes <f, phi_c>dx_c.
     # So now we need to hit it with the inverse mass matrix on dx_c
+    retarg = lp.GlobalArg(
+        "R", dtype=ScalarType, shape=local_tensor.shape, is_output=True)
+
+    kernel_data = [
+        retarg, *macro_builder.kernel_args, macro_coordinates_arg,
+        coarse_coordinates_arg, *kernel_data]
 
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
     expr = Tensor(ufl.inner(u, v)*ufl.dx).inv * AssembledVector(ufl.Coefficient(Vc))
-    Ainv, = compile_expression(expr, coffee=True)
+    Ainv, = compile_expression(expr)
     Ainv = Ainv.kinfo.kernel
-    A = ast.Symbol(local_tensor.sym.symbol)
-    R = ast.Symbol("R")
-    body.children.append(ast.FunCall(Ainv.name, R, coarse_coordinates_arg.sym, A))
-    from coffee.base import Node
-    assert isinstance(Ainv.code, Node)
-    return op2.Kernel(ast.Node([Ainv.code,
-                                ast.FunDecl("void", "pyop2_kernel_injection_dg", args, body,
-                                            pred=["static", "inline"])]),
-                      name="pyop2_kernel_injection_dg",
-                      cpp=True,
-                      include_dirs=Ainv.include_dirs,
-                      headers=Ainv.headers)
+    subkernels.append(Ainv.code)
+
+    eval_args = [retarg, coarse_coordinates_arg, local_tensor]
+    inv_insn, extra_domains = _generate_call_insn(
+        Ainv.name, eval_args, iname_prefix="inv", id="inv",
+        depends_on=depends_on, within_inames_is_final=True)
+    instructions.append(inv_insn)
+    domains.extend(extra_domains)
+    depends_on |= {inv_insn.id}
+
+    kernel_name = "pyop2_kernel_injection_dg"
+    kernel = lp.make_kernel(
+        domains, instructions, kernel_data, name=kernel_name,
+        target=tsfc.parameters.target, lang_version=(2018, 2))
+    kernel = lp.merge([kernel, *subkernels])
+    return op2.Kernel(
+        kernel, name=kernel_name, include_dirs=Ainv.include_dirs, headers=Ainv.headers)
+
+
+def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
+    """Create an appropriate loopy call instruction from its arguments.
+
+    This function is useful because :class:`loopy.CallInstruction` are a
+    faff to build since each argument needs to be wrapped in a
+    :class:`loopy.symbolic.SubArrayRef` with an associated iname and domain.
+
+    Parameters
+    ----------
+    name : str
+        The name of the kernel to be called.
+    args : iterable of loopy.ArrayArg
+        The arguments used to construct the callee kernel. These must have
+        vector shape.
+    iname_prefix : str, optional
+        Prefix to the autogenerated inames, defaults to ``name``.
+    kwargs
+        All other keyword arguments are passed to the
+        :class:`loopy.CallInstruction` constructor.
+
+    Returns
+    -------
+    insn : loopy.CallInstruction
+        The generated call instruction.
+    extra_domains
+        Iterable of extra loop domains that must be added to the caller kernel.
+
+    """
+    if not iname_prefix:
+        iname_prefix = name
+
+    domains = []
+    assignees = []
+    parameters = []
+    swept_iname_counter = 0
+    for arg in args:
+        try:
+            shape, = arg.shape
+        except ValueError:
+            raise NotImplementedError("Expecting vector-shaped arguments")
+
+        swept_iname = f"{iname_prefix}_i{swept_iname_counter}"
+        swept_iname_counter += 1
+        domains.append(f"{{ [{swept_iname}]: 0 <= {swept_iname} < {shape} }}")
+        swept_index = (pym.var(swept_iname),)
+        param = lp.symbolic.SubArrayRef(
+            swept_index, pym.subscript(pym.var(arg.name), swept_index))
+        parameters.append(param)
+        if arg.is_output:
+            assignees.append(param)
+    assignees = tuple(assignees)
+    parameters = tuple(parameters)
+    expression = pym.primitives.Call(pym.var(name), parameters)
+    return lp.CallInstruction(assignees, expression, **kwargs), domains

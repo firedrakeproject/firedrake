@@ -41,7 +41,7 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f_split = f.split()
+    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
 
     # NOTE: interpolation of UFL expressions into mixed
@@ -61,7 +61,7 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    ones = one.split()
+    ones = one.subfunctions
 
     # NOTE: interpolation of UFL expressions into mixed
     # function spaces is not yet implemented
@@ -86,8 +86,8 @@ def M(fs):
 
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
-    assert isinstance(one_form, Function)
-    for f in one_form.split():
+    assert isinstance(one_form, Cofunction)
+    for f in one_form.subfunctions:
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
@@ -266,3 +266,19 @@ def test_assemble_mixed_function_sparse():
     f.sub(4).interpolate(Constant(3.0))
     v = assemble((inner(f[1], f[1]) + inner(f[4], f[4])) * dx)
     assert np.allclose(v, 13.0)
+
+
+def test_3125():
+    # see https://github.com/firedrakeproject/firedrake/issues/3125
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "CG", 1)
+    Z = MixedFunctionSpace([V, W])
+    z = Function(Z)
+    u, p = split(z)
+    tst = TestFunction(Z)
+    v, q = split(tst)
+    d = Function(W)
+    F = inner(z, tst)*dx + inner(u, v)/(d+p)*dx(2, degree=10)
+    # should run without error
+    solve(F == 0, z)

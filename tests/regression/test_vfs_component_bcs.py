@@ -129,7 +129,7 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
 
     expected = Function(W)
 
-    u, p, r = expected.split()
+    u, p, r = expected.subfunctions
 
     x = SpatialCoordinate(V.mesh())
     u.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
@@ -144,7 +144,7 @@ def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     f.assign(Constant([2, 1]))
     assert np.allclose(assemble(f.sub(0)*dx),
-                       assemble(Constant(2)*dx(domain=f.ufl_domain())))
+                       assemble(Constant(2)*dx(domain=V.mesh())))
 
 
 @pytest.mark.parametrize("cmpt",
@@ -189,7 +189,7 @@ def test_stokes_component_all():
     Ucmp = Function(W)
     solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters=params)
 
-    for a, b in zip(Uall.split(), Ucmp.split()):
+    for a, b in zip(Uall.subfunctions, Ucmp.subfunctions):
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 

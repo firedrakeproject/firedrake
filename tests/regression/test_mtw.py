@@ -61,7 +61,7 @@ def test_mtw():
 
         solve(F == 0, up, solver_parameters=params)
 
-        u, p = up.split()
+        u, p = up.subfunctions
         l2_u.append(errornorm(uex, u))
         l2_p.append(errornorm(pex, p))
 

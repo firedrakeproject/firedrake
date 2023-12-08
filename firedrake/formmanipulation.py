@@ -95,7 +95,7 @@ class ExtractSubBlock(MultiFunction):
         if o in self._arg_cache:
             return self._arg_cache[o]
 
-        V_is = V.split()
+        V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
         try:
@@ -125,7 +125,7 @@ class ExtractSubBlock(MultiFunction):
             else:
                 args += [Zero()
                          for j in numpy.ndindex(
-                         V_is[i].ufl_element().value_shape())]
+                         V_is[i].ufl_element().value_shape)]
         return self._arg_cache.setdefault(o, as_vector(args))
 
 

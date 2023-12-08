@@ -54,7 +54,7 @@ def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
                                            'fieldsplit_0_ksp_type': 'cg',
                                            'fieldsplit_1_ksp_type': 'cg'})
 
-    _, u = soln.split()
+    _, u = soln.subfunctions
     f.interpolate(x[0]*x[1]*x[2]/13.0)
     return errornorm(f, u, degree_rise=0)
 
