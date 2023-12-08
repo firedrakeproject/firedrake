@@ -235,8 +235,8 @@ def test_self_interpolate_function():
     u = Function(V)
 
     c = Constant(1., domain=mesh)
-    assemble(interpolate(u+c, u))
-    assemble(interpolate(u+c*u**2, u))
+    assemble(interpolate(u+c, V), tensor=u)
+    assemble(interpolate(u+c*u**2, V), tensor=u)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))

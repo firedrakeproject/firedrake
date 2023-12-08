@@ -44,7 +44,15 @@ def annotate_assemble(assemble):
             tape = get_working_tape()
             tape.add_block(block)
 
-            block.add_output(output.block_variable)
+            if kwargs.get("tensor") is not None:
+                # Create a new block variable when a tensor is provided to the assembly.
+                # This is necessary as this tensor may belong to the block dependency as well,
+                # which would result in a cyclic dependency.
+                # Example (self-interpolation):
+                #  -> u.interpolate(u + c), with `u` a Function and `c` a Constant.
+                block.add_output(output.create_block_variable())
+            else:
+                block.add_output(output.block_variable)
         else:
             # Assembled a 2-form
             output.form = form
