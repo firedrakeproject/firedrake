@@ -773,7 +773,7 @@ class SameMeshInterpolator(Interpolator):
             assembled_interpolator = self.frozen_assembled_interpolator
             copy_required = True
         except AttributeError:
-            assembled_interpolator = self.callable(output=output)
+            assembled_interpolator = self.callable()
             copy_required = False  # Return the original
             if self.freeze_expr:
                 if self.nargs:
@@ -897,10 +897,9 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
             assert not len(arguments)
 
-            def callable(output=None):
-                g = output or f
-                wrapper.forward_operation(g.dat)
-                return g
+            def callable():
+                wrapper.forward_operation(f.dat)
+                return f
         else:
             assert len(arguments) == 1
             assert tensor is None
@@ -915,7 +914,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
 
             # Leave wrapper inside a callable so we can access the handle
             # property (which is pretending to be a petsc mat)
-            def callable(output=None):
+            def callable():
                 return wrapper
 
         return callable, arguments
@@ -937,7 +936,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if bcs and len(arguments) == 0:
             loops.extend([partial(bc.apply, f) for bc in bcs])
 
-        def callable(loops, f, output=None):
+        def callable(loops, f):
             for l in loops:
                 l()
             return f

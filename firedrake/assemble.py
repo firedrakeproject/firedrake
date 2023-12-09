@@ -622,7 +622,9 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
             if interpolator.nargs:
                 return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
             # Assembling the operator
-            return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+            if tensor is None:
+                return interpolator._interpolate(default_missing_val=default_missing_val)
+            return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
         elif rank == 2:
             res = tensor.petscmat if tensor else PETSc.Mat()
             # Get the interpolation matrix
