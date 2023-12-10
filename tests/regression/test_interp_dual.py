@@ -77,7 +77,7 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     Iv1 = Interpolate(v1, V2)
 
     v2 = TestFunction(V2)
-    c2 = assemble(v2 * dx)
+    c2 = assemble(conj(v2) * dx)
     # Interpolation from V2* to V1*
     c1 = Cofunction(V1.dual()).interpolate(c2)
     # Interpolation matrix (V2* -> V1*)
@@ -105,7 +105,7 @@ def test_assemble_interp_rank0(V1, V2, f1):
     # -- Interpolate(f1, u2) (rank 0) -- #
     v2 = TestFunction(V2)
     # Set the Cofunction u2
-    u2 = assemble(v2 * dx)
+    u2 = assemble(conj(v2) * dx)
     # Interpolate(f1, u2) <=> Action(Interpolate(f1, V2), u2)
     # a is rank 0 so assembling it produces a scalar.
     a = assemble(Interpolate(f1, u2))
@@ -168,8 +168,8 @@ def test_check_identity(mesh):
     V1 = FunctionSpace(mesh, "CG", 1)
     v2 = TestFunction(V2)
     v1 = TestFunction(V1)
-    a = assemble(Interpolate(v1, v2*dx))
-    b = assemble(v1*dx)
+    a = assemble(Interpolate(v1, conj(v2)*dx))
+    b = assemble(conj(v1)*dx)
     assert np.allclose(a.dat.data, b.dat.data)
 
 
@@ -187,14 +187,14 @@ def test_solve_interp_f(mesh):
 
     # -- Exact solution with a source term interpolated into DG0
     f2 = assemble(interpolate(f1, V2))
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f2, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f2, w)*dx
     solve(F == 0, u)
 
     # -- Solution where the source term is interpolated via `ufl.Interpolate`
     u2 = Function(V1)
     If = Interpolate(f1, V2)
     # This requires assembling If
-    F2 = inner(grad(w), grad(u2))*dx + inner(u2, w)*dx - inner(If, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(u2, w)*dx - inner(If, w)*dx
     solve(F2 == 0, u2)
     assert np.allclose(u.dat.data, u2.dat.data)
 
@@ -208,7 +208,7 @@ def test_solve_interp_u(mesh):
     f = Function(V1).interpolate(cos(x)*sin(y))
 
     # -- Exact solution
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     # -- Non mat-free case not supported yet => Need to be able to get the Interpolation matrix -- #
@@ -218,7 +218,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the Jacobian of Iu
-    F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
     """
 
@@ -227,7 +227,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
-    F2 = inner(grad(w), grad(u2))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -238,7 +238,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
-    F2 = inner(grad(w), grad(Iu))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(Iu), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})

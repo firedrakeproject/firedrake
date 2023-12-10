@@ -392,13 +392,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
 
     # Preprocess the DAG and restructure the DAG
     if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
-        # Preprocessing the form makes a new object -> current form caching mechanism
-        # will populate `expr`'s cache which is now different than `expression`'s cache so we need
-        # to transmit the cache. All of this only holds when `expression` is a `ufl.Form`
-        # and therefore when `is_base_form_preprocessed` is False.
         expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
-        if isinstance(expression, ufl.form.Form) and isinstance(expr, ufl.form.Form):
-            expr._cache = expression._cache
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
         if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
             return _assemble_expr(expr)
@@ -427,6 +421,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
 
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
     """Preprocess ufl.BaseForm objects"""
+    original_expr = expr
     if mat_type != "matfree":
         # For "matfree", Form evaluation is delayed
         expr = expand_derivatives_form(expr, form_compiler_parameters)
@@ -434,6 +429,11 @@ def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         # => No restructuring needed for Form and slate.TensorBase
         expr = restructure_base_form_preorder(expr)
         expr = restructure_base_form_postorder(expr)
+    # Preprocessing the form makes a new object -> current form caching mechanism
+    # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
+    # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
+    if isinstance(original_expr, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+        expr._cache = original_expr._cache
     return expr
 
 
