@@ -3236,7 +3236,7 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt c, p, pStart, pEnd, dof, loff, goff
+        PetscInt c, p, pStart, pEnd, dof, cdof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
     val = np.empty(lsec.getStorageSize(), dtype=IntType)
@@ -3244,12 +3244,17 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
 
     for p in range(pStart, pEnd):
         CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
+        CHKERR(PetscSectionGetConstraintDof(lsec.sec, p, &cdof))
         if dof > 0:
             CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
             CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
-            goff = cabs(goff)
-            for c in range(dof):
-                val[loff + c] = goff + c
+            if cdof > 0:
+                for c in range(dof):
+                    val[loff + c] = -1
+            else:
+                goff = cabs(goff)
+                for c in range(dof):
+                    val[loff + c] = goff + c
     return val
 
 
