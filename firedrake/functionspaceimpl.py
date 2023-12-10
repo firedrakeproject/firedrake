@@ -1168,7 +1168,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.name = name or (function_space.name + "_"  
                              + "_".join(sorted(
                                 [str(i) for i in self.boundary_set])))
-        self.sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
+        self._shared_data = sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
         
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
@@ -1200,12 +1200,59 @@ class RestrictedFunctionSpace(FunctionSpace):
         return self.__repr__()
     
     def dof_count(self):
-        # we might need to remove boundary dofs
-        raise NotImplementedError
+        node_count = self.node_count
+        for bc in self.bcs:
+            node_count -= bc.nodes
+        return node_count*self.value_size
+        
 
-    def local_to_global_map(self, bcs, lgmap=None):
-        # discussed already - can probably create a helper function for most of it
-        raise NotImplementedError
+    def local_to_global_map(self, lgmap=None):
+        if self.bcs is None or len(self.bcs) == 0:
+            # Maybe raise an error here or further up in __init__ - should have at least 1 bc to be a RFS?
+            return lgmap or self.dof_dset.lgmap
+        for bc in self.bcs:
+            fs = bc.function_space()
+            while fs.component is not None and fs.parent is not None:
+                fs = fs.parent
+            if fs.topological != self.function_space.topological:
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+        unblocked = any(bc.function_space().component is not None
+                        for bc in self.bcs)
+        if lgmap is None:
+            lgmap = self.dof_dset.lgmap
+            if unblocked:
+                indices = lgmap.indices.copy()
+                bsize = 1
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                assert bsize == self.value_size
+        else:
+            # MatBlock case, LGMap is already unrolled.
+            indices = lgmap.block_indices.copy()
+            bsize = lgmap.getBlockSize()
+            unblocked = True
+        nodes = []
+        for bc in self.bcs:
+            if bc.function_space().component is not None:
+                nodes.append(bc.nodes * self.value_size
+                             + bc.function_space().component)
+            elif unblocked:
+                tmp = bc.nodes * self.value_size
+                for i in range(self.value_size):
+                    nodes.append(tmp + i)
+            else:
+                nodes.append(bc.nodes)
+        nodes = numpy.unique(numpy.concatenate(nodes))
+        indices[nodes] = -1
+        bc_node_count = 0 
+        for node in range(len(indices)):
+            if indices[node] == -1:
+                bc_node_count += 1 
+            else:
+                indices[node] -= bc_node_count
+        indices = indices[indices >= 0]
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
 
 @dataclass
