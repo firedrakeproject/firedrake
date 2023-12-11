@@ -144,8 +144,8 @@ def build_sparsity(sparsity):
     if mixed:
         for i, r in enumerate(rset):
             for j, c in enumerate(cset):
-                maps = sparsity.rcmaps[(i, j)]
-                iter_regions = sparsity.iteration_regions[(i, j)]
+                maps = sparsity.rcmaps.get((i, j), [])
+                iter_regions = sparsity.iteration_regions.get((i, j), [])
                 mat = preallocator.getLocalSubMatrix(isrow=rset.local_ises[i],
                                                      iscol=cset.local_ises[j])
                 fill_with_zeros(mat, (r.cdim, c.cdim),
@@ -159,8 +159,10 @@ def build_sparsity(sparsity):
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
     else:
-        fill_with_zeros(preallocator, (1, 1), sparsity.rcmaps[(0, 0)],
-                        sparsity.iteration_regions[(0, 0)], set_diag=sparsity._has_diagonal)
+        fill_with_zeros(preallocator, (1, 1),
+                        sparsity.rcmaps[(0, 0)],
+                        sparsity.iteration_regions[(0, 0)],
+                        set_diag=sparsity._has_diagonal)
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
         if not (sparsity._block_sparse and rset.cdim == cset.cdim):
@@ -215,8 +217,10 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
             if i < ncol  // cdim:
                 CHKERR(MatSetValuesBlockedLocal(mat.mat, 1, &i, 1, &i, diag_values, PETSC_INSERT_VALUES))
         CHKERR(PetscFree(diag_values))
+    if len(maps) == 0:
+        return
     extruded = maps[0][0].iterset._extruded
-    for iteration_region, pair in zip(iteration_regions, maps):
+    for pair, iteration_region in zip(maps, iteration_regions):
         # Iterate over row map values including value entries
         set_size = pair[0].iterset.size
         if set_size == 0:

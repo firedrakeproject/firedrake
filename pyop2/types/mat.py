@@ -1,6 +1,7 @@
 import abc
 import ctypes
 import itertools
+from collections.abc import Sequence
 
 import numpy as np
 from petsc4py import PETSc
@@ -19,34 +20,33 @@ from pyop2.types.access import Access
 from pyop2.types.data_carrier import DataCarrier
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.map import Map, ComposedMap
-from pyop2.types.set import MixedSet, Set, Subset
+from pyop2.types.set import MixedSet, Subset
 
 
 class Sparsity(caching.ObjectCached):
 
-    """OP2 Sparsity, the non-zero structure a matrix derived from the union of
-    the outer product of pairs of :class:`Map` objects.
+    """OP2 Sparsity, the non-zero structure of a matrix derived from the block-wise specified pairs of :class:`Map` objects.
 
     Examples of constructing a Sparsity: ::
 
-        Sparsity(single_dset, single_map, 'mass')
-        Sparsity((row_dset, col_dset), (single_rowmap, single_colmap))
         Sparsity((row_dset, col_dset),
-                 [(first_rowmap, first_colmap), (second_rowmap, second_colmap)])
+                 [(first_rowmap, first_colmap), (second_rowmap, second_colmap), None])
 
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
-    def __init__(self, dsets, maps, *, iteration_regions=None, name=None, nest=None, block_sparse=None):
+    def __init__(self, dsets, maps_and_regions, name=None, nest=None, block_sparse=None):
         r"""
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
-        :param maps: :class:`Map`\s to build the :class:`Sparsity` from
-        :type maps: a pair of :class:`Map`\s specifying a row map and a column
-            map, or an iterable of pairs of :class:`Map`\s specifying multiple
-            row and column maps - if a single :class:`Map` is passed, it is
-            used as both a row map and a column map
-        :param iteration_regions: regions that select subsets of extruded maps to iterate over.
+        :param maps_and_regions: `dict` to build the :class:`Sparsity` from.
+            ``maps_and_regions`` must be keyed by the block index pair (i, j).
+            ``maps_and_regions[(i, j)]`` must be a list of tuples of
+            ``(rmap, cmap, iteration_regions)``, where ``rmap`` and ``cmap``
+            is a pair of :class:`Map`\s specifying a row map and a column map,
+            and ``iteration_regions`` represent regions that select subsets
+            of extruded maps to iterate over. If the matrix only has a single
+            block, one can altenatively pass the value ``maps_and_regions[(0, 0)]``.
         :param string name: user-defined label (optional)
         :param nest: Should the sparsity over mixed set be built as nested blocks?
         :param block_sparse: Should the sparsity for datasets with
@@ -56,19 +56,7 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
         self._dsets = dsets
-        maps, iteration_regions = zip(*maps)
-        _rmaps, _cmaps = zip(*maps)
-        _maps_and_regions = {}
-        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
-            rset, cset = dsets
-            for i, _ in enumerate(rset):
-                for j, _ in enumerate(cset):
-                    _maps_and_regions[(i, j)] = list(zip((rm.split[i] for rm in _rmaps),
-                                                       (cm.split[j] for cm in _cmaps),
-                                                       iteration_regions))
-        else:
-            _maps_and_regions[(0, 0)] = list(zip(_rmaps, _cmaps, iteration_regions))
-        self._maps_and_regions = _maps_and_regions
+        self._maps_and_regions = maps_and_regions
         self._block_sparse = block_sparse
         self.lcomm = mpi.internal_comm(self.dsets[0].comm, self)
         self.rcomm = mpi.internal_comm(self.dsets[1].comm, self)
@@ -99,8 +87,7 @@ class Sparsity(caching.ObjectCached):
             for i, rds in enumerate(dsets[0]):
                 row = []
                 for j, cds in enumerate(dsets[1]):
-                    row.append(Sparsity((rds, cds), self.rcmaps[(i, j)],
-                                        iteration_regions=self.iteration_regions[(i, j)],
+                    row.append(Sparsity((rds, cds), tuple(self._maps_and_regions[(i, j)]) if (i, j) in self._maps_and_regions else (),
                                         block_sparse=block_sparse))
                 self._blocks.append(row)
             self._d_nnz = tuple(s._d_nnz for s in self)
@@ -125,69 +112,49 @@ class Sparsity(caching.ObjectCached):
     _cache = {}
 
     @classmethod
-    @utils.validate_type(('dsets', (Set, DataSet, tuple, list), ex.DataSetTypeError),
-                         ('maps', (Map, tuple, list), ex.MapTypeError))
-    def _process_args(cls, dsets, maps, *, iteration_regions=None, name=None, nest=None, block_sparse=None):
-        "Turn maps argument into a canonical tuple of pairs."
+    @utils.validate_type(('name', str, ex.NameTypeError))
+    def _process_args(cls, dsets, maps_and_regions, name=None, nest=None, block_sparse=None):
         from pyop2.types import IterationRegion
 
-        # A single data set becomes a pair of identical data sets
-        dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
-        # Upcast Sets to DataSets
-        dsets = [s ** 1 if isinstance(s, Set) else s for s in dsets]
-
-        # Check data sets are valid
+        if len(dsets) != 2:
+            raise RuntimeError(f"dsets must be a tuple of two DataSets: got {dsets}")
         for dset in dsets:
             if not isinstance(dset, DataSet) and dset is not None:
                 raise ex.DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
-
-        # A single map becomes a pair of identical maps
-        maps = (maps, maps) if isinstance(maps, Map) else maps
-        # A single pair becomes a tuple of one pair
-        maps = (maps,) if isinstance(maps[0], Map) else maps
-
-        # Check maps are sane
-        for pair in maps:
-            if pair[0] is None or pair[1] is None:
-                # None of this checking makes sense if one of the
-                # matrix operands is a Global.
-                continue
-            for m in pair:
-                if not isinstance(m, Map):
-                    raise ex.MapTypeError(
-                        "All maps must be of type map, not type %r" % type(m))
-                if not isinstance(m, ComposedMap) and len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
-                    raise ex.MapValueError(
-                        "Unpopulated map values when trying to build sparsity.")
-            # Make sure that the "to" Set of each map in a pair is the set of
-            # the corresponding DataSet set
-            if not (pair[0].toset == dsets[0].set
-                    and pair[1].toset == dsets[1].set):
-                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
-
-            # Each pair of maps must have the same from-set (iteration set)
-            if not pair[0].iterset == pair[1].iterset:
-                raise RuntimeError("Iterset of both maps in a pair must be the same")
-
-        rmaps, cmaps = zip(*maps)
-        if iteration_regions is None:
-            iteration_regions = tuple((IterationRegion.ALL, ) for _ in maps)
-        else:
-            iteration_regions = tuple(tuple(sorted(region)) for region in iteration_regions)
-        if not len(rmaps) == len(cmaps):
-            raise RuntimeError("Must pass equal number of row and column maps")
-
-        if rmaps[0] is not None and cmaps[0] is not None:
-            # Each row map must have the same to-set (data set)
-            if not all(m.toset == rmaps[0].toset for m in rmaps):
-                raise RuntimeError("To set of all row maps must be the same")
-
-                # Each column map must have the same to-set (data set)
-            if not all(m.toset == cmaps[0].toset for m in cmaps):
-                raise RuntimeError("To set of all column maps must be the same")
-
+        if isinstance(maps_and_regions, Sequence):
+            # Convert short-hand notation to generic one.
+            maps_and_regions = {(0, 0): maps_and_regions}
+        elif not isinstance(maps_and_regions, dict):
+            raise TypeError(f"maps_and_regions must be dict or Sequence: got {type(maps_and_regions)}")
+        processed_maps_and_regions = {(i, j): frozenset() for i, _ in enumerate(dsets[0]) for j, _ in enumerate(dsets[1])}
+        for key, val in maps_and_regions.items():
+            i, j = key  # block indices: (0, 0) if not mixed
+            if i >= len(dsets[0]) or j >= len(dsets[1]):
+                raise RuntimeError(f"(i, j) must be < {(len(dsets[0]), len(dsets[1]))}: got {(i, j)}")
+            processed_val = set()
+            for rmap, cmap, iteration_regions in set(val):
+                if not isinstance(dsets[0][i], GlobalDataSet) and not isinstance(dsets[1][j], GlobalDataSet):
+                    for m in [rmap, cmap]:
+                        if not isinstance(m, Map):
+                            raise ex.MapTypeError(
+                                "All maps must be of type map, not type %r" % type(m))
+                        if not isinstance(m, ComposedMap) and len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
+                            raise ex.MapValueError(
+                                "Unpopulated map values when trying to build sparsity.")
+                    if rmap.toset is not dsets[0][i].set or cmap.toset is not dsets[1][j].set:
+                        raise RuntimeError("Map toset must be the same as DataSet set")
+                    if rmap.iterset is not cmap.iterset:
+                        raise RuntimeError("Iterset of both maps in a pair must be the same")
+                if iteration_regions is None:
+                    iteration_regions = (IterationRegion.ALL, )
+                else:
+                    iteration_regions = tuple(sorted(iteration_regions))
+                processed_val.update(((rmap, cmap, iteration_regions), ))
+            if len(processed_val) > 0:
+                processed_maps_and_regions[key] = frozenset(processed_val)
+        processed_maps_and_regions = dict(sorted(processed_maps_and_regions.items()))
         # Need to return the caching object, a tuple of the processed
-        # arguments and a dict of kwargs (empty in this case)
+        # arguments and a dict of kwargs.
         if isinstance(dsets[0], GlobalDataSet):
             cache = None
         elif isinstance(dsets[0].set, MixedSet):
@@ -198,16 +165,14 @@ class Sparsity(caching.ObjectCached):
             nest = conf.configuration["matnest"]
         if block_sparse is None:
             block_sparse = conf.configuration["block_sparsity"]
-
-        maps = frozenset(zip(maps, iteration_regions))
         kwargs = {"name": name,
                   "nest": nest,
                   "block_sparse": block_sparse}
-        return (cache,) + (tuple(dsets), maps), kwargs
+        return (cache,) + (tuple(dsets), processed_maps_and_regions), kwargs
 
     @classmethod
-    def _cache_key(cls, dsets, maps, name, nest, block_sparse, *args, **kwargs):
-        return (dsets, maps, nest, block_sparse)
+    def _cache_key(cls, dsets, maps_and_regions, name, nest, block_sparse, *args, **kwargs):
+        return (dsets, tuple(maps_and_regions.items()), nest, block_sparse)
 
     def __getitem__(self, idx):
         """Return :class:`Sparsity` block with row and column given by ``idx``
@@ -274,10 +239,11 @@ class Sparsity(caching.ObjectCached):
                 yield s
 
     def __str__(self):
-        raise NotImplementedError
+        return "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s" % \
+               (self._dsets, self._maps_and_regions, self._name, self._nested, self._block_sparse)
 
     def __repr__(self):
-        raise NotImplementedError
+        return "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r)" % (self.dsets, self._maps_and_regions, self.name, self._nested, self._block_sparse)
 
     @utils.cached_property
     def nnz(self):
@@ -336,7 +302,7 @@ class SparsityBlock(Sparsity):
             return
 
         self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
-        self._maps_and_regions = {(0, 0): parent._maps_and_regions[(i, j)]}
+        self._maps_and_regions = {(0, 0): tuple(parent._maps_and_regions[(i, j)]) if (i, j) in parent._maps_and_regions else ()}
         self._has_diagonal = i == j and parent._has_diagonal
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
@@ -746,7 +712,8 @@ class Mat(AbstractMat):
         # Put zeros in all the places we might eventually put a value.
         with profiling.timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0],
-                                     self.sparsity.rcmaps[(0, 0)], self.sparsity.iteration_regions[(0, 0)],
+                                     self.sparsity.rcmaps[(0, 0)],
+                                     self.sparsity.iteration_regions[(0, 0)],
                                      set_diag=self.sparsity._has_diagonal)
         mat.assemble()
         mat.setOption(mat.Option.NEW_NONZERO_LOCATION_ERR, True)

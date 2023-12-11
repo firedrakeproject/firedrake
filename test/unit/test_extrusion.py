@@ -295,8 +295,7 @@ def xtr_elem_node(xtr_elements, xtr_nodes):
 
 @pytest.fixture
 def xtr_mat(xtr_elem_node, xtr_dnodes):
-    sparsity = op2.Sparsity((xtr_dnodes, xtr_dnodes), (
-        xtr_elem_node, xtr_elem_node), "xtr_sparsity")
+    sparsity = op2.Sparsity((xtr_dnodes, xtr_dnodes), {(0, 0): [(xtr_elem_node, xtr_elem_node, None, None)]}, "xtr_sparsity")
     return op2.Mat(sparsity, valuetype, "xtr_mat")
 
 

@@ -217,7 +217,7 @@ static void inc(unsigned int* v1, unsigned int* v2) {
         dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float64)
         map = op2.Map(iterset, indset, 4, [0, 1, 2, 3, 0, 1, 2, 3])
         idmap = op2.Map(iterset, idset, 1, [0, 1])
-        sparsity = op2.Sparsity((indset, indset), (map, map))
+        sparsity = op2.Sparsity((indset ** 1, indset ** 1), {(0, 0): [(map, map, None)]})
         mat = op2.Mat(sparsity, np.float64)
         mat01 = op2.Mat(sparsity, np.float64)
         mat10 = op2.Mat(sparsity, np.float64)
