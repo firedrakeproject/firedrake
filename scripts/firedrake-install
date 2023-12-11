@@ -1551,6 +1551,7 @@ if mode == "install" or not args.update_script:
                              "make",
                              "automake",
                              "cmake",
+                             "ninja",
                              "libtool",
                              "boost"]
         if args.with_blas is None and mode == "install":
@@ -1569,6 +1570,7 @@ if mode == "install" or not args.update_script:
                              "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
+                             "ninja-build",  # for meson/numpy
                              "python3-dev",
                              "python3-pip",
                              "python3-tk",
