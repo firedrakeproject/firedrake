@@ -125,6 +125,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'dolfin_adjoint_common\..*'),
     (r'py:.*', r'pyadjoint\..*'),
     (r'py:.*', r'tsfc\..*'),
+    (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
@@ -262,6 +263,7 @@ latex_elements = {
 \sphinxDUC{2218}{$\circ$}
 \sphinxDUC{22C5}{$\cdot$}
 \sphinxDUC{25A3}{$\boxdot$}
+\sphinxDUC{03BB}{$\lambda$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
@@ -382,6 +384,7 @@ intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
+    'FInAT': ('https://finat.github.io/FInAT/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),

@@ -15,7 +15,7 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
 import numpy
-import ufl
+import finat.ufl
 import finat
 from decorator import decorator
 from functools import partial
@@ -408,7 +408,7 @@ class FunctionSpaceData(object):
         # inside pyop3. Also it seems like giving the plex a numbering and knowing the
         # FInAT element is sufficient to determine all of this in a much less complex way.
         assert False
-        if type(ufl_element) is ufl.MixedElement:
+        if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
         finat_element = create_element(ufl_element)
@@ -527,7 +527,7 @@ def get_shared_data(mesh, ufl_element):
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
         raise ValueError("%s is not an AbstractMeshTopology" % mesh)
-    if not isinstance(ufl_element, ufl.finiteelement.FiniteElementBase):
+    if not isinstance(ufl_element, finat.ufl.finiteelement.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(ufl_element))
     return FunctionSpaceData(mesh, ufl_element)

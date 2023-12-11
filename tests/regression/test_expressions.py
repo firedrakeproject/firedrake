@@ -295,7 +295,7 @@ def test_assign_with_different_meshes_fails():
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape[0]+1))
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -411,6 +411,22 @@ def test_assign_from_mfs_sub(cg1, vcg1):
 
     with pytest.raises(ValueError):
         v.assign(w1)
+
+
+@pytest.mark.skipif(not utils.complex_mode, reason="Test specific to complex mode")
+def test_assign_complex_value(cg1):
+    f = Function(cg1)
+    g = Function(cg1)
+
+    f.assign(1+1j)
+    assert np.allclose(f.dat.data_ro, 1+1j)
+
+    f.assign(1j)
+    assert np.allclose(f.dat.data_ro, 1j)
+
+    g.assign(2.0)
+    f.assign((1+1j)*g)
+    assert np.allclose(f.dat.data_ro, 2+2j)
 
 
 @pytest.mark.parametrize('value', [10, -10],

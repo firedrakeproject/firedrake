@@ -4,7 +4,7 @@ import numpy
 
 from pyop2 import op2
 from firedrake_configuration import get_config
-from firedrake import function, dmhooks
+from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
@@ -178,7 +178,7 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_form_assembler
 
         if pmat_type is None:
             pmat_type = mat_type
@@ -233,9 +233,9 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
-        self._assemble_residual = OneFormAssembler(self.F, self._F, self.bcs_F,
-                                                   form_compiler_parameters=self.fcp,
-                                                   zero_bc_nodes=True).assemble
+        self._assemble_residual = get_form_assembler(self.F, self._F, bcs=self.bcs_F,
+                                                     form_compiler_parameters=self.fcp,
+                                                     zero_bc_nodes=True)
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -510,9 +510,10 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import TwoFormAssembler
-        return TwoFormAssembler(self.J, self._jac, bcs=self.bcs_J,
-                                form_compiler_parameters=self.fcp).assemble
+        from firedrake.assemble import get_form_assembler
+        return get_form_assembler(self.J, self._jac, bcs=self.bcs_J,
+                                  mat_type=self.mat_type,
+                                  form_compiler_parameters=self.fcp)
 
     @cached_property
     def is_mixed(self):
@@ -533,10 +534,10 @@ class _SNESContext(object):
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import TwoFormAssembler
-        return TwoFormAssembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
-                                form_compiler_parameters=self.fcp).assemble
+        from firedrake.assemble import get_form_assembler
+        return get_form_assembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
+                                  form_compiler_parameters=self.fcp)
 
     @cached_property
     def _F(self):
-        return function.Function(self.F.arguments()[0].function_space())
+        return cofunction.Cofunction(self.F.arguments()[0].function_space().dual())

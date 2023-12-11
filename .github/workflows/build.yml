@@ -8,11 +8,13 @@ on:
   pull_request:
   schedule:
     - cron: '0 0 * * 0'
-    - cron: '0 0 1 * *' # Monthly release
+    - cron: '0 0 1 * *'  # Monthly release
 
 concurrency:
   # Cancels jobs running if new commits are pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -31,12 +33,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-         - scalar-type: real
-           complex: ""
-           petsc_arch: default
-         - scalar-type: complex
-           complex: --complex
-           petsc_arch: complex
+          - scalar-type: real
+            complex: ""
+            petsc_arch: default
+          - scalar-type: complex
+            complex: --complex
+            petsc_arch: complex
     env:
       # PETSC_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
@@ -55,13 +57,15 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+          # Linting should ignore unquoted shell variable $COMPLEX
+          # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
             --honour-petsc-dir \
-            --mpicc=$MPICH_DIR/mpicc \
-            --mpicxx=$MPICH_DIR/mpicxx \
-            --mpif90=$MPICH_DIR/mpif90 \
-            --mpiexec=$MPICH_DIR/mpiexec \
+            --mpicc="$MPICH_DIR"/mpicc \
+            --mpicxx="$MPICH_DIR"/mpicxx \
+            --mpif90="$MPICH_DIR"/mpif90 \
+            --mpiexec="$MPICH_DIR"/mpiexec \
             --venv-name firedrake_venv \
             --no-package-manager \
             --disable-ssh \
@@ -79,14 +83,16 @@ jobs:
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
-          python $(which firedrake-clean)
-          python -m pip install pytest-cov pytest-timeout pytest-xdist pytest-timeout
+          python "$(which firedrake-clean)"
+          python -m pip install \
+            pytest-cov pytest-timeout pytest-xdist pytest-timeout
           python -m pip list
       - name: Test Firedrake
         run: |
           . ../firedrake_venv/bin/activate
-          echo OMP_NUM_THREADS is $OMP_NUM_THREADS
-          echo OPENBLAS_NUM_THREADS is $OPENBLAS_NUM_THREADS
+          echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
+          echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
+          python -m pytest -v tests/test_0init.py
           python -m pytest \
             --durations=200 \
             --cov firedrake \
@@ -124,11 +130,11 @@ jobs:
         # Set a release tag if triggered by monthly CRON job
         if: github.event.schedule == '0 0 1 * *'
         run: |
-          DATE_TAG=`date +%Y-%m`
+          DATE_TAG="$(date +%Y-%m)"
           echo "RELEASE_TAG=$DATE_TAG" >> "$GITHUB_ENV"
       - name: Print release tag being used
         run: |
-          echo The release tag is $RELEASE_TAG
+          echo The release tag is "$RELEASE_TAG"
     outputs:
       tag: ${{ env.RELEASE_TAG }}
   docker:

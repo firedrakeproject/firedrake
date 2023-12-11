@@ -174,3 +174,60 @@ def test_fresh_constant_hashes_different():
     d = Constant(1)
 
     assert hash(c) != hash(d)
+
+
+def test_constants_are_renumbered_in_form_signature():
+    mesh = UnitSquareMesh(1, 1)
+    mesh.init()
+    c = Constant(1)
+    d = Constant(1)
+
+    assert c.count() != d.count()
+    assert (c*dx(domain=mesh)).signature() == (d*dx(domain=mesh)).signature()
+
+
+def test_constant_names_are_not_used_in_generated_code():
+    mesh = UnitIntervalMesh(1)
+    c = Constant(1.0, name="()")
+    # should run without error
+    assemble(c * dx(mesh))
+
+
+@pytest.mark.skipcomplex
+def test_correct_constants_are_used_in_split_form():
+    # see https://github.com/firedrakeproject/firedrake/issues/3091
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    W = V * R
+    uh, vh = Function(W), TestFunction(W)
+    uh.sub(0).assign(Constant(1.0))
+    u, lmbda = split(uh)
+    v, tau = split(vh)
+    L = Constant(0.5) * v
+
+    G = (
+        Constant(1.0) * inner(grad(u), grad(v)) * dx
+        + Constant(10.0) * u * u * v * dx
+        - L * dx
+    )
+    const_1 = Constant(1.0)
+    H = G + (exp(const_1 - lmbda) - const_1) * tau * dx
+
+    bcs = [DirichletBC(W.sub(0), Constant(0.0), "on_boundary")]
+
+    solve(H == 0, uh, bcs=bcs)
+    u, lambda_ = uh.subfunctions
+    assert np.allclose(lambda_.dat.data, 1)
+
+
+def test_constant_subclasses_are_correctly_numbered():
+    class CustomConstant(Constant):
+        pass
+
+    const1 = CustomConstant(1.0)
+    const2 = Constant(1.0)
+    const3 = CustomConstant(1.0)
+
+    assert const2.count() == const1.count() + 1
+    assert const3.count() == const1.count() + 2

@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
@@ -7,11 +8,11 @@ from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
-from ufl.utils.counted import counted_init
+from ufl.utils.counted import Counted
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import ConstantMixin
+from firedrake.adjoint_utils.constant import ConstantMixin
 
 
 __all__ = ['Constant']
@@ -28,7 +29,7 @@ def _create_const(value, comm):
     return dat, rank, shape
 
 
-class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin):
+class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin, Counted):
     """A "constant" coefficient
 
     A :class:`Constant` takes one value over the whole
@@ -51,9 +52,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
        :class:`~ufl.form.Form` on its own you need to pass a
        :func:`~.Mesh` as the domain argument.
     """
-    _globalcount = 0
 
-    def __new__(cls, value, domain=None):
+    def __new__(cls, value, domain=None, name=None, count=None):
         if domain:
             # Avoid circular import
             from firedrake.function import Function
@@ -66,14 +66,18 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             dat, rank, shape = _create_const(value, domain._comm)
 
-            domain = ufl.as_domain(domain)
+            if not isinstance(domain, ufl.AbstractDomain):
+                cell = ufl.as_cell(domain)
+                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, gdim=cell.geometric_dimension)
+                domain = ufl.Mesh(coordinate_element)
+
             cell = domain.ufl_cell()
             if rank == 0:
-                element = ufl.FiniteElement("R", cell, 0)
+                element = finat.ufl.FiniteElement("R", cell, 0)
             elif rank == 1:
-                element = ufl.VectorElement("R", cell, 0, shape[0])
+                element = finat.ufl.VectorElement("R", cell, 0, shape[0])
             else:
-                element = ufl.TensorElement("R", cell, 0, shape=shape)
+                element = finat.ufl.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
             return Function(R, val=dat).assign(value)
@@ -81,7 +85,9 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             return object.__new__(cls)
 
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None, name=None):
+    def __init__(self, value, domain=None, name=None, count=None):
+        """"""
+
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
@@ -91,11 +97,19 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         self.name = name or 'constant_%d' % self.uid
 
         super().__init__()
-        counted_init(self, None, self.__class__)
-        self._hash = None
+        Counted.__init__(self, count, Counted)
 
     def __repr__(self):
         return f"Constant({self.dat.data_ro}, {self.count()})"
+
+    def _ufl_signature_data_(self, renumbering):
+        return (type(self).__name__, renumbering[self])
+
+    def __hash__(self):
+        return hash((type(self), self.count()))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.count() == other.count()
 
     @property
     def ufl_shape(self):

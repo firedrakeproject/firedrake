@@ -77,6 +77,7 @@ of standard shapes.  1-dimensional intervals may be constructed with
 example to build unit square meshes).  See
 :mod:`~firedrake.utility_meshes` for full details.
 
+.. _immersed_manifolds:
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -260,6 +261,9 @@ the horizontal and vertical spaces when building a function space on
 an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
 
+
+.. _supported_elements:
+
 Supported finite elements
 -------------------------
 
@@ -277,12 +281,14 @@ operator can be used to create product elements on extruded meshes.
 Element variants
 ~~~~~~~~~~~~~~~~
 
-Some finite element spaces offer more than one choice of nodes. For Q,
-DQ, DQ L2, RTCE and RTCF spaces on intervals, quadrilaterals and
-hexahedra, Firedrake offers both equispaced points and better
-conditioned Legendre points. For discontinuous elements these are the
-Gauss-Legendre points, and for continuous elements these are the
-Gauss-Lobatto-Legendre points. These are selected by passing
+Some finite element spaces offer more than one choice of nodes.  For Q, DQ, DQ
+L2, RTCE, RTCF, NCE, and NCF spaces on intervals, quadrilaterals and hexahedra,
+Firedrake offers both equispaced points and better conditioned Legendre points.
+For discontinuous elements these are the Gauss-Legendre points, and for
+continuous elements these are the Gauss-Lobatto-Legendre points.
+For CG and DG spaces on simplices, Firedrake offers both equispaced points and
+the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
+`recursivenodes`_ module. These are selected by passing
 `variant="equispaced"` or `variant="spectral"` to the
 :py:class:`~ufl.classes.FiniteElement` constructor. For example:
 
@@ -632,6 +638,8 @@ we can write:
        t += dt
        c.assign(t)
 
+.. _more_complicated_forms:
+
 More complicated forms
 ----------------------
 
@@ -655,3 +663,4 @@ problems.
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold
+.. _recursivenodes: https://tisaac.gitlab.io/recursivenodes/

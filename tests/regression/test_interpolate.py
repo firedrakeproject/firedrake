@@ -240,8 +240,7 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    f.dat.data[1, 1] = warp(1.0/3.0)
-    f.dat.data[2, 1] = warp(2.0/3.0)
+    f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
 
     mesh = Mesh(f)
     g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0))
@@ -510,7 +509,7 @@ def test_interpolation_tensor_convergence():
         V = TensorFunctionSpace(mesh, "RT", 1)
         x, y = SpatialCoordinate(mesh)
 
-        vs = V.ufl_element().value_shape()
+        vs = V.ufl_element().value_shape
         expr = as_tensor(np.asarray([
             sin(2*pi*x*(i+1))*cos(4*pi*y*i)
             for i in range(np.prod(vs, dtype=int))
@@ -554,3 +553,13 @@ def test_interpolation_on_hex():
     f = Function(V).interpolate(expr)
     assert assemble((f - expr)**2 * dx) < 1e-13
     assert abs(assemble(f * dx) - 1./(p + 1)**3) < 1e-11
+
+
+def test_interpolate_logical_not():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "P", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    a = interpolate(conditional(Not(x < .2), 1, 0), V)
+    b = interpolate(conditional(x >= .2, 1, 0), V)
+    assert np.allclose(a.dat.data, b.dat.data)

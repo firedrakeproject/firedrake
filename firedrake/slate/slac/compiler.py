@@ -169,17 +169,26 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     orig_coeffs = orig_expr.coefficients()
     new_coeffs = slate_expr.coefficients()
     map_new_to_orig = [orig_coeffs.index(c) for c in new_coeffs]
-    coeff_map = tuple((map_new_to_orig[n], split_map) for (n, split_map) in slate_expr.coeff_map)
+    coefficient_numbers = tuple((map_new_to_orig[n], split_map) for (n, split_map) in slate_expr.coeff_map)
     coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
-    assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
-    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), "Outer loopy kernel must have the same amount of args as there are in arguments"
+
+    # do the same for constants
+    orig_constants = orig_expr.constants()
+    new_constants = slate_expr.constants()
+    constant_numbers = tuple(orig_constants.index(c) for c in new_constants)
+
+    assert len(list(chain(*(map[1] for map in coefficient_numbers)))) == len(coefficients), \
+        "KernelInfo must be generated with a coefficient map that maps EXACTLY all coefficients that are in its arguments attribute."
+    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), \
+        "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
                        oriented=builder.bag.needs_cell_orientations,
-                       subdomain_id="otherwise",
+                       subdomain_id=("otherwise",),
                        domain_number=0,
-                       coefficient_map=coeff_map,
+                       coefficient_numbers=coefficient_numbers,
+                       constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
                        needs_cell_sizes=builder.bag.needs_cell_sizes,

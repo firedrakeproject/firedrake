@@ -10,7 +10,9 @@ on:
 
 concurrency:
   # Cancels jobs running if new commits are pushed
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -50,7 +52,7 @@ jobs:
           make html
           make latex
           make latexpdf
-      - name:  Copy manual to HTML tree
+      - name: Copy manual to HTML tree
         run: |
           cd docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf

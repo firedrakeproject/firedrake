@@ -54,7 +54,7 @@ class HypreADS(PCBase):
         linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
         pc.setCoordinates(linear_coordinates)
 
-        pc.setUp()
+        pc.setFromOptions()
         self.pc = pc
 
     def apply(self, pc, x, y):

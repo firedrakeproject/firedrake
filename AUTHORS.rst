@@ -34,6 +34,8 @@ Individuals
 
 Julian Andrej
 
+Kaito Arai
+
 Nicolas Barral................<https://nicolasbarral.fr>
 
 Nicholas Barton
@@ -126,7 +128,7 @@ Eike H. Mueller
 
 Reuben W. Nixon-Hill..........<https://www.imperial.ac.uk/people/reuben.nixon-hill10>
 
-Alberto Paganini..............<https://www2.le.ac.uk/departments/mathematics/extranet/staff-material/staff-profiles/alberto-paganini>
+Alberto Paganini..............<https://le.ac.uk/people/alberto-paganini>
 
 Francis J. Poulin
 
@@ -146,6 +148,8 @@ Tomasz J. Salwa
 
 Kaho Sato
 
+Matthew Scroggs...............<https://mscroggs.co.uk>
+
 Ben Sepanski..................<https://bensepanski.github.io>
 
 Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/daniel-shapero/>
@@ -161,6 +165,8 @@ Joseph G. Wallwork............<https://www.imperial.ac.uk/people/j.wallwork16>
 Connor J. Ward................<https://www.imperial.ac.uk/people/c.ward20>
 
 Florian Wechsung..............<https://florianwechsung.github.io>
+
+Yian Zeng
 
 Fangyi Zhou
 

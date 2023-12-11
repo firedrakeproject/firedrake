@@ -42,7 +42,8 @@ def cell_midpoints(m):
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
+                        "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -61,7 +62,14 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh(name="immersedsphere")
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial", name="immersedsphereextruded")
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -100,7 +108,7 @@ def pseudo_random_coords(size):
 
 # Mesh Generation Tests
 
-def verify_vertexonly_mesh(m, vm, inputvertexcoords):
+def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     """
     Check that VertexOnlyMesh `vm` immersed in parent mesh `m` with
     creation coordinates `inputvertexcoords` behaves as expected.
@@ -113,6 +121,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert vm.topological_dimension() == 0
     # Can initialise
     vm.init()
+    # has correct name
+    assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
     ref_cell_dists_l1 = []
@@ -150,7 +160,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert vm.topology._parent_mesh is m.topology
     # Correct generic cell properties
     if not skip_in_bounds_checks:
-        assert vm.cell_closure.shape == (len(inputvertexcoords[in_bounds]), 1)
+        assert vm.cell_closure.shape == (len(vm.coordinates.dat.data_ro_with_halos), 1)
     with pytest.raises(AttributeError):
         vm.exterior_facets()
     with pytest.raises(AttributeError):
@@ -158,7 +168,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     if not skip_in_bounds_checks:
-        assert vm.num_cells() == len(inputvertexcoords[in_bounds]) == vm.cell_set.size
+        assert vm.num_cells() == vm.cell_closure.shape[0] == len(vm.coordinates.dat.data_ro_with_halos) == vm.cell_set.total_size
+        assert vm.cell_set.size == len(inputvertexcoords[in_bounds]) == len(vm.coordinates.dat.data_ro)
     assert vm.num_facets() == 0
     assert vm.num_faces() == vm.num_entities(2) == 0
     assert vm.num_edges() == vm.num_entities(1) == 0
@@ -171,6 +182,15 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
     for i in range(len(stored_vertex_coords)):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
+    # Input is correct (and includes points that were out of bounds)
+    vm_input = vm.input_ordering
+    assert vm_input.name == name + "_input_ordering"
+    # We create vertex-only meshes using redundant=True by default so check
+    # that vm_input has vertices on rank 0 only
+    if MPI.COMM_WORLD.rank == 0:
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+    else:
+        assert len(vm_input.coordinates.dat.data_ro) == 0
 
 
 def test_generate_cell_midpoints(parentmesh, redundant):
@@ -198,11 +218,30 @@ def test_generate_cell_midpoints(parentmesh, redundant):
                 vm = VertexOnlyMesh(parentmesh, inputcoords)
             else:
                 vm = VertexOnlyMesh(parentmesh, np.empty(inputcoords.shape))
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        if MPI.COMM_WORLD.rank == 0:
+            assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoords.shape), inputcoords)
+            vm_input.num_cells() == len(inputcoords)
+        else:
+            assert len(vm_input.coordinates.dat.data_ro) == 0
+            vm_input.num_cells() == 0
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
         vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoordslocal.shape), inputcoordslocal)
+        vm_input.num_cells() == len(inputcoordslocal)
+
+    # Has correct name after not specifying one
+    assert vm.name == parentmesh.name + "_immersed_vom"
+
+    # More vm_input checks
+    vm_input._parent_mesh is vm
+    vm_input.input_ordering is None
 
     # Have correct number of vertices
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
@@ -223,6 +262,18 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         if cell_num is not None:
             assert (f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i]).all()
 
+    # Have correct pyop2 labels as implied by cell set sizes
+    if parentmesh.extruded:
+        layers = parentmesh.layers
+        if parentmesh.variable_layers:
+            # I think the below is correct but it's not actually tested...
+            expected = tuple(size*(layer-1) for size, layer in zip(parentmesh.cell_set.sizes, layers))
+            assert vm.cell_set.sizes == expected
+        else:
+            assert vm.cell_set.sizes == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes)
+    else:
+        assert vm.cell_set.sizes == parentmesh.cell_set.sizes
+
 
 @pytest.mark.parallel
 def test_generate_cell_midpoints_parallel(parentmesh, redundant):
@@ -230,8 +281,10 @@ def test_generate_cell_midpoints_parallel(parentmesh, redundant):
 
 
 def test_generate_random(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    verify_vertexonly_mesh(parentmesh, vm, vertexcoords)
+    vm = VertexOnlyMesh(
+        parentmesh, vertexcoords, missing_points_behaviour=None, name="testvom"
+    )
+    verify_vertexonly_mesh(parentmesh, vm, vertexcoords, name="testvom")
 
 
 @pytest.mark.parallel
@@ -265,8 +318,7 @@ def test_redistribution():
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
-    assert m.tolerance == 1.0
-    assert m.tolerance == m.topology.tolerance
+    assert m.tolerance == 0.5
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
@@ -274,11 +326,9 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
-    assert m.topology.tolerance == 0.1
     vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
-    assert m.topology.tolerance == 0.0
     # See if changing the tolerance on the parent mesh changes the tolerance
     # on the VertexOnlyMesh
     m.tolerance = 0.1
@@ -300,14 +350,25 @@ def test_missing_points_behaviour(parentmesh):
     vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     # Error by default
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord)
     # Error or warning if specified
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
         assert vm.cell_set.size == 0
+    with pytest.raises(ValueError) as e:
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='hello')
+    assert "\'hello\'" in str(e.value)
+
+
+def negative_coord_furthest_from_origin(parentmesh):
+    coords = parentmesh.coordinates.dat.data_ro
+    where_all_negative = [np.all(pt <= 0) for pt in coords]
+    negative_coords = coords[where_all_negative]
+    square_dists = [np.inner(pt, pt) for pt in negative_coords]
+    return negative_coords[np.argmax(square_dists)]
 
 
 def test_outside_boundary_behaviour(parentmesh):
@@ -316,9 +377,11 @@ def test_outside_boundary_behaviour(parentmesh):
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just outside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
@@ -375,9 +438,11 @@ def test_inside_boundary_behaviour(parentmesh):
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just inside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
     assert len(inputcoord) == 1
     # Tolerance is large enough to pick up point
@@ -386,3 +451,20 @@ def test_inside_boundary_behaviour(parentmesh):
     # Tolerance might be too small to pick up point, but it's not deterministic
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
     assert vm.cell_set.size == 0 or vm.cell_set.size == 1
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_pyop2_labelling():
+    m = UnitIntervalMesh(4)
+    # We inherit pyop2 labelling (owned, core and ghost) from the parent mesh
+    # cell. Here we have one point per cell so can check directly
+    points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    assert vm.cell_set.sizes == m.cell_set.sizes
+    assert vm.cell_set.total_size == m.cell_set.total_size
+    points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    assert vm.cell_set.total_size == 2*m.cell_set.total_size
+    points = np.asarray([[-5.0]])
+    vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour=None)
+    assert vm.cell_set.total_size == 0

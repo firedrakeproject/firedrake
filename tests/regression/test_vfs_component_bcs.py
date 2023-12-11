@@ -144,7 +144,7 @@ def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     f.assign(Constant([2, 1]))
     assert np.allclose(assemble(f.sub(0)*dx),
-                       assemble(Constant(2)*dx(domain=f.ufl_domain())))
+                       assemble(Constant(2)*dx(domain=V.mesh())))
 
 
 @pytest.mark.parametrize("cmpt",

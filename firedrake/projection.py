@@ -1,5 +1,6 @@
 import abc
 import ufl
+import finat.ufl
 from ufl.domain import extract_unique_domain
 
 import firedrake
@@ -7,7 +8,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint import annotate_project
+from firedrake.adjoint_utils import annotate_project
 from finat import HDivTrace
 
 
@@ -132,7 +133,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
         F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), ufl.MixedElement)
+        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
         if not mixed and isinstance(F.finat_element, HDivTrace):
             if F.extruded:
                 a = (firedrake.inner(u, v)*firedrake.ds_t
@@ -171,7 +172,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
 
     @cached_property
     def residual(self):
-        return firedrake.Function(self.target.function_space())
+        return firedrake.Cofunction(self.target.function_space().dual())
 
     @abc.abstractproperty
     def rhs(self):
@@ -195,7 +196,7 @@ class BasicProjector(ProjectorBase):
     def rhs_form(self):
         v = firedrake.TestFunction(self.target.function_space())
         F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), ufl.MixedElement)
+        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
         if not mixed and isinstance(F.finat_element, HDivTrace):
             # Project onto a trace space by supplying the respective form on the facets.
             # The measures on the facets differ between extruded and non-extruded mesh.

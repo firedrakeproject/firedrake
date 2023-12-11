@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import ufl
+from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 import cachetools
@@ -15,9 +16,10 @@ import pyop3
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
+from firedrake.cofunction import Cofunction
 from firedrake import utils
 from firedrake import vector
-from firedrake.adjoint import FunctionMixin
+from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
 
@@ -239,6 +241,11 @@ class Function(ufl.Coefficient, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    def __new__(cls, *args, **kwargs):
+        if args[0] and is_dual(args[0]):
+            return Cofunction(*args, **kwargs)
+        return super().__new__(cls, *args, **kwargs)
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
@@ -374,14 +381,47 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, subset=None, ad_block_tag=None):
+    def interpolate(
+        self,
+        expression,
+        subset=None,
+        allow_missing_dofs=False,
+        default_missing_val=None,
+        ad_block_tag=None,
+    ):
         r"""Interpolate an expression onto this :class:`Function`.
 
         :param expression: a UFL expression to interpolate
-        :param ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
+        :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
+            interpolation over. Cannot, at present, be used when interpolating
+            across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
+        :kwarg allow_missing_dofs: For interpolation across meshes: allow
+            degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
+            defined on the source mesh. For example, where nodes are point
+            evaluations, points in the target mesh that are not in the source mesh.
+            When ``False`` this raises a ``ValueError`` should this occur. When
+            ``True`` the corresponding values are set to zero or to the value
+            ``default_missing_val`` if given. Ignored if interpolating within the
+            same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+            :func:`.VertexOnlyMesh` in this scenario is, at present, set when
+            it is created).
+        :kwarg default_missing_val: For interpolation across meshes: the optional
+            value to assign to DoFs in the target mesh that are outside the source
+            mesh. If this is not set then zero is used. Ignored if interpolating
+            within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        :kwarg ad_block_tag: An optional string for tagging the resulting block on
+            the Pyadjoint tape.
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset, ad_block_tag=ad_block_tag)
+
+        return interpolation.interpolate(
+            expression,
+            self,
+            subset=subset,
+            allow_missing_dofs=allow_missing_dofs,
+            default_missing_val=default_missing_val,
+            ad_block_tag=ad_block_tag,
+        )
 
     def zero(self, subset=None):
         """Set all values to zero.
@@ -431,6 +471,41 @@ class Function(ufl.Coefficient, FunctionMixin):
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
         return self
+
+    def riesz_representation(self, riesz_map='L2'):
+        """Return the Riesz representation of this :class:`Function` with respect to the given Riesz map.
+
+        Example: For a L2 Riesz map, the Riesz representation is obtained by taking the action
+        of ``M`` on ``self``, where M is the L2 mass matrix, i.e. M = <u, v>
+        with u and v trial and test functions, respectively.
+
+        Parameters
+        ----------
+        riesz_map : str or collections.abc.Callable
+                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Riesz representation of this :class:`Function` with respect to the given Riesz map.
+        """
+        from firedrake.ufl_expr import action
+        from firedrake.assemble import assemble
+
+        V = self.function_space()
+        if riesz_map == "l2":
+            return Cofunction(V.dual(), val=self.dat)
+
+        elif riesz_map in ("L2", "H1"):
+            a = self._define_riesz_map_form(riesz_map, V)
+            return assemble(action(a, self))
+
+        elif callable(riesz_map):
+            return riesz_map(self)
+
+        else:
+            raise NotImplementedError(
+                "Unknown Riesz representation %s" % riesz_map)
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
@@ -548,25 +623,21 @@ class Function(ufl.Coefficient, FunctionMixin):
         dont_raise = kwargs.get('dont_raise', False)
 
         tolerance = kwargs.get('tolerance', None)
+        mesh = self.function_space().mesh()
         if tolerance is None:
-            tolerance = self.ufl_domain().tolerance
+            tolerance = mesh.tolerance
         else:
-            self.ufl_domain().tolerance = tolerance
+            mesh.tolerance = tolerance
 
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        mesh = self.function_space().mesh()
         if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
-        # Immersed not supported
-        tdim = mesh.ufl_cell().topological_dimension()
-        gdim = mesh.ufl_cell().geometric_dimension()
-        if tdim < gdim:
-            raise NotImplementedError("Point is almost certainly not on the manifold.")
 
         # Validate geometric dimension
+        gdim = mesh.ufl_cell().geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -651,6 +722,7 @@ class PointNotInDomainError(Exception):
 
     Attributes: domain, point
     """
+
     def __init__(self, domain, point):
         self.domain = domain
         self.point = point
