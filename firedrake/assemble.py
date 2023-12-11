@@ -556,15 +556,18 @@ def base_form_assembly_visitor(expr, tensor, bcs, diagonal,
                 'mat_type': mat_type, 'sub_mat_type': sub_mat_type,
                 'appctx': appctx, 'options_prefix': options_prefix,
                 'diagonal': diagonal}
-        # Replace base forms in the operands and argument slots of the external operator by their result
-        v, *assembled_children = args
-        if assembled_children:
-            _, *children = base_form_operands(expr)
-            # Replace assembled children by their results
-            expr = ufl.replace(expr, dict(zip(children, assembled_children)))
-        # Always reconstruct the dual argument (0-slot argument) since it is a BaseForm
-        # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
-        expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
+        # External operators might not have any children that needs to be assemble
+        # -> e.g. N(u; v0, w) with v0 a ufl.Argument and w a ufl.Coefficient
+        if args:
+            # Replace base forms in the operands and argument slots of the external operator by their result
+            v, *assembled_children = args
+            if assembled_children:
+                _, *children = base_form_operands(expr)
+                # Replace assembled children by their results
+                expr = ufl.replace(expr, dict(zip(children, assembled_children)))
+            # Always reconstruct the dual argument (0-slot argument) since it is a BaseForm
+            # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
+            expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
         # Call the external operator assembly
         return expr.assemble(assembly_opts=opts)
     elif isinstance(expr, ufl.Interpolate):

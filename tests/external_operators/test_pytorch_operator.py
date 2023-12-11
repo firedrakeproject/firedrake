@@ -234,17 +234,20 @@ def test_backpropagation(u, nn):
     V = N.function_space()
     δN = Cofunction(V.dual())
     δN.vector()[:] = np.random.rand(V.dim())
+
     # Get model parameters (θ_F is a `firedrake.PytorchParams` object)
     θ_F = N.operator_params()
     assert isinstance(θ_F, PytorchParams)
     # In fact θ_F is the last operand of N
     assert N.ufl_operands == (u, θ_F)
+
     # Symbolic compute: <(∂N/∂u)*, δN>
     dNdθ = expand_derivatives(derivative(N, θ_F))
     dNdθ = action(adjoint(dNdθ), δN)
     # Assemble
     dN_adj = assemble(dNdθ)
     # TODO: Fix above so that can directly write: dN_adj = assemble(action(adjoint(derivative(N, θ)), δN))
+
     N_params = N.operator_params()
     N = nn(f, *N_params)
     y = Cofunction(V.dual())
