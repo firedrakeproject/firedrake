@@ -1742,7 +1742,7 @@ run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel"])
 
-# Extra numpy dependendencies, see 
+# Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
 run_pip(["meson-python>=0.15.0"])
 run_pip_install(["Cython>=3.0"])
