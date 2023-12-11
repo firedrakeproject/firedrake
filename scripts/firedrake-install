@@ -1692,8 +1692,8 @@ run_pip(["install", "-U", "wheel"])
 
 # Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
-run_pip(["meson-python>=0.15.0"])
-run_pip_install(["Cython>=3.0"])
+run_pip(["install", "-U", "meson-python>=0.15.0"])
+run_pip(["install", "-U", "Cython>=3.0"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
