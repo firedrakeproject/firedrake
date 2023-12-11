@@ -57,6 +57,8 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+          # DO NOT MERGE: just until we rebuild the Docker container
+          sudo apt install ninja-build
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
