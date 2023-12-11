@@ -1003,14 +1003,6 @@ def run_pip_install_wrap(reqs, parallel_compiler_env):
         if package_name in parallel_packages:
             with environment(**parallel_compiler_env):
                 run_pip_install([req])
-        elif package_name == "numpy":
-            # Downgrade setuptools and wheel for numpy
-            run_pip(["install", "-U", "setuptools==59.2.0"])
-            run_pip(["install", "-U", "wheel==0.37.0"])
-            run_pip_install(["numpy==1.24"])
-            # Upgrade setuptools and wheel for everything else
-            run_pip(["install", "-U", "setuptools"])
-            run_pip(["install", "-U", "wheel"])
         else:
             run_pip_install([req])
 
@@ -1750,14 +1742,10 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
-# numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
-run_pip(["install", "-U", "setuptools==59.2.0"])
+run_pip(["install", "-U", "setuptools"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "pip"])
-run_pip(["install", "-U", "wheel==0.37.0"])
-
-# Pin Cython because it's causing multiple packages to fail to build
-run_pip(["install", "-U", "Cython==0.29.36"])
+run_pip(["install", "-U", "wheel"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
@@ -1856,7 +1844,7 @@ if mode == "install":
     build_update_script()
 
     # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython>=0.22"])
+    run_pip_install(["Cython"])
 
     # Pre-install requested packages
     if args.pip_packages is not None:
@@ -1928,14 +1916,7 @@ if mode == "install":
     with environment(**compiler_env, **link_env):
         run_pip_install(["--no-cache-dir", "mpi4py"])
 
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
-    log.info("Installing numpy==1.24 due to performance regression")
-    # https://github.com/inducer/pytential/issues/211
-    run_pip_install(["numpy==1.24"])
-    log.info("Updating setuptools and wheel to latest versions")
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "wheel"])
+    run_pip_install(["numpy"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
