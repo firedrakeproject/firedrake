@@ -686,7 +686,6 @@ def check_output(args):
         raise
 
 
-pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -993,12 +992,8 @@ def run_pip_install(pipargs):
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
     with environment(**blas):
-        pipargs = ["-vvv"] + pipargs
+        pipargs = ["-v"] + pipargs
         check_call(pipinstall + pipargs)
-
-
-def run_cmd(args):
-    check_call(args)
 
 
 def get_requirements(reqfname):
@@ -1722,6 +1717,11 @@ run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel"])
 
+# Extra numpy dependendencies, see 
+# https://github.com/numpy/numpy/blob/main/pyproject.toml
+run_pip(["meson-python>=0.15.0"])
+run_pip_install(["Cython>=3.0"])
+
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
 run_pip(["install", "-U", "nanobind"])
@@ -1807,9 +1807,6 @@ if mode == "install":
     # Build the update script as soon as possible so that installation
     # recovery can be attempted if required.
     build_update_script()
-
-    # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython"])
 
     # Pre-install requested packages
     if args.pip_packages is not None:
