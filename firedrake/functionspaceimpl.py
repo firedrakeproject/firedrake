@@ -682,8 +682,7 @@ class FunctionSpace:
 
     def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
-        # Not necessarily great than I need to add the extra slice here, should at
-        # least error if so.
+        # Not necessarily great than I need to add the extra slice here
         return (self.mesh().closure(loop_index), slice(None)) + (slice(None),) * len(self.shape)
 
     def interior_facet_node_map(self):

@@ -1189,9 +1189,9 @@ class MeshTopology(AbstractMeshTopology):
         cell = self.ufl_cell()
         assert cell.topological_dimension() == self.dimension
         if cell.is_simplex():
-            closureSize = sum(self.cell_closure_sizes)
+            closure_size = sum(self.cell_closure_sizes)
             # NOTE: This has NOT been reordered cellwise yet!
-            myclosure = dmcommon.create_cell_closure(plex, closureSize)
+            myclosure = dmcommon.create_cell_closure(plex, closure_size)
 
             # renumber the map
             mdata_renum = np.empty_like(myclosure)
@@ -1203,6 +1203,66 @@ class MeshTopology(AbstractMeshTopology):
                     new_cpt_pt = self.points.default_to_applied_component_number(component.label, old_cpt_pt)
                     mdata_renum[new_cell, i] = new_cpt_pt
 
+            # experimental
+            # assume that offsets have already been applied to give correct numbering?
+            # assume that we are operating on a particular slice? might be clearer
+            # can do permutation later on, the renumbering is all that is needed here
+            # I believe.
+            # arrays = []
+            # offset = 0
+            # for dim in range(self.dimension + 1):
+            #     ...
+            #     arrays.append(???)
+            #
+            # renumbering = op3.ContextSensitiveHArray(???)
+            # component_offset = op3.ContextSensitiveHArray(???)
+            # mdata_renum = np.empty_like(myclosure)
+            # op3.do_loop(
+            #     p := map_dat.axes.root.index(),
+            #     op3.loop(
+            #         q := map_dat[p, :].index(),
+            #         map_dat[renumbering[p], q.i] = renumbering[q - component_offset]
+            #     ),
+            # )
+
+            # my effort, could make Cython trivial
+
+            # <cython>
+            ncells = self.num_cells()
+            closure_data = np.empty((ncells, closure_size), dtype=IntType)
+            for c in range(ncells):
+                pts, _ = plex.getTransitiveClosure(c)
+                closure_data[c] = pts
+            # <\cython>
+
+            # renumber the keys and permute the entries to obey FIAT
+            if closure_size != 7:
+                raise NotImplementedError("Only thinking about triangles currently")
+
+            # fiat_triangle_perm = op3.utils.invert([6, 4, 5, 1, 2, 3, 0])
+            fiat_triangle_perm = [6, 4, 5, 1, 2, 3, 0]
+
+            cdold = closure_data.copy()
+            closure_data[...] = closure_data[:, fiat_triangle_perm]
+            # breakpoint()
+
+            # now apply component-wise modifications in values
+            for dim in range(self.dimension+1):
+                clabel = str(dim)
+                cidx = self.points.component_index(clabel)
+                start, stop = self.cell_closure_offsets[dim:dim+2]
+                # breakpoint()
+                closure_data[:, start:stop] -= self.points._component_offsets[cidx]
+                for i in range(start, stop):
+                # closure_data[:, start:stop] = closure_data[:, start:stop][:, self.points.component_numbering(clabel)]
+                    closure_data[:, i] = self.points.component_numbering(clabel)[closure_data[:, i]]
+
+            # closure_data = closure_data[op3.utils.invert(self.points.component_numbering(self.cell_label))]
+            closure_data = closure_data[self.points.component_permutation(self.cell_label)]
+            # closure_data = closure_data[self.points.component_numbering(self.cell_label)]
+
+            assert (mdata_renum == closure_data).all()
+            breakpoint()
             return mdata_renum
             # return dmcommon.closure_ordering(plex, vertex_numbering,
             #                                  cell_numbering, self.cell_closure_sizes)
@@ -1252,6 +1312,10 @@ class MeshTopology(AbstractMeshTopology):
     @property
     def cell_closure_size(self):
         return sum(self.cell_closure_sizes)
+
+    @property
+    def cell_closure_offsets(self):
+        return steps(self.cell_closure_sizes)
 
     @utils.cached_property
     def entity_orientations(self):
