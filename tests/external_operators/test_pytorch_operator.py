@@ -164,7 +164,7 @@ def test_jacobian(u, nn):
     dN = assemble(derivative(N, u))
 
     # Convert from Firedrake to PyTorch
-    u_P = to_torch(u, unsqueeze=False)
+    u_P = to_torch(u, batched=False)
     # Compute Jacobian with PyTorch
     J = torch_func.jacobian(lambda x: model(x), u_P)
 
@@ -185,7 +185,7 @@ def test_jacobian_adjoint(u, nn):
     dN_adj = assemble(dNdu)
 
     # Convert from Firedrake to PyTorch
-    u_P = to_torch(u, unsqueeze=False)
+    u_P = to_torch(u, batched=False)
     # Compute Jacobian with PyTorch
     J = torch_func.jacobian(lambda x: model(x), u_P)
     # Take Hermitian transpose

@@ -203,7 +203,9 @@ class PytorchOperator(NeuralNet):
         # -> For more complex cases, the user needs to overwrite this function
         #    to state how the operands can be used to form the inputs.
         inputs = torch.cat([to_torch(op, requires_grad=True, batched=False) for op in args])
-        return torch.unsqueeze(inputs, self.inputs_format)
+        if kwargs.get("unsqueeze", False):
+            return torch.unsqueeze(inputs, self.inputs_format)
+        return inputs
 
     def _post_forward_callback(self, y_P):
         space = self.ufl_function_space()
@@ -397,7 +399,6 @@ class PytorchOperator(NeuralNet):
         w = self.argument_slots()[0]
         if self.derivatives[-1] == 1:
             # Gradient with respect to parameters: ∂N(u, θ; w, v*)/∂θ
-            import ipdb; ipdb.set_trace()
             # Work out the right thing to do for updating parameters
             # # self._update_model_params()
             # res, = self._backprop(w.vector(), (idx - n_inputs,), (self.ufl_operands[idx],))
@@ -405,6 +406,7 @@ class PytorchOperator(NeuralNet):
             # This does the inverse of that operation to get the parameters of the N in the right format.
             # res.dat.data.shape = res.ufl_shape
             # return res.function
+            raise NotImplementedError
         else:
             # Gradient with respect to inputs: ∂N(u, θ; w, v*)/∂u
             return self._vjp(w)

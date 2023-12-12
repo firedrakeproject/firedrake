@@ -15,7 +15,6 @@ import firedrake.utils as utils
 from firedrake.adjoint_utils.constant import ConstantMixin
 
 
-
 __all__ = ['Constant']
 
 
@@ -227,25 +226,28 @@ class PytorchParams(Constant):
     """
 
     def __init__(self, params):
-        from firedrake.external_operators.neural_networks.backends import get_backend
-        self.backend = get_backend('pytorch').backend
+        # Handle torch dependency error
+        import firedrake.ml.pytorch   # noqa: F401
+        import torch
 
         params = (params,) if not isinstance(params, collections.abc.Sequence) else params
 
-        if not all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in params]):
-            raise TypeError('Expecting parameters of type %s' % str(self.backend.nn.parameter.Parameter))
+        self.param_type = torch.nn.parameter.Parameter
+
+        if not all([isinstance(θ, self.param_type) for θ in params]):
+            raise TypeError('Expecting parameters of type %s' % str(self.param_type))
 
         self.params = params
         #
         self._hash = None
         cell = None
         domain = None
-        e = ufl.FiniteElement("Real", cell, 0)
+        e = finat.ufl.FiniteElement("Real", cell, 0)
         fs = ufl.FunctionSpace(domain, e)
         ufl.Coefficient.__init__(self, fs)
 
     def __add__(self, value):
-        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in value]):
+        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.param_type) for θ in value]):
             # Delegate to Pytorch: 1) the `+` operation and 2) the compatibility check on parameters in `value`
             # If parameters in value don't match -> let PyTorch cause the detailed error message
             θ = []
@@ -265,7 +267,7 @@ class PytorchParams(Constant):
         raise ValueError('Cannot add %s' % value)
 
     def __mul__(self, value):
-        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.backend.nn.parameter.Parameter) for θ in value]):
+        if isinstance(value, collections.abc.Sequence) and all([isinstance(θ, self.param_type) for θ in value]):
             # Delegate to Pytorch: 1) the `*` operation and 2) the compatibility check on parameters in `value`
             # If parameters in value don't match -> let PyTorch cause the detailed error message
             θ = []
