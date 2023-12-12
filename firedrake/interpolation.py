@@ -12,7 +12,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
-import pyop3
+import pyop3 as op3
 from pyop3.cache import disk_cached
 
 from tsfc.finatinterface import create_element, as_fiat_cell
@@ -77,23 +77,12 @@ __all__ = (
 #   - Maths: v^* = B^* w^*
 
 
-#TODO PYOP3 move elsewhere? we want Firedrake-specific access descriptors because
-# pyop3 has MIN_RW and MIN_WRITE whereas Firedrake will always want the latter
-class Access(enum.Enum):
-    READ = "read"
-    WRITE = "write"
-    RW = "rw"
-    INC = "inc"
-    MIN = "min"
-    MAX = "max"
-
-
 @PETSc.Log.EventDecorator()
 def interpolate(
     expr,
     V,
     subset=None,
-    access=Access.WRITE,
+    access=op3.WRITE,
     allow_missing_dofs=False,
     default_missing_val=None,
     ad_block_tag=None,
@@ -219,7 +208,7 @@ class Interpolator(abc.ABC):
         V,
         subset=None,
         freeze_expr=False,
-        access=Access.WRITE,
+        access=op3.WRITE,
         bcs=None,
         allow_missing_dofs=False,
     ):
@@ -299,7 +288,7 @@ class CrossMeshInterpolator(Interpolator):
         V,
         subset=None,
         freeze_expr=False,
-        access=op2.WRITE,
+        access=op3.WRITE,
         bcs=None,
         allow_missing_dofs=False,
     ):
@@ -644,7 +633,7 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op3.WRITE, bcs=None, **kwargs):
         super().__init__(expr, V, subset, freeze_expr, access, bcs)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
@@ -729,9 +718,9 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             V = f.function_space()
         else:
             f = firedrake.Function(V)
-            if access in {Access.MIN, Access.MAX}:
+            if access in {op3.MIN_WRITE, op3.MAX_WRITE}:
                 finfo = numpy.finfo(f.dat.dtype)
-                if access == Access.MIN:
+                if access == op3.MIN_WRITE:
                     val = firedrake.Constant(finfo.max)
                 else:
                     val = firedrake.Constant(finfo.min)
@@ -771,12 +760,17 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
-                                    ((V.cell_node_map(), argfs_map),),
-                                    name="%s_%s_sparsity" % (V.name, argfs.name),
-                                    nest=False,
-                                    block_sparse=True)
-            tensor = op2.Mat(sparsity)
+            sparsity = NotImplemented
+            petsc_mat = op3.PetscMat(
+                V.axes, argfs.axes, sparsity, comm=V._comm, 
+            )
+            tensor = op3.Mat(petsc_mat, name=petsc_mat.name)
+            # sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
+            #                         ((V.cell_node_map(), argfs_map),),
+            #                         name="%s_%s_sparsity" % (V.name, argfs.name),
+            #                         nest=False,
+            #                         block_sparse=True)
+            # tensor = op2.Mat(sparsity)
         f = tensor
     else:
         raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
@@ -853,7 +847,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         # FInAT only elements
         raise NotImplementedError("Don't know how to create FIAT element for %s" % V.ufl_element())
 
-    if access is Access.READ:
+    if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape):
@@ -909,7 +903,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                                 domain=source_mesh, parameters=parameters,
                                 log=PETSc.Log.isActive())
 
-    loop_index = cell_set
+    loop_index = cell_set.index()
     parloop_args = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
@@ -938,8 +932,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = pyop3.Dat(tensor.dataset)
-        if access is not Access.WRITE:
+        tensor = op3.Dat(tensor.dataset)
+        if access != op3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
             copyin = ()
@@ -948,13 +942,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         copyin = ()
         copyout = ()
 
-    if isinstance(tensor, pyop3.Const):
-        parloop_args.append(tensor[...])
-    elif isinstance(tensor, pyop3.Dat):
-        parloop_args.append(tensor[V.cell_closure_map()])
+    expr_arguments = extract_arguments(expr)
+    if len(expr_arguments) == 0:
+        parloop_args.append(tensor[V.cell_closure_map(loop_index)])
     else:
+        assert len(expr_arguments) == 1
         raise NotImplementedError
-        assert access == Access.WRITE  # Other access descriptors not done for Matrices.
+        assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_closure_map()
         Vcol = arguments[0].function_space()
         columns_map = Vcol.cell_closure_map()
@@ -974,22 +968,23 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
+        parloop_args.append(tensor(op3.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat[co.cell_closure_map()])
+        parloop_args.append(co.dat[co.cell_closure_map(loop_index)])
     if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(cs.dat[cs.cell_closure_map()])
+        parloop_args.append(cs.dat[cs.cell_closure_map(loop_index)])
 
     for coefficient in coefficients:
         coeff_mesh = extract_unique_domain(coefficient)
         if coeff_mesh is target_mesh or not coeff_mesh:
             # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
             # a Real space
-            coeff_index = coefficient.function_space().cell_closure_map()
+            coeff_index = coefficient.function_space().cell_closure_map(loop_index)
         elif coeff_mesh is source_mesh:
+            raise NotImplementedError
             if coefficient.cell_closure_map():
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
@@ -1010,20 +1005,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             raise ValueError("Have coefficient with unexpected mesh")
         parloop_args.append(coefficient.dat[coeff_index])
 
-    #FIXME PYOP3
     for const in extract_firedrake_constants(expr):
-        parloop_args.append(const.dat[...])
+        # constants do not require indexing
+        parloop_args.append(const.dat)
 
-    # pyop3 has support for in-place min/max but Firedrake does not need this
-    pyop3_access = {
-        Access.WRITE: pyop3.WRITE,
-        Access.MAX: pyop3.MAX_WRITE,
-        Access.MIN: pyop3.MIN_WRITE,
-    }[access]
-    expression_kernel = pyop3.LoopyKernel(kernel.ast, [pyop3_access] + [pyop3.READ for _ in parloop_args[1:]])
-    parloop = pyop3.loop(loop_index, expression_kernel(*parloop_args))
-    # breakpoint()
-    if isinstance(tensor, pyop3.Mat):
+    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in parloop_args[1:]])
+    parloop = op3.loop(loop_index, expression_kernel(*parloop_args))
+    if len(expr_arguments) == 1:
         raise NotImplementedError
         return parloop, tensor.assemble
     else:

@@ -14,7 +14,8 @@ import ufl
 import finat.ufl
 
 from pyop2 import op2, mpi
-import pyop3
+import pyop3 as op3
+from pyop3.utils import single_valued
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -520,22 +521,14 @@ class FunctionSpace:
         # want to carry finat_element.
         self.finat_element = create_element(element)
 
-        #TODO PYOP3 this calculation is obscure (and I think repeated elsewhere)
-        dof_counts = []
+        axes = op3.PartialAxisTree(mesh.points)
         for tdim, edofs in self.finat_element.entity_dofs().items():
-            dof_counts.append(pyop3.utils.single_valued(map(len, edofs.values())))
-        layout = [
-            pyop3.ConstrainedAxis(pyop3.Axis(dof_counts[d]), within_labels={("mesh", i)})
-            for i, d in enumerate(mesh.depth_strata_order)
-        ]
-
-        # possibly add extra shape axis
-        if self.shape:
-            if len(self.shape) > 1:
-                raise NotImplementedError("just need to stack I think")
-            dim = pyop3.utils.just_one(self.shape)
-            layout += [pyop3.ConstrainedAxis(pyop3.Axis(dim))]
-        self.pyop3_space = mesh.create_space(layout)
+            ndofs = single_valued(len(d) for d in edofs.values())
+            subaxes = op3.PartialAxisTree(op3.Axis(ndofs, "dof"))
+            for dim in self.shape:
+                subaxes = subaxes.add_subaxis(op3.Axis(dim), *subaxes.leaf)
+            axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+        self.axes = axes.set_up()
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -680,11 +673,18 @@ class FunctionSpace:
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
-        return pyop3.Dat(self.pyop3_space, data=val.flatten() if val is not None else None, dtype=valuetype, name=name)
+        return op3.HierarchicalArray(
+            self.axes,
+            data=val.flatten() if val is not None else None,
+            dtype=valuetype,
+            name=name
+        )
 
-    def cell_closure_map(self):
+    def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
-        return self.mesh().cell_closure_map
+        # Not necessarily great than I need to add the extra slice here, should at
+        # least error if so.
+        return (self.mesh().closure(loop_index), slice(None)) + (slice(None),) * len(self.shape)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
@@ -803,13 +803,16 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
     component = None
     parent = None
     rank = 1
+
+    @property
+    def comm(self):
+        return self.axes.comm
 
     def mesh(self):
         return self._mesh

@@ -1,0 +1,4 @@
+* op2.{MIN,MAX} are now op3.{MIN,MAX}_WRITE (as opposed to {MIN,MAX}_RW).
+* op2.Global, op2.Dat and op2.Mat are no longer used. Instead prefer op3.HierarchicalArray
+  and op3.PetscMat etc. The former types were considered to be too "mesh specific" and
+  brought no value to the abstraction.

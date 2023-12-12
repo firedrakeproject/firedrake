@@ -3,9 +3,8 @@ import ufl
 import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
-from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
-import pyop3
+import pyop3 as op3
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.utils.counted import Counted
@@ -22,10 +21,18 @@ def _create_const(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
+
+    if comm is not None:
+        raise NotImplementedError("Won't be a back door for real space here, do elsewhere")
+
     if rank == 0:
-        dat = pyop3.Const(1, data, comm=comm)
+        axes = op3.AxisTree(op3.Axis(1))
     else:
-        dat = pyop3.Const(shape, data, comm=comm)
+        axes = op3.PartialAxisTree(op3.Axis(shape[0]))
+        for size in shape[1:]:
+            axes = axes.add_subaxis(op3.Axis(size), *axes.leaf)
+        axes = axes.set_up()
+    dat = op3.HierarchicalArray(axes, data=data)
     return dat, rank, shape
 
 

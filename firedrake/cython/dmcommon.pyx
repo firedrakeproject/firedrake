@@ -431,7 +431,13 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         3   1
         #                         |  0   \
         #                         6---2---5
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        fiat_closure[0] = plex_closure[2 * 6]
+        fiat_closure[1] = plex_closure[2 * 4]
+        fiat_closure[2] = plex_closure[2 * 5]
+        fiat_closure[3] = plex_closure[2 * 1]
+        fiat_closure[4] = plex_closure[2 * 2]
+        fiat_closure[5] = plex_closure[2 * 3]
+        fiat_closure[6] = plex_closure[2 * 0]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         # UFCTetrahedron:         0---9---1---9---0
         #                          \ 12  / \ 13  /
@@ -526,12 +532,10 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_cell_closure(PETSc.DM dm,
-                        PETSc.Section cell_numbering,
                         _closureSize):
     """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
 
     :arg dm: The DM object encapsulating the mesh topology
-    :arg cell_numbering: Section describing the global cell numbering
     :arg _closureSize: Number of entities in the cell
     """
     cdef:
@@ -552,12 +556,11 @@ def create_cell_closure(PETSc.DM dm,
     cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
     CHKERR(PetscMalloc1(closureSize, &fiat_closure))
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
         _reorder_plex_closure(dm, c, closure, fiat_closure)
         restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
         for i in range(closureSize):
-            cell_closure[cell, i] = fiat_closure[i]
+            cell_closure[c, i] = fiat_closure[i]
     CHKERR(PetscFree(fiat_closure))
     return cell_closure
 

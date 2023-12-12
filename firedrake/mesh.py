@@ -12,13 +12,16 @@ from ufl.classes import ReferenceGrad
 from ufl.domain import extract_unique_domain
 import enum
 import numbers
+from functools import cached_property
 import abc
+from pyrsistent import freeze
 from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple, tuplify
-import pyop3
+import pyop3 as op3
+from pyop3.utils import pairwise, steps
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -546,6 +549,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self._distribute()
         self._grown_halos = False
 
+        self.name = name
+
         def callback(self):
             """Finish initialisation."""
             del self._callback
@@ -579,17 +584,17 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
-                self._cell_numbering = self.create_section(entity_dofs)
-                if tdim == 0:
-                    self._vertex_numbering = self._cell_numbering
-                else:
-                    entity_dofs[:] = 0
-                    entity_dofs[0] = 1
-                    self._vertex_numbering = self.create_section(entity_dofs)
-                    entity_dofs[:] = 0
-                    entity_dofs[-2] = 1
-                    facet_numbering = self.create_section(entity_dofs)
-                    self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
+                # self._cell_numbering = self.create_section(entity_dofs)
+                # if tdim == 0:
+                #     self._vertex_numbering = self._cell_numbering
+                # else:
+                #     entity_dofs[:] = 0
+                #     entity_dofs[0] = 1
+                #     self._vertex_numbering = self.create_section(entity_dofs)
+                #     entity_dofs[:] = 0
+                #     entity_dofs[-2] = 1
+                #     facet_numbering = self.create_section(entity_dofs)
+                #     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
                 # Derive a cell numbering from the Plex renumbering
                 # these can all be determined from the axes and are only required
                 # internally for things like map construction (which I also do internally)
@@ -604,23 +609,20 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 # facet_numbering = self.create_section(entity_dofs)
                 # self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
-            # axis_components = [None] * (self.dimension + 1)
-            # for d in range(self.dimension + 1):
-            #     axis_components[self.depth_to_axis_index[d]] = self.num_entities(d)
-
-            axis_components = [self.num_entities(d) for d in self.depth_strata_order]
-
-            # we need to invert the permutation here because we want a permutation
-            # (i.e. old index -> new value), not a new numbering (new index -> old value)
-            self.axes = pyop3.AxisTree(
-                pyop3.Axis(
-                    axis_components,
-                    permutation=self._plex_renumbering.invertPermutation().indices,
-                    label="mesh",
-                ),
+            points = op3.Axis(
+                {
+                    str(d): self.num_entities(d)
+                    for d in self.depth_strata_order
+                },
+                numbering=self._dm_renumbering.indices,
+                label=self.name,
             )
+            if self.comm.size > 1:
+                points = op3.Axis.from_serial(points, self.topology_dm.getPointSF())
+            self.points = points
+
+
         self._callback = callback
-        self.name = name
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
@@ -781,58 +783,43 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    @utils.cached_property
-    def cell_closure_map(self):
-        map_data = [
-            np.empty((self.num_owned_cells, npoints), dtype=IntType)
-            for npoints in self.cell_closure_sizes
-        ]
-        for cell in range(self.num_cells()):
-            closure = self.topology_dm.getTransitiveClosure(cell)
-            #FIXME PYOP3 Handle orientations
-            closure_pts, closure_ort = closure
-            assert len(closure_pts) == sum(self.cell_closure_sizes)
+    @property
+    def closure(self):
+        return self._closure_map
 
-            # the closure is arranged s.t. we get cells -> facets -> edges -> verts
-            # (inverse of depth)
-            offset = 0
-            for i, npoints in enumerate(reversed(self.cell_closure_sizes)):
-                tdim = self.dimension - i
-                # we number from zero unlike plex
-                start, _ = self.plex.getDepthStratum(tdim)
-                map_data[tdim][cell] = closure_pts[offset:offset+npoints] - start
-                offset += npoints
+    @cached_property
+    def _closure_map(self):
+        # FIXME: This is currently only implemented for cell closures. In principle
+        # this should be straightforward to fix with _reorder_plex_closure if that
+        # were fully implemented.
 
-        map_axes = [
-            pyop3.AxisTree(
-                pyop3.Axis(self.num_owned_cells, "mesh", id="root"),
-                {
-                    "root": pyop3.Axis(clsize),
-                }
+        # PETSc (and hence pyop3) numbers cells from 0. This is the opposite to
+        # FIAT and means that we pack entities in order of dimension instead
+        # of [cells, vertices, etc].
+        map_axes = op3.AxisTree.from_nest(
+            {self.cells.root: op3.Axis(self.cell_closure_size)}
+        )
+        map_dat = op3.HierarchicalArray(
+            map_axes, data=self.cell_closure.flatten()
+        )
+
+        mesh_label = self.points.label
+        map_components = []
+        for dim, (start, stop) in enumerate(
+            pairwise(steps(self.cell_closure_sizes))
+        ):
+            cpt = op3.TabulatedMapComponent(
+                mesh_label,
+                str(dim),
+                map_dat[:, start:stop]
             )
-            for clsize in self.cell_closure_sizes
-        ]
-        map_arrays = [
-            pyop3.MultiArray(map_axes[tdim], data=map_data[tdim].flatten(), prefix="map")
-            for tdim in range(self.dimension+1)
-        ]
+            map_components.append(cpt)
 
-        # NOTE: we need to be very careful here about selecting components. The cell_set
-        # Range has label ("mesh", tdim) whereas we always want a 0 here since the map
-        # is only single part.
-        # Aside: could we have a multipart map to achieve contiguous/interleaved storage?
-        p = pyop3.IndexTree(pyop3.Index(pyop3.Range(("mesh", 0), self.num_owned_cells), label=self.cell_set.root.label))
-
-        mapidxs = [
-            pyop3.TabulatedMap(
-                [("mesh", 0)],  # from (cells)
-                [("mesh", i)],  # to
-                arity=self.cell_closure_sizes[d],
-                data=map_arrays[d][p],
-            )
-            for i, d in enumerate(self.depth_strata_order)
-        ]
-        return self.cell_set.put_node(pyop3.Index(mapidxs), self.cell_set.root)
+        return op3.Map(
+            {freeze({mesh_label: self.cell_label}): map_components},
+            # TODO auto generate the name?
+            name=map_dat.name
+        )
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
         """Create a PETSc Section describing a function space.
@@ -879,6 +866,25 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
 
+    @cached_property
+    def depth_strata_order(self):
+        """Return depth strata in default numbering order.
+
+        This is useful because DMPlex numbers entities starting with cells,
+        then vertices, then everything in between. This means that the strata
+        ordering looks something like:
+
+            self.dimension ->   0   -> ...
+                (cells)       verts
+
+        """
+        return tuple(
+            sorted(
+                range(self.dimension+1),
+                key=lambda i: self.topology_dm.getDepthStratum(i)
+            )
+        )
+
     @abc.abstractmethod
     def num_cells(self):
         pass
@@ -900,11 +906,11 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def num_entities(self, d):
+    def num_entities(self, depth):
         pass
 
-    def size(self, d):
-        return self.num_entities(d)
+    def size(self, depth):
+        return self.num_entities(depth)
 
     def cell_dimension(self):
         """Returns the cell dimension."""
@@ -1166,31 +1172,43 @@ class MeshTopology(AbstractMeshTopology):
             reordering = None
         return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
 
-    #NB PYOP3 this class will eventually go into pyop3
-    def create_space(self, layout):
-        #TODO PYOP3 this is a natural way to have spaces cached on the mesh
-        return pyop3.Space(self, layout)
-
-    @utils.cached_property
+    @cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         plex = self.topology_dm
-        tdim = plex.getDimension()
 
         # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+        # cell_numbering = self._cell_numbering
+        cell_numbering = self.points._default_to_applied_numbering[self.points.component_index(self.cell_label)]
+        # vertex_numbering = self.points._default_to_applied_numbering[self.points.component_index(self.vert_label)]
+        # vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
-        assert tdim == cell.topological_dimension()
+        assert cell.topological_dimension() == self.dimension
         if cell.is_simplex():
-            return dmcommon.closure_ordering(plex, vertex_numbering,
-                                             cell_numbering, self.cell_closure_sizes)
+            closureSize = sum(self.cell_closure_sizes)
+            # NOTE: This has NOT been reordered cellwise yet!
+            myclosure = dmcommon.create_cell_closure(plex, closureSize)
+
+            # renumber the map
+            mdata_renum = np.empty_like(myclosure)
+            ncells, npoints = myclosure.shape
+            for old_cell in range(ncells):
+                new_cell = self.points.default_to_applied_component_number(self.cell_label, old_cell)
+                for i, old_pt in enumerate(myclosure[old_cell]):
+                    component, old_cpt_pt = self.points.axis_to_component_number(old_pt)
+                    new_cpt_pt = self.points.default_to_applied_component_number(component.label, old_cpt_pt)
+                    mdata_renum[new_cell, i] = new_cpt_pt
+
+            return mdata_renum
+            # return dmcommon.closure_ordering(plex, vertex_numbering,
+            #                                  cell_numbering, self.cell_closure_sizes)
 
         elif cell.cellname() == "quadrilateral":
+            raise NotImplementedError
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
@@ -1217,24 +1235,23 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError(f"Cell type '{cell}' not supported.")
 
-    @property
+    @cached_property
     def cell_closure_sizes(self):
         """Return the number of entities in the closure of a cell.
 
-        The sizes are ordered by topological dimension (i.e. vertices then
-        edges etc).
+        The sizes are ordered by topological dimension.
+
         """
         cell = self.ufl_cell()
-        if cell.is_simplex() or cell.cellname() == "hexahedron":
-            topology = FIAT.ufc_cell(cell).get_topology()
-            sizes = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                sizes[d] = len(ents)
-            return sizes
-        elif cell.cellname() == "quadrilateral":
-            raise NotImplementedError("TODO PYOP3")
-        else:
-            raise NotImplementedError(f"Cell type '{cell}' not supported.")
+        topology = FIAT.ufc_cell(cell).get_topology()
+        sizes = [None] * len(topology) 
+        for dim, points in topology.items():
+            sizes[dim] = len(points)
+        return tuple(sizes)
+
+    @property
+    def cell_closure_size(self):
+        return sum(self.cell_closure_sizes)
 
     @utils.cached_property
     def entity_orientations(self):
@@ -1306,6 +1323,10 @@ class MeshTopology(AbstractMeshTopology):
         return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
 
+    @property
+    def dimension(self):
+        return self.topology_dm.getDimension()
+
     def num_cells(self):
         cStart, cEnd = self.topology_dm.getHeightStratum(0)
         return cEnd - cStart
@@ -1326,44 +1347,34 @@ class MeshTopology(AbstractMeshTopology):
         vStart, vEnd = self.topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
-    def num_entities(self, d):
-        eStart, eEnd = self.topology_dm.getDepthStratum(d)
+    def num_entities(self, depth):
+        eStart, eEnd = self.topology_dm.getDepthStratum(depth)
         return eEnd - eStart
 
     @property
-    def num_core_cells(self):
-        size = list(self._entity_classes[self.cell_dimension(), :])
-        return size[0]
+    def cell_label(self):
+        return str(self.dimension)
 
     @property
-    def num_owned_cells(self):
-        size = list(self._entity_classes[self.cell_dimension(), :])
-        return size[1]
+    def facet_label(self):
+        return str(self.dimension - 1)
 
-    @utils.cached_property
+    @property
+    def edge_label(self):
+        return "1"
+
+    @property
+    def vert_label(self):
+        return "0"
+
+    @cached_property
+    def cells(self):
+        return self.points[self.cell_label]
+
+    @property
+    @op3.utils.deprecated("cells")
     def cell_set(self):
-        size = list(self._entity_classes[self.cell_dimension(), :])
-        if not pyop3.utils.is_single_valued(size):
-            # fix in parallel
-            raise NotImplementedError("TODO PYOP3")
-        return pyop3.IndexTree(
-            pyop3.Index(
-                pyop3.Range(("mesh", 0), self.num_owned_cells),
-                label="cells"
-            )
-        )
-
-    @utils.cached_property
-    def points(self):
-        if not all(pyop3.utils.is_single_valued(vals) for vals in self._entity_classes):
-            #FIXME PYOP3 This doesn't work in parallel yet, inspect
-            # _entity_classes for overlap information
-            raise NotImplementedError("TODO PYOP3 parallel not working yet")
-
-        return pyop3.Axis(
-            [self._entity_classes[tdim][0] for tdim in range(self.cell_dimension() + 1)],
-            "mesh"
-        )
+        return self.cells
 
     @PETSc.Log.EventDecorator()
     def _set_partitioner(self, plex, distribute, partitioner_type=None):
@@ -2090,15 +2101,16 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # permute the DMPlex coordinates according the permutation of the base mesh
             # pure PETSc routines are not sufficient because PETSc does not account for
             # only permuting a base mesh.
-            gdim = self.ufl_coordinate_element().cell().geometric_dimension()
+            gdim = self.ufl_coordinate_element().cell.geometric_dimension()
             plex_coords_sec = self.topology.topology_dm.getCoordinateSection()
             plex_coords = self.topology.topology_dm.getCoordinatesLocal().array
             new_coords = np.empty_like(plex_coords)
 
-            for i, v in enumerate(range(*self.topology.topology_dm.getDepthStratum(0))):
-                offset = coordinates_fs.pyop3_space.axes.get_offset([(1, i), 0, 0])
+            # build the section (badly)
+            vstart, vend = self.topology.topology_dm.getDepthStratum(0)
+            for i, v in enumerate(range(vstart, vend)):
+                offset = coordinates_fs.axes.offset([("0", i), 0, 0])
                 for j in range(gdim):
-                    # new_coords[i*gdim+j] = plex_coords[offset+j]
                     new_coords[offset+j] = plex_coords[i*gdim+j]
 
             coordinates = function.CoordinatelessFunction(

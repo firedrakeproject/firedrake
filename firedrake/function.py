@@ -1,4 +1,5 @@
 import numpy as np
+from functools import cached_property
 import sys
 import ufl
 from ufl.duals import is_dual
@@ -11,7 +12,7 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
-import pyop3
+import pyop3 as op3
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -69,14 +70,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._comm = mpi.internal_comm(function_space.comm)
         self._function_space = function_space
         self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or f"function_{self.uid}"
         self._label = "a function"
 
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (pyop3.Dat, pyop3.Const)):
-            assert val.comm == self._comm
+        if isinstance(val, op3.HierarchicalArray):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -110,18 +110,17 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        #FIXME do this next - I don't think making a dat iterable is the right thing to do
-        # it is obscure since mixed-ness is now somewhat hidden
-        # I should probably index things here with the field, but does the dat have a new space?
-        # yes...right?
-        raise NotImplementedError
-        return tuple(CoordinatelessFunction(fs, dat, name=f"{self.name()}[{i}]")
-                     for i, (fs, dat) in
-                     enumerate(zip(self.function_space(), self.dat)))
+        if len(self.function_space()) > 1:
+            raise NotImplementedError("need to label mixed things nicely")
+
+        return tuple(
+            CoordinatelessFunction(fs, dat, name=f"{self.name()}[{i}]")
+            for i, (fs, dat) in enumerate(zip(self.function_space(), [self.dat]))
+        )
 
     @PETSc.Log.EventDecorator()
     def split(self):
@@ -318,12 +317,11 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        raise NotImplementedError
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
@@ -333,7 +331,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().value_size == 1:
             return (self, )
