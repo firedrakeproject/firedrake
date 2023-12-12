@@ -492,6 +492,7 @@ class FunctionSpace(object):
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._mesh = mesh
+        self._init_with_shared_data(mesh, element, name, sdata)
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
@@ -1168,7 +1169,11 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.name = name or (function_space.name + "_"  
                              + "_".join(sorted(
                                 [str(i) for i in self.boundary_set])))
-        self._shared_data = sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
+        sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
+        self._shared_data = sdata
+        self._init_with_shared_data(function_space._mesh, function_space.ufl_element(), name, sdata)
+
+
         
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
