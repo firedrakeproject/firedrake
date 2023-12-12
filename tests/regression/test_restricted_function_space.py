@@ -20,6 +20,8 @@ u2 = TrialFunction(V_res)
 v2 = TestFunction(V_res)
 restricted_form = u2 * v2 * dx
 
-matrix_res = assemble(u2 * v2 * dx) # currently fails here -> size is 4 x 4
-
+matrix_res = assemble(u2 * v2 * dx) # still fails here, 4x4 size but correct 2x2 values
 print(matrix_res.M.values)
+
+matrix_normal_bcs = assemble(u * v * dx, bcs=[bc])
+print(matrix_normal_bcs.M.values)
