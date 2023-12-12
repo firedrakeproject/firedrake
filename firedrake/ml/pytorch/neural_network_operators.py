@@ -1,3 +1,22 @@
+import os
+try:
+    import torch
+    import torch.autograd.functional as torch_func
+except ImportError:
+    if "FIREDRAKE_BUILDING_DOCS" in os.environ:
+        # If building docs and pytorch is not installed, produce a mock
+        # torch.autograd.Function class with the correct `__module__`
+        # attribute. This is sufficient for the intersphinx reference to
+        # resolve.
+        from types import SimpleNamespace, new_class
+        torch = SimpleNamespace()
+        torch.autograd = SimpleNamespace()
+        torch.autograd.Function = new_class("Function")
+        torch.autograd.Function.__module__ = "torch.autograd"
+    else:
+        raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
+
+
 from functools import partial, wraps
 import numpy as np
 
@@ -5,20 +24,23 @@ from ufl.referencevalue import ReferenceValue
 
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.function import Function
-from firedrake.constant import Constant
+from firedrake.constant import PytorchParams
+# from firedrake.constant import Constant
 from firedrake import utils
 from firedrake.ml.pytorch import to_torch, from_torch
+from firedrake.petsc import PETSc
+from firedrake.matrix import AssembledMatrix
 
 
-class PointnetOperator(AbstractExternalOperator):
-    r"""A :class:`PointnetOperator`: is an implementation of ExternalOperator that is defined through
+class NeuralNet(AbstractExternalOperator):
+    r"""A :class:`NeuralNet`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(),
                  operator_data, params_version=None):
         r"""
-        :param operands: operands on which act the :class:`PointnetOperator`.
+        :param operands: operands on which act the :class:`NeuralNet`.
         :param function_space: the :class:`.FunctionSpace`,
         or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
         Alternatively, another :class:`Function` may be passed here and its function space
@@ -31,6 +53,7 @@ class PointnetOperator(AbstractExternalOperator):
         """
 
         # Add the weights in the operands list and update the derivatives multiindex
+        """
         last_op = operands[-1]
         init_weights = (isinstance(last_op, ReferenceValue) and isinstance(last_op.ufl_operands[0], Constant))
         init_weights = init_weights or isinstance(last_op, Constant)
@@ -47,6 +70,11 @@ class PointnetOperator(AbstractExternalOperator):
                 # Type exception is caught later
                 if isinstance(derivatives, tuple):
                     derivatives += (0,)
+        """
+
+        # Add the Firedrake object representing model parameters into the operands and update
+        # derivative multi-index accordingly for syntactic sugar purposes: e.g. N(u; v*) -> N(u, θ; v*)
+        operands, derivatives = self._add_model_params_to_operands(operands, derivatives, operator_data)
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           argument_slots=argument_slots, operator_data=operator_data)
@@ -56,30 +84,38 @@ class PointnetOperator(AbstractExternalOperator):
         else:
             self._params_version = {'version': 1, 'params': self.operator_params()}
 
-    @property
-    def framework(self):
-        # PyTorch by default
-        return self.operator_data.get('framework') or 'PyTorch'
+    def _add_model_params_to_operands(self, operands, derivatives, operator_data):
+        """Augment operands and derivative multi-index with the model parameters of the model. This facilitates having
+           a simpler syntax by writing, for example, `N(u; v*)` instead of `N(u, θ; v*)` where θ refers to the model params.
+
+           In particular, since θ is initially a PyTorch object and its Firedrake representation is an internal implementation detail
+           and don't need to be exposed.
+
+           Note that having θ inside the operands is crucial for symbolic reasons, e.g. for differentiating N wrt model parameters.
+        """
+        last_op = operands[-1]
+        init_weights = (isinstance(last_op, ReferenceValue) and isinstance(last_op.ufl_operands[0], PytorchParams))
+        init_weights = init_weights or isinstance(last_op, PytorchParams)
+        if not init_weights:
+            model = operator_data['model']
+            params_val = list(model.parameters())
+            operands += (PytorchParams(params_val),)
+            # Type exception is caught later
+            if isinstance(derivatives, tuple):
+                derivatives += (0,)
+        return operands, derivatives
 
     @property
     def model(self):
         return self.operator_data['model']
 
-    @utils.cached_property
-    def nparams(self):
-        # Number of parameter representations (i.e. number of Constant representing model parameters)
-        return len(tuple(self.model.parameters()))
-
-    def get_params(self):
-        return ml_get_params(self.model, self.framework, self.inputs_format)
-
     # @property
     def operator_inputs(self):
-        return self.ufl_operands[:-self.nparams]
+        return self.ufl_operands[:-1]
 
     # @property
     def operator_params(self):
-        return self.ufl_operands[-self.nparams:]
+        return self.ufl_operands[-1]
 
     @property
     def inputs_format(self):
@@ -107,7 +143,7 @@ class PointnetOperator(AbstractExternalOperator):
                                                                add_kwargs=add_kwargs)
 
 
-class PytorchOperator(PointnetOperator):
+class PytorchOperator(NeuralNet):
     r"""A :class:`PytorchOperator`: is an implementation of ExternalOperator that is defined through
     a given PyTorch model N and whose values correspond to the output of the neural network represented by N.
     The inputs of N are obtained by interpolating `self.ufl_operands[0]` into `self.function_space`.
@@ -137,50 +173,47 @@ class PytorchOperator(PointnetOperator):
         :param params_version: a dictionary keeping track of the model parameters version, to inform if whether we need to update them.
         """
 
-        PointnetOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                                  argument_slots=argument_slots, operator_data=operator_data,
-                                  params_version=params_version)
+        NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                           argument_slots=argument_slots, operator_data=operator_data,
+                           params_version=params_version)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
 
-    @utils.cached_property
-    def ml_backend(self):
-        try:
-            import torch
-        except ImportError:
-            raise ImportError("Error when trying to import PyTorch")
-        return torch
+    # Stash the output of the neural network for conserving the PyTorch tape
+    # -> This enables to only traverse the graph once instead of running multiple
+    #    forward pass for evaluation and backpropagation.
+    @property
+    def model_output(self):
+        return self.operator_data.get('model_output')
 
-    # --- Callbacks ---
+    @model_output.setter
+    def model_output(self, output):
+        self.operator_data['model_output'] = output
+
+    @utils.cached_property
+    def torch_grad_enabled(self):
+        # Default: set PyTorch annotation on, unless otherwise specified.
+        return self.operator_data.get('torch_grad_enabled', True)
+
+    # --- Callbacks --- #
 
     def _pre_forward_callback(self, *args, **kwargs):
         # Concatenate the operands to form the model inputs
         # -> For more complex cases, the user needs to overwrite this function
         #    to state how the operands can be used to form the inputs.
-        inputs = self.ml_backend.cat([to_torch(op, requires_grad=True, batched=False) for op in args])
-        return self.ml_backend.unsqueeze(inputs, self.inputs_format)
+        inputs = torch.cat([to_torch(op, requires_grad=True, batched=False) for op in args])
+        return torch.unsqueeze(inputs, self.inputs_format)
 
-    def _post_forward_callback(self, N, x, model_tape=False, **kwargs):
-        if self.derivatives == (0,)*len(self.ufl_operands):
-            N = N.squeeze(self.inputs_format)
-            if model_tape:
-                return N
-            return N.detach()
-        return N
+    def _post_forward_callback(self, y_P):
+        space = self.ufl_function_space()
+        return from_torch(y_P, space)
 
-    # --- Evaluation ---
+    # One could also extend assembly to hessian, hvp (hessian-vector product) and vhp (vector-hessian product)
+    # using `torch.autograd.functional.{hvp, hessian, vhp}`
 
-    def _evaluate_jacobian(self, N, x, **kwargs):
-        N = N.squeeze(self.inputs_format)
-        if sum(self.derivatives[-self.nparams:]) > 0:
-            # When we want to compute: \frac{\partial{N}}{\partial{params_i}}
-            return self.ml_backend.zeros(len(x))
-
-        gradient, = self.ml_backend.autograd.grad(outputs=N, inputs=x,
-                                                  grad_outputs=self.ml_backend.ones_like(N),
-                                                  retain_graph=True)
-        return gradient.squeeze(self.inputs_format)
+    # vjp faster than jvp since adjoint and not TLM
+    # vjp faster than backward and give you model output + vjp at same time in 1 traversal
 
     def _eval_update_weights(evaluate):
         """Check if we need to update the weights"""
@@ -205,8 +238,58 @@ class PytorchOperator(PointnetOperator):
             return evaluate(self, *args, **kwargs)
         return wrapper
 
+    # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
+
+    def _vjp(self, δy):
+        # What happens where more than one input: e.g. N(u1, u2, theta; v*) and want ((0, 1, 0), (0, None))
+        # Since users tell us how to map from u1 and u2 to a single model input.
+        # PyTorch bit can only provide jvp wrt that model input and then the rest depends on what users do
+        model = self.model
+        ops = self.operator_inputs()
+        x = self._pre_forward_callback(*ops)
+        δy_P = self._pre_forward_callback(δy)
+        _, vjp = torch_func.vjp(lambda x: model(x), x, δy_P)
+        vjp_F = self._post_forward_callback(vjp)
+        return vjp_F
+
+    def _jvp(self, δx):
+        # What happens where more than one input: e.g. N(u1, u2, theta; v*) and want ((0, 1, 0), (0, None))
+        # Since users tell us how to map from u1 and u2 to a single model input.
+        # PyTorch bit can only provide jvp wrt that model input and then the rest depends on what users do
+        model = self.model
+        ops = self.operator_inputs()
+        x = self._pre_forward_callback(*ops)
+        δx_P = self._pre_forward_callback(δx)
+        _, jvp = torch_func.jvp(lambda x: model(x), x, δx_P)
+        jvp_F = self._post_forward_callback(jvp)
+        return jvp_F
+
+    def _jac(self):
+        # Should we special case when the model acts locally on the inputs and therefore yields a diagonal
+        # matrix ?
+        #  -> Atm, PyTorch would produce that diagonal matrix but it might be possible to compute the local jacobian
+        #  -> However, another option is to compute the local Jacobian with PyTorch and then populate the diagonal of the PETSc matrix
+        # Both options rely on generated code so it is probably not that critical.
+        model = self.model
+        ops = self.operator_inputs()
+        # Don't unsqueeze so that we end up with a rank 2 tensor
+        x = self._pre_forward_callback(*ops, unsqueeze=False)
+        jac = torch_func.jacobian(lambda x: model(x), x)
+
+        # For big matrices, assembling the Jacobian is not a good idea and one should instead
+        # look for the Jacobian action (e.g. via using matrix-free methods) which in turn will call `jvp`
+        n, m = jac.shape
+        J = PETSc.Mat().create()
+        J.setSizes([n, m])
+        J.setType("dense")
+        J.setUp()
+        # Set values using Jacobian computed by PyTorch
+        J.setValues(range(n), range(m), jac.numpy().flatten())
+        J.assemble()
+        return J
+
     # @_eval_update_weights
-    def _evaluate(self, *args, **kwargs):
+    def _forward(self):
         """
         Evaluate the neural network by performing a forward pass through the network
         The first argument is considered as the input of the network, if one want to correlate different
@@ -216,72 +299,122 @@ class PytorchOperator(PointnetOperator):
                     or
                     - construct another pointwise operator that will do this job and pass it in as argument
         """
-        model_tape = kwargs.get('model_tape', False)
         model = self.model
 
-        # Explictly set the eval mode does matter for
-        # networks having different behaviours for training/evaluating (e.g. Dropout)
-        model.eval()
-
         # Process the inputs
-        space = self.ufl_function_space()
+        # Once Interp is set up for ExternalOperator operands then this should be fine!
         # ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
         ops = self.operator_inputs()
 
-        # Pre forward callback
-        torch_op = self._pre_forward_callback(*ops)
+        # By default PyTorch annotation is on (i.e. equivalent to `with torch.enable_grad()`)
+        with torch.set_grad_enabled(self.torch_grad_enabled):
+            # Pre forward callback
+            x_P = self._pre_forward_callback(*ops)
 
-        # Vectorized forward pass
-        val = model(torch_op)
+            # Vectorized forward pass
+            y_P = model(x_P)
 
-        # Post forward callback
-        res = self._post_forward_callback(val, torch_op, model_tape)
+            # Stash model output
+            self.model_output = y_P
 
-        # Compute the jacobian
-        if self.derivatives != (0,)*len(self.ufl_operands):
-            res = self._evaluate_jacobian(val, torch_op)
+            # Post forward callback
+            y_F = self._post_forward_callback(y_P)
 
-        # We return a list instead of assigning to keep track of the PyTorch tape contained in the torch variables
-        if model_tape:
-            return res
-        res = from_torch(res, space)
+        return y_F
 
-        # Explictly set the train mode does matter for
-        # networks having different behaviours for training/evaluating (e.g. Dropout)
-        model.train()
+    def _backprop(self, δy):
+        # Use stashed value and if not evaluate
+        stashed = False
+        if not stashed:
+            self._forward()
+        y_P = self.model_output
+        # Be careful here δy is Cofunction. As it is will access Cofunction.dat.data.
+        # Should we rather pass the underlying vector ?
+        δy_P = self._pre_forward_callback(δy)
+        # Backpropagate and accumulate adjoint values into graph leaves
+        y_P.backward(δy_P)
+        # How to collect parameters and adjoint value ? and how does that play with self.model.parameters()
+        # and PyTorchParams ?
+        # θ = PytorchParams(*[θi for θi in enumerate(self.model.parameters())])
 
-        return res
+        # Should we return a Function in which case we need to be able to make fct space out
+        # of PytorchParams which involves making a dat while not needed ?
+        # We should extend type allowed to be return in ExternalOperator and return PytorchParams.
+        # Each PyTorch parameter has an adjoint value attribute that gets populated during backpropagation
+        # 1) Should we return PytorchParams whose values are adjoint values:
+        #     -> Make a new PytorchParams that won't get used by PyTorch (optimizer or whatever) but simply here
+        #        to return the result
+        # 2) Should we just keep PytorchParams in the operands which will get populated with adj value in which
+        #    case, the output returned will always be equal to model parameters
 
     def evaluate_backprop(self, x, params_idx, controls):
-        outputs = self.evaluate(model_tape=True)
+        outputs = self._forward(model_tape=True)
         params = list(p for i, p in enumerate(self.model.parameters()) if i in params_idx)
-        grad_W = self.ml_backend.autograd.grad(outputs, params,
-                                               grad_outputs=[self.ml_backend.tensor(x.dat.data_ro)],
-                                               retain_graph=True)
+        # This is adjoint action (vjp) and not jvp
+        grad_W = torch.autograd.grad(outputs, params,
+                                     grad_outputs=[torch.tensor(x.dat.data_ro)],
+                                     retain_graph=True)
 
         grad_W = self._reshape_model_parameters(*grad_W)
         cst_fct_spaces = tuple(ctrl._ad_function_space(self.function_space().mesh()) for ctrl in controls)
         return tuple(Function(fct_space, val=grad_Wi).vector() for grad_Wi, fct_space in zip(grad_W, cst_fct_spaces))
 
+    # -- PyTorch operator assembly methods -- #
+
     @assemble_method(0, (0,))
-    def _assemble(self, *args, **kwargs):
-        return self._evaluate(*args, **kwargs)
+    def assemble_model(self, *args, **kwargs):
+        return self._forward()
 
     @assemble_method(1, (0, 1))
-    def _assemble_jacobian(self, *args, assembly_opts, **kwargs):
-        result = self._evaluate()
-        integral_types = set(['cell'])
-        J = self._matrix_builder((), assembly_opts, integral_types)
-        with result.dat.vec as vec:
-            J.petscmat.setDiagonal(vec)
-        return J
+    def assemble_jacobian(self, *args, assembly_opts, **kwargs):
+        # Get Jacobian using PyTorch AD
+        J = self._jac()
+        # Set bcs
+        bcs = ()
+        return AssembledMatrix(self, bcs, J)
+
+    @assemble_method(1, (1, 0))
+    def assemble_jacobian_adjoint(self, *args, assembly_opts, **kwargs):
+        # Get Jacobian using PyTorch AD
+        J = self._jac()
+        # Set bcs
+        bcs = ()
+        # Take the adjoint (Hermitian transpose)
+        J.hermitianTranspose()
+        return AssembledMatrix(self, bcs, J)
+
+    @assemble_method(1, (0, None))
+    def assemble_jacobian_action(self, *args, **kwargs):
+        if self.derivatives[-1] == 1:
+            # Jacobian action is being taken wrt model parameters
+            raise ValueError('')
+        w = self.argument_slots()[-1]
+        return self._jvp(w)
+
+    @assemble_method(1, (None, 0))
+    def assemble_jacobian_adjoint_action(self, *args, assembly_opts, **kwargs):
+
+        w = self.argument_slots()[0]
+        if self.derivatives[-1] == 1:
+            # Gradient with respect to parameters: ∂N(u, θ; w, v*)/∂θ
+            import ipdb; ipdb.set_trace()
+            # Work out the right thing to do for updating parameters
+            # # self._update_model_params()
+            # res, = self._backprop(w.vector(), (idx - n_inputs,), (self.ufl_operands[idx],))
+            # PyOP2 flattens out DataCarrier object by destructively modifying shape
+            # This does the inverse of that operation to get the parameters of the N in the right format.
+            # res.dat.data.shape = res.ufl_shape
+            # return res.function
+        else:
+            # Gradient with respect to inputs: ∂N(u, θ; w, v*)/∂u
+            return self._vjp(w)
 
     # --- Update parameters ---
 
     def _assign_params(self, params):
-        with self.ml_backend.no_grad():
+        with torch.no_grad():
             for model_param, new_param in zip(self.model.parameters(), params):
-                new_param = self.ml_backend.tensor(new_param.dat.data_ro)
+                new_param = torch.tensor(new_param.dat.data_ro)
                 model_param.copy_(new_param)
 
     def _update_model_params(self):
@@ -293,29 +426,8 @@ class PytorchOperator(PointnetOperator):
 # Helper functions #
 def neuralnet(model, function_space, inputs_format=0):
 
-    torch_module = type(None)
-
-    # Checks
-    try:
-        import torch
-        torch_module = torch.nn.modules.module.Module
-    except ImportError:
-        pass
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')
 
-    if isinstance(model, torch_module):
-        operator_data = {'framework': 'PyTorch', 'model': model, 'inputs_format': inputs_format}
-        return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
-    else:
-        raise ValueError("Expecting one of the following library : PyTorch, TensorFlow (or Keras) and that the library has been installed")
-
-
-def ml_get_params(model, framework, inputs_format):
-    # PyTorch by default
-    framework = framework or 'PyTorch'
-    if framework == 'PyTorch':
-        # .detach() is a safer way than .data() for the exclusion of subgraphs from gradient computation.
-        return tuple(param.detach() for param in model.parameters())
-    else:
-        raise NotImplementedError(framework + ' operator is not implemented yet.')
+    operator_data = {'model': model, 'inputs_format': inputs_format}
+    return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
