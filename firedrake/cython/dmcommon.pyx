@@ -441,7 +441,7 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         # UFCTetrahedron:         0---9---1---9---0
         #                          \ 12  / \ 13  /
-        # cell = 15                 7   5   6   8
+        # cell = 14                 7   5   6   8
         #                            \ / 10  \ /
         #                             3---4---2
         #                              \ 11  /

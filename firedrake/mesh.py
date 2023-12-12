@@ -792,26 +792,50 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # FIXME: This is currently only implemented for cell closures. In principle
         # this should be straightforward to fix with _reorder_plex_closure if that
         # were fully implemented.
+        # Actually, we don't care about non-cell closure FIAT orderings I think.
+        # Default to using the plex ordering for everything.
 
         # PETSc (and hence pyop3) numbers cells from 0. This is the opposite to
         # FIAT and means that we pack entities in order of dimension instead
         # of [cells, vertices, etc].
+        inner_axis = op3.Axis(self.cell_closure_size)
         map_axes = op3.AxisTree.from_nest(
-            {self.cells.root: op3.Axis(self.cell_closure_size)}
+            {self.cells.root: inner_axis}
         )
         map_dat = op3.HierarchicalArray(
             map_axes, data=self.cell_closure.flatten()
         )
 
+        # renumber the keys and permute the entries to obey FIAT
+        if self.cell_closure_size != 7:
+            raise NotImplementedError("Only thinking about triangles currently")
+
+        fiat_triangle_perm = {
+            0: [6, 4, 5],
+            1: [1, 2, 3],
+            2: [0],
+        }
+
+        # TODO Currently the labels have to match for this to work. This is
+        # quite clunky.
+        subsets = {
+            dim: op3.HierarchicalArray(
+                op3.Axis({inner_axis.component.label: len(perm)}, inner_axis.label),
+                data=perm,
+                dtype=IntType,
+                # debugging
+                name=f"subset_{dim}"
+            )
+            for dim, perm in fiat_triangle_perm.items()
+        }
+
         mesh_label = self.points.label
         map_components = []
-        for dim, (start, stop) in enumerate(
-            pairwise(steps(self.cell_closure_sizes))
-        ):
+        for dim in range(self.dimension+1):
             cpt = op3.TabulatedMapComponent(
                 mesh_label,
                 str(dim),
-                map_dat[:, start:stop]
+                map_dat[:, subsets[dim]]
             )
             map_components.append(cpt)
 
@@ -1235,32 +1259,24 @@ class MeshTopology(AbstractMeshTopology):
                 closure_data[c] = pts
             # <\cython>
 
-            # renumber the keys and permute the entries to obey FIAT
-            if closure_size != 7:
-                raise NotImplementedError("Only thinking about triangles currently")
-
-            # fiat_triangle_perm = op3.utils.invert([6, 4, 5, 1, 2, 3, 0])
-            fiat_triangle_perm = [6, 4, 5, 1, 2, 3, 0]
-
-            cdold = closure_data.copy()
-            closure_data[...] = closure_data[:, fiat_triangle_perm]
-            # breakpoint()
-
-            # now apply component-wise modifications in values
-            for dim in range(self.dimension+1):
+            # DMPlex returns the closure in order of reducing entity dimension
+            # ie cell -> faces -> edges -> verts
+            dims = reversed(range(self.dimension+1))
+            offsets = steps(reversed(self.cell_closure_sizes))
+            for dim, (start, stop) in zip(dims, pairwise(offsets)):
                 clabel = str(dim)
                 cidx = self.points.component_index(clabel)
-                start, stop = self.cell_closure_offsets[dim:dim+2]
-                # breakpoint()
+                numbering = self.points.component_numbering(clabel)
+
                 closure_data[:, start:stop] -= self.points._component_offsets[cidx]
                 for i in range(start, stop):
-                # closure_data[:, start:stop] = closure_data[:, start:stop][:, self.points.component_numbering(clabel)]
-                    closure_data[:, i] = self.points.component_numbering(clabel)[closure_data[:, i]]
+                    closure_data[:, i] = numbering[closure_data[:, i]]
 
-            # closure_data = closure_data[op3.utils.invert(self.points.component_numbering(self.cell_label))]
-            closure_data = closure_data[self.points.component_permutation(self.cell_label)]
-            # closure_data = closure_data[self.points.component_numbering(self.cell_label)]
+            cell_perm = self.points.component_permutation(self.cell_label)
+            closure_data = closure_data[cell_perm]
 
+
+            return closure_data
             assert (mdata_renum == closure_data).all()
             breakpoint()
             return mdata_renum
