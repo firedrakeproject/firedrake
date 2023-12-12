@@ -1204,10 +1204,11 @@ class RestrictedFunctionSpace(FunctionSpace):
         # __str__ == __repr__
         return self.__repr__()
     
+    @utils.cached_property
     def dof_count(self):
         node_count = self.node_count
         for bc in self.bcs:
-            node_count -= bc.nodes
+            node_count -= len(bc.nodes)
         return node_count*self.value_size
         
 
