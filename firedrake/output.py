@@ -3,6 +3,7 @@ import itertools
 import numpy
 import os
 import ufl
+import finat.ufl
 from ufl.domain import extract_unique_domain
 from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm, decref
@@ -72,7 +73,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -95,7 +96,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -107,7 +108,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     :returns: A ufl element containing all elements.
     """
     try:
-        cell, = set(e.cell() for e in elements)
+        cell, = set(e.cell for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
@@ -118,10 +119,9 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
             family = "DG"
         else:
             family = "DQ"
-    return ufl.FiniteElement(family,
-                             cell=cell,
-                             degree=degree if max_degree is None else max_degree,
-                             variant="equispaced")
+    return finat.ufl.FiniteElement(
+        family, cell=cell, degree=degree if max_degree is None else max_degree,
+        variant="equispaced")
 
 
 @PETSc.Log.EventDecorator()
@@ -135,7 +135,7 @@ def get_topology(coordinates):
     V = coordinates.function_space()
 
     nonLinear = not is_linear(V)
-    mesh = V.ufl_domain().topology
+    mesh = V.mesh().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
     value_shape = values.shape

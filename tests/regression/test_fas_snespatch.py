@@ -172,7 +172,7 @@ def test_snespatch(mesh, CG1, solver_params):
     f = Constant(1, domain=mesh)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx + inner(u**3 - u, v)*dx
 
-    z = zero(CG1.ufl_element().value_shape())
+    z = zero(CG1.ufl_element().value_shape)
     bcs = DirichletBC(CG1, z, "on_boundary")
 
     nvproblem = NonlinearVariationalProblem(F, u, bcs=bcs)

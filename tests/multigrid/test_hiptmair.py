@@ -49,7 +49,7 @@ def run_riesz_map(V, mat_type):
         },
     }
 
-    sobolev = V.ufl_element().sobolev_space()
+    sobolev = V.ufl_element().sobolev_space
     assert sobolev in [HCurl, HDiv]
     d = div if sobolev == HDiv else curl
 

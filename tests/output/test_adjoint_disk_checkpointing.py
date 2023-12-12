@@ -29,7 +29,7 @@ def adjoint_example(mesh):
 
     x, y = SpatialCoordinate(mesh)
     # AssembleBlock
-    m = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
+    m = assemble(interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space))
 
     u, v = w.subfunctions
     # FunctionAssignBlock, FunctionMergeBlock
@@ -43,7 +43,7 @@ def adjoint_example(mesh):
     Jhat = ReducedFunctional(J, Control(m))
 
     with stop_annotating():
-        m_new = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
+        m_new = assemble(interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space))
     checkpointer = get_working_tape()._checkpoint_metadata
     init_file_timestamp = os.stat(checkpointer.init_checkpoint_file).st_mtime
     current_file_timestamp = os.stat(checkpointer.current_checkpoint_file).st_mtime

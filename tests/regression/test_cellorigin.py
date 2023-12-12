@@ -23,7 +23,7 @@ def mesh(cell):
 
 def test_cell_origin(mesh):
     V = VectorFunctionSpace(mesh, "DG", 0)
-    f = interpolate(CellOrigin(mesh), V)
+    f = assemble(interpolate(CellOrigin(mesh), V))
 
     coords = mesh.coordinates
     expected = coords.dat.data_ro[coords.function_space().cell_node_list[:, 0]]

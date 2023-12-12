@@ -142,6 +142,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self._function_space
 
+    def equals(self, other):
+        """Check equality."""
+        if type(other) is not Cofunction:
+            return False
+        if self is other:
+            return True
+        return self._count == other._count and self._function_space == other._function_space
+
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
@@ -173,7 +181,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Enable to write down c += B where c is a Cofunction
             # and B an appropriate BaseForm object
             assembled_expr = firedrake.assemble(expr)
-            return self.assign(assembled_expr)
+            return self.assign(assembled_expr, subset=subset)
 
         raise ValueError('Cannot assign %s' % expr)
 
@@ -260,10 +268,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         r"""Interpolate an expression onto this :class:`Cofunction`.
 
         :param expression: a UFL expression to interpolate
-        :returns: this :class:`Function` object"""
+        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
         from firedrake import interpolation
         interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-        return firedrake.assemble(interp)
+        return firedrake.assemble(interp, tensor=self)
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this

@@ -24,14 +24,14 @@ def test_variable_layers_bcs_application(measure, subdomain):
 
     x, = SpatialCoordinate(mesh)
 
-    selector = interpolate(
+    selector = assemble(interpolate(
         conditional(
             real(x) < 0.2,
             as_vector([0, 3]),
             conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
-        V)
+        V))
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
@@ -82,14 +82,14 @@ def test_variable_layers_bcs_application_interior(measure, subdomain):
 
     x, = SpatialCoordinate(mesh)
 
-    selector = interpolate(
+    selector = assemble(interpolate(
         conditional(
             real(x) < 0.2,
             as_vector([0, 3]),
             conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
-        V)
+        V))
 
     layers = numpy.empty((5, 2), dtype=IntType)
 

@@ -16,26 +16,40 @@ def M(fs):
     return inner(uhat, v) * dx
 
 
-def test_assemble_interp(mesh):
-    V1 = FunctionSpace(mesh, "CG", 1)
-    V2 = FunctionSpace(mesh, "CG", 2)
+@pytest.fixture(scope="module")
+def V1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
 
+
+@pytest.fixture(scope="module")
+def V2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
+
+
+@pytest.fixture(scope="module")
+def f1(mesh, V1):
     x, y = SpatialCoordinate(mesh)
     expr = cos(2*pi*x)*sin(2*pi*y)
-    f1 = Function(V1).interpolate(expr)
+    return Function(V1).interpolate(expr)
 
+
+def test_assemble_interp_operator(V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
     assert isinstance(If1, ufl.Interpolate)
 
     # -- I(f1, V2) -- #
     a = assemble(If1)
-    b = interpolate(f1, V2)
+    b = assemble(interpolate(f1, V2))
     assert np.allclose(a.dat.data, b.dat.data)
 
+
+def test_assemble_interp_matrix(V1, V2, f1):
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
     Iv1 = Interpolate(v1, V2)
+
+    b = assemble(interpolate(f1, V2))
 
     # Get the interpolation matrix
     a = assemble(Iv1)
@@ -46,13 +60,24 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, b.dat.data)
 
+
+def test_assemble_interp_tlm(V1, V2, f1):
     # -- Action(I(v1, V2), f1) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+    b = assemble(interpolate(f1, V2))
+
     assembled_action_Iv1 = assemble(action(Iv1, f1))
     assert np.allclose(assembled_action_Iv1.dat.data, b.dat.data)
 
+
+def test_assemble_interp_adjoint_matrix(V1, V2):
     # -- Adjoint(I(v1, V2)) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+
     v2 = TestFunction(V2)
-    c2 = assemble(v2 * dx)
+    c2 = assemble(conj(v2) * dx)
     # Interpolation from V2* to V1*
     c1 = Cofunction(V1.dual()).interpolate(c2)
     # Interpolation matrix (V2* -> V1*)
@@ -62,7 +87,12 @@ def test_assemble_interp(mesh):
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 
+
+def test_assemble_interp_adjoint_model(V1, V2):
     # -- Action(Adjoint(I(v1, v2)), fstar) -- #
+    v1 = TrialFunction(V1)
+    Iv1 = Interpolate(v1, V2)
+
     fstar = Cofunction(V2.dual())
     v = Argument(V1, 0)
     Ivfstar = assemble(Interpolate(v, fstar))
@@ -70,9 +100,12 @@ def test_assemble_interp(mesh):
     res = assemble(action(adjoint(Iv1), fstar))
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
+
+def test_assemble_interp_rank0(V1, V2, f1):
     # -- Interpolate(f1, u2) (rank 0) -- #
+    v2 = TestFunction(V2)
     # Set the Cofunction u2
-    u2 = assemble(v2 * dx)
+    u2 = assemble(conj(v2) * dx)
     # Interpolate(f1, u2) <=> Action(Interpolate(f1, V2), u2)
     # a is rank 0 so assembling it produces a scalar.
     a = assemble(Interpolate(f1, u2))
@@ -129,57 +162,14 @@ def test_assemble_base_form_operator_expressions(mesh):
     res = assemble(alpha * Iv1 - alpha**2 * Iv2)
     assert np.allclose(alpha * mat_Iv1.petscmat[:, :] - alpha**2 * mat_Iv2.petscmat[:, :], res.petscmat[:, :], rtol=1e-14)
 
-    # Check product of BaseFormOperators
-    res = assemble(If1 * If2)
-    b = assemble(If2)
-    # Check product of BaseFormOperator and Coefficient
-    res2 = assemble(If1 * b)
-    a = assemble(If1)
-    # Exact solution
-    res3 = assemble(a * b)
-    assert np.allclose(res.dat.data, res2.dat.data)
-    assert np.allclose(res2.dat.data, res3.dat.data)
-
-    """
-    # Multiplication involving BaseFormOperators
-    v2 = TrialFunction(V2)
-    Iv3 = Interpolate(v2, V1)
-    mat_Iv3 = assemble(Iv3)
-    res = assemble(Iv1 * Iv3)
-    assert np.allclose(mat_Iv1.petscmat.matMult(mat_Iv3.petscmat)[:, :], res.petscmat[:, :], rtol=1e-14)
-
-    res = assemble(Iv3 * If1)
-    # Problem with random order of ufl.Product
-    # res2 = assemble(Iv3 * b)
-    res3 = assemble(action(Iv3, If1))
-    res4 = assemble(action(Iv3, a))
-    # FIXME: Remove below
-    assert np.allclose(res.dat.data, res3.dat.data)
-    #assert np.allclose(res.dat.data, res2.dat.data)
-    #assert np.allclose(res2.dat.data, res3.dat.data)
-    assert np.allclose(res3.dat.data, res4.dat.data)
-
-    res = assemble(alpha * Iv1 * If1 + alpha**2 * Iv2 * (If1 - If2))
-    res2 = assemble(alpha * action(Iv1, If1) + alpha**2 * action(Iv2, (If1 - If2)))
-    a = assemble(action(Iv1, If1))
-    b = assemble(action(Iv2, If1))
-    c = assemble(action(Iv2, If2))
-    res3 = alpha * a.petscmat[:, :] + alpha**2 * (b.petscmat[:, :] - c.petscmat[:, :])
-    assert np.allclose(res.petscmat[:, :], res2.petscmat[:, :], rtol=1e-14)
-    assert np.allclose(res2.petscmat[:, :], res3, rtol=1e-14)
-
-    # with pytest.raises(ValueError):
-    #    pass
-    """
-
 
 def test_check_identity(mesh):
     V2 = FunctionSpace(mesh, "CG", 2)
     V1 = FunctionSpace(mesh, "CG", 1)
     v2 = TestFunction(V2)
     v1 = TestFunction(V1)
-    a = assemble(Interpolate(v1, v2*dx))
-    b = assemble(v1*dx)
+    a = assemble(Interpolate(v1, conj(v2)*dx))
+    b = assemble(conj(v1)*dx)
     assert np.allclose(a.dat.data, b.dat.data)
 
 
@@ -196,15 +186,15 @@ def test_solve_interp_f(mesh):
     f1 = Function(V1).interpolate(cos(x)*sin(y))
 
     # -- Exact solution with a source term interpolated into DG0
-    f2 = interpolate(f1, V2)
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f2, w)*dx
+    f2 = assemble(interpolate(f1, V2))
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f2, w)*dx
     solve(F == 0, u)
 
     # -- Solution where the source term is interpolated via `ufl.Interpolate`
     u2 = Function(V1)
     If = Interpolate(f1, V2)
     # This requires assembling If
-    F2 = inner(grad(w), grad(u2))*dx + inner(u2, w)*dx - inner(If, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(u2, w)*dx - inner(If, w)*dx
     solve(F2 == 0, u2)
     assert np.allclose(u.dat.data, u2.dat.data)
 
@@ -218,7 +208,7 @@ def test_solve_interp_u(mesh):
     f = Function(V1).interpolate(cos(x)*sin(y))
 
     # -- Exact solution
-    F = inner(grad(w), grad(u))*dx + inner(u, w)*dx - inner(f, w)*dx
+    F = inner(grad(u), grad(w))*dx + inner(u, w)*dx - inner(f, w)*dx
     solve(F == 0, u)
 
     # -- Non mat-free case not supported yet => Need to be able to get the Interpolation matrix -- #
@@ -228,7 +218,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the Jacobian of Iu
-    F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
     """
 
@@ -237,7 +227,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
-    F2 = inner(grad(w), grad(u))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
@@ -248,7 +238,7 @@ def test_solve_interp_u(mesh):
     # Iu is the identity
     Iu = Interpolate(u2, V1)
     # This requires assembling the action the Jacobian of Iu
-    F2 = inner(grad(w), grad(Iu))*dx + inner(Iu, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(Iu), grad(w))*dx + inner(Iu, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2, solver_parameters={"mat_type": "matfree",
                                           "ksp_type": "cg",
                                           "pc_type": "none"})

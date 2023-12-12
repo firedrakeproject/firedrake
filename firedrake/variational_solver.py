@@ -2,11 +2,8 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 
-from firedrake import dmhooks
-from firedrake import slate
-from firedrake import solving_utils
-from firedrake import ufl_expr
-from firedrake import utils
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import function
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -61,8 +58,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
         """
-        from firedrake import solving
-        from firedrake import function
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
@@ -258,22 +253,31 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to the DM before we solve.
-        dm = self.snes.getDM()
-        for dbc in self._problem.dirichlet_bcs():
-            dbc.apply(self._problem.u)
+        # Make sure appcontext is attached to every coefficient DM before we solve.
+        problem = self._problem
+        forms = (problem.F, problem.J, problem.Jp)
+        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        # Make sure the solution dm is visited last
+        solution_dm = self.snes.getDM()
+        problem_dms = [V.dm for V in utils.unique(c.function_space() for c in coefficients) if V.dm != solution_dm]
+        problem_dms.append(solution_dm)
+
+        for dbc in problem.dirichlet_bcs():
+            dbc.apply(problem.u)
 
         if bounds is not None:
             lower, upper = bounds
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
+
         work = self._work
-        with self._problem.u.dat.vec as u:
+        with problem.u.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
+                for ctx in chain([self.inserted_options()],
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
@@ -311,10 +315,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         # In the linear case, the Jacobian is the equation LHS.
         J = a
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)) and L == 0:
+        if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
             F = ufl_expr.action(J, u)
         else:
-            if not isinstance(L, (ufl.Form, ufl.Cofunction, slate.slate.TensorBase)):
+            if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1:
                 raise ValueError("Provided RHS is not a linear form")

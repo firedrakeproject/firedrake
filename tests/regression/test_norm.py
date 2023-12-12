@@ -9,7 +9,7 @@ def x():
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
-    return interpolate(x, V)
+    return assemble(interpolate(x, V))
 
 
 @pytest.mark.parametrize("p", range(1, 5))

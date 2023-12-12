@@ -4,6 +4,7 @@ from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
 import firedrake
 from firedrake.mg import utils
 
@@ -19,6 +20,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import ufl
+import finat.ufl
 import tsfc
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -45,7 +47,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-    cell = ufl_coordinate_element.cell()
+    cell = ufl_coordinate_element.cell
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
@@ -208,17 +210,15 @@ def compile_element(expression, dual_space=None, parameters=None,
 def prolong_kernel(expression):
     meshc = extract_unique_domain(expression)
     hierarchy, level = utils.get_level(extract_unique_domain(expression))
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = extract_unique_domain(expression).coordinates
     if meshc.cell_set._extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        level_ratio = (hierarchy._meshes[int(idx)].layers - 1) // (meshc.layers - 1)
-    else:
-        level_ratio = 1
-    key = (("prolong", level_ratio)
-           + expression.ufl_element().value_shape()
+        assert hierarchy._meshes[int(idx)].cell_set._extruded
+    key = (("prolong",)
+           + expression.ufl_element().value_shape
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
@@ -280,7 +280,7 @@ def prolong_kernel(expression):
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -292,25 +292,23 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    hierarchy, level = utils.get_level(Vc.mesh())
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vc.ufl_domain().coordinates
+    coordinates = Vc.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
-        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-    else:
-        level_ratio = 1
-    key = (("restrict", level_ratio)
-           + Vf.ufl_element().value_shape()
+    key = (("restrict",)
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
         mesh = extract_unique_domain(coordinates)
-        evaluate_code = compile_element(firedrake.TestFunction(Vc), Vf)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
@@ -366,7 +364,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -378,16 +376,16 @@ def restrict_kernel(Vf, Vc):
 
 
 def inject_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
+    hierarchy, level = utils.get_level(Vc.mesh())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vf.ufl_domain().coordinates
+    coordinates = Vf.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape()
+           + Vf.ufl_element().value_shape
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
@@ -399,7 +397,7 @@ def inject_kernel(Vf, Vc):
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coordinates = Vf.ufl_domain().coordinates
+        coordinates = Vf.mesh().coordinates
         evaluate_code = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
@@ -458,7 +456,7 @@ def inject_kernel(Vf, Vc):
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-            "tdim": Vc.ufl_domain().topological_dimension(),
+            "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
@@ -484,7 +482,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl.MixedElement:
+            if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))

@@ -169,7 +169,7 @@ def test_firedrake_integral_3D_netgen():
     assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
 
 
-def test_firedrake_integral_sphere_netgen():
+def test_firedrake_integral_ball_netgen():
     try:
         from netgen.csg import CSGeometry, Pnt, Sphere
         from netgen.meshing import MeshingParameters
@@ -193,6 +193,30 @@ def test_firedrake_integral_sphere_netgen():
     x, y, z = SpatialCoordinate(msh)
     f = Function(V).interpolate(1+0*x)
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
+
+
+def test_firedrake_integral_sphere_high_order_netgen():
+    try:
+        from netgen.csg import CSGeometry, Pnt, Sphere
+        import netgen
+    except ImportError:
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+
+    # Setting up Netgen geometry and mes
+    comm = COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        ngmesh = geo.GenerateMesh(maxh=0.1)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+
+    msh = Mesh(ngmesh)
+    homsh = Mesh(msh.curve_field(4))
+    V = FunctionSpace(homsh, "CG", 4)
+    x, y, z = SpatialCoordinate(homsh)
+    f = Function(V).interpolate(1+0*x)
+    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
 
 
 @pytest.mark.skipcomplex

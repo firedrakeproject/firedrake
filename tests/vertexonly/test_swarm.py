@@ -54,7 +54,7 @@ def cell_ownership(m):
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
     P0DG = FunctionSpace(m, "DG", 0)
-    return interpolate(Constant(m.comm.rank), P0DG).dat.data_ro_with_halos
+    return assemble(interpolate(Constant(m.comm.rank), P0DG)).dat.data_ro_with_halos
 
 
 def point_ownership(m, points, localpoints):
@@ -96,6 +96,7 @@ def point_ownership(m, points, localpoints):
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -116,6 +117,11 @@ def parentmesh(request):
     elif request.param == "immersedsphere":
         m = UnitIcosahedralSphereMesh()
         m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial")
         return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)

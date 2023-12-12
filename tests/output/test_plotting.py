@@ -14,7 +14,7 @@ def test_plotting_1d():
     DG = FunctionSpace(mesh, "DG", 0)
     x, = SpatialCoordinate(mesh)
 
-    u = interpolate(8 * x * (1 - x), CG)
+    u = assemble(interpolate(8 * x * (1 - x), CG))
     v = project(8 * x * (1 - x), DG)
 
     patches = plot(u, edgecolor='black', linestyle='--')
@@ -49,7 +49,7 @@ def test_plot_wrong_inputs():
 
     Q = FunctionSpace(mesh, family='CG', degree=1)
     x, y = SpatialCoordinate(mesh)
-    q = interpolate(x - y, Q)
+    q = assemble(interpolate(x - y, Q))
     with pytest.raises(ValueError):
         plot(q)
 
@@ -136,7 +136,7 @@ def test_tricontour_extruded_mesh():
     Vc = rectangle.coordinates.function_space()
     x = SpatialCoordinate(rectangle)
     expr = as_vector((x[0], (1 - 0.5 * x[0] / Lx) * x[1] + 0.25 * x[0] / Lx))
-    f = interpolate(expr, Vc)
+    f = assemble(interpolate(expr, Vc))
     mesh = Mesh(f)
 
     V = FunctionSpace(mesh, "CG", 1, vfamily="CG", vdegree=1)
@@ -171,10 +171,10 @@ def test_streamplot():
     x0 = Constant((.5, .5))
     v = x - x0
 
-    center = interpolate(2 * as_vector((-v[1], v[0])), V)
-    saddle = interpolate(2 * as_vector((v[0], -v[1])), V)
+    center = assemble(interpolate(2 * as_vector((-v[1], v[0])), V))
+    saddle = assemble(interpolate(2 * as_vector((v[0], -v[1])), V))
     r = Constant(.5)
-    sink = interpolate(center - r * v, V)
+    sink = assemble(interpolate(center - r * v, V))
 
     fig, axes = plt.subplots(ncols=1, nrows=3, sharex=True, sharey=True)
     for ax in axes:
@@ -307,7 +307,7 @@ def test_tripcolor_movie():
     x = SpatialCoordinate(mesh)
     t = Constant(0)
     expr = sin(np.pi * (x[0] + 2 * x[1] + t))
-    q = interpolate(expr, Q)
+    q = assemble(interpolate(expr, Q))
 
     fig, axes = plt.subplots()
     axes.set_aspect('equal')

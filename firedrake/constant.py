@@ -1,6 +1,7 @@
 import collections
 import numpy as np
 import ufl
+import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
@@ -69,14 +70,18 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
 
-            domain = ufl.as_domain(domain)
+            if not isinstance(domain, ufl.AbstractDomain):
+                cell = ufl.as_cell(domain)
+                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, gdim=cell.geometric_dimension)
+                domain = ufl.Mesh(coordinate_element)
+
             cell = domain.ufl_cell()
             if rank == 0:
-                element = ufl.FiniteElement("R", cell, 0)
+                element = finat.ufl.FiniteElement("R", cell, 0)
             elif rank == 1:
-                element = ufl.VectorElement("R", cell, 0, shape[0])
+                element = finat.ufl.VectorElement("R", cell, 0, shape[0])
             else:
-                element = ufl.TensorElement("R", cell, 0, shape=shape)
+                element = finat.ufl.TensorElement("R", cell, 0, shape=shape)
 
             R = FunctionSpace(domain, element, name="firedrake.Constant")
             return Function(R, val=dat).assign(value)

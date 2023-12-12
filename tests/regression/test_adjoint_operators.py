@@ -51,7 +51,7 @@ def test_interpolate_constant():
     V1 = FunctionSpace(mesh, "CG", 1)
 
     c = Constant(1.0, domain=mesh)
-    u = interpolate(c, V1)
+    u = assemble(interpolate(c, V1))
 
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(c))
@@ -69,9 +69,9 @@ def test_interpolate_with_arguments():
 
     x, y = SpatialCoordinate(mesh)
     expr = x + y
-    f = interpolate(expr, V1)
+    f = assemble(interpolate(expr, V1))
     interpolator = Interpolator(TestFunction(V1), V2)
-    u = interpolator.interpolate(f)
+    u = assemble(interpolator.interpolate(f))
 
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
@@ -90,8 +90,8 @@ def test_interpolate_scalar_valued():
     V3 = FunctionSpace(mesh, "CG", 3)
 
     x, = SpatialCoordinate(mesh)
-    f = interpolate(x, V1)
-    g = interpolate(sin(x), V2)
+    f = assemble(interpolate(x, V1))
+    g = assemble(interpolate(sin(x), V2))
     u = Function(V3)
     u.interpolate(3*f**2 + Constant(4.0, domain=mesh)*g)
 
@@ -117,8 +117,8 @@ def test_interpolate_vector_valued():
     V3 = VectorFunctionSpace(mesh, "CG", 2)
 
     x = SpatialCoordinate(mesh)
-    f = interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1)
-    g = interpolate(as_vector((sin(x[1])+x[0], cos(x[0])*x[1])), V2)
+    f = assemble(interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1))
+    g = assemble(interpolate(as_vector((sin(x[1])+x[0], cos(x[0])*x[1])), V2))
     u = Function(V3)
     u.interpolate(f*dot(f, g) - 0.5*g)
 
@@ -139,8 +139,8 @@ def test_interpolate_tlm():
     V3 = VectorFunctionSpace(mesh, "CG", 2)
 
     x = SpatialCoordinate(mesh)
-    f = interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1)
-    g = interpolate(as_vector((sin(x[1])+x[0], cos(x[0])*x[1])), V2)
+    f = assemble(interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1))
+    g = assemble(interpolate(as_vector((sin(x[1])+x[0], cos(x[0])*x[1])), V2))
     u = Function(V3)
 
     u.interpolate(f - 0.5*g + f/(1+dot(f, g)))
@@ -166,8 +166,8 @@ def test_interpolate_tlm_wit_constant():
     V2 = FunctionSpace(mesh, "DG", 1)
 
     x = SpatialCoordinate(mesh)
-    f = interpolate(x[0], V1)
-    g = interpolate(sin(x[0]), V1)
+    f = assemble(interpolate(x[0], V1))
+    g = assemble(interpolate(sin(x[0]), V1))
     c = Constant(5.0, domain=mesh)
     u = Function(V2)
     u.interpolate(c * f ** 2)
@@ -201,7 +201,7 @@ def test_interpolate_bump_function():
     x, y = SpatialCoordinate(mesh)
     cx = Constant(0.5, domain=mesh)
     cy = Constant(0.5, domain=mesh)
-    f = interpolate(exp(-1/(1-(x-cx)**2)-1/(1-(y-cy)**2)), V)
+    f = assemble(interpolate(exp(-1/(1-(x-cx)**2)-1/(1-(y-cy)**2)), V))
 
     J = assemble(f*y**3*dx)
     rf = ReducedFunctional(J, [Control(cx), Control(cy)])
@@ -235,8 +235,8 @@ def test_self_interpolate_function():
     u = Function(V)
 
     c = Constant(1., domain=mesh)
-    interpolate(u+c, u)
-    interpolate(u+c*u**2, u)
+    assemble(interpolate(u+c, V), tensor=u)
+    assemble(interpolate(u+c*u**2, V), tensor=u)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
@@ -256,12 +256,32 @@ def test_interpolate_to_function_space():
     x = SpatialCoordinate(mesh)
     u.interpolate(x[0])
     c = Constant(1., domain=mesh)
-    w = interpolate((u+c)*u, W)
+    w = assemble(interpolate((u+c)*u, W))
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
     h = Constant(0.1, domain=mesh)
     assert taylor_test(rf, Constant(1., domain=mesh), h) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_interpolate_to_function_space_cross_mesh():
+    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
+    mesh_src = UnitSquareMesh(2, 2)
+    mesh_dest = UnitSquareMesh(3, 3, quadrilateral=True)
+    V = FunctionSpace(mesh_src, "CG", 1)
+    W = FunctionSpace(mesh_dest, "DG", 1)
+    u = Function(V)
+
+    x = SpatialCoordinate(mesh_src)
+    u.interpolate(x[0])
+    c = Constant(1., domain=mesh_src)
+    w = Function(W).interpolate((u+c)*u)
+
+    J = assemble(w**2*dx)
+    rf = ReducedFunctional(J, Control(c))
+    h = Constant(0.1, domain=mesh_src)
+    assert taylor_test(rf, Constant(1., domain=mesh_src), h) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -443,6 +463,68 @@ def test_interpolate_hessian_nonlinear_expr_multi():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
+    # Note this is a direct copy of
+    # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
+    # with modifications where indicated.
+
+    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
+
+    # Get tape instead of creating a new one for consistency with other tests
+    tape = get_working_tape()
+
+    mesh_dest = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh_dest, "Lagrange", 1)
+
+    # Interpolate from f in another function space on another mesh to force
+    # hessian evaluation of interpolation. Functions in W form our control
+    # space c, our expansion space h and perterbation direction g.
+    mesh_src = UnitSquareMesh(11, 11)
+    W = FunctionSpace(mesh_src, "Lagrange", 2)
+    f = Function(W)
+    f.vector()[:] = 5
+    w = Function(W)
+    w.vector()[:] = 4
+    c = Constant(2., domain=mesh_src)
+    # Note that we interpolate from a nonlinear expression with 3 coefficients
+    expr_interped = Function(V).interpolate(f**2+w**2+c**2)
+
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Constant(1, domain=mesh_dest), "on_boundary")
+
+    F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
+    solve(F == 0, u, bc)
+
+    J = assemble(u ** 4 * dx)
+    Jhat = ReducedFunctional(J, Control(f))
+
+    # Note functions are in W, not V.
+    h = Function(W)
+    h.vector()[:] = 10*rand(W.dim())
+
+    J.block_variable.adj_value = 1.0
+    f.block_variable.tlm_value = h
+
+    tape.evaluate_adj()
+    tape.evaluate_tlm()
+
+    J.block_variable.hessian_value = 0
+
+    tape.evaluate_hessian()
+
+    g = f.copy(deepcopy=True)
+
+    dJdm = J.block_variable.tlm_value
+    assert isinstance(f.block_variable.adj_value, Cofunction)
+    assert isinstance(f.block_variable.hessian_value, Cofunction)
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
+    # If the new interpolate block has the right hessian, taylor test
+    # convergence rate should be as for the unmodified test.
+    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ioperator_replay(op, order, power):
     """
     Given source and target functions of some `order`,
@@ -456,8 +538,8 @@ def test_ioperator_replay(op, order, power):
     V = FunctionSpace(mesh, "CG", order)
 
     # Source and target functions
-    s = interpolate(x + 1, V)
-    t = interpolate(y + 1, V)
+    s = assemble(interpolate(x + 1, V))
+    t = assemble(interpolate(y + 1, V))
     s_orig = s.copy(deepcopy=True)
     t_orig = t.copy(deepcopy=True)
     control_s = Control(s)
@@ -501,7 +583,7 @@ def supermesh_setup(vector=False):
     source_mesh = UnitSquareMesh(20, 25, diagonal="left")
     source_space = fs(source_mesh, "CG", 1)
     expr = [sin(pi*xi) for xi in SpatialCoordinate(source_mesh)]
-    source = interpolate(as_vector(expr) if vector else expr[0]*expr[1], source_space)
+    source = assemble(interpolate(as_vector(expr) if vector else expr[0]*expr[1], source_space))
     target_mesh = UnitSquareMesh(20, 20, diagonal="right")
     target_space = fs(target_mesh, "CG", 1)
     return source, target_space
@@ -675,11 +757,12 @@ def test_copy_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
     one = Constant(1.0, domain=mesh)
-    f = interpolate(one, V)
+    f = assemble(interpolate(one, V))
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
-    assert np.isclose(rf(interpolate(-one, V)), -J)
+    a = assemble(Interpolate(-one, V))
+    assert np.isclose(rf(a), -J)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done

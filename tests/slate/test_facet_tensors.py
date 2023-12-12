@@ -30,7 +30,7 @@ def test_facet_interior_avg(mesh):
     u = TestFunction(DG)
 
     x, y = SpatialCoordinate(mesh)
-    f = interpolate(x + y, DG)
+    f = assemble(interpolate(x + y, DG))
 
     form = avg(inner(f, u))*dS
 

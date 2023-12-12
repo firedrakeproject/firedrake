@@ -16,10 +16,15 @@ def mesh(request):
         return PeriodicUnitSquareMesh(30, 30, quadrilateral=True)
 
 
+def space(m):
+    element = BrokenElement(m.coordinates.function_space().ufl_element().sub_elements[0])
+    return FunctionSpace(m, element)
+
+
 @pytest.mark.skipcomplex
 def test_constant_field(mesh):
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    v = space(mesh)
 
     # Create limiter
     limiter = VertexBasedLimiter(v)
@@ -39,7 +44,7 @@ def test_step_function_bounds(mesh):
     x = SpatialCoordinate(mesh)
 
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    v = space(mesh)
 
     # Create limiter
     limiter = VertexBasedLimiter(v)
@@ -56,7 +61,7 @@ def test_step_function_bounds(mesh):
 @pytest.mark.skipcomplex
 def test_step_function_loop(mesh, iterations=100):
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    v = space(mesh)
     m = VectorFunctionSpace(mesh, "CG", 1)
 
     # advecting velocity
@@ -121,7 +126,7 @@ def test_step_function_loop(mesh, iterations=100):
 def test_parallel_limiting(tmpdir):
     import pickle
     mesh = RectangleMesh(10, 4, 5000., 1000.)
-    V = FunctionSpace(mesh, 'DG', 1)
+    V = space(mesh)
     f = Function(V)
     x, *_ = SpatialCoordinate(mesh)
     f.project(sin(2*pi*x/3000.))
@@ -138,7 +143,8 @@ def test_parallel_limiting(tmpdir):
 import pickle
 from firedrake import *
 mesh = RectangleMesh(10, 4, 5000., 1000.)
-V = FunctionSpace(mesh, 'DG', 1)
+element = BrokenElement(mesh.coordinates.function_space().ufl_element().sub_elements[0])
+V = FunctionSpace(mesh, element)
 f = Function(V)
 x, *_ = SpatialCoordinate(mesh)
 f.project(sin(2*pi*x/3000.))

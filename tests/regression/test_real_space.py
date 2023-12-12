@@ -298,30 +298,5 @@ def test_real_interpolate():
     N = 100
     mesh = IntervalMesh(N, 0, 1)
     R = FunctionSpace(mesh, "R", 0)
-    a_int = interpolate(Constant(1.0), R)
+    a_int = assemble(interpolate(Constant(1.0), R))
     assert np.allclose(float(a_int), 1.0)
-
-
-@pytest.mark.skipcomplex
-def test_real_interpolate_minmaxinc():
-    N = 100
-    mesh = IntervalMesh(N, 0, 1)
-    R = FunctionSpace(mesh, "R", 0)
-    x, = SpatialCoordinate(mesh)
-    min_x = float(interpolate(x, R, access=MIN))
-    max_x = float(interpolate(x, R, access=MAX))
-    sum_x = float(interpolate(x, R, access=INC))
-
-    # Midpoint evaluation in each cell.
-    expect = np.linspace(0 + 1/(2*N), 1 - 1/(2*N), N)
-
-    assert np.isclose(min_x, expect.min())
-    assert np.isclose(max_x, expect.max())
-    assert np.isclose(sum_x, expect.sum())
-    min_x = Function(R).assign(-1)
-    max_x = Function(R).assign(2)
-    min_x = float(interpolate(x, min_x, access=MIN))
-    max_x = float(interpolate(x, max_x, access=MAX))
-
-    assert np.isclose(min_x, -1)
-    assert np.isclose(max_x, 2)

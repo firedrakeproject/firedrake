@@ -23,7 +23,7 @@ def test_vertex_only_mesh_manual_example():
     P0DG = FunctionSpace(vom, "DG", 0)
 
     # Interpolation performs point evaluation
-    f_at_points = interpolate(f, P0DG)
+    f_at_points = assemble(interpolate(f, P0DG))
 
     print(f_at_points.dat.data_ro)
 
@@ -83,7 +83,8 @@ def test_vom_manual_keyword_arguments():
 
     # Interpolating f into the P0DG space on the vertex-only mesh evaluates f at
     # the points
-    expr = assemble(interpolate(f, P0DG)*dx)
+    f_at_points = assemble(interpolate(f, P0DG))
+    expr = assemble(f_at_points * dx)
 
     assert expr == 0.0
 
@@ -169,7 +170,7 @@ def test_input_ordering_input():
     point_data_input_ordering.dat.data_wo[:] = point_data_values_from_elsewhere
 
     # Interpolate puts this data onto the original vertex-only mesh
-    point_data = interpolate(point_data_input_ordering, P0DG)
+    point_data = assemble(interpolate(point_data_input_ordering, P0DG))
 
     assert vom
     if point_data:  # in case point data is None for some reason - apparently it can be in complex mode without an error occuring?

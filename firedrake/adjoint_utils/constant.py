@@ -97,7 +97,7 @@ class ConstantMixin(OverloadedType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        l = dst.ufl_element().value_size()
+        l = dst.ufl_element().value_size
         dst.assign(numpy.reshape(src[offset:offset + l], dst.ufl_shape), annotate=False)
         offset += l
         return dst, offset

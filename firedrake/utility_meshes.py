@@ -13,7 +13,8 @@ from firedrake import (
     dx,
     WRITE,
     READ,
-    interpolate,
+    assemble,
+    Interpolate,
     FiniteElement,
     interval,
     tetrahedron,
@@ -44,6 +45,7 @@ __all__ = [
     "UnitDiskMesh",
     "UnitBallMesh",
     "UnitTetrahedronMesh",
+    "TensorBoxMesh",
     "BoxMesh",
     "CubeMesh",
     "UnitCubeMesh",
@@ -62,12 +64,41 @@ __all__ = [
 ]
 
 
+distribution_parameters_noop = {"partition": False,
+                                "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
+reorder_noop = False
+
+
+def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
+    dm = coords.function_space().mesh().topology.topology_dm
+    dm.removeLabel("pyop2_core")
+    dm.removeLabel("pyop2_owned")
+    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("exterior_facets")
+    dm.removeLabel("interior_facets")
+    V = coords.function_space()
+    dmcommon._set_dg_coordinates(dm,
+                                 V.finat_element,
+                                 V.dm.getLocalSection(),
+                                 coords.dat._vec)
+    return mesh.Mesh(
+        dm,
+        comm=comm,
+        distribution_parameters=distribution_parameters,
+        reorder=reorder,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+    )
+
+
 @PETSc.Log.EventDecorator()
 def IntervalMesh(
     ncells,
     length_or_left,
     right=None,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -84,6 +115,7 @@ def IntervalMesh(
          be the left boundary point).
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -133,7 +165,7 @@ def IntervalMesh(
 
     m = mesh.Mesh(
         plex,
-        reorder=False,
+        reorder=reorder,
         distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
@@ -147,6 +179,7 @@ def IntervalMesh(
 def UnitIntervalMesh(
     ncells,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -158,6 +191,7 @@ def UnitIntervalMesh(
     :arg ncells: The number of the cells over the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -175,6 +209,7 @@ def UnitIntervalMesh(
         ncells,
         length_or_left=1.0,
         distribution_parameters=distribution_parameters,
+        reorder=reorder,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -187,6 +222,7 @@ def PeriodicIntervalMesh(
     ncells,
     length,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -198,6 +234,7 @@ def PeriodicIntervalMesh(
     :arg length: The length the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -213,10 +250,10 @@ def PeriodicIntervalMesh(
             "1D periodic meshes with fewer than 3 \
 cells are not currently supported"
         )
-
     m = CircleManifoldMesh(
         ncells,
-        distribution_parameters=distribution_parameters,
+        distribution_parameters=distribution_parameters_noop,
+        reorder=reorder_noop,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -262,19 +299,20 @@ cells are not currently supported"
         },
     )
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
 def PeriodicUnitIntervalMesh(
     ncells,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -285,6 +323,7 @@ def PeriodicUnitIntervalMesh(
     :arg ncells: The number of cells in the interval.
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -298,6 +337,7 @@ def PeriodicUnitIntervalMesh(
         ncells,
         length=1.0,
         distribution_parameters=distribution_parameters,
+        reorder=reorder,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -943,8 +983,8 @@ def PeriodicRectangleMesh(
         1.0,
         0.5,
         quadrilateral=quadrilateral,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -1006,13 +1046,13 @@ def PeriodicRectangleMesh(
         },
     )
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -1146,6 +1186,7 @@ def CircleManifoldMesh(
     radius=1,
     degree=1,
     distribution_parameters=None,
+    reorder=False,
     comm=COMM_WORLD,
     name=mesh.DEFAULT_MESH_NAME,
     distribution_name=None,
@@ -1160,6 +1201,7 @@ def CircleManifoldMesh(
            cells are straight line segments if degree=1).
     :kwarg distribution_parameters: options controlling mesh
            distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1192,7 +1234,7 @@ def CircleManifoldMesh(
     m = mesh.Mesh(
         plex,
         dim=2,
-        reorder=False,
+        reorder=reorder,
         distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
@@ -1420,6 +1462,153 @@ def UnitTetrahedronMesh(
     return m
 
 
+def TensorBoxMesh(
+    xcoords,
+    ycoords,
+    zcoords,
+    reorder=None,
+    distribution_parameters=None,
+    diagonal="default",
+    comm=COMM_WORLD,
+    name=mesh.DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """Generate a mesh of a 3D box.
+
+    :arg xcoords: Location of nodes in the x direction
+    :arg ycoords: Location of nodes in the y direction
+    :arg zcoords: Location of nodes in the z direction
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg diagonal: Two ways of cutting hexadra, should be cut into 6
+        tetrahedra (``"default"``), or 5 tetrahedra thus less biased
+        (``"crossed"``)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on.
+
+    The boundary surfaces are numbered as follows:
+
+    * 1: plane x == xcoords[0]
+    * 2: plane x == xcoords[-1]
+    * 3: plane y == ycoords[0]
+    * 4: plane y == ycoords[-1]
+    * 5: plane z == zcoords[0]
+    * 6: plane z == zcoords[-1]
+    """
+    xcoords = np.unique(xcoords)
+    ycoords = np.unique(ycoords)
+    zcoords = np.unique(zcoords)
+    nx = np.size(xcoords)-1
+    ny = np.size(ycoords)-1
+    nz = np.size(zcoords)-1
+
+    for n in (nx, ny, nz):
+        if n <= 0 or n % 1:
+            raise ValueError("Number of cells must be a postive integer")
+    # X moves fastest, then Y, then Z
+    coords = (
+        np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+    )
+    i, j, k = np.meshgrid(
+        np.arange(nx, dtype=np.int32),
+        np.arange(ny, dtype=np.int32),
+        np.arange(nz, dtype=np.int32),
+    )
+    if diagonal == "default":
+        v0 = k * (nx + 1) * (ny + 1) + j * (nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1) * (ny + 1)
+        v5 = v1 + (nx + 1) * (ny + 1)
+        v6 = v2 + (nx + 1) * (ny + 1)
+        v7 = v3 + (nx + 1) * (ny + 1)
+
+        cells = [
+            [v0, v1, v3, v7],
+            [v0, v1, v7, v5],
+            [v0, v5, v7, v4],
+            [v0, v3, v2, v7],
+            [v0, v6, v4, v7],
+            [v0, v2, v6, v7],
+        ]
+        cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
+    elif diagonal == "crossed":
+        v0 = k * (nx + 1) * (ny + 1) + j * (nx + 1) + i
+        v1 = v0 + 1
+        v2 = v0 + (nx + 1)
+        v3 = v1 + (nx + 1)
+        v4 = v0 + (nx + 1) * (ny + 1)
+        v5 = v1 + (nx + 1) * (ny + 1)
+        v6 = v2 + (nx + 1) * (ny + 1)
+        v7 = v3 + (nx + 1) * (ny + 1)
+
+        # There are only five tetrahedra in this cutting of hexahedra
+        cells = [
+            [v0, v1, v2, v4],
+            [v1, v7, v5, v4],
+            [v1, v2, v3, v7],
+            [v2, v4, v6, v7],
+            [v1, v2, v7, v4],
+        ]
+        cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
+        raise NotImplementedError(
+            "The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements"
+        )
+    else:
+        raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+    plex = mesh.plex_from_cell_list(
+        3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    )
+    nvert = 3  # num. vertices on facet
+
+    # Apply boundary IDs
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    cdim = plex.getCoordinateDim()
+    assert cdim == 3
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        xtol = 0.5 * min(xcoords[1]-xcoords[0], xcoords[-1] - xcoords[-2])
+        ytol = 0.5 * min(ycoords[1]-ycoords[0], ycoords[-1] - ycoords[-2])
+        ztol = 0.5 * min(zcoords[1]-zcoords[0], zcoords[-1] - zcoords[-2])
+        x0 = xcoords[0]
+        x1 = xcoords[-1]
+        y0 = ycoords[0]
+        y1 = ycoords[-1]
+        z0 = zcoords[0]
+        z1 = zcoords[-1]
+
+        for face in boundary_faces:
+            face_coords = plex.vecGetClosure(coord_sec, coords, face)
+            if all([abs(face_coords[0 + cdim * i] - x0) < xtol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+            if all([abs(face_coords[0 + cdim * i] - x1) < xtol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+            if all([abs(face_coords[1 + cdim * i] - y0) < ytol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
+            if all([abs(face_coords[1 + cdim * i] - y1) < ytol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
+            if all([abs(face_coords[2 + cdim * i] - z0) < ztol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
+            if all([abs(face_coords[2 + cdim * i] - z1) < ztol for i in range(nvert)]):
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
+    plex.removeLabel("boundary_faces")
+    m = mesh.Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+    )
+    return m
+
+
 @PETSc.Log.EventDecorator()
 def BoxMesh(
     nx,
@@ -1470,103 +1659,60 @@ def BoxMesh(
         plex = PETSc.DMPlex().createBoxMesh((nx, ny, nz), lower=(0., 0., 0.), upper=(Lx, Ly, Lz), simplex=False, periodic=False, interpolate=True, comm=comm)
         plex.removeLabel(dmcommon.FACE_SETS_LABEL)
         nvert = 4  # num. vertices on faect
+
+        # Apply boundary IDs
+        plex.createLabel(dmcommon.FACE_SETS_LABEL)
+        plex.markBoundaryFaces("boundary_faces")
+        coords = plex.getCoordinates()
+        coord_sec = plex.getCoordinateSection()
+        cdim = plex.getCoordinateDim()
+        assert cdim == 3
+        if plex.getStratumSize("boundary_faces", 1) > 0:
+            boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+            xtol = Lx / (2 * nx)
+            ytol = Ly / (2 * ny)
+            ztol = Lz / (2 * nz)
+            for face in boundary_faces:
+                face_coords = plex.vecGetClosure(coord_sec, coords, face)
+                if all([abs(face_coords[0 + cdim * i]) < xtol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+                if all([abs(face_coords[0 + cdim * i] - Lx) < xtol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+                if all([abs(face_coords[1 + cdim * i]) < ytol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
+                if all([abs(face_coords[1 + cdim * i] - Ly) < ytol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
+                if all([abs(face_coords[2 + cdim * i]) < ztol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
+                if all([abs(face_coords[2 + cdim * i] - Lz) < ztol for i in range(nvert)]):
+                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
+        plex.removeLabel("boundary_faces")
+        m = mesh.Mesh(
+            plex,
+            reorder=reorder,
+            distribution_parameters=distribution_parameters,
+            name=name,
+            distribution_name=distribution_name,
+            permutation_name=permutation_name,
+            comm=comm,
+        )
+        return m
     else:
         xcoords = np.linspace(0, Lx, nx + 1, dtype=np.double)
         ycoords = np.linspace(0, Ly, ny + 1, dtype=np.double)
         zcoords = np.linspace(0, Lz, nz + 1, dtype=np.double)
-        # X moves fastest, then Y, then Z
-        coords = (
-            np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+        return TensorBoxMesh(
+            xcoords,
+            ycoords,
+            zcoords,
+            reorder=reorder,
+            distribution_parameters=distribution_parameters,
+            diagonal=diagonal,
+            comm=comm,
+            name=name,
+            distribution_name=distribution_name,
+            permutation_name=permutation_name,
         )
-        i, j, k = np.meshgrid(
-            np.arange(nx, dtype=np.int32),
-            np.arange(ny, dtype=np.int32),
-            np.arange(nz, dtype=np.int32),
-        )
-        if diagonal == "default":
-            v0 = k * (nx + 1) * (ny + 1) + j * (nx + 1) + i
-            v1 = v0 + 1
-            v2 = v0 + (nx + 1)
-            v3 = v1 + (nx + 1)
-            v4 = v0 + (nx + 1) * (ny + 1)
-            v5 = v1 + (nx + 1) * (ny + 1)
-            v6 = v2 + (nx + 1) * (ny + 1)
-            v7 = v3 + (nx + 1) * (ny + 1)
-
-            cells = [
-                [v0, v1, v3, v7],
-                [v0, v1, v7, v5],
-                [v0, v5, v7, v4],
-                [v0, v3, v2, v7],
-                [v0, v6, v4, v7],
-                [v0, v2, v6, v7],
-            ]
-            cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
-        elif diagonal == "crossed":
-            v0 = k * (nx + 1) * (ny + 1) + j * (nx + 1) + i
-            v1 = v0 + 1
-            v2 = v0 + (nx + 1)
-            v3 = v1 + (nx + 1)
-            v4 = v0 + (nx + 1) * (ny + 1)
-            v5 = v1 + (nx + 1) * (ny + 1)
-            v6 = v2 + (nx + 1) * (ny + 1)
-            v7 = v3 + (nx + 1) * (ny + 1)
-
-            # There are only five tetrahedra in this cutting of hexahedra
-            cells = [
-                [v0, v1, v2, v4],
-                [v1, v7, v5, v4],
-                [v1, v2, v3, v7],
-                [v2, v4, v6, v7],
-                [v1, v2, v7, v4],
-            ]
-            cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
-            raise NotImplementedError(
-                "The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements"
-            )
-        else:
-            raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-        plex = mesh.plex_from_cell_list(
-            3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
-        )
-        nvert = 3  # num. vertices on faect
-    # Apply boundary IDs
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
-    plex.markBoundaryFaces("boundary_faces")
-    coords = plex.getCoordinates()
-    coord_sec = plex.getCoordinateSection()
-    cdim = plex.getCoordinateDim()
-    assert cdim == 3
-    if plex.getStratumSize("boundary_faces", 1) > 0:
-        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = Lx / (2 * nx)
-        ytol = Ly / (2 * ny)
-        ztol = Lz / (2 * nz)
-        for face in boundary_faces:
-            face_coords = plex.vecGetClosure(coord_sec, coords, face)
-            if all([abs(face_coords[0 + cdim * i]) < xtol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-            if all([abs(face_coords[0 + cdim * i] - Lx) < xtol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
-            if all([abs(face_coords[1 + cdim * i]) < ytol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
-            if all([abs(face_coords[1 + cdim * i] - Ly) < ytol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-            if all([abs(face_coords[2 + cdim * i]) < ztol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
-            if all([abs(face_coords[2 + cdim * i] - Lz) < ztol for i in range(nvert)]):
-                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
-    plex.removeLabel("boundary_faces")
-    m = mesh.Mesh(
-        plex,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
-    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -1758,8 +1904,8 @@ def PeriodicBoxMesh(
     )
     m = mesh.Mesh(
         plex,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
@@ -1823,14 +1969,13 @@ def PeriodicBoxMesh(
             "hz": (hz, READ),
         },
     )
-    m1 = mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
-    return m1
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -2151,8 +2296,9 @@ def OctahedralSphereMesh(
     )
     if degree > 1:
         # use it to build a higher-order mesh
+        m = assemble(Interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
         m = mesh.Mesh(
-            interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)),
+            m,
             name=name,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
@@ -2185,11 +2331,11 @@ def OctahedralSphereMesh(
     # Make a copy of the coordinates so that we can blend two different
     # mappings near the pole
     Vc = m.coordinates.function_space()
-    Xlatitudinal = interpolate(
+    Xlatitudinal = assemble(Interpolate(
         Constant(radius) * ufl.as_vector([x * scale, y * scale, znew]), Vc
-    )
+    ))
     Vlow = VectorFunctionSpace(m, "CG", 1)
-    Xlow = interpolate(Xlatitudinal, Vlow)
+    Xlow = assemble(Interpolate(Xlatitudinal, Vlow))
     r = ufl.sqrt(Xlow[0] ** 2 + Xlow[1] ** 2 + Xlow[2] ** 2)
     Xradial = Constant(radius) * Xlow / r
 
@@ -2938,8 +3084,8 @@ def PartiallyPeriodicRectangleMesh(
         1.0,
         longitudinal_direction="z",
         quadrilateral=quadrilateral,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
+        reorder=reorder_noop,
+        distribution_parameters=distribution_parameters_noop,
         diagonal=diagonal,
         comm=comm,
         name=name,
@@ -2995,10 +3141,10 @@ def PartiallyPeriodicRectangleMesh(
         operator = np.asarray([[0, 1], [1, 0]])
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
-    return mesh.Mesh(
-        new_coordinates,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    return _postprocess_periodic_mesh(new_coordinates,
+                                      comm,
+                                      distribution_parameters,
+                                      reorder,
+                                      name,
+                                      distribution_name,
+                                      permutation_name)
