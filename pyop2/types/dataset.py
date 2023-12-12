@@ -113,12 +113,8 @@ class DataSet(caching.ObjectCached):
         indices for this :class:`DataSet`.
         """
         lgmap = PETSc.LGMap()
-        if self.comm.size == 1:
-            lgmap.create(indices=np.arange(self.size, dtype=dtypes.IntType),
-                         bsize=self.cdim, comm=self.comm)
-        else:
-            lgmap.create(indices=self.halo.local_to_global_numbering,
-                         bsize=self.cdim, comm=self.comm)
+        lgmap.create(indices=self.halo.local_to_global_numbering,
+                     bsize=self.cdim, comm=self.comm)
         return lgmap
 
     @utils.cached_property
