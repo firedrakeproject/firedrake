@@ -207,21 +207,27 @@ def test_tensor_function_zero_with_subset(W):
 
 
 @pytest.mark.parametrize("value", [
-    "1",
-    "[1, 2, 3, 4]",
-    "np.array([5, 6, 7, 8])",
-    "range(4)",
-    "Function(Rvector, val=[9, 10, 11, 12])",
-    "zero()"])
-def test_vector_real_space(Rvector, value):
-    value = eval(value)
+    1,
+    1.0,
+    (1, 2, 3, 4),
+    [1, 2, 3, 4],
+    np.array([5, 6, 7, 8]),
+    range(4)], ids=type)
+def test_vector_real_space_assign_value(Rvector, value):
     f = Function(Rvector)
     f.assign(value)
+    assert np.allclose(f.dat.data_ro, value)
 
-    if not isinstance(value, np.ndarray) and value == 0:
-        expected = 0
-    elif isinstance(value, Function):
-        expected = value.dat.data_ro
-    else:
-        expected = value
-    assert np.allclose(f.dat.data_ro, expected)
+
+def test_vector_real_space_assign_function(Rvector):
+    value = [9, 10, 11, 12]
+    fvalue = Function(Rvector, val=value)
+    f = Function(Rvector)
+    f.assign(fvalue)
+    assert np.allclose(f.dat.data_ro, value)
+
+
+def test_vector_real_space_assign_zero(Rvector):
+    f = Function(Rvector, val=[9, 10, 11, 12])
+    f.assign(zero())
+    assert np.allclose(f.dat.data_ro, 0)
