@@ -49,7 +49,34 @@ class Interpolate(ufl.Interpolate):
         :arg expr: a UFL expression to interpolate.
         :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
                 defined on the dual of the :class:`.FunctionSpace` to interpolate into.
-        :arg interp_data: optional dictionary containing interpolation-specific data
+        :arg interp_data: optional dictionary containing interpolation-specific data:
+            - subset: An optional :class:`pyop2.types.set.Subset` to apply the
+                interpolation over. Cannot, at present, be used when interpolating
+                across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
+            - freeze_expr: Set to True to prevent the expression being
+                re-evaluated on each call. Cannot, at present, be used when
+                interpolating across meshes unless the target mesh is a
+                :func:`.VertexOnlyMesh`.
+            - access: The pyop2 access descriptor for combining updates to shared
+                DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
+                supported at present when interpolating across meshes. See note in
+                :func:`.interpolate` if changing this from default.
+            - bcs: An optional list of boundary conditions to zero-out in the
+                output function space. Interpolator rows or columns which are
+                associated with boundary condition nodes are zeroed out when this is
+                specified.
+            - allow_missing_dofs: For interpolation across meshes: allow
+                degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
+                defined on the source mesh. For example, where nodes are point
+                evaluations, points in the target mesh that are not in the source mesh.
+                When ``False`` this raises a ``ValueError`` should this occur. When
+                ``True`` the corresponding values are either (a) unchanged if
+                some ``output`` is given to the :meth:`interpolate` method or (b) set
+                to zero. Can be overwritten with the ``default_missing_val`` kwarg
+                of :meth:`interpolate`. This does not affect transpose interpolation.
+                Ignored if interpolating within the same mesh or onto a
+                :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
+                this scenario is, at present, set when it is created).
         """
 
         # Check function space
