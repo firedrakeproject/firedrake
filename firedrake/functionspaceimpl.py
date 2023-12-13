@@ -683,7 +683,7 @@ class FunctionSpace:
     def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
         # Not necessarily great than I need to add the extra slice here
-        return (self.mesh().closure(loop_index), slice(None)) + (slice(None),) * len(self.shape)
+        return (self.mesh().closure(loop_index, "fiat"), slice(None)) + (slice(None),) * len(self.shape)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to

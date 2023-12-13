@@ -499,6 +499,20 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
+class ClosureOrdering(enum.Enum):
+    PLEX = "plex"
+    FIAT = "fiat"
+
+
+_PLEX_TO_FIAT_CLOSURE_PERM = {
+    "triangle": {
+        0: [6, 4, 5],
+        1: [1, 2, 3],
+        2: [0],
+    },
+}
+
+
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -783,66 +797,83 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    @property
-    def closure(self):
-        return self._closure_map
+    def closure(self, index, ordering=ClosureOrdering.PLEX):
+        # if ordering is a string (e.g. "fiat") then convert to an enum
+        ordering = ClosureOrdering(ordering)
+
+        if ordering == ClosureOrdering.PLEX:
+            return self._plex_closure(index)
+        elif ordering == ClosureOrdering.FIAT:
+            target_paths = tuple(index.iterset.target_paths.values())
+            if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
+                raise ValueError("FIAT closure ordering is only valid for cell closures")
+            return self._fiat_closure(index)
+        else:
+            raise ValueError(f"{ordering} is not a recognised closure ordering option")
 
     @cached_property
-    def _closure_map(self):
-        # FIXME: This is currently only implemented for cell closures. In principle
-        # this should be straightforward to fix with _reorder_plex_closure if that
-        # were fully implemented.
-        # Actually, we don't care about non-cell closure FIAT orderings I think.
-        # Default to using the plex ordering for everything.
+    def _plex_closure(self):
+        return self._closure_map(ClosureOrdering.PLEX)
 
-        # PETSc (and hence pyop3) numbers cells from 0. This is the opposite to
-        # FIAT and means that we pack entities in order of dimension instead
-        # of [cells, vertices, etc].
-        inner_axis = op3.Axis(self.cell_closure_size)
-        map_axes = op3.AxisTree.from_nest(
-            {self.cells.root: inner_axis}
-        )
-        map_dat = op3.HierarchicalArray(
-            map_axes, data=self.cell_closure.flatten()
-        )
+    @cached_property
+    def _fiat_closure(self):
+        return self._closure_map(ClosureOrdering.FIAT)
 
-        # renumber the keys and permute the entries to obey FIAT
-        if self.cell_closure_size != 7:
-            raise NotImplementedError("Only thinking about triangles currently")
+    def _closure_map(self, ordering):
+        if ordering == ClosureOrdering.PLEX:
+            dims = range(self.dimension+1)
+        else:
+            assert ordering == ClosureOrdering.FIAT
+            # FIAT ordering is only valid for cell closures
+            dims = (self.dimension,)
 
-        fiat_triangle_perm = {
-            0: [6, 4, 5],
-            1: [1, 2, 3],
-            2: [0],
-        }
+        cell_name = self.ufl_cell().cellname()
 
-        # TODO Currently the labels have to match for this to work. This is
-        # quite clunky.
-        subsets = {
-            dim: op3.HierarchicalArray(
-                op3.Axis({inner_axis.component.label: len(perm)}, inner_axis.label),
-                data=perm,
-                dtype=IntType,
-                # debugging
-                name=f"subset_{dim}"
+        closures = {}
+        for dim in dims:
+            closure_size, closure_data = self._closures[dim]
+
+            clabel = str(dim)
+            outer_axis = self.points[clabel].root
+            inner_axis = op3.Axis(closure_size)
+            map_axes = op3.AxisTree.from_nest(
+                {outer_axis: inner_axis}
             )
-            for dim, perm in fiat_triangle_perm.items()
-        }
-
-        mesh_label = self.points.label
-        map_components = []
-        for dim in range(self.dimension+1):
-            cpt = op3.TabulatedMapComponent(
-                mesh_label,
-                str(dim),
-                map_dat[:, subsets[dim]]
+            map_dat = op3.HierarchicalArray(
+                map_axes, data=closure_data
             )
-            map_components.append(cpt)
+
+            if ordering == ClosureOrdering.PLEX:
+                closure_size_per_dim = tuple(
+                    len(pts) for pts in _PLEX_TO_FIAT_CLOSURE_PERM[cell_name].values()
+                )
+                offsets = pairwise(steps(closure_size_per_dim))
+                subsets = tuple(slice(start, stop) for start, stop in offsets)
+            else:
+                assert ordering == ClosureOrdering.FIAT
+                subsets = tuple(
+                    op3.HierarchicalArray(
+                        op3.Axis({inner_axis.component.label: len(perm)}, inner_axis.label),
+                        data=perm,
+                        dtype=IntType,
+                    )
+                    for perm in _PLEX_TO_FIAT_CLOSURE_PERM[cell_name].values()
+                )
+
+            mesh_label = self.points.label
+            map_components = tuple(
+                op3.TabulatedMapComponent(
+                    mesh_label,
+                    str(dim),
+                    map_dat[:, subset]
+                )
+                for dim, subset in zip(range(self.dimension+1), subsets)
+            )
+            closures[freeze({mesh_label: clabel})] = map_components
 
         return op3.Map(
-            {freeze({mesh_label: self.cell_label}): map_components},
-            # TODO auto generate the name?
-            name=map_dat.name
+            closures,
+            name=f"{self.name}_closure_{ordering}",
         )
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
@@ -1198,65 +1229,28 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_closure(self):
-        """2D array of ordered cell closures
+        """Return all the transitive closures of the mesh.
 
-        Each row contains ordered cell entities for a cell, one row per cell.
+        Returns
+        -------
+        dict :
+            A mapping from the point dimension to the cell closures for that dimension.
+
         """
+        assert False, "old code"
         plex = self.topology_dm
 
-        # Cell numbering and global vertex numbering
-        # cell_numbering = self._cell_numbering
-        cell_numbering = self.points._default_to_applied_numbering[self.points.component_index(self.cell_label)]
-        # vertex_numbering = self.points._default_to_applied_numbering[self.points.component_index(self.vert_label)]
-        # vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+        return self._pack_closures(self.cell_dimension())
+
+        # these aren't renumbered!
+        # do in pack closures?
+
+        # old code below
 
         cell = self.ufl_cell()
         assert cell.topological_dimension() == self.dimension
         if cell.is_simplex():
-            closure_size = sum(self.cell_closure_sizes)
-            # NOTE: This has NOT been reordered cellwise yet!
-            myclosure = dmcommon.create_cell_closure(plex, closure_size)
-
-            # renumber the map
-            mdata_renum = np.empty_like(myclosure)
-            ncells, npoints = myclosure.shape
-            for old_cell in range(ncells):
-                new_cell = self.points.default_to_applied_component_number(self.cell_label, old_cell)
-                for i, old_pt in enumerate(myclosure[old_cell]):
-                    component, old_cpt_pt = self.points.axis_to_component_number(old_pt)
-                    new_cpt_pt = self.points.default_to_applied_component_number(component.label, old_cpt_pt)
-                    mdata_renum[new_cell, i] = new_cpt_pt
-
-            # experimental
-            # assume that offsets have already been applied to give correct numbering?
-            # assume that we are operating on a particular slice? might be clearer
-            # can do permutation later on, the renumbering is all that is needed here
-            # I believe.
-            # arrays = []
-            # offset = 0
-            # for dim in range(self.dimension + 1):
-            #     ...
-            #     arrays.append(???)
-            #
-            # renumbering = op3.ContextSensitiveHArray(???)
-            # component_offset = op3.ContextSensitiveHArray(???)
-            # mdata_renum = np.empty_like(myclosure)
-            # op3.do_loop(
-            #     p := map_dat.axes.root.index(),
-            #     op3.loop(
-            #         q := map_dat[p, :].index(),
-            #         map_dat[renumbering[p], q.i] = renumbering[q - component_offset]
-            #     ),
-            # )
-
-            # my effort, could make Cython trivial
-
             # <cython>
-            ncells = self.num_cells()
-            closure_data = np.empty((ncells, closure_size), dtype=IntType)
-            for c in range(ncells):
-                pts, _ = plex.getTransitiveClosure(c)
-                closure_data[c] = pts
             # <\cython>
 
             # DMPlex returns the closure in order of reducing entity dimension
@@ -1310,6 +1304,60 @@ class MeshTopology(AbstractMeshTopology):
             return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         else:
             raise NotImplementedError(f"Cell type '{cell}' not supported.")
+
+    @cached_property
+    def _closures(self):
+        return tuple(self._pack_closures(d) for d in range(self.dimension+1))
+
+    # TODO cythonize this function
+    def _pack_closures(self, dim, use_cone=True):
+        # better name?
+        plex = self.topology_dm
+        pstart, pend = plex.getDepthStratum(dim)
+        npoints = pend - pstart
+
+        clabel = str(dim)
+        cidx = self.points.component_index(clabel)
+        renumbering = self.points.component_numbering(clabel)
+
+        # just make a separate function?
+        if use_cone:
+            # Transitive closures always have the same size (assuming
+            # a single cell type)
+            closure_pts, _ = plex.getTransitiveClosure(pstart)
+            closure_size = len(closure_pts)
+            closure_data = np.empty((npoints, closure_size), dtype=IntType)
+            for p in range(pstart, pend):
+                _, old_cnum = self.points.axis_to_component_number(p)
+                new_cnum = renumbering[old_cnum]
+                closure_pts, _ = plex.getTransitiveClosure(p)
+
+                # renumber closure points
+                new_closure_pts = np.empty_like(closure_pts)
+                for i, cl_pt in enumerate(closure_pts):
+                    cl_component, old_cl_cnum = self.points.axis_to_component_number(cl_pt)
+                    cl_renumbering = self.points.component_numbering(cl_component)
+                    new_cl_cnum = cl_renumbering[old_cl_cnum]
+                    new_closure_pts[i] = new_cl_cnum
+                closure_data[new_cnum] = new_closure_pts
+            return closure_size, closure_data.flatten()
+        else:
+            closure_sizes = np.empty(npoints, dtype=IntType)
+            for pold in enumerate(range(pstart, pend)):
+                pnew = renumbering[pold]
+                closure_pts, _ = plex.getTransitiveClosure(p)
+                closure_sizes[i] = len(closure_pts)
+
+            # how do I do the renumbering for this guy??
+            closure_data = np.empty(sum(closure_sizes), dtype=IntType)
+            ptr = 0
+            for i, p in enumerate(range(pstart, pend)):
+                size = closure_sizes[i]
+                closure_pts, _ = plex.getTransitiveClosure(p)
+                closure_data[ptr:ptr+size] = closure_pts
+                ptr += size
+            assert ptr == len(closure_data)
+            return closure_sizes, closure_data
 
     @cached_property
     def cell_closure_sizes(self):
@@ -1427,9 +1475,14 @@ class MeshTopology(AbstractMeshTopology):
         vStart, vEnd = self.topology_dm.getDepthStratum(0)
         return vEnd - vStart
 
+    # old method
     def num_entities(self, depth):
         eStart, eEnd = self.topology_dm.getDepthStratum(depth)
         return eEnd - eStart
+
+    def npoints_per_dim(self, dim):
+        start, stop = self.topology_dm.getDepthStratum(dim)
+        return stop - start
 
     @property
     def cell_label(self):
