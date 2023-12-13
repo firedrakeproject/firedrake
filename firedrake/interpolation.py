@@ -1627,4 +1627,14 @@ class VomOntoVomDummyMat(object):
         if self.forward_reduce:
             self.broadcast(source_vec, target_vec)
         else:
+            # We need to ensure the target vec is zeroed for SF Reduce to
+            # represent multTranspose in case the interpolation matrix is not
+            # square (in which case it will have columns which are zero). This
+            # happens when we interpolate from an input-ordering vertex-only
+            # mesh to an immersed vertex-only mesh where the input ordering
+            # contains points that are not in the immersed mesh. The resulting
+            # interpolation matrix will have columns of zeros for the points
+            # that are not in the immersed mesh. The adjoint interpolation
+            # matrix will then have rows of zeros for those points.
+            target_vec.getArray()[:] = 0.0
             self.reduce(source_vec, target_vec)
