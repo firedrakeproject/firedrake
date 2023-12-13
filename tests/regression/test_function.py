@@ -213,7 +213,7 @@ def test_tensor_function_zero_with_subset(W):
     [1, 2, 3, 4],
     np.array([5, 6, 7, 8]),
     range(4)], ids=type)
-def test_vector_real_space_assign_value(Rvector, value):
+def test_vector_real_space_assign(Rvector, value):
     f = Function(Rvector)
     f.assign(value)
     assert np.allclose(f.dat.data_ro, value)
@@ -222,6 +222,14 @@ def test_vector_real_space_assign_value(Rvector, value):
 def test_vector_real_space_assign_function(Rvector):
     value = [9, 10, 11, 12]
     fvalue = Function(Rvector, val=value)
+    f = Function(Rvector)
+    f.assign(fvalue)
+    assert np.allclose(f.dat.data_ro, value)
+
+
+def test_vector_real_space_assign_constant(Rvector):
+    value = [9, 10, 11, 12]
+    fvalue = Constant(value)
     f = Function(Rvector)
     f.assign(fvalue)
     assert np.allclose(f.dat.data_ro, value)
