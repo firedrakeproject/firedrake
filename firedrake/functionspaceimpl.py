@@ -540,7 +540,7 @@ class FunctionSpace(object):
 
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
-                           name="%s_nodes_dset" % self.name)
+                           name=f"{self.name}_nodes_dset")
 
     def __del__(self):
         if hasattr(self, "_comm"):
