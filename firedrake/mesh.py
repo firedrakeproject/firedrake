@@ -3779,21 +3779,19 @@ def _parent_mesh_embedding(
             locally_visible[changed_ranks_tied] = (
                 parent_cell_nums[changed_ranks_tied] != -1
             )
-            changed_ranks_tied = changed_ranks_tied & locally_visible
+            changed_ranks_tied &= locally_visible
             # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
             # disregard the point
-            locally_visible[changed_ranks_tied] = locally_visible[
-                changed_ranks_tied
-            ] & (
+            locally_visible[changed_ranks_tied] &= (
                 ref_cell_dists_l1[changed_ranks_tied]
                 <= owned_ref_cell_dists_l1[changed_ranks_tied]
             )
-            changed_ranks_tied = changed_ranks_tied & locally_visible
+            changed_ranks_tied &= locally_visible
             # if the rank now matches then we have found the correct cell
-            locally_visible[changed_ranks_tied] = locally_visible[
-                changed_ranks_tied
-            ] & (owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied])
-            changed_ranks_tied = changed_ranks_tied & locally_visible
+            locally_visible[changed_ranks_tied] &= (
+                owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
+            )
+            changed_ranks_tied &= locally_visible
 
     # Any ranks which are still np.inf are not in the mesh
     missing_global_idxs = np.where(owned_ranks == np.inf)[0]
