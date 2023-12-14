@@ -28,6 +28,7 @@ from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.mpi import internal_comm, COMM_SELF
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -169,7 +170,7 @@ def matrix_funptr(form, state):
         else:
             get_map = None
 
-        toset = op2.Set(1, comm=test.comm)
+        toset = op2.Set(1, comm=test._comm)
         dofset = op2.DataSet(toset, 1)
         arity = sum(m.arity*s.cdim
                     for m, s in zip(get_map(test),
@@ -261,7 +262,7 @@ def residual_funptr(form, state):
         else:
             get_map = None
 
-        toset = op2.Set(1, comm=test.comm)
+        toset = op2.Set(1, comm=test._comm)
         dofset = op2.DataSet(toset, 1)
         arity = sum(m.arity*s.cdim
                     for m, s in zip(get_map(test),
@@ -741,10 +742,10 @@ class PlaneSmoother(object):
                 if not patch:
                     continue
                 else:
-                    iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
+                    iset = PETSc.IS().createGeneral(patch, comm=COMM_SELF)
                     patches.append(iset)
 
-        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=PETSc.COMM_SELF)
+        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=COMM_SELF)
         return (patches, iterationSet)
 
 
@@ -782,6 +783,7 @@ class PatchBase(PCSNESBase):
         V = J.arguments()[0].function_space()
         mesh = V.mesh()
         self.plex = mesh.topology_dm
+        self._comm = internal_comm(mesh._comm, self)
         # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
         # constructors) can use firedrake's opinion of what
@@ -800,7 +802,7 @@ class PatchBase(PCSNESBase):
                 # but doesn't warn!
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
-        patch = obj.__class__().create(comm=obj.comm)
+        patch = obj.__class__().create(comm=self._comm)
         patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
@@ -826,7 +828,7 @@ class PatchBase(PCSNESBase):
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
         code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
+        Jop_function = load_c_function(code, "ComputeJacobian", self._comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
         Jhas_int_facet_kernel = False
@@ -837,7 +839,7 @@ class PatchBase(PCSNESBase):
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
+            facet_Jop_function = load_c_function(code, "ComputeJacobian", self._comm)
             point2facet = mesh.interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
@@ -856,7 +858,7 @@ class PatchBase(PCSNESBase):
                                                            require_state=True)
 
             code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+            Fop_function = load_c_function(code, "ComputeResidual", self._comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
             Fhas_int_facet_kernel = False
@@ -869,7 +871,7 @@ class PatchBase(PCSNESBase):
                                                                            require_state=True,
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+                facet_Fop_function = load_c_function(code, "ComputeResidual", self._comm)
                 point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,

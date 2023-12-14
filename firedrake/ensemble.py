@@ -1,3 +1,5 @@
+import weakref
+
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI, internal_comm
 from itertools import zip_longest
@@ -28,6 +30,8 @@ class Ensemble(object):
 
         # User split comm
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
+        self.comm.name = "Ensemble split comm"
+        weakref.finalize(self, self.comm.Free)
         # Internal split comm
         self._comm = internal_comm(self.comm, self)
         """The communicator for spatial parallelism, contains a
@@ -35,22 +39,26 @@ class Ensemble(object):
 
         # User ensemble comm
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
+        self.ensemble_comm.name = "Ensemble ensemble comm"
+        weakref.finalize(self, self.ensemble_comm.Free)
         # Internal ensemble comm
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
         """The communicator for ensemble parallelism, contains all
         processes in :attr:`global_comm` which have the same rank in
         :attr:`comm`."""
 
+
+
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
 
-    def __del__(self):
-        if hasattr(self, "comm"):
-            self.comm.Free()
-            del self.comm
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
+    # ~ def __del__(self):
+        # ~ if hasattr(self, "comm"):
+            # ~ self.comm.Free()
+            # ~ del self.comm
+        # ~ if hasattr(self, "ensemble_comm"):
+            # ~ self.ensemble_comm.Free()
+            # ~ del self.ensemble_comm
 
     def _check_function(self, f, g=None):
         """
