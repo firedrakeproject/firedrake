@@ -36,7 +36,7 @@ def test_locate_cell(meshdata, point, value):
 
     def value_at_and_dist(p, cell_ignore=None):
         if cell_ignore is not None:
-            cell_ignore = [cell_ignore]
+            cell_ignore = [[cell_ignore]]
         cells, _, l1_dists = m.locate_cells_ref_coords_and_dists([p], cells_ignore=cell_ignore)
         return f.dat.data[cells[0]], l1_dists[0]
 

@@ -2191,7 +2191,7 @@ values from f.)"""
         if x.size != self.geometric_dimension():
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension()))
-        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance, cells_ignore=[cell_ignore])
+        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance, cells_ignore=[[cell_ignore]])
         if cells[0] == -1:
             return None, None
         return cells[0], ref_coords[0]
@@ -2206,9 +2206,10 @@ values from f.)"""
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :kwarg cells_ignore: Cell numbers to ignore in the search for each
-            point in xs. Each entry corresponds to a single coordinate in xs.
-            To not ignore any cells, pass None. To ensure a full cell search
-            for any given point, set the corresponding list entry to -1.
+            point in xs. Shape should be (n_ignore_pts, npoints). Each column
+            corresponds to a single coordinate in xs. To not ignore any cells,
+            pass None. To ensure a full cell search for any given point, set
+            the corresponding entries to -1.
         :returns: tuple either
             (cell numbers array, reference coordinates array, ref_cell_dists_l1 array)
             of type
@@ -2229,12 +2230,13 @@ values from f.)"""
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         Xs = np.empty_like(xs)
         npoints = len(xs)
-        if cells_ignore is None or cells_ignore[0] is None:
-            cells_ignore = np.full(npoints, -1, dtype=IntType)
+        if cells_ignore is None or cells_ignore[0][0] is None:
+            cells_ignore = np.full((1, npoints), -1, dtype=IntType)
         else:
             cells_ignore = np.asarray(cells_ignore, dtype=IntType)
-        if len(cells_ignore) != npoints:
+        if cells_ignore.shape[1] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
+        assert cells_ignore.shape == (cells_ignore.shape[0], npoints)
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension()
@@ -2244,6 +2246,7 @@ values from f.)"""
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
                                              npoints,
+                                             cells_ignore.shape[0],
                                              cells_ignore.ctypes.data_as(ctypes.POINTER(ctypes.c_int)))
         return cells, Xs, ref_cell_dists_l1
 
@@ -2259,7 +2262,7 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints, int* cells_ignore)
+    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints, size_t ncells_ignore, int* cells_ignore)
     {
         size_t j = 0;  /* index into x and X */
         for(size_t i=0; i<npoints; i++) {
@@ -2272,7 +2275,10 @@ values from f.)"""
             /* to_reference_coords and to_reference_coords_xtr are defined in
             pointquery_utils.py. If they contain python calls, this loop will
             not run at c-loop speed. */
-            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], cells_ignore[i]);
+
+            /* cells_ignore has shape (ncells_ignore, npoints) - find the ith column */
+            int *cells_ignore_i = cells_ignore + i*ncells_ignore;
+            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
             for (int k = 0; k < %(geometric_dimension)d; k++) {
                 X[j] = found_reference_coords.X[k];
@@ -2296,6 +2302,7 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int),
+                                ctypes.c_size_t,
                                 ctypes.c_size_t,
                                 ctypes.POINTER(ctypes.c_int)]
             locator.restype = ctypes.c_int
@@ -3748,7 +3755,7 @@ def _parent_mesh_embedding(
     changed_ranks = owned_ranks != ranks
 
     # If distance has changed the the point is not in local mesh partition
-    # since some other cell is closer.
+    # since some other cell on another rank is closer.
     locally_visible[changed_ref_cell_dists_l1] = False
     parent_cell_nums[changed_ref_cell_dists_l1] = -1
     # If the rank has changed but the distance hasn't then there was a tie
@@ -3756,16 +3763,24 @@ def _parent_mesh_embedding(
     # the previously identified cell: if we match the identified owned_rank AND
     # the distance is the same then we have found the correct cell. If we
     # cannot make a match to owned_rank and distance then we can't see the
-    # point. This should only happen for halo points.
+    # point.
     changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
+
+    # # parent_mesh.comm.rank
+    # # parent_mesh.comm.rank
+    # # locally_visible[9846]
+    # # ranks[9846]
+    # # owned_ranks[9846]
+    # # ref_cell_dists_l1[9846]
+    # # parent_cell_nums[9846]
+    # # for debugging: find index into owned ranks where changed ranks ties equals
+    # idxs = []
+    # for i in range(len(owned_ranks)):
+    #     if (owned_ranks[i] == parent_mesh.comm.rank) & changed_ranks_tied[i]:
+    #         idxs.append(i)
+
     if any(changed_ranks_tied):
-        # check that only halos are affected
-        if any(owned_ranks[changed_ranks_tied] == parent_mesh.comm.rank):
-            raise RuntimeError(
-                "A tie break has occurred in the voting algorithm which has "
-                "resulted in a non-halo point changing MPI rank. This should "
-                "not happen."
-            )
+        old_parent_cell_nums = np.asarray([np.copy(parent_cell_nums)])
         while any(changed_ranks_tied):
             (
                 parent_cell_nums[changed_ranks_tied],
@@ -3774,24 +3789,35 @@ def _parent_mesh_embedding(
             ) = parent_mesh.locate_cells_ref_coords_and_dists(
                 coords_global[changed_ranks_tied],
                 tolerance,
-                cells_ignore=parent_cell_nums[changed_ranks_tied],
+                cells_ignore=old_parent_cell_nums[:, changed_ranks_tied],
             )
             locally_visible[changed_ranks_tied] = (
                 parent_cell_nums[changed_ranks_tied] != -1
             )
             changed_ranks_tied &= locally_visible
             # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
-            # disregard the point
+            # disregard the point.
             locally_visible[changed_ranks_tied] &= (
                 ref_cell_dists_l1[changed_ranks_tied]
                 <= owned_ref_cell_dists_l1[changed_ranks_tied]
             )
             changed_ranks_tied &= locally_visible
+            # update the identified rank
+            ranks[changed_ranks_tied] = visible_ranks[
+                parent_cell_nums[changed_ranks_tied]
+            ]
             # if the rank now matches then we have found the correct cell
             locally_visible[changed_ranks_tied] &= (
                 owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
             )
-            changed_ranks_tied &= locally_visible
+            # remove these rank matches from changed_ranks_tied
+            changed_ranks_tied &= ~locally_visible
+
+            # add more cells to ignore
+            old_parent_cell_nums = np.vstack((
+                old_parent_cell_nums,
+                parent_cell_nums)
+            )
 
     # Any ranks which are still np.inf are not in the mesh
     missing_global_idxs = np.where(owned_ranks == np.inf)[0]
