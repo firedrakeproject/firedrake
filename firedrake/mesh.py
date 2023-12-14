@@ -506,8 +506,10 @@ class ClosureOrdering(enum.Enum):
 
 _PLEX_TO_FIAT_CLOSURE_PERM = {
     "triangle": {
-        0: [6, 4, 5],
-        1: [1, 2, 3],
+        # 0: [6, 4, 5],
+        0: [2, 0, 1],
+        # 1: [1, 2, 3],
+        1: [0, 1, 2],
         2: [0],
     },
 }
