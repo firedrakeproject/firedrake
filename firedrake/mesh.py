@@ -3689,12 +3689,18 @@ def _parent_mesh_embedding(
     if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
         # The reference coordinates contain an extra unnecessary dimension
         # which we can safely delete
-        reference_coords = reference_coords[:, :parent_mesh.topological_dimension()]
+        reference_coords = reference_coords[:, : parent_mesh.topological_dimension()]
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
     # see below for why np.inf is used here.
     ref_cell_dists_l1[~locally_visible] = np.inf
+
+    # ensure that points which a rank thinks it owns are always chosen in a tie
+    # break by setting the rank to be negative. If multiple ranks think they
+    # own a point then the one with the highest rank will be chosen.
+    on_this_rank = ranks == parent_mesh.comm.rank
+    ranks[on_this_rank] = -parent_mesh.comm.rank
     ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
 
     # In parallel there will regularly be disagreements about which cell owns a
@@ -3713,23 +3719,45 @@ def _parent_mesh_embedding(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
 
+    # switch ranks back to positive
+    owned_ref_cell_dists_l1_and_ranks[:, 1] = np.abs(
+        owned_ref_cell_dists_l1_and_ranks[:, 1]
+    )
+    ref_cell_dists_l1_and_ranks[:, 1] = np.abs(ref_cell_dists_l1_and_ranks[:, 1])
+    ranks = np.abs(ranks)
+
+    owned_ref_cell_dists_l1 = owned_ref_cell_dists_l1_and_ranks[:, 0]
     owned_ranks = owned_ref_cell_dists_l1_and_ranks[:, 1]
 
-    # Any rows where owned_ref_cell_dists_l1_and_ranks and
-    # ref_cell_dists_l1_and_ranks differ in distance or rank correspond to
-    # points which are claimed by a cell that we cannot see. We should now
-    # update our information accordingly. This should only happen for points
-    # which we've already marked as being owned by a different rank.
-    extra_missing_points = ~np.all(
-        owned_ref_cell_dists_l1_and_ranks == ref_cell_dists_l1_and_ranks, axis=1
-    )
-    if any(owned_ranks[extra_missing_points] == parent_mesh.comm.rank):
-        raise RuntimeError(
-            "Some points have been claimed by a cell that we cannot see, "
-            "but which we think we own. This should not happen."
+    changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+    changed_ranks = owned_ranks != ranks
+
+    # If distance has changed the the point is not in local mesh partition
+    # since some other cell is closer.
+    locally_visible[changed_ref_cell_dists_l1] = False
+    parent_cell_nums[changed_ref_cell_dists_l1] = -1
+    # If the rank has changed but the distance hasn't then there was a tie
+    # break and we need to search for the point again, this time disallowing
+    # the previously identified cell: if we match the identified owned_rank AND
+    # the distance is the same then we have found the correct cell. If we
+    # cannot make a match to owned_rank and distance then we can't see the
+    # point. This should only happen for halo points.
+    changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
+    if any(changed_ranks_tied):
+        # check that only halos are affected
+        if any(owned_ranks[changed_ranks_tied] == parent_mesh.comm.rank):
+            raise RuntimeError(
+                "A tie break has occurred in the voting algorithm which has "
+                "resulted in a non-halo point changing MPI rank. This should "
+                "not happen."
+            )
+        # do a second search for the points which have changed rank but not
+        # distance
+        raise NotImplementedError(
+            "Cell re-identification for points which have changed rank but "
+            "not distance is not yet implemented. This only affects halo "
+            "points."
         )
-    locally_visible[extra_missing_points] = False
-    parent_cell_nums[extra_missing_points] = -1
 
     # Any ranks which are still np.inf are not in the mesh
     missing_global_idxs = np.where(owned_ranks == np.inf)[0]
