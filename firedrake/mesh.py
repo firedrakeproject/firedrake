@@ -2225,12 +2225,14 @@ values from f.)"""
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension()
+        cell_ignore = -1
         self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                              xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints)
+                                             npoints,
+                                             cell_ignore)
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
@@ -2245,7 +2247,7 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
+    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints, int cell_ignore)
     {
         size_t j = 0;  /* index into x and X */
         for(size_t i=0; i<npoints; i++) {
@@ -2258,7 +2260,7 @@ values from f.)"""
             /* to_reference_coords and to_reference_coords_xtr are defined in
             pointquery_utils.py. If they contain python calls, this loop will
             not run at c-loop speed. */
-            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], cell_ignore);
 
             for (int k = 0; k < %(geometric_dimension)d; k++) {
                 X[j] = found_reference_coords.X[k];
@@ -2282,7 +2284,8 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int),
-                                ctypes.c_size_t]
+                                ctypes.c_size_t,
+                                ctypes.c_int]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 

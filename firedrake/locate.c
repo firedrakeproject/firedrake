@@ -11,7 +11,8 @@ int locate_cell(struct Function *f,
         ref_cell_l1_dist_xtr try_candidate_xtr,
         void *temp_ref_coords,
         void *found_ref_coords,
-        double *found_ref_cell_dist_l1)
+        double *found_ref_cell_dist_l1,
+        int cell_ignore)
 {
     RTError err;
     int cell = -1;
@@ -42,6 +43,9 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+                if (ids[i] == cell_ignore) {
+                    continue;
+                }
                 if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
@@ -67,6 +71,9 @@ int locate_cell(struct Function *f,
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;
                 current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                if (ids[i] == cell_ignore) {
+                    continue;
+                }
                 if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = ids[i];
@@ -91,6 +98,9 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (int c = 0; c < f->n_cols; c++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
+                if (c == cell_ignore) {
+                    continue;
+                }
                 if (current_ref_cell_dist_l1 <= 0.0) {
                     /* Found cell! */
                     cell = c;
@@ -114,6 +124,9 @@ int locate_cell(struct Function *f,
             for (int c = 0; c < f->n_cols; c++) {
                 for (int l = 0; l < f->n_layers; l++) {
                     current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                    if (l == cell_ignore) {
+                        continue;
+                    }
                     if (current_ref_cell_dist_l1 <= 0.0) {
                         /* Found cell! */
                         cell = l;
