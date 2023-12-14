@@ -2144,7 +2144,7 @@ values from f.)"""
         return spatialindex.from_regions(coords_min, coords_max)
 
     @PETSc.Log.EventDecorator()
-    def locate_cell(self, x, tolerance=None):
+    def locate_cell(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point.
 
         :arg x: point coordinates
@@ -2152,12 +2152,13 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: cell number (int), or None (if the point is not
             in the domain)
         """
-        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[0]
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[0]
 
-    def locate_reference_coordinate(self, x, tolerance=None):
+    def locate_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Get reference coordinates of a given point in its cell. Which
         cell the point is in can be queried with the locate_cell method.
 
@@ -2166,12 +2167,13 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: reference coordinates within cell (numpy array) or
             None (if the point is not in the domain)
         """
-        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[1]
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[1]
 
-    def locate_cell_and_reference_coordinate(self, x, tolerance=None):
+    def locate_cell_and_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
 
@@ -2180,6 +2182,7 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: tuple either
             (cell number, reference coordinates) of type (int, numpy array),
             or, when point is not in the domain, (None, None).
@@ -2188,12 +2191,12 @@ values from f.)"""
         if x.size != self.geometric_dimension():
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension()))
-        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance)
+        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance, cells_ignore=[cell_ignore])
         if cells[0] == -1:
             return None, None
         return cells[0], ref_coords[0]
 
-    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None):
+    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
 
@@ -2202,6 +2205,10 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cells_ignore: Cell numbers to ignore in the search for each
+            point in xs. Each entry corresponds to a single coordinate in xs.
+            To not ignore any cells, pass None. To ensure a full cell search
+            for any given point, set the corresponding list entry to -1.
         :returns: tuple either
             (cell numbers array, reference coordinates array, ref_cell_dists_l1 array)
             of type
@@ -2222,17 +2229,22 @@ values from f.)"""
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         Xs = np.empty_like(xs)
         npoints = len(xs)
+        if cells_ignore is None or cells_ignore[0] is None:
+            cells_ignore = np.full(npoints, -1, dtype=IntType)
+        else:
+            cells_ignore = np.asarray(cells_ignore, dtype=IntType)
+        if len(cells_ignore) != npoints:
+            raise ValueError("Number of cells to ignore does not match number of points")
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension()
-        cell_ignore = -1
         self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                              xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
                                              npoints,
-                                             cell_ignore)
+                                             cells_ignore.ctypes.data_as(ctypes.POINTER(ctypes.c_int)))
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
@@ -2247,7 +2259,7 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += """
-    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints, int cell_ignore)
+    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints, int* cells_ignore)
     {
         size_t j = 0;  /* index into x and X */
         for(size_t i=0; i<npoints; i++) {
@@ -2260,7 +2272,7 @@ values from f.)"""
             /* to_reference_coords and to_reference_coords_xtr are defined in
             pointquery_utils.py. If they contain python calls, this loop will
             not run at c-loop speed. */
-            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], cell_ignore);
+            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], cells_ignore[i]);
 
             for (int k = 0; k < %(geometric_dimension)d; k++) {
                 X[j] = found_reference_coords.X[k];
@@ -2285,7 +2297,7 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int),
                                 ctypes.c_size_t,
-                                ctypes.c_int]
+                                ctypes.POINTER(ctypes.c_int)]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 

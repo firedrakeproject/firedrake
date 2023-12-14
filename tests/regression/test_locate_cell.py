@@ -30,11 +30,25 @@ def meshdata(request):
 def test_locate_cell(meshdata, point, value):
     m, f = meshdata
 
-    def value_at(p):
-        cell = m.locate_cell(p)
+    def value_at(p, cell_ignore=None):
+        cell = m.locate_cell(p, cell_ignore=cell_ignore)
         return f.dat.data[cell]
 
+    def value_at_and_dist(p, cell_ignore=None):
+        if cell_ignore is not None:
+            cell_ignore = [cell_ignore]
+        cells, _, l1_dists = m.locate_cells_ref_coords_and_dists([p], cells_ignore=cell_ignore)
+        return f.dat.data[cells[0]], l1_dists[0]
+
     assert np.allclose(value, value_at(point))
+    cell = m.locate_cell(point)
+    assert ~np.allclose(value, value_at(point, cell_ignore=cell))
+    value_at, l1_dist = value_at_and_dist(point)
+    assert np.allclose(value, value_at)
+    assert np.isclose(l1_dist, 0.0)
+    value_at, l1_dist = value_at_and_dist(point, cell_ignore=cell)
+    assert ~np.allclose(value, value_at)
+    assert l1_dist > 0.0
 
 
 def test_locate_cell_not_found(meshdata):
