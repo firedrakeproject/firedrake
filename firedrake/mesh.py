@@ -814,6 +814,9 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
 
+    def star(self, index):
+        return self._star(index)
+
     @cached_property
     def _plex_closure(self):
         return self._closure_map(ClosureOrdering.PLEX)
@@ -873,6 +876,38 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         return op3.Map(
             closures,
             name=f"{self.name}_closure_{ordering}",
+        )
+
+    @cached_property
+    def _star(self):
+        def star_func(pt):
+            return self.topology_dm.getTransitiveClosure(pt, use_cone=False)[0]
+
+        stars = {}
+        for dim in range(self.dimension+1):
+            sizes, map_data = self._memoize_map(star_func, dim)
+            # stars are ragged
+            assert all(isinstance(s, np.ndarray) for s in sizes)
+
+            map_components = []
+            for map_dim, (size, data) in enumerate(
+                checked_zip(sizes, map_data)
+            ):
+                outer_axis = self.points[str(dim)].root
+                size_dat = op3.HierarchicalArray(outer_axis, data=data)
+                inner_axis = op3.Axis(size_dat)
+                map_axes = op3.AxisTree.from_nest(
+                    {outer_axis: inner_axis}
+                )
+                map_dat = op3.HierarchicalArray(map_axes, data=data)
+                map_components.append(
+                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+                )
+            stars[freeze({self.name: str(dim)})] = map_components
+
+        return op3.Map(
+            stars,
+            name=f"{self.name}_star",
         )
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
