@@ -404,12 +404,11 @@ class Function(ufl.Coefficient, FunctionMixin):
             within the same mesh or onto a :func:`.VertexOnlyMesh`.
         :returns: this :class:`Function` object"""
         from firedrake import interpolation, assemble
-        interp_data = {"subset": subset,
-                       "allow_missing_dofs": allow_missing_dofs,
-                       "default_missing_val": default_missing_val}
-
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V, interp_data=interp_data)
+        interp = interpolation.Interpolate(expression, V,
+                                           subset=subset,
+                                           allow_missing_dofs=allow_missing_dofs,
+                                           default_missing_val=default_missing_val)
         return assemble(interp, tensor=self)
 
     def zero(self, subset=None):

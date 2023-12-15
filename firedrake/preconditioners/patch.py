@@ -660,7 +660,7 @@ class PlaneSmoother(object):
             # not its weakref proxy (the variable `mesh`)
             # as interpolation fails because they are not hashable
             CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
-            coordinates = Interpolate(mesh.coordinates, CGk, interp_data={'access': op2.MAX})
+            coordinates = Interpolate(mesh.coordinates, CGk, access=op2.MAX)
             coordinates = assemble(coordinates)
         else:
             coordinates = mesh.coordinates

@@ -43,40 +43,47 @@ __all__ = (
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v, interp_data=None):
+    def __init__(self, expr, v,
+                 subset=None,
+                 access=op2.WRITE,
+                 allow_missing_dofs=False,
+                 default_missing_val=None):
         r""" Symbolic representation of the interpolation operator.
 
-        :arg expr: a UFL expression to interpolate.
-        :arg v: the :class:`.FunctionSpace` to interpolate into or the :class:`.Coargument`
-                defined on the dual of the :class:`.FunctionSpace` to interpolate into.
-        :arg interp_data: optional dictionary containing interpolation-specific data:
-            - subset: An optional :class:`pyop2.types.set.Subset` to apply the
-                interpolation over. Cannot, at present, be used when interpolating
-                across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-            - freeze_expr: Set to True to prevent the expression being
-                re-evaluated on each call. Cannot, at present, be used when
-                interpolating across meshes unless the target mesh is a
-                :func:`.VertexOnlyMesh`.
-            - access: The pyop2 access descriptor for combining updates to shared
-                DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-                supported at present when interpolating across meshes. See note in
-                :func:`.interpolate` if changing this from default.
-            - bcs: An optional list of boundary conditions to zero-out in the
-                output function space. Interpolator rows or columns which are
-                associated with boundary condition nodes are zeroed out when this is
-                specified.
-            - allow_missing_dofs: For interpolation across meshes: allow
-                degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-                defined on the source mesh. For example, where nodes are point
-                evaluations, points in the target mesh that are not in the source mesh.
-                When ``False`` this raises a ``ValueError`` should this occur. When
-                ``True`` the corresponding values are either (a) unchanged if
-                some ``output`` is given to the :meth:`interpolate` method or (b) set
-                to zero. Can be overwritten with the ``default_missing_val`` kwarg
-                of :meth:`interpolate`. This does not affect transpose interpolation.
-                Ignored if interpolating within the same mesh or onto a
-                :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
-                this scenario is, at present, set when it is created).
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr or ufl.BaseForm
+               The UFL expression to interpolate.
+        v : firedrake.FunctionSpace or firedrake.Coargument
+            The function space to interpolate into or the coargument defined
+            on the dual of the function space to interpolate into.
+        subset : pyop2.types.set.Subset, optional
+                 An optional subset to apply the interpolation over.
+                 Cannot, at present, be used when interpolating across meshes unless
+                 the target mesh is a :func:`.VertexOnlyMesh`.
+        access : pyop2.types.Access, optional
+                 The pyop2 access descriptor for combining updates to shared
+                 DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
+                 supported at present when interpolating across meshes. See note in
+                 :func:`.interpolate` if changing this from default.
+        allow_missing_dofs : bool, optional
+                             For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
+                             in the target mesh that cannot be defined on the source mesh.
+                             For example, where nodes are point evaluations, points in the target mesh
+                             that are not in the source mesh. When ``False`` this raises a ``ValueError``
+                             should this occur. When ``True`` the corresponding values are either
+                             (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
+                             or (b) set to zero.
+                             Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
+                             This does not affect transpose interpolation. Ignored if interpolating within
+                             the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+                             :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
+        default_missing_val : float, optional
+                              For interpolation across meshes: the optional value to assign to DoFs
+                              in the target mesh that are outside the source mesh. If this is not set
+                              then the values are either (a) unchanged if some ``output`` is given to
+                              the :meth:`interpolate` method or (b) set to zero.
+                              Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
         """
 
         # Check function space
@@ -89,14 +96,17 @@ class Interpolate(ufl.Interpolate):
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
-        self.interp_data = interp_data or {}
+        self.interp_data = {"subset": subset,
+                            "access": access,
+                            "allow_missing_dofs": allow_missing_dofs,
+                            "default_missing_val": default_missing_val}
 
     def function_space(self):
         return self._function_space
 
-    def _ufl_expr_reconstruct_(self, expr, v=None, interp_data=None):
-        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v,
-                                                      interp_data=interp_data or self.interp_data.copy())
+    def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
+        interp_data = interp_data or self.interp_data.copy()
+        return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
 
 # Current behaviour of interpolation in Firedrake:
@@ -299,12 +309,11 @@ class Interpolator(abc.ABC):
         if isinstance(V, firedrake.Function):
             V = V.function_space()
 
-        interp_data = {'subset': self.subset, 'freeze_expr': self.freeze_expr,
-                       'access': self.access, 'bcs': self.bcs,
-                       'allow_missing_dofs': self._allow_missing_dofs,
-                       'default_missing_val': default_missing_val}
-
-        interp = Interpolate(self.expr_renumbered, V, interp_data=interp_data)
+        interp = Interpolate(self.expr_renumbered, V,
+                             subset=self.subset,
+                             access=self.access,
+                             allow_missing_dofs=self._allow_missing_dofs,
+                             default_missing_val=default_missing_val)
         if transpose:
             interp = adjoint(interp)
 
