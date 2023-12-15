@@ -2206,7 +2206,7 @@ values from f.)"""
             this from default will cause the spatial index to be rebuilt which
             can take some time.
         :kwarg cells_ignore: Cell numbers to ignore in the search for each
-            point in xs. Shape should be (n_ignore_pts, npoints). Each column
+            point in xs. Shape should be (npoints, n_ignore_pts). Each column
             corresponds to a single coordinate in xs. To not ignore any cells,
             pass None. To ensure a full cell search for any given point, set
             the corresponding entries to -1.
@@ -2231,12 +2231,12 @@ values from f.)"""
         Xs = np.empty_like(xs)
         npoints = len(xs)
         if cells_ignore is None or cells_ignore[0][0] is None:
-            cells_ignore = np.full((1, npoints), -1, dtype=IntType)
+            cells_ignore = np.full((npoints, 1), -1, dtype=IntType, order="C")
         else:
-            cells_ignore = np.asarray(cells_ignore, dtype=IntType)
-        if cells_ignore.shape[1] != npoints:
+            cells_ignore = np.asarray(cells_ignore, dtype=IntType, order="C")
+        if cells_ignore.shape[0] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
-        assert cells_ignore.shape == (cells_ignore.shape[0], npoints)
+        assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension()
@@ -2246,8 +2246,8 @@ values from f.)"""
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
                                              npoints,
-                                             cells_ignore.shape[0],
-                                             cells_ignore.ctypes.data_as(ctypes.POINTER(ctypes.c_int)))
+                                             cells_ignore.shape[1],
+                                             cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
@@ -2276,7 +2276,7 @@ values from f.)"""
             pointquery_utils.py. If they contain python calls, this loop will
             not run at c-loop speed. */
 
-            /* cells_ignore has shape (ncells_ignore, npoints) - find the ith column */
+            /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
             int *cells_ignore_i = cells_ignore + i*ncells_ignore;
             cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
@@ -2304,7 +2304,7 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_int),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
-                                ctypes.POINTER(ctypes.c_int)]
+                                np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
