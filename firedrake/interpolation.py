@@ -54,7 +54,7 @@ class Interpolate(ufl.Interpolate):
         ----------
         expr : ufl.core.expr.Expr or ufl.BaseForm
                The UFL expression to interpolate.
-        v : firedrake.FunctionSpace or firedrake.Coargument
+        v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.Coargument
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
         subset : pyop2.types.set.Subset, optional
