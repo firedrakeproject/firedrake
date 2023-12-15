@@ -55,3 +55,24 @@ def test_locate_cell_not_found(meshdata):
     m, f = meshdata
 
     assert m.locate_cell((0.2, -0.4)) is None
+
+
+def test_locate_cells_ref_coords_and_dists(meshdata):
+    m, f = meshdata
+
+    points = [(0.2, 0.1), (0.5, 0.2), (0.7, 0.1), (0.2, 0.4), (0.4, 0.4), (0.8, 0.5), (0.1, 0.7), (0.5, 0.9), (0.9, 0.8)]
+    cells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points)
+    assert np.allclose(f.dat.data[cells], [1, 2, 3, 4, 5, 6, 7, 8, 9])
+    assert np.allclose(l1_dists, 0.0)
+    fcells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points[:2], cells_ignore=np.array([cells[:1], cells[1:2]]).T)
+    assert fcells[0] == -1 or fcells[0] in cells[1:]
+    assert fcells[1] == -1 or fcells[1] in cells[2:] or fcells[1] in cells[:1]
+    fcells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points[:2], cells_ignore=np.array([cells[:2], cells[1:3]]).T)
+    assert fcells[0] == -1 or fcells[0] in cells[2:]
+    assert fcells[1] == -1 or fcells[1] in cells[3:] or fcells[1] in cells[:1]
+    fcells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points[:2], cells_ignore=np.array([cells[:3], cells[1:4]]).T)
+    assert fcells[0] == -1 or fcells[0] in cells[3:]
+    assert fcells[1] == -1 or fcells[1] in cells[4:] or fcells[1] in cells[:1]
+    fcells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points[:2], cells_ignore=np.array([cells[:4], cells[1:5]]).T)
+    assert fcells[0] == -1 or fcells[0] in cells[4:]
+    assert fcells[1] == -1 or fcells[1] in cells[5:] or fcells[1] in cells[:1]
