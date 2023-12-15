@@ -3766,7 +3766,7 @@ def _parent_mesh_embedding(
     # point.
     changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
     if any(changed_ranks_tied):
-        old_parent_cell_nums = np.asarray([np.copy(parent_cell_nums)])
+        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
         while any(changed_ranks_tied):
             (
                 parent_cell_nums[changed_ranks_tied],
@@ -3775,7 +3775,7 @@ def _parent_mesh_embedding(
             ) = parent_mesh.locate_cells_ref_coords_and_dists(
                 coords_global[changed_ranks_tied],
                 tolerance,
-                cells_ignore=old_parent_cell_nums.T[changed_ranks_tied, :],
+                cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
             )
             # delete extra dimension if necessary
             if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
@@ -3804,8 +3804,8 @@ def _parent_mesh_embedding(
             # remove these rank matches from changed_ranks_tied
             changed_ranks_tied &= ~locally_visible
             # add more cells to ignore
-            old_parent_cell_nums = np.vstack((
-                old_parent_cell_nums,
+            cells_ignore_T = np.vstack((
+                cells_ignore_T,
                 parent_cell_nums)
             )
 
