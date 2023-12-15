@@ -1101,19 +1101,15 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    # rank = 0
-    # shape = ()
-    # value_size = 1
+    rank = 0
+    shape = ()
+    value_size = 1
 
     def __init__(self, mesh, element, name):
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self.name = name
         self.comm = mesh.comm
         self._mesh = mesh
-        # Might be corner cases: Work out the right logic (cf. FunctionSpace init)
-        self.shape = element.value_shape()
-        self.value_size = element.value_size()
-        self.rank = len(self.shape)
 
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
         self.node_set = self.dof_dset.set
