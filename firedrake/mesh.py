@@ -3765,20 +3765,6 @@ def _parent_mesh_embedding(
     # cannot make a match to owned_rank and distance then we can't see the
     # point.
     changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
-
-    # # parent_mesh.comm.rank
-    # # parent_mesh.comm.rank
-    # # locally_visible[9846]
-    # # ranks[9846]
-    # # owned_ranks[9846]
-    # # ref_cell_dists_l1[9846]
-    # # parent_cell_nums[9846]
-    # # for debugging: find index into owned ranks where changed ranks ties equals
-    # idxs = []
-    # for i in range(len(owned_ranks)):
-    #     if (owned_ranks[i] == parent_mesh.comm.rank) & changed_ranks_tied[i]:
-    #         idxs.append(i)
-
     if any(changed_ranks_tied):
         old_parent_cell_nums = np.asarray([np.copy(parent_cell_nums)])
         while any(changed_ranks_tied):
