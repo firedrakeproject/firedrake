@@ -774,12 +774,12 @@ def voting_algorithm_edgecases(nprocs):
 
 @pytest.mark.parallel(nprocs=2)
 def test_voting_algorithm_edgecases_2_ranks():
-    voting_algorithm_edgecases(4)
+    voting_algorithm_edgecases(2)
 
 
 @pytest.mark.parallel(nprocs=3)
 def test_voting_algorithm_edgecases_3_ranks():
-    voting_algorithm_edgecases(4)
+    voting_algorithm_edgecases(3)
 
 
 @pytest.mark.parallel(nprocs=4)
