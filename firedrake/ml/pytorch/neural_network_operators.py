@@ -27,14 +27,14 @@ from firedrake.petsc import PETSc
 from firedrake.matrix import AssembledMatrix
 
 
-class NeuralNet(AbstractExternalOperator):
-    r"""A :class:`NeuralNet`: is an implementation of ExternalOperator that is defined through
+class MLOperator(AbstractExternalOperator):
+    r"""A :class:`MLOperator`: is an implementation of ExternalOperator that is defined through
     a given neural network model N and whose values correspond to the output of the neural network represented by N.
      """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
         r"""
-        :param operands: operands on which act the :class:`NeuralNet`.
+        :param operands: operands on which act the :class:`MLOperator`.
         :param function_space: the :class:`.FunctionSpace`,
         or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
         Alternatively, another :class:`Function` may be passed here and its function space
@@ -70,7 +70,7 @@ class NeuralNet(AbstractExternalOperator):
                                                                operator_data=operator_data)
 
 
-class PytorchOperator(NeuralNet):
+class PytorchOperator(MLOperator):
     r"""A :class:`PytorchOperator`: is an implementation of ExternalOperator that is defined through
     a given PyTorch model N and whose values correspond to the output of the neural network represented by N.
     The inputs of N are obtained by interpolating `self.ufl_operands[0]` into `self.function_space`.
@@ -98,8 +98,8 @@ class PytorchOperator(NeuralNet):
                 - model: the Pytorch model
         """
 
-        NeuralNet.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
-                           argument_slots=argument_slots, operator_data=operator_data)
+        MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
+                            argument_slots=argument_slots, operator_data=operator_data)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
         self.model.double()  # or torch.set_default_dtype(torch.float64)
@@ -257,10 +257,15 @@ class PytorchOperator(NeuralNet):
 
 
 # Helper functions #
-def neuralnet(model, function_space, inputs_format=0):
-
+def ml_operator(model, function_space, inputs_format=0):
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')
 
     operator_data = {'model': model, 'inputs_format': inputs_format}
     return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
+
+
+def neuralnet(model, function_space, inputs_format=0):
+    import warnings
+    warnings.warn('`neuralnet` is deprecated, use `ml_operator` instead', FutureWarning)
+    return ml_operator(model, function_space, inputs_format=inputs_format)
