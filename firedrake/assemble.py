@@ -7,7 +7,9 @@ import operator
 from functools import cached_property
 
 import cachetools
+from pyrsistent import pmap
 import finat
+import loopy as lp
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
@@ -15,7 +17,7 @@ from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
-import pyop3
+import pyop3 as op3
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
@@ -369,7 +371,6 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
        Do not use this function unless you know what you're doing.
     """
-    raise NotImplementedError
     bcs = bcs or ()
     appctx = appctx or {}
 
@@ -399,6 +400,22 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
     if any(len(a.function_space()) > 1 for a in arguments) and mat_type == "baij":
         raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+
+    # experimental, will end up in pyop3
+    mesh = expr.ufl_domain().topology
+    # TODO handle different mat types
+    if mat_type != "aij":
+        raise NotImplementedError
+
+    def adjacency(pt):
+        return mesh.closure(mesh.star(pt))
+
+    # NOTE: The sparsity is here is topological, it doesn't yet know about DoFs
+    sparsity = make_sparsity(mesh, adjacency)
+
+    raise NotImplementedError("below unmodified")
+
+    # I think iteration_region is a bad design pattern, we just care about subsets
 
     get_cell_map = operator.methodcaller("cell_node_map")
     get_extf_map = operator.methodcaller("exterior_facet_node_map")
@@ -439,6 +456,57 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
     return matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
                          options_prefix=options_prefix)
+
+
+# TODO should accept a subset I think, to account for iteration regions
+def make_sparsity(mesh, adjacency):
+    inc_lpy_kernel = lp.make_kernel(
+        "{ [i]: 0 <= i < 1 }",
+        "x[i] = x[i] + 1",
+        [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType)],
+        name="inc",
+        target=op3.ir.LOOPY_TARGET,
+        lang_version=op3.ir.LOOPY_LANG_VERSION,
+    )
+    inc_kernel = op3.Function(inc_lpy_kernel, [op3.INC])
+
+    # count nonzeros
+    nnz = op3.HierarchicalArray(mesh.points, dtype=utils.IntType)
+    op3.do_loop(
+        pt := mesh.points.index(),
+        op3.loop(
+            adj_pt := adjacency(pt).index(),
+            inc_kernel(nnz[adj_pt])  # TODO would be nice to support __setitem__ for this
+        ),
+    )
+
+    # now populate the sparsity
+    set_lpy_kernel = lp.make_kernel(
+        "{ [i]: 0 <= i < 1 }",
+        "y[i] = x[i]",
+        [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType),
+         lp.GlobalArg("y", shape=(1,), dtype=utils.IntType)],
+        name="set",
+        target=op3.ir.LOOPY_TARGET,
+        lang_version=op3.ir.LOOPY_LANG_VERSION,
+    )
+    set_kernel = op3.Function(set_lpy_kernel, [op3.READ, op3.WRITE])
+
+    indices_axes = op3.AxisTree.from_nest(
+        {
+            mesh.points: {str(dim): op3.Axis(nnz[str(dim)]) for dim in range(mesh.dimension+1)}
+        }
+    )
+    indices = op3.HierarchicalArray(indices_axes, dtype=utils.IntType)
+    op3.do_loop(
+        pt := mesh.points.index(),
+        op3.loop(
+            adj_pt := adjacency(pt).index(),
+            set_kernel(adj_pt, indices[pt, adj_pt.i])
+        ),
+    )
+
+    raise NotImplementedError
 
 
 @PETSc.Log.EventDecorator()

@@ -875,13 +875,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         return op3.Map(
             closures,
-            name=f"{self.name}_closure_{ordering}",
+            name=f"{self.name}_closure_{ordering.value}",
         )
 
     @cached_property
     def _star(self):
         def star_func(pt):
-            return self.topology_dm.getTransitiveClosure(pt, use_cone=False)[0]
+            return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
 
         stars = {}
         for dim in range(self.dimension+1):
@@ -894,7 +894,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 checked_zip(sizes, map_data)
             ):
                 outer_axis = self.points[str(dim)].root
-                size_dat = op3.HierarchicalArray(outer_axis, data=data)
+                size_dat = op3.HierarchicalArray(outer_axis, data=size)
                 inner_axis = op3.Axis(size_dat)
                 map_axes = op3.AxisTree.from_nest(
                     {outer_axis: inner_axis}
@@ -1324,29 +1324,37 @@ class MeshTopology(AbstractMeshTopology):
                 assert ptr == sum(sizes)
         else:
             # ragged
-            sizes = np.zeros((npoints, self.dimension+1), dtype=IntType)
+            sizes = np.zeros((self.dimension+1, npoints), dtype=IntType)
             for pt in range(pstart, pend):
                 cpt, cpt_pt = self.points.axis_to_component_number(pt)
                 renum_cpt_pt = self.points.renumber_point(cpt, cpt_pt)
+
                 for map_pt in map_func(pt):
                     map_cpt, _ = self.points.axis_to_component_number(map_pt)
                     map_dim = int(map_cpt.label)
-                    sizes[renum_cpt_pt, map_dim] += 1
+                    sizes[map_dim, renum_cpt_pt] += 1
 
             map_data = tuple(
-                np.empty(sum(sizes[:, d]), dtype=IntType)
+                np.empty(sum(sizes[d]), dtype=IntType)
                 for d in range(self.dimension+1)
             )
             ptrs = [0] * (self.dimension+1)
-            for renum_cpt_pt, pt in enumerate(range(pstart, pend)):
+            for pt in range(pstart, pend):
+                cpt, cpt_pt = self.points.axis_to_component_number(pt)
+                renum_cpt_pt = self.points.renumber_point(cpt, cpt_pt)
+
                 map_pts = map_func(pt)
-                for start, stop in pairwise(steps(sizes[renum_cpt_pt])):
-                    for map_pt in map_pts[start:stop]:
-                        map_cpt, map_cpt_pt = self.points.axis_to_component_number(map_pt)
-                        map_dim = int(map_cpt.label)
-                        renum_map_cpt_pt = self.points.renumber_point(map_cpt, map_cpt_pt)
-                        map_data[map_dim][ptrs[map_dim]] = renum_map_cpt_pt
-                        ptrs[map_dim] += 1
+
+                # DMPlex queries return points in *decreasing* order of dimension (i.e.
+                # cells -> faces -> ...). This is the opposite to Firedrake's convention
+                # so we have to be careful how we parse the points returned from map_func.
+                for map_pt in map_func(pt):
+                    map_cpt, map_cpt_pt = self.points.axis_to_component_number(map_pt)
+                    map_dim = int(map_cpt.label)
+                    renum_map_cpt_pt = self.points.renumber_point(map_cpt, map_cpt_pt)
+                    map_data[map_dim][ptrs[map_dim]] = renum_map_cpt_pt
+                    ptrs[map_dim] += 1
+            assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
         return sizes, map_data
 
     @cached_property
