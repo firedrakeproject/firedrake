@@ -29,8 +29,6 @@ class ConstantMixin(OverloadedType):
                                     annotate=annotate, **kwargs)
             init(self, *args, **kwargs)
 
-            self._is_control = None
-
             other = args[0]
             if isinstance(other, (type(self), AdjFloat)):
                 self.assign(other, annotate=annotate)
