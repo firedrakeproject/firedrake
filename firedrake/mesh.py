@@ -3789,7 +3789,7 @@ def _parent_mesh_embedding(
             ) = parent_mesh.locate_cells_ref_coords_and_dists(
                 coords_global[changed_ranks_tied],
                 tolerance,
-                cells_ignore=old_parent_cell_nums[:, changed_ranks_tied],
+                cells_ignore=old_parent_cell_nums.T[changed_ranks_tied, :],
             )
             # delete extra dimension if necessary
             if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
