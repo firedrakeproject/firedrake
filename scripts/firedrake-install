@@ -1427,7 +1427,7 @@ def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
     run_pip(["install", "netgen-mesher==6.2.2304.post142.dev0"])
     log.info("Installing ngsPETSc.")
-    url = "git+https://github.com/nbouziani/ngsPETSc.git@patch-1"
+    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
     ngsPETSc_changed = False
     if os.path.exists("ngsPETSc"):
         ngsPETSc_changed |= git_update("ngsPETSc")
