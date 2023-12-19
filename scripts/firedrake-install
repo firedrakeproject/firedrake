@@ -1765,17 +1765,6 @@ run_pip(["install", "-U", "nanobind"])
 run_pip(["install", "-U", "make"])
 run_pip(["install", "-U", "pcpp"])
 
-# See build failure caused by pybind11==2.10.0 at https://github.com/firedrakeproject/firedrake/runs/7370283417?check_suite_focus=true.
-log.info("We use pybind11==2.9.2 until the issue with pybind11==2.10.0 is resolved.\n")
-run_pip(["install", "pybind11==2.9.2"])
-# Tarball of islpy==2023.2 appears to be broken
-run_pip([
-    "install",
-    "--no-build-isolation",
-    "--no-binary", ",".join(wheel_blacklist),
-    "islpy!=2023.2"
-])
-
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
     slepc_dir, _ = get_slepc_dir()
