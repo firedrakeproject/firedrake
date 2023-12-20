@@ -267,8 +267,16 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                 cset_entry = <PetscInt>set_entry
                 for i in range(nrcomposedmaps):
                     rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                    if rset_entry < 0:
+                        break
+                if rset_entry < 0:
+                    continue
                 for i in range(nccomposedmaps):
                     cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
+                    if cset_entry < 0:
+                        break
+                if cset_entry < 0:
+                    continue
                 CHKERR(MatSetValuesBlockedLocal(mat.mat, rarity, &rmap[<int>rset_entry, 0],
                                                 carity, &cmap[<int>cset_entry, 0],
                                                 values, PETSC_INSERT_VALUES))
@@ -321,8 +329,16 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                     cset_entry = <PetscInt>set_entry
                     for i in range(nrcomposedmaps):
                         rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                        if rset_entry < 0:
+                            break
+                    if rset_entry < 0:
+                        continue
                     for i in range(nccomposedmaps):
                         cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
+                        if cset_entry < 0:
+                            break
+                    if cset_entry < 0:
+                        continue
                     if constant_layers:
                         layer_start = layers[0, 0]
                         layer_end = layers[0, 1] - 1
