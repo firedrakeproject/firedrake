@@ -1124,13 +1124,13 @@ class TestSparsityAPI:
 
         # Note: We can't actually reproduce a Sparsity from its repr because
         # the Sparsity constructor checks that the maps are populated
-        r = "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r)" % (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse)
+        r = "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r, diagonal_block=%r)" % (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse, sparsity._diagonal_block)
         assert repr(sparsity) == r
 
     def test_sparsity_str(self, sparsity):
         "Sparsity should have the expected string representation."
-        s = "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s" % \
-            (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse)
+        s = "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s, diagonal_block %s" % \
+            (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse, sparsity._diagonal_block)
         assert str(sparsity) == s
 
 

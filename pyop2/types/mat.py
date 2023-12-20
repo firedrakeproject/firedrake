@@ -35,7 +35,7 @@ class Sparsity(caching.ObjectCached):
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
-    def __init__(self, dsets, maps_and_regions, name=None, nest=None, block_sparse=None):
+    def __init__(self, dsets, maps_and_regions, name=None, nest=None, block_sparse=None, diagonal_block=True):
         r"""
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
@@ -51,6 +51,8 @@ class Sparsity(caching.ObjectCached):
         :param nest: Should the sparsity over mixed set be built as nested blocks?
         :param block_sparse: Should the sparsity for datasets with
             cdim > 1 be built as a block sparsity?
+        :param diagonal_block: Flag indicating whether this sparsity is for
+            a matrix/submatrix located on the diagonal.
         """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
@@ -58,6 +60,7 @@ class Sparsity(caching.ObjectCached):
         self._dsets = dsets
         self._maps_and_regions = maps_and_regions
         self._block_sparse = block_sparse
+        self._diagonal_block = diagonal_block
         self.lcomm = mpi.internal_comm(self.dsets[0].comm, self)
         self.rcomm = mpi.internal_comm(self.dsets[1].comm, self)
         if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
@@ -66,7 +69,7 @@ class Sparsity(caching.ObjectCached):
             self._o_nnz = None
         else:
             rset, cset = self.dsets
-            self._has_diagonal = (rset == cset)
+            self._has_diagonal = (rset == cset) and diagonal_block
             tmp = itertools.product([x.cdim for x in self.dsets[0]],
                                     [x.cdim for x in self.dsets[1]])
             dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
@@ -88,7 +91,8 @@ class Sparsity(caching.ObjectCached):
                 row = []
                 for j, cds in enumerate(dsets[1]):
                     row.append(Sparsity((rds, cds), tuple(self._maps_and_regions[(i, j)]) if (i, j) in self._maps_and_regions else (),
-                                        block_sparse=block_sparse))
+                                        block_sparse=block_sparse,
+                                        diagonal_block=(dsets[0] is dsets[1] and i == j)))
                 self._blocks.append(row)
             self._d_nnz = tuple(s._d_nnz for s in self)
             self._o_nnz = tuple(s._o_nnz for s in self)
@@ -113,7 +117,7 @@ class Sparsity(caching.ObjectCached):
 
     @classmethod
     @utils.validate_type(('name', str, ex.NameTypeError))
-    def _process_args(cls, dsets, maps_and_regions, name=None, nest=None, block_sparse=None):
+    def _process_args(cls, dsets, maps_and_regions, name=None, nest=None, block_sparse=None, diagonal_block=True):
         from pyop2.types import IterationRegion
 
         if len(dsets) != 2:
@@ -167,11 +171,12 @@ class Sparsity(caching.ObjectCached):
             block_sparse = conf.configuration["block_sparsity"]
         kwargs = {"name": name,
                   "nest": nest,
-                  "block_sparse": block_sparse}
+                  "block_sparse": block_sparse,
+                  "diagonal_block": diagonal_block}
         return (cache,) + (tuple(dsets), processed_maps_and_regions), kwargs
 
     @classmethod
-    def _cache_key(cls, dsets, maps_and_regions, name, nest, block_sparse, *args, **kwargs):
+    def _cache_key(cls, dsets, maps_and_regions, name, nest, block_sparse, diagonal_block, *args, **kwargs):
         return (dsets, tuple(maps_and_regions.items()), nest, block_sparse)
 
     def __getitem__(self, idx):
@@ -239,11 +244,11 @@ class Sparsity(caching.ObjectCached):
                 yield s
 
     def __str__(self):
-        return "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s" % \
-               (self._dsets, self._maps_and_regions, self._name, self._nested, self._block_sparse)
+        return "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s, diagonal_block %s" % \
+               (self._dsets, self._maps_and_regions, self._name, self._nested, self._block_sparse, self._diagonal_block)
 
     def __repr__(self):
-        return "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r)" % (self.dsets, self._maps_and_regions, self.name, self._nested, self._block_sparse)
+        return "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r, diagonal_block=%r)" % (self.dsets, self._maps_and_regions, self.name, self._nested, self._block_sparse, self._diagonal_block)
 
     @utils.cached_property
     def nnz(self):
