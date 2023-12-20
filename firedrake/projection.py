@@ -220,10 +220,14 @@ class BasicProjector(ProjectorBase):
     def assembler(self):
         from firedrake.assemble import OneFormAssembler
         return OneFormAssembler(self.rhs_form, tensor=self.residual,
+                                bcs=self.bcs, zero_bc_nodes=True,
                                 form_compiler_parameters=self.form_compiler_parameters).assemble
 
     @property
     def rhs(self):
+        if self.bcs is not None:
+            for bc in self.bcs:
+                bc.apply(self.target)
         self.assembler()
         return self.residual
 
