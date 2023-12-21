@@ -1,4 +1,5 @@
 import abc
+import collections
 from collections import OrderedDict
 import functools
 import itertools
@@ -7,7 +8,7 @@ import operator
 from functools import cached_property
 
 import cachetools
-from pyrsistent import pmap
+from pyrsistent import freeze, pmap
 import finat
 import loopy as lp
 import firedrake
@@ -407,8 +408,11 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
     if mat_type != "aij":
         raise NotImplementedError
 
+    adjacency_map = op3.transforms.compress(mesh.points, lambda p: mesh.closure(mesh.star(p)), uniquify=True)
+
     def adjacency(pt):
-        return mesh.closure(mesh.star(pt))
+        # return mesh.closure(mesh.star(pt))
+        return adjacency_map(pt)
 
     # NOTE: The sparsity is here is topological, it doesn't yet know about DoFs
     sparsity = make_sparsity(mesh, adjacency)
@@ -460,53 +464,125 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
 # TODO should accept a subset I think, to account for iteration regions
 def make_sparsity(mesh, adjacency):
-    inc_lpy_kernel = lp.make_kernel(
-        "{ [i]: 0 <= i < 1 }",
-        "x[i] = x[i] + 1",
-        [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType)],
-        name="inc",
-        target=op3.ir.LOOPY_TARGET,
-        lang_version=op3.ir.LOOPY_LANG_VERSION,
-    )
-    inc_kernel = op3.Function(inc_lpy_kernel, [op3.INC])
+    # NOTE: A lot of this code is very similar to op3.transforms.compress
+    # In fact, it is almost exactly identical and the outputs are the same!
+    # The only difference, I think, is that one produces a big array
+    # whereas the other produces a map. This needs some more thought.
+    # ---
+    # I think it might be fair to say that a sparsity and adjacency maps are
+    # completely equivalent to each other. Constructing the indices explicitly
+    # isn't actually very helpful.
+
+    # currently unused
+    # inc_lpy_kernel = lp.make_kernel(
+    #     "{ [i]: 0 <= i < 1 }",
+    #     "x[i] = x[i] + 1",
+    #     [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType)],
+    #     name="inc",
+    #     target=op3.ir.LOOPY_TARGET,
+    #     lang_version=op3.ir.LOOPY_LANG_VERSION,
+    # )
+    # inc_kernel = op3.Function(inc_lpy_kernel, [op3.INC])
+
+    iterset = mesh.points.as_tree()
+
+    # prepare nonzero arrays
+    sizess = {}
+    for leaf_axis, leaf_clabel in iterset.leaves:
+        iterset_path = iterset.path(leaf_axis, leaf_clabel)
+
+        # bit unpleasant to have to create a loop index for this
+        sizes = {}
+        index = iterset.index()
+        cf_map = adjacency(index).with_context({index.id: iterset_path})
+        for target_path in cf_map.leaf_target_paths:
+            if iterset.depth != 1:
+                # TODO For now we assume iterset to have depth 1
+                raise NotImplementedError
+            # The axes of the size array correspond only to the specific
+            # components selected from iterset by iterset_path.
+            clabels = (op3.utils.just_one(iterset_path.values()),)
+            subiterset = iterset[clabels]
+
+            # subiterset is an axis tree with depth 1, we only want the axis
+            assert subiterset.depth == 1
+            subiterset = subiterset.root
+
+            sizes[target_path] = op3.HierarchicalArray(subiterset, dtype=utils.IntType, prefix="nnz")
+        sizess[iterset_path] = sizes
+    sizess = freeze(sizess)
 
     # count nonzeros
-    nnz = op3.HierarchicalArray(mesh.points, dtype=utils.IntType)
-    op3.do_loop(
-        pt := mesh.points.index(),
-        op3.loop(
-            adj_pt := adjacency(pt).index(),
-            inc_kernel(nnz[adj_pt])  # TODO would be nice to support __setitem__ for this
-        ),
-    )
+    # TODO Currently a Python loop because nnz is context sensitive and things get
+    # confusing. I think context sensitivity might be better not tied to a loop index.
+    # op3.do_loop(
+    #     p := mesh.points.index(),
+    #     op3.loop(
+    #         q := adjacency(p).index(),
+    #         inc_kernel(nnz[p])  # TODO would be nice to support __setitem__ for this
+    #     ),
+    # )
+    for p in iterset.iter():
+        counter = collections.defaultdict(lambda: 0)
+        for q in adjacency(p.index).iter({p}):
+            counter[q.target_path] += 1
+
+        for target_path, npoints in counter.items():
+            nnz = sizess[p.source_path][target_path]
+            nnz.set_value(p.source_path, p.source_exprs, npoints)
 
     # now populate the sparsity
-    set_lpy_kernel = lp.make_kernel(
-        "{ [i]: 0 <= i < 1 }",
-        "y[i] = x[i]",
-        [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType),
-         lp.GlobalArg("y", shape=(1,), dtype=utils.IntType)],
-        name="set",
-        target=op3.ir.LOOPY_TARGET,
-        lang_version=op3.ir.LOOPY_LANG_VERSION,
-    )
-    set_kernel = op3.Function(set_lpy_kernel, [op3.READ, op3.WRITE])
+    # unused
+    # set_lpy_kernel = lp.make_kernel(
+    #     "{ [i]: 0 <= i < 1 }",
+    #     "y[i] = x[i]",
+    #     [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType),
+    #      lp.GlobalArg("y", shape=(1,), dtype=utils.IntType)],
+    #     name="set",
+    #     target=op3.ir.LOOPY_TARGET,
+    #     lang_version=op3.ir.LOOPY_LANG_VERSION,
+    # )
+    # set_kernel = op3.Function(set_lpy_kernel, [op3.READ, op3.WRITE])
 
-    indices_axes = op3.AxisTree.from_nest(
-        {
-            mesh.points: {str(dim): op3.Axis(nnz[str(dim)]) for dim in range(mesh.dimension+1)}
-        }
-    )
-    indices = op3.HierarchicalArray(indices_axes, dtype=utils.IntType)
-    op3.do_loop(
-        pt := mesh.points.index(),
-        op3.loop(
-            adj_pt := adjacency(pt).index(),
-            set_kernel(adj_pt, indices[pt, adj_pt.i])
-        ),
-    )
+    # prepare sparsity, note that this is different to how we produce the maps since
+    # the result is a single array
+    subaxes = {}
+    for iterset_path, sizes in sizess.items():
+        axlabel, clabel = op3.utils.just_one(iterset_path.items())
+        assert axlabel == mesh.name
+        subaxes[clabel] = op3.Axis(
+            [
+                op3.AxisComponent(nnz, label=str(target_path))
+                for target_path, nnz in sizes.items()
+            ],
+            "inner",
+        )
+    sparsity_axes = op3.AxisTree.from_nest({mesh.points.copy(numbering=None, sf=None): subaxes})
+    sparsity = op3.HierarchicalArray(sparsity_axes, dtype=utils.IntType, prefix="sparsity")
 
-    raise NotImplementedError
+    # The following works if I define .enumerate() (needs to be a counter, not
+    # just a loop index).
+    # op3.do_loop(
+    #     p := mesh.points.index(),
+    #     op3.loop(
+    #         q := adjacency(p).enumerate(),
+    #         set_kernel(q, indices[p, q.i])
+    #     ),
+    # )
+    for p in iterset.iter():
+        # this is needed because a simple enumerate cannot distinguish between
+        # different labels
+        counters = collections.defaultdict(itertools.count)
+        for q in adjacency(p.index).iter({p}):
+            leaf_axis = sparsity.axes.child(*sparsity.axes._node_from_path(p.source_path))
+            leaf_clabel = str(q.target_path)
+            path = p.source_path | {leaf_axis.label: leaf_clabel}
+            indices = p.source_exprs | {leaf_axis.label: next(counters[q.target_path])}
+            # we expect maps to only output a single target index
+            q_value = op3.utils.just_one(q.target_exprs.values())
+            sparsity.set_value(path, indices, q_value)
+
+    return sparsity
 
 
 @PETSc.Log.EventDecorator()

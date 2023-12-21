@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy
+from pyrsistent import freeze
 
 import ufl
 import finat.ufl
@@ -680,10 +681,44 @@ class FunctionSpace:
             name=name
         )
 
+    # this is badly named, loop_index must currently only be cells
     def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
-        # Not necessarily great than I need to add the extra slice here
-        return (self.mesh().closure(loop_index, "fiat"), slice(None)) + (slice(None),) * len(self.shape)
+        # I reckon it would be much much nicer to implicitly add slices? but then
+        # reordering mixed would lead to undefined behaviour...
+        closure_map = self.mesh().closure(loop_index, "fiat")
+
+        index_forest = {}
+        dof_slicess = []
+        for path in loop_index.paths:
+            loop_context = freeze({loop_index.id: path})
+
+            cf_closure_map = closure_map.with_context(loop_context)
+            index_tree = op3.IndexTree(cf_closure_map)
+            for clabel, target_path in op3.utils.checked_zip(
+                cf_closure_map.component_labels,
+                cf_closure_map.leaf_target_paths,
+            ):
+                mesh_axis, mesh_component = self.axes._node_from_path(target_path)
+                dof_axis = self.axes.child(mesh_axis, mesh_component)
+                dof_slice = op3.Slice(
+                    dof_axis.label,
+                    [op3.AffineSliceComponent(dof_axis.component.label)]
+                )
+                index_tree = index_tree.add_node(dof_slice, cf_closure_map, clabel)
+
+                shape_axis = self.axes.child(dof_axis, dof_axis.component)
+                parent_index = dof_slice
+                while shape_axis:
+                    shape_slice = op3.Slice(shape_axis.label, [op3.AffineSliceComponent(shape_axis.component.label)])
+                    index_tree = index_tree.add_node(shape_slice, parent_index, parent_index.component_label)
+                    shape_axis = self.axes.child(shape_axis, shape_axis.component)
+                    parent_index = shape_slice
+
+            index_forest[loop_context] = index_tree
+        # TODO
+        # return op3.IndexForest(
+        return freeze(index_forest)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
