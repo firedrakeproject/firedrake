@@ -561,7 +561,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         r"The user comm."
         self._comm = internal_comm(self.user_comm)
         r"The internal comm."
-        dmcommon.label_facets(self.topology_dm)
         self._distribute()
         self._grown_halos = False
 
@@ -574,6 +573,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 self._add_overlap()
             if self.sfXB is not None:
                 self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
+            dmcommon.label_facets(self.topology_dm)
             dmcommon.complete_facet_labels(self.topology_dm)
             # TODO: Allow users to set distribution name if they want to save
             #       conceptually the same mesh but with different distributions,

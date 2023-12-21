@@ -1576,17 +1576,15 @@ def label_facets(PETSc.DM plex):
 
     if get_topological_dimension(plex) == 0:
         return
+    plex.removeLabel(ext_label)
+    plex.removeLabel(int_label)
+    plex.createLabel(ext_label)
+    plex.createLabel(int_label)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
-    plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
     # Mark boundaries as exterior_facets.
-    # Note.  This must come before distribution, because otherwise
-    # DMPlex will consider facets on the domain boundary to be
-    # exterior, which is wrong.
-    if not plex.isDistributed():
-        plex.markBoundaryFaces(ext_label)
-    plex.createLabel(int_label)
+    plex.markBoundaryFaces(ext_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
     CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):

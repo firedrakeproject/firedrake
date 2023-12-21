@@ -513,13 +513,13 @@ class FunctionSpace:
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name
+        r"""The (optional) descriptive name for this space."""
 
         # User comm
         self.comm = mesh.comm
         # Internal comm
         self._comm = mpi.internal_comm(mesh.comm)
-        # Need to create finat element again as sdata does not
-        # want to carry finat_element.
+
         self.finat_element = create_element(element)
 
         axes = op3.PartialAxisTree(mesh.points)
@@ -530,6 +530,26 @@ class FunctionSpace:
                 subaxes = subaxes.add_subaxis(op3.Axis(dim), *subaxes.leaf)
             axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
         self.axes = axes.set_up()
+
+    # def set_shared_data(self):
+    #     element = self.ufl_element()
+    #     sdata = get_shared_data(self._mesh, element)
+    #     # Need to create finat element again as sdata does not
+    #     # want to carry finat_element.
+    #     # Used for reconstruction of mixed/component spaces.
+    #     # sdata carries real_tensorproduct.
+    #     self._shared_data = sdata
+    #     self.real_tensorproduct = sdata.real_tensorproduct
+    #     self.extruded = sdata.extruded
+    #     self.offset = sdata.offset
+    #     self.offset_quotient = sdata.offset_quotient
+    #     self.cell_boundary_masks = sdata.cell_boundary_masks
+    #     self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+    #     self.global_numbering = sdata.global_numbering
+
+    # def make_dof_dset(self):
+    #     return op2.DataSet(self._shared_data.node_set, self.shape or 1,
+    #                        name=f"{self.name}_nodes_dset")
 
     def __del__(self):
         if hasattr(self, "_comm"):
@@ -571,7 +591,17 @@ class FunctionSpace:
     @utils.cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        space_dm = self.pyop3_space.dm
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+        dm = self.dof_dset.dm
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level,
+                             sf=self.mesh().topology_dm.getPointSF(),
+                             section=self.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(space_dm, self)
         return space_dm
@@ -1125,17 +1155,7 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    rank = 0
-    shape = ()
-    value_size = 1
-
-    def __init__(self, mesh, element, name):
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self.name = name
-        self.comm = mesh.comm
-        self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
-        self.node_set = self.dof_dset.set
+    global_numbering = None
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
@@ -1150,16 +1170,11 @@ class RealFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=None)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+    def set_shared_data(self):
+        pass
+
+    def make_dof_dset(self):
+        return op2.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
@@ -1186,9 +1201,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
-
-    def dim(self):
-        return 1
 
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
