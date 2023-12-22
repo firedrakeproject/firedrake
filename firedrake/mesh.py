@@ -1020,6 +1020,11 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             maps.append(b.submesh_map_parent_child(dim))
         return op2.ComposedMap(*reversed(maps))
 
+    # trans mesh
+
+    def trans_mesh_entity_map(self, base_mesh, dim):
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -1459,6 +1464,17 @@ class MeshTopology(AbstractMeshTopology):
         values[m.values_with_halo.reshape(-1)] = np.arange(to_set.total_size)
         return op2.Map(from_set, to_set, 1,
                        values.reshape((from_set.total_size, 1)), f"submesh_map_parent_child_{dim}")
+
+    # trans mesh
+
+    def trans_mesh_entity_map(self, base_mesh, dim):
+        common = self.submesh_youngest_common_ancester(base_mesh)
+        if common is None:
+            raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
+        elif base_mesh is self:
+            raise NotImplementedError("Currenlty can not return identity map")
+        else:
+            return self.submesh_map_composed(base_mesh, dim)
 
 
 class ExtrudedMeshTopology(MeshTopology):

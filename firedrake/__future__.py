@@ -1,5 +1,5 @@
 from ufl.domain import as_domain, extract_unique_domain
-from firedrake.mesh import VertexOnlyMeshTopology
+from firedrake.mesh import MeshTopology, VertexOnlyMeshTopology
 from firedrake.interpolation import (interpolate as interpolate_old,
                                      Interpolator as InterpolatorOld,
                                      SameMeshInterpolator as SameMeshInterpolatorOld,
@@ -13,13 +13,13 @@ class Interpolator(InterpolatorOld):
     def __new__(cls, expr, V, **kwargs):
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
-        if target_mesh is not source_mesh:
+        if target_mesh is source_mesh or all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh]) and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]:
+            return object.__new__(SameMeshInterpolator)
+        else:
             if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 return object.__new__(SameMeshInterpolator)
             else:
                 return object.__new__(CrossMeshInterpolator)
-        else:
-            return object.__new__(SameMeshInterpolator)
 
     interpolate = InterpolatorOld._interpolate_future
 

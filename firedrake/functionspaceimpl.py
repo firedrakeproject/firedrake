@@ -783,6 +783,29 @@ class FunctionSpace(object):
                              self.offset,
                              self.offset_quotient)
 
+    def cell_node_map_composed(self, base_mesh):
+        r"""Return `cell_node_map` rebased on ``base_mesh``.
+
+        Parameters
+        ----------
+        base_mesh : MeshTopology
+            Base mesh topology.
+
+        Returns
+        -------
+        None or op2.Map or op2.ComposedMap
+            `cell_node_map` rebased on ``base_mesh``.
+
+        """
+        m = self.cell_node_map()
+        if m is None:
+            return None
+        elif base_mesh is self.mesh():
+            return m
+        else:
+            dim = self.mesh().topology_dm.getDimension()
+            return op2.ComposedMap(m, self.mesh().trans_mesh_entity_map(base_mesh, dim))
+
     def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
 
