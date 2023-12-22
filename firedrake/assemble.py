@@ -1347,13 +1347,16 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
         else:
             maps_and_regions = defaultdict(lambda: defaultdict(set))
-            for local_kernel in self._all_local_kernels:
+            all_meshes = collect_domains_in_form(self._form)
+            for local_kernel, subdomain_id in self._all_local_kernels:
                 i, j = local_kernel.indices
+                mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                 # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
                 integral_type = local_kernel.kinfo.integral_type
-                rmap_ = test.function_space().topological[i].entity_node_map(integral_type)
+                all_subdomain_ids = self.all_integer_subdomain_ids[local_kernel.kinfo.domain_number]
+                rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
                 # rmap_ = rmap_.split[i] if rmap_ is not None else None
-                cmap_ = trial.function_space().topological[j].entity_node_map(integral_type)
+                cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
                 # cmap_ = cmap_.split[j] if cmap_ is not None else None
                 region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                 maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
@@ -1643,7 +1646,7 @@ class _GlobalKernelBuilder:
 
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_arg = V.topological.entity_node_map(self._integral_type)._global_kernel_arg
+        map_arg = V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1661,7 +1664,7 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._integral_type)._global_kernel_arg for V in [Vrow, Vcol])
+            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1967,7 +1970,7 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return V.entity_node_map(self._integral_type)
+        return V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
