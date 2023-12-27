@@ -287,7 +287,8 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-def test_near_nullspace_mixed():
+@pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
+def test_near_nullspace_mixed(aux_pc):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     PETSc.Sys.popErrorHandler()
@@ -304,8 +305,17 @@ def test_near_nullspace_mixed():
     inside_box = And(abs(x-0.5) < 0.2, abs(y-0.75) < 0.2)
     mu = conditional(inside_box, 1e8, 1)
 
-    a = inner(mu*2*sym(grad(u)), grad(v))*dx
+    # mu might vary within cells lying on the box boundary
+    # we need a higher quadrature degree
+    a = inner(mu*2*sym(grad(u)), grad(v))*dx(degree=6)
     a += -inner(p, div(v))*dx + inner(div(u), q)*dx
+    aP = None
+    mu0 = mu
+    if aux_pc:
+        DG0 = FunctionSpace(mesh, "DG", 0)
+        mu0 = Function(DG0).interpolate(mu)
+        aP = inner(mu0*2*sym(grad(u)), grad(v))*dx(degree=2)
+        aP += -inner(p, div(v))*dx + inner(div(u), q)*dx
 
     f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
     L = inner(f, v)*dx
@@ -341,8 +351,6 @@ def test_near_nullspace_mixed():
             'pc_type': 'python',
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
-            'assembled_pc_gamg_aggressive_square_graph': None,  # See https://gitlab.com/petsc/petsc/-/commit/d529f056d75cd16b380adc3e50ccb741df53d0de
-            'assembled_pc_gamg_mis_k_minimum_degree_ordering': True,  # See https://gitlab.com/petsc/petsc/-/commit/d529f056d75cd16b380adc3e50ccb741df53d0de
             'assembled_mg_levels_pc_type': 'sor',
             'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,  # See https://gitlab.com/petsc/petsc/-/issues/1221
             'ksp_rtol': 1e-7,
@@ -360,9 +368,9 @@ def test_near_nullspace_mixed():
         }
     }
 
-    problem = LinearVariationalProblem(a, L, w, bcs=bcs)
+    problem = LinearVariationalProblem(a, L, w, bcs=bcs, aP=aP)
     solver = LinearVariationalSolver(
-        problem, appctx={'mu': mu},
+        problem, appctx={'mu': mu0},
         nullspace=pressure_nullspace,
         transpose_nullspace=pressure_nullspace,
         near_nullspace=near_nullmodes_W,
@@ -374,5 +382,5 @@ def test_near_nullspace_mixed():
     assert ksp_inner.getConvergedReason() > 0
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
-    # currently ~64 vs. >110-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 75
+    # currently ~22 vs. >45-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 25

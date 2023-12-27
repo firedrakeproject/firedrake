@@ -10,11 +10,6 @@ def mesh(request):
     return UnitSquareMesh(10, 10, quadrilateral=quadrilateral)
 
 
-@pytest.fixture(scope='module')
-def one(mesh):
-    return Constant(1, domain=mesh)
-
-
 domains = [(1, 2),
            (2, 3),
            (3, 4),
@@ -22,31 +17,31 @@ domains = [(1, 2),
            (1, 2, 3, 4)]
 
 
-def test_ds_dx(one):
-    assert np.allclose(assemble(one*dx + one*ds), 5.0)
+def test_ds_dx(mesh):
+    assert np.allclose(assemble(1*dx(domain=mesh) + 1*ds(domain=mesh)), 5.0)
 
 
 @pytest.mark.parametrize('domains', domains)
-def test_dsn(one, domains):
+def test_dsn(mesh, domains):
 
-    assert np.allclose(assemble(one*ds(domains)), len(domains))
+    assert np.allclose(assemble(1*ds(domains, domain=mesh)), len(domains))
 
-    form = one*ds(domains[0])
+    form = 1*ds(domains[0], domain=mesh)
 
     for d in domains[1:]:
-        form += one*ds(d)
+        form += 1*ds(d, domain=mesh)
     assert np.allclose(assemble(form), len(domains))
 
 
 @pytest.mark.parallel
-def test_dsn_parallel(one):
+def test_dsn_parallel(mesh):
     for d in domains:
-        assert np.allclose(assemble(one*ds(d)), len(d))
+        assert np.allclose(assemble(1*ds(d, domain=mesh)), len(d))
 
     for domain in domains:
-        form = one*ds(domain[0])
+        form = 1*ds(domain[0], domain=mesh)
         for d in domain[1:]:
-            form += one*ds(d)
+            form += 1*ds(d, domain=mesh)
         assert np.allclose(assemble(form), len(domain))
 
 
@@ -67,27 +62,22 @@ def test_dsn_parallel(one):
                                            ['scalar', 'vector', 'tensor']))
 def test_math_functions(mesh, expr, value, typ, fs_type):
     if typ == 'function':
-        if fs_type == "vector":
-            V = VectorFunctionSpace(mesh, 'CG', 1)
-        elif fs_type == "tensor":
-            V = TensorFunctionSpace(mesh, 'CG', 1)
-        else:
-            V = FunctionSpace(mesh, 'CG', 1)
-        f = Function(V)
-        f.assign(value)
-        if fs_type == "vector":
-            f = dot(f, f)
-        elif fs_type == "tensor":
-            f = inner(f, f)
+        family, degree = 'CG', 1
     elif typ == 'constant':
-        if fs_type == "vector":
-            f = Constant([value, value], domain=mesh)
-            f = dot(f, f)
-        elif fs_type == "tensor":
-            f = Constant([[value, value], [value, value]], domain=mesh)
-            f = inner(f, f)
-        else:
-            f = Constant(value, domain=mesh)
+        family, degree = 'Real', 0
+
+    if fs_type == "vector":
+        V = VectorFunctionSpace(mesh, family, degree)
+    elif fs_type == "tensor":
+        V = TensorFunctionSpace(mesh, family, degree)
+    else:
+        V = FunctionSpace(mesh, family, degree)
+    f = Function(V)
+    f.assign(value)
+    if fs_type == "vector":
+        f = dot(f, f)
+    elif fs_type == "tensor":
+        f = inner(f, f)
 
     actual = assemble(eval(expr)*dx)
 

@@ -194,7 +194,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
     # use it again for a different Function in V
-    v = Function(V).assign(Constant(2, domain=parentmesh))
+    v = Function(V).assign(Constant(2))
     A_w.interpolate(v, output=w_v)
     assert np.allclose(w_v.dat.data_ro, 2)
 
@@ -343,9 +343,9 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     # Remove below when interpolating constant onto Real works for extruded
     if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
         with pytest.raises(ValueError):
-            interpolate(Constant(1.0, domain=parentmesh), V)
+            interpolate(Constant(1), V)
         return
-    v = interpolate(Constant(1.0, domain=parentmesh), V)
+    v = interpolate(Constant(1), V)
     w_v = interpolate(v, W)
     assert np.allclose(w_v.dat.data_ro, 1.)
 
@@ -358,9 +358,9 @@ def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # Remove below when interpolating constant onto Real works for extruded
     if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
         with pytest.raises(ValueError):
-            interpolate(Constant(1.0, domain=parentmesh), V)
+            interpolate(Constant(1), V)
         return
-    v = interpolate(Constant(1.0, domain=parentmesh), V)
+    v = interpolate(Constant(1), V)
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
     A_w.interpolate(v, output=w_v)
@@ -383,8 +383,8 @@ def test_extruded_cell_parent_cell_list():
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour=None)
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
-    assert np.equal(vms.coordinates.dat.data_ro, coords).all()
-    assert np.equal(vmx.coordinates.dat.data_ro, coords).all()
+    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._dm_renumbering]).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._dm_renumbering]).all()
 
     # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
     # per cell which is the expression evaluated at the cell midpoint.
@@ -401,8 +401,8 @@ def test_extruded_cell_parent_cell_list():
     expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
     assert np.allclose(fs.at(coords), expected)
     assert np.allclose(fx.at(coords), expected)
-    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected)
-    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected)
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
 
 
 @pytest.mark.parallel

@@ -1207,10 +1207,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         bint variable, extruded, on_base_
 
     dm = mesh.topology_dm
-
     if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
-
     variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
     extruded_periodic = mesh.cell_set._extruded_periodic
@@ -1226,19 +1224,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
                 nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - 1) for i in range(2))
             else:
                 nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
-
     section = PETSc.Section().create(comm=mesh._comm)
-
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
-    if isinstance(dm, PETSc.DMPlex):
-        # Renumbering only implemented for DMPlex
-        renumbering = mesh._plex_renumbering
-        CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+    renumbering = mesh._dm_renumbering
+    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
-
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
-
     for i in range(dimension + 1):
         get_depth_stratum(dm.dm, i, &pStart, &pEnd)
         if not variable:
@@ -1449,7 +1441,7 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
     CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
     CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
 
     facet = 0
@@ -1479,7 +1471,7 @@ def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, lab
             facet += 1
 
     CHKERR(DMLabelDestroyIndex(clabel))
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
     return facet_nodes
 
 
@@ -1565,14 +1557,13 @@ def facet_closure_nodes(V, sub_domain):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex, label_boundary=True):
+def label_facets(PETSc.DM plex):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
     others are marked with "interior_facets".
 
-    :arg label_boundary: if False, don't label the boundary faces
-         (they must have already been labelled)."""
+    """
     cdef:
         PetscInt fStart, fEnd, facet, pStart, pEnd
         char *ext_label = <char *>"exterior_facets"
@@ -1580,17 +1571,18 @@ def label_facets(PETSc.DM plex, label_boundary=True):
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
+    if get_topological_dimension(plex) == 0:
+        return
+    plex.removeLabel(ext_label)
+    plex.removeLabel(int_label)
+    plex.createLabel(ext_label)
+    plex.createLabel(int_label)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
-    plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
-
-    # Mark boundaries as exterior_facets
-    if label_boundary:
-        plex.markBoundaryFaces(ext_label)
-    plex.createLabel(int_label)
+    # Mark boundaries as exterior_facets.
+    plex.markBoundaryFaces(ext_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
-
     CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
@@ -1605,6 +1597,8 @@ def complete_facet_labels(PETSc.DM dm):
     the closure of the facets."""
     cdef PETSc.DMLabel label
 
+    if get_topological_dimension(dm) == 0:
+        return
     for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
         if dm.hasLabel(name):
             label = dm.getLabel(name)
@@ -1846,7 +1840,7 @@ def _set_dg_coordinates(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
+def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, reference_coord=False):
     """Return coordinates for the dm, reordered according to the
     global numbering permutation for the coordinate function space.
 
@@ -1890,16 +1884,19 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
         # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
-        dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape).astype(ScalarType)
+        if reference_coord:
+            swarm_field_name = "refcoord"
+        else:
+            swarm_field_name = "DMSwarmPIC_coor"
+        dm_coords = dm.getField(swarm_field_name).reshape(shape).astype(ScalarType)
         coords = np.empty_like(dm_coords)
         for v in range(vStart, vEnd):
             CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
             for i in range(dim):
                 coords[offset, i] = dm_coords[v - vStart, i]
-        dm.restoreField("DMSwarmPIC_coor")
+        dm.restoreField(swarm_field_name)
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
-
     return coords
 
 @cython.boundscheck(False)
@@ -1999,80 +1996,50 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     located).
     """
     cdef:
-        PETSc.DM plex=None
-        PETSc.IS core_is=None
-        PETSc.IS owned_is=None
-        PETSc.IS ghost_is=None
-        DMLabel swarm_label_core, swarm_label_owned, swarm_label_ghost
-        PetscInt label_idx, label
-        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_plex_cells
-        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_parent_cell_labels
-
-
-    swarm.createLabel("pyop2_core")
-    swarm.createLabel("pyop2_owned")
-    swarm.createLabel("pyop2_ghost")
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_core", &swarm_label_core))
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_owned", &swarm_label_owned))
-    CHKERR(DMGetLabel(swarm.dm, b"pyop2_ghost", &swarm_label_ghost))
+        PETSc.DM plex
+        PetscInt cStart, cEnd, c
+        PetscInt *plex_cell_classes = NULL, plex_cell_class
+        DMLabel swarm_labels[3], plex_label
+        PetscInt label_value = 1, op2class_size, i, ilabel
+        PETSc.PetscIS op2class_is = NULL
+        const PetscInt *class_indices = NULL
+        PetscInt nswarmCells, swarmCell, blocksize
+        PetscInt *swarmParentCells = NULL
+        PetscDataType ctype = PETSC_DATATYPE_UNKNOWN
 
     plex = swarm.getCellDM()
-
-    # Retrieve the indices into the parent DM at which each label is defined.
-    # The label value of 1 is set in mark_entity_classes.
-    core_is = plex.getStratumIS(b"pyop2_core", 1)
-    owned_is = plex.getStratumIS(b"pyop2_owned", 1)
-    ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
-    # The index numbers correspond to the numbering of the cell. NOTE: We have
-    # to put null checks here because petsc4py will not return empty indices
-    # when the iset is null, instead it will crash.
-    if core_is.iset == NULL:
-        core_idxs = np.array([], dtype=IntType)
-        max_core_idx = -1
-    else:
-        core_idxs = core_is.getIndices()
-        max_core_idx = core_idxs.max()
-    if owned_is.iset == NULL:
-        owned_idxs = np.array([], dtype=IntType)
-        max_owned_idx = -1
-    else:
-        owned_idxs = owned_is.getIndices()
-        max_owned_idx = owned_idxs.max()
-    if ghost_is.iset == NULL:
-        ghost_idxs = np.array([], dtype=IntType)
-        max_ghost_idx = -1
-    else:
-        ghost_idxs = ghost_is.getIndices()
-        max_ghost_idx = ghost_idxs.max()
-
-    # We can now make a list of all labels - this includes all topological
-    # entities: cells, facets, edges, vertices. Each has a unique index.
-    max_idx = max(max_core_idx, max_owned_idx, max_ghost_idx)
-    labels = np.zeros(max_idx + 1, dtype=IntType)
-    labels[core_idxs] = 1
-    labels[owned_idxs] = 2
-    labels[ghost_idxs] = 3
-
-    # We know the parent DM cell index for each of our swarm points. We can
-    # therefore filter the list of all labels to find the corresponding label
-    # of each swarm point.
-    swarm_plex_cells = swarm.getField("DMSwarm_cellid")
-    swarm.restoreField("DMSwarm_cellid")
-    swarm_parent_cell_labels = labels[swarm_plex_cells]
-    assert len(swarm_parent_cell_labels) == len(swarm_plex_cells)
-    for label_idx, label in enumerate(swarm_parent_cell_labels):
-        # We set the label using label index since this index is shared across
-        # all DMSwarm fields: label index n into a given field (such as
-        # DMSwarmPIC_coor) always corresponds to the same point in the swarm.
-        if label == 1:
-            CHKERR(DMLabelSetValue(swarm_label_core, label_idx, 1))
-        elif label == 2:
-            CHKERR(DMLabelSetValue(swarm_label_owned, label_idx, 1))
-        elif label == 3:
-            CHKERR(DMLabelSetValue(swarm_label_ghost, label_idx, 1))
-        else:
-            raise RuntimeError("Unknown label value")
-    return
+    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    CHKERR(PetscMalloc1(cEnd - cStart, &plex_cell_classes))
+    for c in range(cStart, cEnd):
+        plex_cell_classes[c - cStart] = -1
+    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
+        CHKERR(DMGetLabel(plex.dm, op2class, &plex_label))
+        # Get number of plex points labeled as this op2class.
+        CHKERR(DMLabelGetStratumSize(plex_label, label_value, &op2class_size))
+        if op2class_size > 0:
+            # Get an IS containing the plex points labeled as this op2class.
+            CHKERR(DMLabelGetStratumIS(plex_label, label_value, &op2class_is))
+            CHKERR(ISGetIndices(op2class_is, &class_indices))
+            for i in range(op2class_size):
+                if cStart <= class_indices[i] < cEnd:  # plex cell points are in [cStart, cEnd)
+                    plex_cell_classes[class_indices[i] - cStart] = ilabel
+            CHKERR(ISRestoreIndices(op2class_is, &class_indices))
+            CHKERR(ISDestroy(&op2class_is))
+    for c in range(cStart, cEnd):
+        if plex_cell_classes[c - cStart] < 0:
+            raise RuntimeError("Cell point %d in the parent plex does not belong to any pyop2 class" % c)
+    for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
+        CHKERR(DMCreateLabel(swarm.dm, op2class))
+        CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
+    CHKERR(DMSwarmGetField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    assert ctype == PETSC_INT
+    assert blocksize == 1
+    CHKERR(DMSwarmGetLocalSize(swarm.dm, &nswarmCells))
+    for swarmCell in range(nswarmCells):
+        plex_cell_class = plex_cell_classes[swarmParentCells[swarmCell] - cStart]
+        CHKERR(DMLabelSetValue(swarm_labels[plex_cell_class], swarmCell, label_value))
+    CHKERR(DMSwarmRestoreField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(PetscFree(plex_cell_classes))
 
 
 @cython.boundscheck(False)
@@ -3403,53 +3370,6 @@ def clear_adjacency_callback(PETSc.DM dm not None):
         dm.removeLabel("ghost_region")
         CHKERR(DMLabelDestroy(&label))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def fill_reference_coordinates_function(reference_coordinates_f):
-    """
-    Fill the PyOP2 dat of an input vector valued function on a
-    VertexOnlyMesh `reference_coordinates_f` with the reference
-    coordinates of each vertex in their relevant reference cells.
-
-    :arg reference_coordinates_f: A vector valued function on a
-        VertexOnlyMesh (with vector dimension the topological dimension
-        of the parent mesh) which will have its dat modified.
-
-    :returns: The updated `reference_coordinates_f`.
-    """
-    cdef:
-        PetscInt num_vertices, i, gdim, parent_tdim
-        PETSc.DM swarm
-
-    from firedrake.mesh import VertexOnlyMeshTopology
-    assert isinstance(reference_coordinates_f.function_space().mesh().topology, VertexOnlyMeshTopology)
-
-    gdim = reference_coordinates_f.function_space().mesh()._parent_mesh.geometric_dimension()
-    parent_tdim = reference_coordinates_f.function_space().mesh()._parent_mesh.topological_dimension()
-
-    swarm = reference_coordinates_f.function_space().mesh().topology_dm
-
-    num_vertices = swarm.getLocalSize()
-
-    shape = reference_coordinates_f.dat.shape
-    if parent_tdim == 1:
-        # PyOP2 inconsistency, it removes the shape if it is (1,)
-        assert shape == (num_vertices, )
-    else:
-        assert shape == (num_vertices, parent_tdim)
-
-    # get reference coord field - NOTE isn't copied so could have GC issues!
-    reference_coords = swarm.getField("refcoord").reshape(shape)
-
-    # store reference coord field in Function Dat.
-    reference_coordinates_f.dat.data_with_halos[:] = reference_coords[:]
-
-    # have to restore fields once accessed to allow access again
-    swarm.restoreField("refcoord")
-
-    return reference_coordinates_f
 
 
 @cython.boundscheck(False)
