@@ -1231,7 +1231,11 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     section = PETSc.Section().create(comm=mesh._comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
-    renumbering = mesh._dm_renumbering
+    if boundary_set:
+        renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=None,
+                                       boundary_set=boundary_set)
+    else:
+        renumbering = mesh._dm_renumbering
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
@@ -2304,7 +2308,8 @@ def validate_mesh(PETSc.DM dm):
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
                      np.ndarray entity_classes,
-                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
+                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
+                     boundary_set=None):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -2350,9 +2355,25 @@ def plex_renumbering(PETSc.DM plex,
     for l in range(3):
         CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
     entity_classes = entity_classes.astype(IntType)
-    lidx = np.zeros(3, dtype=IntType)
+    lidx = np.zeros(4, dtype=IntType)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
+    lidx[3] = lidx[2] - 1 # used here to count constrained owned dofs
+
+    # Get boundary points (if the boundary_set exists)
+    boundary_points = np.array([])
+    if boundary_set:
+        for marker in boundary_set:
+            if marker == "on_boundary":
+                label = "exterior_facets"
+                marker = 1
+            else:
+                label = FACE_SETS_LABEL
+            n = plex.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = plex.getStratumIS(label, marker).indices
+            boundary_points = np.concatenate((boundary_points, points))
 
     for c in range(pStart, pEnd):
         if reorder:
@@ -2373,8 +2394,13 @@ def plex_renumbering(PETSc.DM plex,
                         CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
                         if has_point:
                             PetscBTSet(seen, p)
-                            perm[lidx[l]] = p
-                            lidx[l] += 1
+                            if boundary_set and p in boundary_points and l == 1:
+                                # push boundary point to end of constrained owned dofs
+                                perm[lidx[3]] = p
+                                lidx[3] -= 1
+                            else:
+                                perm[lidx[l]] = p
+                                lidx[l] += 1
                             break
 
     if closure != NULL:
