@@ -492,7 +492,6 @@ class FunctionSpace(object):
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
         self._mesh = mesh
-        self._init_with_shared_data(mesh, element, name, sdata)
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
@@ -535,6 +534,22 @@ class FunctionSpace(object):
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
         self.global_numbering = sdata.global_numbering
+
+    def _init_with_shared_data(self, name, sdata):
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
@@ -1171,7 +1186,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                 [str(i) for i in self.boundary_set])))
         sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
         self._shared_data = sdata
-        self._init_with_shared_data(function_space._mesh, function_space.ufl_element(), name, sdata)
+        self._init_with_shared_data(name, sdata)
 
 
         
