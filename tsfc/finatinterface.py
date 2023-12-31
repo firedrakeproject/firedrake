@@ -158,6 +158,8 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.FDMBrokenH1
         elif kind == 'fdm_hermite' and is_interval:
             lmbda = finat.FDMHermite
+        elif kind in ['demkowicz', 'fdm']:
+            lmbda = partial(finat.IntegratedLegendre, variant=kind)
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
