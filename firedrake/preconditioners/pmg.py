@@ -612,9 +612,12 @@ def evaluate_dual(source, target, alpha=tuple()):
        on the (derivative of order alpha of the) basis functions of the source
        element."""
     primal = source.get_nodal_basis()
+    coeffs = primal.get_coeffs()
     dual = target.get_dual_set()
-    A = dual.to_riesz(primal)
-    B = numpy.transpose(primal.get_coeffs())
+    dual_mat = dual.to_riesz(primal)
+    shp = dual_mat.shape
+    A = dual_mat.reshape((shp[0], -1))
+    B = numpy.transpose(coeffs.reshape((-1, A.shape[1])))
     if sum(alpha) != 0:
         dmats = primal.get_dmats()
         for i in range(len(alpha)):
@@ -1408,12 +1411,38 @@ class StandaloneInterpolationMatrix(object):
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
+    def mat_mult_kernel(self, A, value_size, transpose=False):
+        if transpose:
+            A = A.T
+        name = "matmult"
+        code = f"""
+        void {name}(PetscScalar *restrict y, const PetscScalar *restrict x
+                    {", const PetscScalar *restrict w" if transpose else ""}
+        ){{
+            const PetscScalar A[] = {{ {", ".join(map(float.hex, A.flat))} }};
+            PetscInt k0 = 0, k1 = 0;
+            for (PetscInt k = 0; k < {value_size}; k++) {{
+                for (PetscInt i = 0; i < {A.shape[0]}; i++) {{
+                    {"" if transpose else "y[i+k0] = 0;"}
+                    for (PetscInt j = 0; j < {A.shape[1]}; j++)
+                        y[i+k0] += A[i * {A.shape[1]} + j] * {"(x[j+k1] * w[j+k1])" if transpose else "x[j+k1]"};
+                }}
+                k0 += {A.shape[0]};
+                k1 += {A.shape[1]};
+            }}
+        }}"""
+        return op2.Kernel(code, name, requires_zeroed_output_arguments=transpose)
+
     def make_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between arbitrary elements.
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
+        if Vf.finat_element.mapping == Vc.finat_element.mapping and Vf.shape == Vc.shape:
+            A = evaluate_dual(Vc.finat_element.fiat_equivalent, Vf.finat_element.fiat_equivalent)
+            return self.mat_mult_kernel(A, Vf.value_size), self.mat_mult_kernel(A, Vf.value_size, transpose=True), []
+
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
 
