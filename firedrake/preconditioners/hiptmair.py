@@ -162,25 +162,22 @@ class HiptmairPC(TwoLevelPC):
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
-            dminus = ufl.grad
-            G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             celement = div_to_curl(element)
+        else:
+            raise ValueError("Hiptmair decomposition not available for", element)
+        if element.sobolev_space == ufl.HDiv:
+            G_callback = appctx.get("get_curl", None)
             dminus = ufl.curl
             if V.shape:
                 dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
                                                   for k in range(u.ufl_shape[0])])
-            G_callback = appctx.get("get_curl", None)
         else:
-            raise ValueError("Hiptmair decomposition not available for", element)
+            G_callback = appctx.get("get_gradient", None)
+            dminus = ufl.grad
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
@@ -194,10 +191,11 @@ class HiptmairPC(TwoLevelPC):
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial))
 
+        degree = element.embedded_superdegree
         if formdegree > 1 and degree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                shift = beta(test, shift*trial)
+                shift = beta(test, shift * trial)
                 coarse_operator += ufl.Form(shift.integrals_by_type("cell"))
 
         if G_callback is None:
@@ -225,6 +223,8 @@ def curl_to_grad(ele):
         if family.startswith("Sminus"):
             family = "S"
         else:
+            if family in ["Nedelec 2nd kind H(curl)", "Brezzi-Douglas-Marini"]:
+                degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
                 cells = ele.cell.sub_cells()
@@ -264,6 +264,8 @@ def div_to_curl(ele):
             family = "CG"
             degree = degree+1
         else:
+            if family == "Brezzi-Douglas-Marini":
+                degree = degree + 1
             replace_dict = {
                 "Raviart-Thomas": "N1curl",
                 "Brezzi-Douglas-Marini": "N2curl",
