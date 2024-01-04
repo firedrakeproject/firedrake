@@ -73,7 +73,7 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
 
 
 def disk_checkpointing():
-    """Return true if disk checkpointing of the adjoint tape is active."""
+    """Return whether disk checkpointing is enabled."""
     global _enable_disk_checkpoint
     return _enable_disk_checkpoint
 
