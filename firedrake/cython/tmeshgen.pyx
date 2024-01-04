@@ -132,6 +132,9 @@ def _tmesh_nurbs_base(PetscInt dim,
             mod *= mmm[d]
             qoff += ppp[d] + 2
     idx_iset = PETSc.IS().createGeneral(idx_array, comm=PETSc.COMM_SELF)
+    # Separately treat periodic case.
+    # For periodicity, gather active dofs for a given cell
+    # Can "order" active dofs on each cell using knot indices: sort (ixmin, iymin, izmin).
     w_vec = PETSc.Vec().create(comm=PETSc.COMM_SELF)
     w_vec.setType(PETSc.Vec.Type.STANDARD)
     w_vec.setSizes((dof_sec.getStorageSize(), PETSc.DETERMINE), 1)
