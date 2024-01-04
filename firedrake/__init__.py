@@ -99,6 +99,7 @@ from firedrake.slope_limiter import *
 from firedrake.solving import *
 from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
+from firedrake.utility_tmeshes import *
 from firedrake.variational_solver import *
 from firedrake.eigensolver import *
 from firedrake.vector import *

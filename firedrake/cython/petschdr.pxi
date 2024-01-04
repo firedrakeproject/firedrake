@@ -29,8 +29,14 @@ cdef extern from "petsc.h":
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
     int PetscMalloc2(PetscInt,void*,PetscInt,void*)
+    int PetscMalloc3(PetscInt,void*,PetscInt,void*,PetscInt,void*)
+    int PetscMalloc4(PetscInt,void*,PetscInt,void*PetscInt,void*,PetscInt,void*)
+    int PetscMalloc5(PetscInt,void*,PetscInt,void*PetscInt,void*,PetscInt,void*,PetscInt,void*)
     int PetscFree(void*)
     int PetscFree2(void*,void*)
+    int PetscFree3(void*,void*,void*)
+    int PetscFree4(void*,void*,void*,void*)
+    int PetscFree5(void*,void*,void*,void*,void*)
     int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
 cdef extern from "petscdmplex.h" nogil:
@@ -39,8 +45,11 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetPointDepth(PETSc.PetscDM,PetscInt,PetscInt*)
 
+    int DMPlexSetChart(PETSc.PetscDM,PetscInt,PetscInt)
     int DMPlexGetChart(PETSc.PetscDM,PetscInt*,PetscInt*)
+    int DMPlexSetConeSize(PETSc.PetscDM,PetscInt,PetscInt)
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
+    int DMPlexSetCone(PETSc.PetscDM,PetscInt,const PetscInt[])
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -66,11 +75,16 @@ cdef extern from "petscdmlabel.h" nogil:
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
     int DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
+    int DMLabelAddStratum(DMLabel, PetscInt)
+    int DMLabelGetNumValues(DMLabel, PetscInt*)
 
 cdef extern from "petscdm.h" nogil:
+    int DMSetDimension(PETSc.PetscDM,PetscInt)
+    int DMGetDimension(PETSc.PetscDM,PetscInt*)
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+    int DMSetUp(PETSc.PetscDM)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
@@ -84,6 +98,8 @@ cdef extern from "petscvec.h" nogil:
     int VecGetArrayRead(PETSc.PetscVec,const PetscScalar**)
     int VecRestoreArrayRead(PETSc.PetscVec,const PetscScalar**)
 
+cdef extern from "petscistypes.h" nogil:
+    struct _n_PetscLayout
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -92,6 +108,7 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
+    int ISCreateGeneral(MPI.Comm,PetscInt,const PetscInt[],PetscCopyMode,PETSc.PetscIS*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISGetSize(PETSc.PetscIS,PetscInt*)
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
@@ -101,6 +118,13 @@ cdef extern from "petscis.h" nogil:
     int ISLocalToGlobalMappingGetBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISLocalToGlobalMappingRestoreBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISDestroy(PETSc.PetscIS*)
+    ctypedef _n_PetscLayout* PetscLayout "PetscLayout"
+    int PetscLayoutSetLocalSize(PetscLayout,PetscInt)
+    int PetscLayoutSetSize(PetscLayout,PetscInt)
+    int PetscLayoutGetBlockSize(PetscLayout,PetscInt*)
+    int PetscLayoutSetBlockSize(PetscLayout,PetscInt)
+    int PetscLayoutSetUp(PetscLayout)
+
 
 cdef extern from "petscsf.h" nogil:
     struct PetscSFNode_:

@@ -41,10 +41,10 @@ dockerlint:
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
-	@echo "    RM firedrake/cython/dmplex.*.so"
-	-@rm -f firedrake/cython/dmplex.so > /dev/null 2>&1
-	@echo "    RM firedrake/cython/dmplex.c"
-	-@rm -f firedrake/cython/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmcommon.*.so"
+	-@rm -f firedrake/cython/dmcommon.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/dmcommon.c"
+	-@rm -f firedrake/cython/dmcommon.c > /dev/null 2>&1
 	@echo "    RM firedrake/cython/extrusion_numbering.*.so"
 	-@rm -f firedrake/cython/extrusion_numbering.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/extrusion_numbering.c"
@@ -65,6 +65,10 @@ clean:
 	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/mg/impl.c"
 	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
+	@echo "    RM firedrake/cython/iga.*.so"
+	-@rm -f firedrake/cython/iga.so > /dev/null 2>&1
+	@echo "    RM firedrake/cython/iga.c"
+	-@rm -f firedrake/cython/iga.c > /dev/null 2>&1
 
 
 THREADS=1

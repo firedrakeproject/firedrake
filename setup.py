@@ -53,7 +53,9 @@ cythonfiles = [("dmcommon", ["petsc"]),
                ("mgimpl", ["petsc"]),
                ("patchimpl", ["petsc"]),
                ("spatialindex", ["spatialindex_c"]),
-               ("supermeshimpl", ["supermesh", "petsc"])]
+               ("supermeshimpl", ["supermesh", "petsc"]),
+               ("iga", ["petsc"]),
+               ("tmeshgen", ["petsc"])]
 
 
 petsc_dirs = get_petsc_dir()
