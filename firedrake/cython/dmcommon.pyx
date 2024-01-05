@@ -1232,10 +1232,11 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
     if boundary_set:
-        renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=None,
+        renumbering, constrained_nodes = plex_renumbering(dm, mesh._entity_classes, reordering=None,
                                        boundary_set=boundary_set)
     else:
         renumbering = mesh._dm_renumbering
+        constrained_nodes = 0 
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
@@ -1290,7 +1291,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                     dof_array[j] = j
                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
             CHKERR(PetscFree(dof_array))
-    return section
+    return section, constrained_nodes
 
 
 @cython.boundscheck(False)
@@ -2428,7 +2429,7 @@ def plex_renumbering(PETSc.DM plex,
         CHKERR(DMLabelDestroyIndex(labels[c]))
 
     CHKERR(PetscBTDestroy(&seen))
-    
+
     if boundary_set:
         CHKERR(PetscBTDestroy(&seen_boundary))
 
@@ -2436,7 +2437,11 @@ def plex_renumbering(PETSc.DM plex,
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
-    return perm_is
+    constrained_nodes = constrained_core + constrained_owned
+    if boundary_set:
+        return perm_is, constrained_nodes
+    else:
+        return perm_is
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
