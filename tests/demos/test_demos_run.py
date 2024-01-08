@@ -67,6 +67,6 @@ def test_demo_runs(py_file, env):
         try:
             import matplotlib  # noqa: F401
         except ImportError:
-            pytest.skip(msg="Matplotlib unavailable, skipping DG_advection.py")
+            pytest.skip(msg=f"Matplotlib unavailable, skipping {basename(py_file)}")
 
     subprocess.check_call([sys.executable, py_file], env=env)

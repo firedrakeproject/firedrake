@@ -1,6 +1,5 @@
 cached_property
 cachetools
-ipympl
 ipython
 nbval
 packaging

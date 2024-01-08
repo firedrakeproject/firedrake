@@ -4,6 +4,12 @@ import subprocess
 import glob
 
 
+try:
+    import matplotlib.pyplot as plt  # noqa: 401
+except ImportError:
+    pytest.skip("Matplotlib not installed", allow_module_level=True)
+
+
 cwd = os.path.abspath(os.path.dirname(__file__))
 nb_dir = os.path.join(cwd, "..", "..", "docs", "notebooks")
 
@@ -16,7 +22,6 @@ def ipynb_file(request):
     return os.path.abspath(request.param)
 
 
-@pytest.mark.skipplot  # All notebooks contain plotting
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
     monkeypatch.chdir(tmpdir)
