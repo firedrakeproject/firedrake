@@ -716,6 +716,41 @@ class CheckpointFile(object):
             perm_is.setName(None)
             self.viewer.popGroup()
 
+    @PETSc.Log.EventDecorator("SetTimstep")
+    def _set_timestep(self, mesh, name, idx, time):
+        # follow the general path rule for storing a function
+        tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
+        V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
+        path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
+        # check if the function's path has the attribute
+        if self.has_attr("/"+path if path else "", "stored_time_steps"):
+            # collect previous indices and timesteps and add the current timestep path to it
+            old_indices, old_times = self.get_timesteps(mesh, name)
+            times = np.concatenate((old_times, [time]))
+            indices = np.concatenate((old_indices, [len(old_indices) if idx is None else idx]))
+        else:
+            # initiate timestepping, assuming the saving the function has succeeded
+            indices = [0 if idx is None else idx]
+            times = [time]
+        # store all timesteps and indices
+        self.set_attr("/"+path if path else "", "stored_time_indices", indices)
+        self.set_attr("/"+path if path else "", "stored_time_steps", times)
+
+    @PETSc.Log.EventDecorator("GetTimsteps")
+    def get_timesteps(self, mesh, name):
+        # follow the general path rule for storing a function
+        tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
+        V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
+        path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
+        # check if timesteps exists for the given name and return them
+        if self.has_attr("/"+path, "stored_time_steps"):
+            return (
+                self.get_attr("/"+path, "stored_time_indices"),
+                self.get_attr("/"+path, "stored_time_steps"),
+                )
+        else:
+            return [], []
+
     @PETSc.Log.EventDecorator("SaveFunctionSpace")
     def _save_function_space(self, V):
         mesh = V.mesh()
@@ -779,7 +814,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None):
+    def save_function(self, f, idx=None, name=None, timetag=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -792,6 +827,15 @@ class CheckpointFile(object):
         """
         V = f.function_space()
         mesh = V.mesh()
+        if timetag:
+            ret = self.save_function(f, idx=idx, name=name)
+            self._set_timestep(
+                mesh=mesh,
+                name=name if name else f.name(),
+                idx=idx,
+                time=timetag,
+                )
+            return ret
         if name:
             g = Function(V, val=f.dat, name=name)
             return self.save_function(g, idx=idx)
