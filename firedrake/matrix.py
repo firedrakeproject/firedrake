@@ -116,13 +116,16 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, mat_type, *args, **kwargs):
+    # TODO need to think about the interface now we're not passing a sparsity but
+    # a zeroed matrix
+    def __init__(self, a, bcs, mat_type, pyop3_mat, *, options_prefix=None):
         # sets self._a, self._bcs, and self._mat_type
         MatrixBase.__init__(self, a, bcs, mat_type)
-        options_prefix = kwargs.pop("options_prefix")
-        self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
-        self.petscmat = self.M.handle
+        self.M = pyop3_mat
+        self.petscmat = self.M.mat
         self.petscmat.setOptionsPrefix(options_prefix)
+
+        # TODO can sniff from pyop3_mat
         self.mat_type = mat_type
 
     def assemble(self):

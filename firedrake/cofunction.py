@@ -1,4 +1,5 @@
 import numpy as np
+import finat
 import ufl
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
@@ -105,7 +106,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
+        if self.function_space().ufl_element() is finat.MixedElement:
+            raise NotImplementedError
+            return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
+        else:
+            return (self,)
 
     @FunctionMixin._ad_annotate_subfunctions
     def split(self):

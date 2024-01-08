@@ -414,6 +414,18 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
         # return mesh.closure(mesh.star(pt))
         return adjacency_map(pt)
 
+    test_arg, trial_arg = arguments
+    mymat = op3.PetscMat(
+        mesh.points,
+        adjacency,
+        test_arg.function_space().axes,
+        trial_arg.function_space().axes,
+    )
+
+    return matrix.Matrix(expr, bcs, mat_type, mymat, options_prefix=options_prefix)
+
+    raise NotImplementedError("TODO")
+
     # NOTE: The sparsity is here is topological, it doesn't yet know about DoFs
     sparsity = make_sparsity(mesh, adjacency)
 
@@ -891,26 +903,13 @@ class FormAssembler(abc.ABC):
         )
 
     @cached_property
-    def global_kernels(self):
-        return tuple(
-            _make_global_kernel(
-                self._form, tsfc_knl, subdomain_id, self.all_integer_subdomain_ids,
-                diagonal=self.diagonal, unroll=self.needs_unrolling(tsfc_knl, self._bcs)
-            )
-            for tsfc_knl, subdomain_id in self.local_kernels
-        )
-
-    @cached_property
     def parloops(self):
         loops = []
-        for (local_kernel, subdomain_id), global_kernel in zip(
-            self.local_kernels, self.global_kernels
-        ):
+        for local_kernel, subdomain_id in self.local_kernels:
             loops.append(
                 ParloopBuilder(
                     self._form,
                     local_kernel,
-                    global_kernel,
                     self._tensor,
                     subdomain_id,
                     self.all_integer_subdomain_ids,
@@ -1512,11 +1511,10 @@ class ParloopBuilder:
         boundary conditions to 2-forms.
     """
 
-    def __init__(self, form, local_knl, global_knl, tensor, subdomain_id,
+    def __init__(self, form, local_knl, tensor, subdomain_id,
                  all_integer_subdomain_ids, diagonal=False, lgmaps=None):
         self._form = form
         self._local_knl = local_knl
-        self._global_knl = global_knl
         self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._tensor = tensor
@@ -1528,13 +1526,14 @@ class ParloopBuilder:
 
     def build(self):
         """Construct the parloop."""
-        parloop_args = [self._as_parloop_arg(tsfc_arg)
-                        for tsfc_arg in self._kinfo.arguments]
-        try:
-            return op2.Parloop(self._global_knl, self._iterset, parloop_args)
-        except MapValueError:
-            raise RuntimeError("Integral measure does not match measure of all "
-                               "coefficients/arguments")
+        p = self._iterset.index()
+        args = [
+            self._as_parloop_arg(tsfc_arg, p)
+            for tsfc_arg in self._kinfo.arguments
+        ]
+
+        kernel = op3.Function(self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]])
+        return op3.loop(p, kernel(*args))
 
     @property
     def _indices(self):
@@ -1579,8 +1578,11 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._mesh.measure_set(self._integral_type, self._subdomain_id,
-                                          self._all_integer_subdomain_ids)
+            return self._mesh.topology.measure_set(
+                self._integral_type,
+                self._subdomain_id,
+                self._all_integer_subdomain_ids
+            )
 
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
@@ -1588,117 +1590,108 @@ class ParloopBuilder:
 
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
-            return V.cell_node_map()
+            return self._mesh.topology._fiat_closure
         elif self._integral_type in {"exterior_facet", "exterior_facet_vert"}:
+            raise NotImplementedError
             return V.exterior_facet_node_map()
         elif self._integral_type in {"interior_facet", "interior_facet_vert"}:
+            raise NotImplementedError
             return V.interior_facet_node_map()
         else:
             raise AssertionError
 
-    def _as_parloop_arg(self, tsfc_arg):
+    @functools.singledispatchmethod
+    def _as_parloop_arg(self, tsfc_arg, index):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
         :class:`tsfc.KernelArg`.
         """
-        # TODO Make singledispatchmethod with Python 3.8
-        return _as_parloop_arg(tsfc_arg, self)
+        raise TypeError(f"No handler provided for {type(tsfc_arg).__name__}")
 
+    @_as_parloop_arg.register(kernel_args.OutputKernelArg)
+    def _as_parloop_arg_output(self, _, index):
+        rank = len(self._form.arguments())
+        tensor = self._indexed_tensor
+        Vs = self._indexed_function_spaces
 
-@functools.singledispatch
-def _as_parloop_arg(tsfc_arg, self):
-    raise NotImplementedError
+        if rank == 0:
+            return tensor
+        elif rank == 1 or rank == 2 and self._diagonal:
+            V, = Vs
+            if V.ufl_element().family() == "Real":
+                return tensor
+            else:
+                return tensor[self._get_map(V)(index)]
+        elif rank == 2:
+            rmap, cmap = [self._get_map(V) for V in Vs]
 
-
-@_as_parloop_arg.register(kernel_args.OutputKernelArg)
-def _as_parloop_arg_output(_, self):
-    rank = len(self._form.arguments())
-    tensor = self._indexed_tensor
-    Vs = self._indexed_function_spaces
-
-    if rank == 0:
-        return op2.GlobalParloopArg(tensor)
-    elif rank == 1 or rank == 2 and self._diagonal:
-        V, = Vs
-        if V.ufl_element().family() == "Real":
-            return op2.GlobalParloopArg(tensor)
+            if all(V.ufl_element().family() == "Real" for V in Vs):
+                assert rmap is None and cmap is None
+                return tensor.handle.getPythonContext().global_
+            elif any(V.ufl_element().family() == "Real" for V in Vs):
+                m = rmap or cmap
+                return tensor.handle.getPythonContext().dat[m(index)]
+            else:
+                if self._lgmaps:
+                    raise NotImplementedError
+                # return tensor[rmap(index), cmap(index)], lgmaps=self._lgmaps)
+                return tensor[rmap(index), cmap(index)]
         else:
-            return op2.DatParloopArg(tensor, self._get_map(V))
-    elif rank == 2:
-        rmap, cmap = [self._get_map(V) for V in Vs]
+            raise AssertionError
 
-        if all(V.ufl_element().family() == "Real" for V in Vs):
-            assert rmap is None and cmap is None
-            return op2.GlobalParloopArg(tensor.handle.getPythonContext().global_)
-        elif any(V.ufl_element().family() == "Real" for V in Vs):
-            m = rmap or cmap
-            return op2.DatParloopArg(tensor.handle.getPythonContext().dat, m)
+    @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
+    def _as_parloop_arg_coordinates(self, _, index):
+        func = self._mesh.coordinates
+        map_ = self._get_map(func.function_space())
+        return func.dat[map_(index)]
+
+    @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
+    def _as_parloop_arg_coefficient(self, arg, index):
+        coeff = next(self._active_coefficients)
+        if coeff.ufl_element().family() == "Real":
+            return coeff.dat
         else:
-            return op2.MatParloopArg(tensor, (rmap, cmap), lgmaps=self._lgmaps)
-    else:
-        raise AssertionError
+            m = self._get_map(coeff.function_space())
+            return coeff.dat[m(index)]
 
+    @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+    def _as_parloop_arg_constant(self, arg, index):
+        const = next(self._constants)
+        return const.dat
 
-@_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
-def _as_parloop_arg_coordinates(_, self):
-    func = self._mesh.coordinates
-    map_ = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, map_)
+    @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
+    def _as_parloop_arg_cell_orientations(self, _, index):
+        func = self._mesh.cell_orientations()
+        m = self._get_map(func.function_space())
+        return func.dat[m(index)]
 
+    @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
+    def _as_parloop_arg_cell_sizes(self, _, index):
+        func = self._mesh.cell_sizes
+        m = self._get_map(func.function_space())
+        return func.dat[m(index)]
 
-@_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
-def _as_parloop_arg_coefficient(arg, self):
-    coeff = next(self._active_coefficients)
-    if coeff.ufl_element().family() == "Real":
-        return op2.GlobalParloopArg(coeff.dat)
-    else:
-        m = self._get_map(coeff.function_space())
-        return op2.DatParloopArg(coeff.dat, m)
+    @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
+    def _as_parloop_arg_exterior_facet(self, _, index):
+        return self._mesh.exterior_facets.local_facet_dat[index]
 
+    @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
+    def _as_parloop_arg_interior_facet(self, _, index):
+        return self._mesh.interior_facets.local_facet_dat[index]
 
-@_as_parloop_arg.register(kernel_args.ConstantKernelArg)
-def _as_parloop_arg_constant(arg, self):
-    const = next(self._constants)
-    return op2.GlobalParloopArg(const.dat)
+    @_as_parloop_arg.register(CellFacetKernelArg)
+    def _as_parloop_arg_cell_facet(self, _, index):
+        return self._mesh.cell_to_facets[index]
 
-
-@_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_parloop_arg_cell_orientations(_, self):
-    func = self._mesh.cell_orientations()
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
-
-
-@_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
-def _as_parloop_arg_cell_sizes(_, self):
-    func = self._mesh.cell_sizes
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
-
-
-@_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
-def _as_parloop_arg_exterior_facet(_, self):
-    return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_dat)
-
-
-@_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
-def _as_parloop_arg_interior_facet(_, self):
-    return op2.DatParloopArg(self._mesh.interior_facets.local_facet_dat)
-
-
-@_as_parloop_arg.register(CellFacetKernelArg)
-def _as_parloop_arg_cell_facet(_, self):
-    return op2.DatParloopArg(self._mesh.cell_to_facets)
-
-
-@_as_parloop_arg.register(LayerCountKernelArg)
-def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global(
-        (1,),
-        self._iterset.layers-2,
-        dtype=numpy.int32,
-        comm=self._iterset.comm
-    )
-    return op2.GlobalParloopArg(glob)
+    @_as_parloop_arg.register(LayerCountKernelArg)
+    def _as_parloop_arg_layer_count(self, _, index):
+        raise NotImplementedError
+        glob = op2.Global(
+            (1,),
+            self._iterset.layers-2,
+            dtype=numpy.int32,
+            comm=self._iterset.comm
+        )
+        return op2.GlobalParloopArg(glob)
 
 
 class _FormHandler:
@@ -1747,10 +1740,18 @@ class _FormHandler:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             i, = indices
-            return tensor.dat[i] if is_indexed else tensor.dat
+            # FIXME
+            if i != 0:
+                raise NotImplementedError("mixed needs thought")
+            return tensor.dat
+            # return tensor.dat[i] if is_indexed else tensor.dat
         elif rank == 2:
             i, j = indices
-            return tensor.M[i, j] if is_indexed else tensor.M
+            # FIXME
+            if i != 0 or j != 0:
+                raise NotImplementedError("mixed needs thought")
+            return tensor.mat
+            # return tensor.M[i, j] if is_indexed else tensor.M
         else:
             raise AssertionError
 
