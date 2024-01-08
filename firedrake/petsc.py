@@ -271,7 +271,7 @@ class OptionsManager(object):
 
 
 def _extract_comm(obj: Any) -> MPI.Comm:
-    """ Extract Firedrake internal comm off given object
+    """Extract and return the Firedrake/PyOP2 internal comm of a given object.
 
     Parameters
     ----------
@@ -285,6 +285,9 @@ def _extract_comm(obj: Any) -> MPI.Comm:
 
     """
     comm = None
+    # If the object is a communicator check whether it is already an internal
+    # communicator, otherwise get the internal communicator attribute from the
+    # given communicator.
     if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
         try:
             if mpi.is_pyop2_comm(obj):
@@ -306,7 +309,7 @@ def _extract_comm(obj: Any) -> MPI.Comm:
 
 @mpi.collective
 def garbage_cleanup(obj: Any):
-    """ Clean up garbage PETSc objects on Firedrake object or any comm
+    """Clean up garbage PETSc objects on a Firedrake object or any comm.
 
     Parameters
     ----------
@@ -328,7 +331,7 @@ def garbage_cleanup(obj: Any):
 
 @mpi.collective
 def garbage_view(obj: Any):
-    """ View garbage PETSc objects on Firedrake object or any comm
+    """View garbage PETSc objects stored on a Firedrake object or any comm.
 
     Parameters
     ----------
