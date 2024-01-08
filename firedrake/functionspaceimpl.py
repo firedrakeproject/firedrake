@@ -816,7 +816,8 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self.comm = self.node_set.comm
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1124,7 +1125,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self.comm)
+        return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
