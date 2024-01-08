@@ -79,6 +79,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyop2 ksagiyam/use_layout_vec_local_size \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
