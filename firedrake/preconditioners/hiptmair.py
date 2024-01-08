@@ -4,10 +4,8 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
-from firedrake.preconditioners.hypre_ams import chop
 from firedrake.parameters import parameters
 from firedrake_citations import Citations
-from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
 import ufl
@@ -169,6 +167,11 @@ class HiptmairPC(TwoLevelPC):
             celement = div_to_curl(element)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
+
+        coarse_space = FunctionSpace(mesh, celement)
+        assert coarse_space.finat_element.formdegree + 1 == formdegree
+        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+
         if element.sobolev_space == ufl.HDiv:
             G_callback = appctx.get("get_curl", None)
             dminus = ufl.curl
@@ -179,10 +182,6 @@ class HiptmairPC(TwoLevelPC):
             G_callback = appctx.get("get_gradient", None)
             dminus = ufl.grad
 
-        coarse_space = FunctionSpace(mesh, celement)
-        assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
-
         # Get only the zero-th order term of the form
         replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
         beta = ufl.replace(expand_derivatives(a), replace_dict)
@@ -191,15 +190,14 @@ class HiptmairPC(TwoLevelPC):
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial))
 
-        degree = element.embedded_superdegree
-        if formdegree > 1 and degree > 1:
+        if formdegree > 1 and celement.embedded_superdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
                 shift = beta(test, shift * trial)
                 coarse_operator += ufl.Form(shift.integrals_by_type("cell"))
 
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = tabulate_exterior_derivative(coarse_space, V, coarse_space_bcs, bcs)
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 
@@ -259,10 +257,10 @@ def div_to_curl(ele):
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
             family = "DG" if ele.cell.is_simplex() else "DQ"
-            degree = degree-1
+            degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"
-            degree = degree+1
+            degree = degree + 1
         else:
             if family == "Brezzi-Douglas-Marini":
                 degree = degree + 1
@@ -278,3 +276,13 @@ def div_to_curl(ele):
             if family is None:
                 raise ValueError("Unexpected family %s" % family)
         return ele.reconstruct(degree=degree, family=family)
+
+
+def tabulate_exterior_derivative(Vc, Vf, Vc_bcs, Vf_bcs):
+    from firedrake.preconditioners.pmg import StandaloneInterpolationMatrix
+
+    ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs, derivative=True)
+    sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
+    mat = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
+    mat.setUp()
+    return mat

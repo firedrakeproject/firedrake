@@ -596,8 +596,8 @@ def hash_fiat_element(element):
     return (family, element.ref_el, degree, restriction)
 
 
-def generate_key_evaluate_dual(source, target, alpha=tuple()):
-    return hash_fiat_element(source) + hash_fiat_element(target) + (alpha,)
+def generate_key_evaluate_dual(source, target, derivative=None):
+    return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
 
 
 def get_readonly_view(arr):
@@ -607,23 +607,22 @@ def get_readonly_view(arr):
 
 
 @cached({}, key=generate_key_evaluate_dual)
-def evaluate_dual(source, target, alpha=tuple()):
+def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
-       on the (derivative of order alpha of the) basis functions of the source
-       element."""
-    primal = source.get_nodal_basis()
+       on the (grad, curl, or div of the) basis functions of the source element.
+    """
+    if derivative is None:
+        primal = source.get_nodal_basis()
+    else:
+        from FIAT.demkowicz import project_derivative
+        primal = project_derivative(source, derivative)
+
     coeffs = primal.get_coeffs()
     dual = target.get_dual_set()
     dual_mat = dual.to_riesz(primal)
-    shp = dual_mat.shape
-    A = dual_mat.reshape((shp[0], -1))
-    B = numpy.transpose(coeffs.reshape((-1, A.shape[1])))
-    if sum(alpha) != 0:
-        dmats = primal.get_dmats()
-        for i in range(len(alpha)):
-            for j in range(alpha[i]):
-                B = numpy.dot(dmats[i], B)
-    return get_readonly_view(numpy.dot(A, B))
+    A = dual_mat.reshape((dual_mat.shape[0], -1))
+    B = coeffs.reshape((-1, A.shape[1]))
+    return get_readonly_view(numpy.dot(A, B.T))
 
 
 @cached({}, key=generate_key_evaluate_dual)
@@ -1169,16 +1168,16 @@ class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
-
     _cache_work = {}
 
-    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
+    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs, derivative=False):
         self.uc = self.work_function(Vc)
         self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()
         self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
         self.Vf_bcs = Vf_bcs
+        self.derivative = derivative
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1196,7 +1195,6 @@ class StandaloneInterpolationMatrix(object):
         kernel_code = f"""
         void weight(PetscScalar *restrict w){{
             for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
-            return;
         }}
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
@@ -1271,8 +1269,7 @@ class StandaloneInterpolationMatrix(object):
         else:
             raise ValueError("Unknown info type %s" % info)
 
-    @staticmethod
-    def make_blas_kernels(Vf, Vc):
+    def make_blas_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
@@ -1282,6 +1279,9 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
+        if self.derivative:
+            # TODO hook up tabulate_exterior_derivative from fdm.py
+            raise ValueError
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
@@ -1421,10 +1421,10 @@ class StandaloneInterpolationMatrix(object):
         ){{
             const PetscScalar A[] = {{ {", ".join(map(float.hex, A.flat))} }};
             PetscInt k0 = 0, k1 = 0;
-            for (PetscInt k = 0; k < {value_size}; k++) {{
-                for (PetscInt i = 0; i < {A.shape[0]}; i++) {{
+            for ({IntType_c} k = 0; k < {value_size}; k++) {{
+                for ({IntType_c} i = 0; i < {A.shape[0]}; i++) {{
                     {"" if transpose else "y[i+k0] = 0;"}
-                    for (PetscInt j = 0; j < {A.shape[1]}; j++)
+                    for ({IntType_c} j = 0; j < {A.shape[1]}; j++)
                         y[i+k0] += A[i * {A.shape[1]} + j] * {"(x[j+k1] * w[j+k1])" if transpose else "x[j+k1]"};
                 }}
                 k0 += {A.shape[0]};
@@ -1439,12 +1439,18 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        if Vf.finat_element.mapping == Vc.finat_element.mapping and Vf.shape == Vc.shape:
-            A = evaluate_dual(Vc.finat_element.fiat_equivalent, Vf.finat_element.fiat_equivalent)
+        if Vf.finat_element.formdegree == Vc.finat_element.formdegree + self.derivative and Vf.shape == Vc.shape:
+            derivative = None
+            if self.derivative:
+                derivative = {ufl.HCurl: "grad", ufl.HDiv: "curl", ufl.L2: "div"}[Vf.ufl_element().sobolev_space]
+            A = evaluate_dual(Vc.finat_element.fiat_equivalent, Vf.finat_element.fiat_equivalent, derivative=derivative)
             return self.mat_mult_kernel(A, Vf.value_size), self.mat_mult_kernel(A, Vf.value_size, transpose=True), []
 
-        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        expr = self.uc
+        if self.derivative:
+            expr = ufl.exterior_derivative(expr)
+        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, expr)
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, ufl.derivative(expr, self.uc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.

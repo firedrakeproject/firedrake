@@ -605,7 +605,7 @@ class FDMPC(PCBase):
             zero = PETSc.Mat()
             A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
             A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
-            A10 = petsc_sparse(evaluate_dual(e0, q1, alpha=(1,)), comm=comm) if e0 else zero
+            A10 = petsc_sparse(evaluate_dual(e0, q1, derivative="grad"), comm=comm) if e0 else zero
             B_blocks = mass_blocks(tdim, formdegree, A00, A11)
             A_blocks = diff_blocks(tdim, formdegree, A00, A11, A10)
             result = block_mat(B_blocks + A_blocks, destroy_blocks=True)
@@ -1497,7 +1497,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     zero = PETSc.Mat()
     A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
     A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
-    A10 = petsc_sparse(evaluate_dual(c0, f1, alpha=(1,)), comm=PETSc.COMM_SELF)
+    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=PETSc.COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A11.destroy()

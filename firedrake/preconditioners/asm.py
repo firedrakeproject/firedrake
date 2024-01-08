@@ -92,7 +92,7 @@ class ASMPatchPC(PCBase):
                 sum(W.value_size * W.dof_dset.total_size for W in V))
             asmpc.setUp()
         else:
-            raise ValueError(f"Unknown backend type f{backend}")
+            raise ValueError(f"Unknown backend type {backend}")
 
         asmpc.setFromOptions()
         self.asmpc = asmpc
