@@ -1425,7 +1425,7 @@ def build_and_install_slepc():
 
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "netgen-mesher==6.2.2304.post142.dev0"])
+    run_pip(["install", "netgen-mesher"])
     log.info("Installing ngsPETSc.")
     url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
     ngsPETSc_changed = False
