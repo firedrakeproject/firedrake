@@ -508,14 +508,15 @@ class FunctionSpace(object):
         r"""The (optional) descriptive name for this space."""
         # User comm
         self.comm = mesh.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(self.comm, self)
+
         self.set_shared_data()
         self.dof_dset = self.make_dof_dset()
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
         self.node_set = self.dof_dset.set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     def set_shared_data(self):
         element = self.ufl_element()
