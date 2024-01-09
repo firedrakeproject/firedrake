@@ -769,11 +769,14 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
         # Getting the comm attribute of a form isn't straightforward
         # form.ufl_domains()[0]._comm seems the most robust method
         # revisit in a refactor
-        return pyop3.Global(
-            1,
-            [0.0],
-            dtype=utils.ScalarType,
-            comm=form.ufl_domains()[0]._comm
+        comm = form.ufl_domains()[0]._comm
+
+        # TODO this is more convoluted than strictly needed, add a factory method?
+        sf = op3.sf.single_star(comm)
+        axis = op3.Axis(1, sf=sf)
+        return op3.HierarchicalArray(
+            axis,
+            data=numpy.asarray([0.0], dtype=utils.ScalarType),
         )
     elif rank == 1:
         test, = form.arguments()
@@ -965,7 +968,8 @@ class ZeroFormAssembler(FormAssembler):
 
     @property
     def result(self):
-        return self._tensor.data[0]
+        # must use private attribute here because 
+        return self._tensor.buffer._data[0]
 
 
 class OneFormAssembler(FormAssembler):
@@ -996,7 +1000,7 @@ class OneFormAssembler(FormAssembler):
     def execute_parloops(self):
         # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
         # can be skipped.
-        #FIXME PYOP3 restore halo freezing
+        #FIXME PYOP3 restore halo freezing - we get this by default now!
         # with self._tensor.dat.frozen_halo(pyop3.INC):
         #     for parloop in self.parloops:
         #         parloop()
@@ -1179,322 +1183,6 @@ def get_form_assembler(form, tensor, *args, **kwargs):
                                  is_base_form_preprocessed=True, **kwargs)
     else:
         raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
-
-
-def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
-    # N.B. Generating the global kernel is not a collective operation so the
-    # communicator does not need to be a part of this cache key.
-
-    if isinstance(form, ufl.Form):
-        sig = form.signature()
-    elif isinstance(form, slate.TensorBase):
-        sig = form.expression_hash
-
-    # The form signature does not store this information. This should be accessible from
-    # the UFL so we don't need this nasty hack.
-    subdomain_key = []
-    for val in form.subdomain_data().values():
-        for k, v in val.items():
-            for i, vi in enumerate(v):
-                if vi is not None:
-                    extruded = vi._extruded
-                    constant_layers = extruded and vi.constant_layers
-                    subset = isinstance(vi, op2.Subset)
-                    subdomain_key.append((k, i, extruded, constant_layers, subset))
-                else:
-                    subdomain_key.append((k, i))
-
-    return ((sig, subdomain_id)
-            + tuple(subdomain_key)
-            + tuplify(all_integer_subdomain_ids)
-            + cachetools.keys.hashkey(local_knl, **kwargs))
-
-
-@cachetools.cached(cache={}, key=_global_kernel_cache_key)
-def _make_global_kernel(*args, **kwargs):
-    return _GlobalKernelBuilder(*args, **kwargs).build()
-
-
-class _GlobalKernelBuilder:
-    """Class that builds a :class:`op2.GlobalKernel`.
-
-    :param form: The variational form.
-    :param local_knl: :class:`tsfc_interface.SplitKernel` compiled by either
-        TSFC or Slate.
-    :param subdomain_id: The subdomain of the mesh to iterate over.
-    :param all_integer_subdomain_ids: See :func:`tsfc_interface.gather_integer_subdomain_ids`.
-    :param diagonal: Are we assembling the diagonal of a 2-form?
-    :param unroll: If ``True``, address matrix elements directly rather than in
-        a blocked fashion. This is slower but required for the application of
-        some boundary conditions.
-
-    .. note::
-        One should be able to generate a global kernel without needing to
-        use any data structures (i.e. a stripped form should be sufficient).
-    """
-
-    def __init__(self, form, local_knl, subdomain_id, all_integer_subdomain_ids, diagonal=False, unroll=False):
-        self._form = form
-        self._indices, self._kinfo = local_knl
-        self._subdomain_id = subdomain_id
-        self._all_integer_subdomain_ids = all_integer_subdomain_ids.get(self._kinfo.integral_type, None)
-        self._diagonal = diagonal
-        self._unroll = unroll
-
-        self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
-        self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
-
-        self._map_arg_cache = {}
-        # Cache for holding :class:`op2.MapKernelArg` instances.
-        # This is required to ensure that we use the same map argument when the
-        # data objects in the parloop would be using the same map. This is to avoid
-        # unnecessary packing in the global kernel.
-
-    def build(self):
-        """Build the global kernel."""
-        kernel_args = [self._as_global_kernel_arg(arg)
-                       for arg in self._kinfo.arguments]
-
-        # we should use up all of the coefficients and constants
-        assert_empty(self._active_coefficients)
-        assert_empty(self._constants)
-
-        iteration_regions = {"exterior_facet_top": op2.ON_TOP,
-                             "exterior_facet_bottom": op2.ON_BOTTOM,
-                             "interior_facet_horiz": op2.ON_INTERIOR_FACETS}
-        iteration_region = iteration_regions.get(self._integral_type, None)
-        extruded = self._mesh.extruded
-        extruded_periodic = self._mesh.extruded_periodic
-        constant_layers = extruded and not self._mesh.variable_layers
-
-        return op2.GlobalKernel(self._kinfo.kernel,
-                                kernel_args,
-                                iteration_region=iteration_region,
-                                pass_layer_arg=self._kinfo.pass_layer_arg,
-                                extruded=extruded,
-                                extruded_periodic=extruded_periodic,
-                                constant_layers=constant_layers,
-                                subset=self._needs_subset)
-
-    @property
-    def _integral_type(self):
-        return self._kinfo.integral_type
-
-    @cached_property
-    def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
-
-    @cached_property
-    def _needs_subset(self):
-        subdomain_data = self._form.subdomain_data()[self._mesh]
-        if not all(sd is None for sd in subdomain_data.get(self._integral_type, [None])):
-            return True
-
-        if self._subdomain_id == "everywhere":
-            return False
-        elif self._subdomain_id == "otherwise":
-            return self._all_integer_subdomain_ids is not None
-        else:
-            return True
-
-    @property
-    def _indexed_function_spaces(self):
-        return _FormHandler.index_function_spaces(self._form, self._indices)
-
-    def _as_global_kernel_arg(self, tsfc_arg):
-        # TODO Make singledispatchmethod with Python 3.8
-        return _as_global_kernel_arg(tsfc_arg, self)
-
-    def _get_map_arg(self, finat_element):
-        """Get the appropriate map argument for the given FInAT element.
-
-        :arg finat_element: A FInAT element.
-        :returns: A :class:`op2.MapKernelArg` instance corresponding to
-            the given FInAT element. This function uses a cache to ensure
-            that PyOP2 knows when it can reuse maps.
-        """
-        key = self._get_map_id(finat_element)
-
-        try:
-            return self._map_arg_cache[key]
-        except KeyError:
-            pass
-
-        shape = finat_element.index_shape
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            shape = shape[:-len(finat_element._shape)]
-        arity = numpy.prod(shape, dtype=int)
-        if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-            arity *= 2
-
-        if self._mesh.extruded:
-            offset = tuple(eutils.calculate_dof_offset(finat_element))
-            # for interior facet integrals we double the size of the offset array
-            if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-                offset += offset
-        else:
-            offset = None
-        if self._mesh.extruded_periodic:
-            offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
-            if offset_quotient is not None:
-                offset_quotient = tuple(offset_quotient)
-                if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-                    offset_quotient += offset_quotient
-        else:
-            offset_quotient = None
-
-        map_arg = op2.MapKernelArg(arity, offset, offset_quotient)
-        self._map_arg_cache[key] = map_arg
-        return map_arg
-
-    def _get_dim(self, finat_element):
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            return finat_element._shape
-        else:
-            return (1,)
-
-    def _make_dat_global_kernel_arg(self, finat_element, index=None):
-        if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
-            assert index is None
-            subargs = tuple(self._make_dat_global_kernel_arg(subelem.element)
-                            for subelem in finat_element.elements)
-            return op2.MixedDatKernelArg(subargs)
-        else:
-            dim = self._get_dim(finat_element)
-            map_arg = self._get_map_arg(finat_element)
-            return op2.DatKernelArg(dim, map_arg, index)
-
-    def _make_mat_global_kernel_arg(self, relem, celem):
-        if any(isinstance(e, finat.EnrichedElement) and e.is_mixed for e in {relem, celem}):
-            subargs = tuple(self._make_mat_global_kernel_arg(rel.element, cel.element)
-                            for rel, cel in product(relem.elements, celem.elements))
-            shape = len(relem.elements), len(celem.elements)
-            return op2.MixedMatKernelArg(subargs, shape)
-        else:
-            # PyOP2 matrix objects have scalar dims so we flatten them here
-            rdim = numpy.prod(self._get_dim(relem), dtype=int)
-            cdim = numpy.prod(self._get_dim(celem), dtype=int)
-            map_args = self._get_map_arg(relem), self._get_map_arg(celem)
-            return op2.MatKernelArg((((rdim, cdim),),), map_args, unroll=self._unroll)
-
-    @staticmethod
-    def _get_map_id(finat_element):
-        """Return a key that is used to check if we reuse maps.
-
-        This mirrors firedrake.functionspacedata.
-        """
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            finat_element = finat_element.base_element
-
-        real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
-        try:
-            eperm_key = entity_permutations_key(finat_element.entity_permutations)
-        except NotImplementedError:
-            eperm_key = None
-        return entity_dofs_key(finat_element.entity_dofs()), real_tensorproduct, eperm_key
-
-
-@functools.singledispatch
-def _as_global_kernel_arg(tsfc_arg, self):
-    raise NotImplementedError
-
-
-@_as_global_kernel_arg.register(kernel_args.OutputKernelArg)
-def _as_global_kernel_arg_output(_, self):
-    rank = len(self._form.arguments())
-    Vs = self._indexed_function_spaces
-
-    if rank == 0:
-        return op2.GlobalKernelArg((1,))
-    elif rank == 1 or rank == 2 and self._diagonal:
-        V, = Vs
-        if V.ufl_element().family() == "Real":
-            return op2.GlobalKernelArg((1,))
-        else:
-            return self._make_dat_global_kernel_arg(create_element(V.ufl_element()))
-    elif rank == 2:
-        if all(V.ufl_element().family() == "Real" for V in Vs):
-            return op2.GlobalKernelArg((1,))
-        elif any(V.ufl_element().family() == "Real" for V in Vs):
-            el, = (create_element(V.ufl_element()) for V in Vs
-                   if V.ufl_element().family() != "Real")
-            return self._make_dat_global_kernel_arg(el)
-        else:
-            rel, cel = (create_element(V.ufl_element()) for V in Vs)
-            return self._make_mat_global_kernel_arg(rel, cel)
-    else:
-        raise AssertionError
-
-
-@_as_global_kernel_arg.register(kernel_args.CoordinatesKernelArg)
-def _as_global_kernel_arg_coordinates(_, self):
-    finat_element = create_element(self._mesh.ufl_coordinate_element())
-    return self._make_dat_global_kernel_arg(finat_element)
-
-
-@_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
-def _as_global_kernel_arg_coefficient(_, self):
-    coeff = next(self._active_coefficients)
-    V = coeff.ufl_function_space()
-    if hasattr(V, "component") and V.component is not None:
-        index = V.component,
-        V = V.parent
-    else:
-        index = None
-
-    ufl_element = V.ufl_element()
-    if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((ufl_element.value_size,))
-    else:
-        finat_element = create_element(ufl_element)
-        return self._make_dat_global_kernel_arg(finat_element, index)
-
-
-@_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
-def _as_global_kernel_arg_constant(_, self):
-    const = next(self._constants)
-    value_size = numpy.prod(const.ufl_shape, dtype=int)
-    return op2.GlobalKernelArg((value_size,))
-
-
-@_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
-def _as_global_kernel_arg_cell_sizes(_, self):
-    # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
-    ufl_element = finat.ufl.FiniteElement("P", self._mesh.ufl_cell(), 1)
-    finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element)
-
-
-@_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
-def _as_global_kernel_arg_exterior_facet(_, self):
-    return op2.DatKernelArg((1,))
-
-
-@_as_global_kernel_arg.register(kernel_args.InteriorFacetKernelArg)
-def _as_global_kernel_arg_interior_facet(_, self):
-    return op2.DatKernelArg((2,))
-
-
-@_as_global_kernel_arg.register(CellFacetKernelArg)
-def _as_global_kernel_arg_cell_facet(_, self):
-    if self._mesh.extruded:
-        num_facets = self._mesh._base_mesh.ufl_cell().num_facets()
-    else:
-        num_facets = self._mesh.ufl_cell().num_facets()
-    return op2.DatKernelArg((num_facets, 2))
-
-
-@_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_global_kernel_arg_cell_orientations(_, self):
-    # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
-    ufl_element = finat.ufl.FiniteElement("DG", cell=self._mesh.ufl_cell(), degree=0)
-    finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element)
-
-
-@_as_global_kernel_arg.register(LayerCountKernelArg)
-def _as_global_kernel_arg_layer_count(_, self):
-    return op2.GlobalKernelArg((1,))
 
 
 class ParloopBuilder:
