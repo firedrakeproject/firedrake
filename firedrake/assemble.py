@@ -834,8 +834,9 @@ class FormAssembler(abc.ABC):
                 "Use assemble instead."
             )
 
-        if self._needs_zeroing:
-            self._as_pyop3_type(self._tensor).zero()
+        # FIXME getting rid just for now to see if other bits work
+        # if self._needs_zeroing:
+        #     self._as_pyop3_type(self._tensor).zero()
 
         self.execute_parloops()
 
@@ -1750,7 +1751,7 @@ class _FormHandler:
             # FIXME
             if i != 0 or j != 0:
                 raise NotImplementedError("mixed needs thought")
-            return tensor.mat
+            return tensor.M
             # return tensor.M[i, j] if is_indexed else tensor.M
         else:
             raise AssertionError
