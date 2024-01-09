@@ -582,7 +582,7 @@ class TestMatrices:
     def test_mat_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
-        nrows = mat.sparsity.nrows
+        nrows = mat.nblock_rows
         mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
@@ -591,7 +591,7 @@ class TestMatrices:
     def test_mat_repeated_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
-        nrows = mat.sparsity.nrows
+        nrows = mat.nblock_rows
         mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()

@@ -156,11 +156,11 @@ class DataSet(caching.ObjectCached):
         ises = []
         nlocal_rows = 0
         for dset in self:
-            nlocal_rows += dset.size * dset.cdim
+            nlocal_rows += dset.layout_vec.local_size
         offset = self.comm.scan(nlocal_rows)
         offset -= nlocal_rows
         for dset in self:
-            nrows = dset.size * dset.cdim
+            nrows = dset.layout_vec.local_size
             iset = PETSc.IS().createStride(nrows, first=offset, step=1,
                                            comm=self.comm)
             iset.setBlockSize(dset.cdim)
@@ -283,27 +283,6 @@ class GlobalDataSet(DataSet):
             lgmap = PETSc.LGMap().create(indices=indices,
                                          bsize=1, comm=self.lgmap.comm)
             return lgmap
-
-    @utils.cached_property
-    def field_ises(self):
-        """A list of PETSc ISes defining the global indices for each set in
-        the DataSet.
-
-        Used when extracting blocks from matrices for solvers."""
-        ises = []
-        nlocal_rows = 0
-        for dset in self:
-            nlocal_rows += dset.size * dset.cdim
-        offset = self.comm.scan(nlocal_rows)
-        offset -= nlocal_rows
-        for dset in self:
-            nrows = dset.size * dset.cdim
-            iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-                                           comm=self.comm)
-            iset.setBlockSize(dset.cdim)
-            ises.append(iset)
-            offset += nrows
-        return tuple(ises)
 
     @utils.cached_property
     def local_ises(self):

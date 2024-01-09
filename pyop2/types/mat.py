@@ -66,8 +66,6 @@ class Sparsity(caching.ObjectCached):
             self._dims = (((1, 1),),)
             self._d_nnz = None
             self._o_nnz = None
-            self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
-            self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
             self.lcomm = mpi.internal_comm(dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm)
             self.rcomm = mpi.internal_comm(dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm)
         else:
@@ -75,9 +73,6 @@ class Sparsity(caching.ObjectCached):
             self.rcomm = mpi.internal_comm(self._cmaps[0].comm)
 
             rset, cset = self.dsets
-            # All rmaps and cmaps have the same data set - just use the first.
-            self._nrows = rset.size
-            self._ncols = cset.size
 
             self._has_diagonal = (rset == cset)
 
@@ -278,16 +273,6 @@ class Sparsity(caching.ObjectCached):
                 len(self._dsets[1] or [1]))
 
     @utils.cached_property
-    def nrows(self):
-        """The number of rows in the ``Sparsity``."""
-        return self._nrows
-
-    @utils.cached_property
-    def ncols(self):
-        """The number of columns in the ``Sparsity``."""
-        return self._ncols
-
-    @utils.cached_property
     def nested(self):
         r"""Whether a sparsity is monolithic (even if it has a block structure).
 
@@ -376,8 +361,6 @@ class SparsityBlock(Sparsity):
         self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
         self._rmaps = tuple(m.split[i] for m in parent.rmaps)
         self._cmaps = tuple(m.split[j] for m in parent.cmaps)
-        self._nrows = self._dsets[0].size
-        self._ncols = self._dsets[1].size
         self._has_diagonal = i == j and parent._has_diagonal
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
@@ -520,7 +503,7 @@ class AbstractMat(DataCarrier, abc.ABC):
     @utils.cached_property
     def nrows(self):
         "The number of rows in the matrix (local to this process)"
-        return sum(d.size * d.cdim for d in self.sparsity.dsets[0])
+        return self.sparsity.dsets[0].layout_vec.local_size
 
     @utils.cached_property
     def nblock_rows(self):
@@ -530,7 +513,8 @@ class AbstractMat(DataCarrier, abc.ABC):
         by the dimension of the row :class:`DataSet`.
         """
         assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
-        return self.sparsity.dsets[0].size
+        layout_vec = self.sparsity.dsets[0].layout_vec
+        return layout_vec.local_size // layout_vec.block_size
 
     @utils.cached_property
     def nblock_cols(self):
@@ -540,12 +524,13 @@ class AbstractMat(DataCarrier, abc.ABC):
         divided by the dimension of the column :class:`DataSet`.
         """
         assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
-        return self.sparsity.dsets[1].size
+        layout_vec = self.sparsity.dsets[1].layout_vec
+        return layout_vec.local_size // layout_vec.block_size
 
     @utils.cached_property
     def ncols(self):
         "The number of columns in the matrix (local to this process)"
-        return sum(d.size * d.cdim for d in self.sparsity.dsets[1])
+        return self.sparsity.dsets[1].layout_vec.local_size
 
     @utils.cached_property
     def sparsity(self):

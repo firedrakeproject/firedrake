@@ -128,13 +128,13 @@ def build_sparsity(sparsity):
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     if mixed:
         # Sparsity is the dof sparsity.
-        nrows = sum(s.size*s.cdim for s in rset)
-        ncols = sum(s.size*s.cdim for s in cset)
+        nrows = rset.layout_vec.local_size
+        ncols = cset.layout_vec.local_size
         preallocator.setLGMap(rmap=rset.unblocked_lgmap, cmap=cset.unblocked_lgmap)
     else:
         # Sparsity is the block sparsity
-        nrows = rset.size
-        ncols = cset.size
+        nrows = rset.layout_vec.local_size // rset.layout_vec.block_size
+        ncols = cset.layout_vec.local_size // cset.layout_vec.block_size
         preallocator.setLGMap(rmap=rset.scalar_lgmap, cmap=cset.scalar_lgmap)
 
     preallocator.setSizes(size=((nrows, None), (ncols, None)),
