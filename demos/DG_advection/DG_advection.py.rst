@@ -112,6 +112,7 @@ As usual, we start by importing Firedrake.  We also import the math library to
 give us access to the value of pi.  We use a 40-by-40 mesh of squares. ::
 
   from firedrake import *
+  from firedrake.pyplot import FunctionPlotter, tripcolor
   import math
   import matplotlib.pyplot as plt
   from matplotlib.animation import FuncAnimation

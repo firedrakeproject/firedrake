@@ -1,6 +1,12 @@
-from firedrake import *
-from firedrake.plot import FunctionPlotter
+import pytest
 import numpy as np
+from firedrake import *
+
+try:
+    from firedrake.pyplot import FunctionPlotter
+except ImportError:
+    # Matplotlib is not installed
+    pytest.skip("Matplotlib not installed", allow_module_level=True)
 
 
 def test_1d_constant():

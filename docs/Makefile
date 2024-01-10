@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish publishpdf serve scp
+publish publishpdf serve reset_notebooks
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -67,6 +67,16 @@ copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
+
+reset_notebooks:
+	jupyter-nbconvert --clear-output ./notebooks/*.ipynb
+	env OMP_NUM_THREADS=1 jupyter-nbconvert \
+		--execute \
+		--ClearMetadataPreprocessor.enabled=True \
+		--allow-errors \
+		--to notebook \
+		--inplace \
+		./notebooks/*.ipynb
 
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py

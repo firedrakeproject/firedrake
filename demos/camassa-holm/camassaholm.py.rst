@@ -214,10 +214,11 @@ This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
 
-At last, we call the function :func:`plot <firedrake.plot.plot>` on the final
+At last, we call the function :func:`plot <firedrake.pyplot.plot>` on the final
 value to visualize it::
 
   try:
+    from firedrake.pyplot import plot
     fig, axes = plt.subplots()
     plot(all_us[-1], axes=axes)
   except Exception as e:

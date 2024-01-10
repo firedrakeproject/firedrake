@@ -104,6 +104,7 @@ Using this form, we can now implement this eigenvalue problem in
 Firedrake. We start by importing Firedrake. ::
 
   from firedrake import *
+  from firedrake.pyplot import tripcolor
 
 We specify the geometry to be a square geometry with :math:`50` cells
 with length :math:`1`. ::

@@ -253,8 +253,8 @@ Plotting with `matplotlib`
 
 Firedrake includes support for plotting meshes and functions using matplotlib_.
 The API for plotting mimics that of matplotlib as much as possible. For example
-the functions :func:`tripcolor <firedrake.plot.tripcolor>`, :func:`tricontour
-<firedrake.plot.tricontour>`, and so forth, all behave more or less like their
+the functions :func:`tripcolor <firedrake.pyplot.tripcolor>`, :func:`tricontour
+<firedrake.pyplot.tricontour>`, and so forth, all behave more or less like their
 counterparts in matplotlib, and actually call them under the hood. The only
 difference is that the Firedrake functions include an extra optional argument
 ``axes`` to specify the matplotlib :class:`Axes <matplotlib.axes.Axes>` object
@@ -268,6 +268,9 @@ figure.
 
       import matplotlib.pyplot as plt
       import numpy as np
+      from firedrake import *
+      from firedrake.pyplot import tricontourf
+
       mesh = UnitSquareMesh(10, 10)
       V = FunctionSpace(mesh, "CG", 1)
       u = Function(V)
@@ -282,10 +285,10 @@ figure.
 
 For vector fields, triplot and tricontour will show the magnitude of function.
 To see the direction as well, you can instead call the
-:func:`quiver <firedrake.plot.quiver>` function, which again works the same as
+:func:`quiver <firedrake.pyplot.quiver>` function, which again works the same as
 its counterpart in matplotlib.
 
-The function :func:`triplot <firedrake.plot.triplot>` has one major departure
+The function :func:`triplot <firedrake.pyplot.triplot>` has one major departure
 from matplotlib to make finite element analysis easier. The different segments
 of the boundary are shown with different colors in order to make it easy to
 determine the numeric ID of each boundary segment. Mistaking which segments of
@@ -295,8 +298,11 @@ add a legend like so:
 
    .. code-block:: python3
 
-      mesh = Mesh(mesh_filename)
       import matplotlib.pyplot as plt
+      from firedrake import *
+      from firedrake.pyplot import triplot
+
+      mesh = Mesh(mesh_filename)
       fig, axes = plt.subplots()
       triplot(mesh, axes=axes)
       axes.legend()
@@ -310,7 +316,7 @@ For 1D functions with degree less than 4, the plot of the function would be
 exact using Bezier curves. For higher order 1D functions, the plot would be the
 linear approximation by sampling points of the function. The number of sample
 points per element could be specfied to when calling :func:`plot
-<firedrake.plot.plot>`.
+<firedrake.pyplot.plot>`.
 
 To install matplotlib_, please look at the installation instructions of
 matplotlib.
