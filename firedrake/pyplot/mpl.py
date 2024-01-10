@@ -2,7 +2,13 @@ import enum
 import math
 import numpy as np
 import numpy.random as randomgen
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Error importing matplotlib, you may need to install by executing\n\t"
+        "pip install matplotlib"
+    ) from e
 import matplotlib.colors
 import matplotlib.patches
 import matplotlib.tri
