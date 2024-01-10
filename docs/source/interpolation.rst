@@ -151,7 +151,7 @@ function space:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 11-18, 31-40
+   :lines: 11-23, 31-40
 
 For more on forms, see :ref:`this section of the manual <more_complicated_forms>`.
 
