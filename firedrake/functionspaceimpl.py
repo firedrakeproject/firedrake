@@ -1172,7 +1172,7 @@ class RealFunctionSpace(FunctionSpace):
 class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
         super().__init__(function_space._mesh.topology, function_space.ufl_element(), function_space.name)
-        # 1: make a call to __super__ for __init__ using function_space.mesh etc 
+        # 1: make a call to __super__ for __init__ using function_space.mesh etc
         # 2: create self.boundary_set (the union of all bc.sub_domain)
         # 3: self.function_space = function_space
         self.function_space = function_space
@@ -1181,15 +1181,13 @@ class RestrictedFunctionSpace(FunctionSpace):
         for bc in bcs:
             boundary_set = boundary_set.union(set(bc.sub_domain))
         self.boundary_set = frozenset(boundary_set)
-        self.name = name or (function_space.name + "_"  
+        self.name = name or (function_space.name + "_"
                              + "_".join(sorted(
-                                [str(i) for i in self.boundary_set])))
+                                        [str(i) for i in self.boundary_set])))
         sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
         self._shared_data = sdata
         self._init_with_shared_data(name, sdata)
 
-
-        
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
         # 2: check if self.function_space = other.function_space (__super__)
@@ -1197,35 +1195,32 @@ class RestrictedFunctionSpace(FunctionSpace):
         if not isinstance(other, RestrictedFunctionSpace):
             return False
         return super().__eq__(self.function_space, other.function_space) and \
-               self.boundary_set == other.boundary_set
-    
+            self.boundary_set == other.boundary_set
+
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __hash__(self):
         # 1: I want to do a hash similar to before but also add bc.sub_domain
-        return hash((self.function_space.mesh(), self.function_space.dof_dset, 
+        return hash((self.function_space.mesh(), self.function_space.dof_dset,
                      self.function_space.ufl_element(), self.boundary_set))
-    
+
     def __repr__(self):
         # 1: Look at previous __repr__
         # 2: Want to display "RestrictedFunctionSpace(FunctionSpace(), ..., bcs)"
         return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
-                                                   str(self.function_space),
-                                                   self.name, 
-                                                   self.bcs)
-    
+            str(self.function_space), self.name, self.bcs)
+
     def __str__(self):
         # __str__ == __repr__
         return self.__repr__()
-    
+
     @utils.cached_property
     def dof_count(self):
         node_count = self.node_count
         for bc in self.bcs:
             node_count -= len(bc.nodes)
         return node_count*self.value_size
-        
 
     def local_to_global_map(self, lgmap=None):
         if self.bcs is None or len(self.bcs) == 0:
@@ -1266,10 +1261,10 @@ class RestrictedFunctionSpace(FunctionSpace):
                 nodes.append(bc.nodes)
         nodes = numpy.unique(numpy.concatenate(nodes))
         indices[nodes] = -1
-        bc_node_count = 0 
+        bc_node_count = 0
         for node in range(len(indices)):
             if indices[node] == -1:
-                bc_node_count += 1 
+                bc_node_count += 1
             else:
                 indices[node] -= bc_node_count
         indices = indices[indices >= 0]
