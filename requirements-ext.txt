@@ -1,7 +1,6 @@
 cached_property
 cachetools
 ipython
-matplotlib
 nbval
 packaging
 pkgconfig
