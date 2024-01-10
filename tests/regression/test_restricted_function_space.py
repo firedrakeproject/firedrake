@@ -1,6 +1,4 @@
-import pytest
 from firedrake import *
-import numpy as np
 
 mesh = UnitSquareMesh(1, 1)
 V = FunctionSpace(mesh, "CG", 1)
@@ -11,16 +9,16 @@ v = TestFunction(V)
 
 original_form = u * v * dx
 matrix = assemble(u * v * dx)
-print(matrix.M.values) # getting the 4x4 matrix values to compare with the ones later
+print(matrix.M.values)  # getting the 4x4 matrix values to compare with the ones later
 
 bc = DirichletBC(V, 0, 1)
-V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc]) 
+V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc])
 
 u2 = TrialFunction(V_res)
 v2 = TestFunction(V_res)
 restricted_form = u2 * v2 * dx
 
-matrix_res = assemble(u2 * v2 * dx) # current work gives a number 11 SEGV error. 
+matrix_res = assemble(u2 * v2 * dx)  # currently wants to make a 2x2 but need to work on PyOP2 to allow that?
 print(matrix_res.M.values)
 
 matrix_normal_bcs = assemble(u * v * dx, bcs=[bc])
