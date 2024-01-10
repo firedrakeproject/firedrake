@@ -1420,15 +1420,16 @@ class StandaloneInterpolationMatrix(object):
                     {", const PetscScalar *restrict w" if transpose else ""}
         ){{
             const PetscScalar A[] = {{ {", ".join(map(float.hex, A.flat))} }};
-            PetscInt k0 = 0, k1 = 0;
+            {IntType_c} i0, i1;
             for ({IntType_c} k = 0; k < {value_size}; k++) {{
                 for ({IntType_c} i = 0; i < {A.shape[0]}; i++) {{
-                    {"" if transpose else "y[i+k0] = 0;"}
-                    for ({IntType_c} j = 0; j < {A.shape[1]}; j++)
-                        y[i+k0] += A[i * {A.shape[1]} + j] * {"(x[j+k1] * w[j+k1])" if transpose else "x[j+k1]"};
+                    i0 = i * {value_size} + k;
+                    {"" if transpose else "y[i0] = 0;"}
+                    for ({IntType_c} j = 0; j < {A.shape[1]}; j++) {{
+                        i1 = j * {value_size} + k;
+                        y[i0] += A[i * {A.shape[1]} + j] * {"(x[i1] * w[i1])" if transpose else "x[i1]"};
+                    }}
                 }}
-                k0 += {A.shape[0]};
-                k1 += {A.shape[1]};
             }}
         }}"""
         return op2.Kernel(code, name, requires_zeroed_output_arguments=transpose)
