@@ -9,6 +9,11 @@ from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
 
+try:
+    import netgen
+except ImportError:
+    netgen = None
+    ngsPETSc = None
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")
@@ -80,6 +85,7 @@ class HierarchyBase(object):
 
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
+                  order=1,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh):
@@ -102,6 +108,13 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     :arg mesh_builder: Function to turn a DM into a ``Mesh``. Used by pyadjoint.
     """
+    if netgen and isinstance(mesh, netgen.libngpy._meshing.Mesh):
+        try:
+            from ngsPETSc import NetgenHierarchy
+        except ImportError:
+            raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
+        return NetgenHierarchy(mesh, refinement_levels, order=order, digits=8, adaptive=False)
+
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
     dms = []
