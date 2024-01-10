@@ -47,6 +47,8 @@ r"""The prefix attached to the attributes associated with immersed meshes."""
 PREFIX_EMBEDDED = "_".join([PREFIX, "embedded"])
 r"""The prefix attached to the DG function resulting from projecting the original function to the embedding DG space."""
 
+PREFIX_TIMESTEPPING = "_".join([PREFIX, "timestepping"])
+r"""The prefix attached to the attributes associated with timestepping."""
 
 # This is the distribution_parameters and reorder that one must use when
 # distribution and permutation are loaded.
@@ -717,7 +719,16 @@ class CheckpointFile(object):
             self.viewer.popGroup()
 
     @PETSc.Log.EventDecorator("SetTimstep")
-    def _set_timestep(self, mesh, name, idx, time):
+    def _set_timestep(self, mesh, name, idx, timestamp):
+        """ Saving timestepping attributes for function name
+
+        Args:
+            mesh: mesh under which the function is saved
+            name (str): name of the function
+            idx (int): optional index under which the function is saved
+            timestamp (float): optional time at which the function is saved
+            timestep (float): optional associated timestep
+        """
         # follow the general path rule for storing a function
         tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
         V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
@@ -726,7 +737,7 @@ class CheckpointFile(object):
         if self.has_attr("/"+path if path else "", "stored_time_steps"):
             # collect previous indices and timesteps and add the current timestep path to it
             old_indices, old_times = self.get_timesteps(mesh, name)
-            times = np.concatenate((old_times, [time]))
+            times = np.concatenate((old_times, [timestamp]))
             indices = np.concatenate((old_indices, [len(old_indices) if idx is None else idx]))
         else:
             # initiate timestepping, assuming the saving the function has succeeded
@@ -814,7 +825,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None, timetag=None):
+    def save_function(self, f, idx=None, name=None, timestamp=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -824,18 +835,20 @@ class CheckpointFile(object):
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
         :kwarg name: optional alternative name to save the function under.
+        :kwarg t: optional time to be stored with a function.
         """
         V = f.function_space()
         mesh = V.mesh()
-        if timetag:
-            ret = self.save_function(f, idx=idx, name=name)
+
+        # store index or timestamp mode if in timestepping mode
+        if [item for item in [idx, timestamp] if item is None]:
             self._set_timestep(
                 mesh=mesh,
                 name=name if name else f.name(),
                 idx=idx,
-                time=timetag,
+                timestamp=timestamp,
                 )
-            return ret
+
         if name:
             g = Function(V, val=f.dat, name=name)
             return self.save_function(g, idx=idx)
