@@ -1636,5 +1636,5 @@ class VomOntoVomDummyMat(object):
             # interpolation matrix will have columns of zeros for the points
             # that are not in the immersed mesh. The adjoint interpolation
             # matrix will then have rows of zeros for those points.
-            target_vec.getArray()[:] = 0.0
+            target_vec.zero()
             self.reduce(source_vec, target_vec)
