@@ -716,7 +716,7 @@ class CheckpointFile(object):
             perm_is.setName(None)
             self.viewer.popGroup()
 
-    @PETSc.Log.EventDecorator("SetTimstep")
+    @PETSc.Log.EventDecorator("SetTimestep")
     def _set_timestep(self, mesh, name, idx, time):
         # follow the general path rule for storing a function
         tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
@@ -733,10 +733,10 @@ class CheckpointFile(object):
             indices = [0 if idx is None else idx]
             times = [time]
         # store all timesteps and indices
-        self.set_attr("/"+path if path else "", "stored_time_indices", indices)
-        self.set_attr("/"+path if path else "", "stored_time_steps", times)
+        self.set_attr(path, PREFIX_TIMESTEPPING + "_indices", indices)
+        self.set_attr(path, PREFIX_TIMESTEPPING + "_timesteps", times)
 
-    @PETSc.Log.EventDecorator("GetTimsteps")
+    @PETSc.Log.EventDecorator("GetTimesteps")
     def get_timesteps(self, mesh, name):
         # follow the general path rule for storing a function
         tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
