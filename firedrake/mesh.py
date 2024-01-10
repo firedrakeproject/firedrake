@@ -1066,7 +1066,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             # No reordering
             reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)[0]
 
     @utils.cached_property
     def cell_closure(self):
@@ -1620,7 +1620,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):

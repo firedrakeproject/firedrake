@@ -1205,6 +1205,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         PetscInt i, p, layers, pStart, pEnd, dof, j
         PetscInt dimension, ndof
         PetscInt *dof_array = NULL
+        PetscInt *entity_point_map 
         np.ndarray[PetscInt, ndim=2, mode="c"] nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         np.ndarray[PetscInt, ndim=1, mode="c"] points
@@ -1231,12 +1232,15 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     section = PETSc.Section().create(comm=mesh._comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
+
     if boundary_set:
-        renumbering, constrained_nodes = plex_renumbering(dm, mesh._entity_classes, reordering=None,
-                                       boundary_set=boundary_set)
+        renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm, 
+            mesh._entity_classes, reordering=None, boundary_set=boundary_set)
     else:
         renumbering = mesh._dm_renumbering
-        constrained_nodes = 0 
+        constrainedStart = -1
+        constrainedEnd = -1
+
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
@@ -1291,6 +1295,15 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                     dof_array[j] = j
                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
             CHKERR(PetscFree(dof_array))
+    
+    constrained_nodes = 0 
+
+    CHKERR(ISGetIndices(renumbering.iset, &entity_point_map))
+    for entity in range(constrainedStart, constrainedEnd):
+        CHKERR(PetscSectionGetDof(section.sec, entity_point_map[entity], &dof))
+        constrained_nodes += dof
+    CHKERR(ISRestoreIndices(renumbering.iset, &entity_point_map))
+
     return section, constrained_nodes
 
 
@@ -2395,7 +2408,7 @@ def plex_renumbering(PETSc.DM plex,
     if boundary_set:
         lidx[1] -= constrained_core
         lidx = np.concatenate((lidx, np.array([lidx[2]], dtype=IntType)))
-        lidx[2] -= (constrained_core + constrained_owned)
+        lidx[3] -= (constrained_core + constrained_owned)
     
     for c in range(pStart, pEnd):
         if reorder:
@@ -2437,11 +2450,7 @@ def plex_renumbering(PETSc.DM plex,
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
-    constrained_nodes = constrained_core + constrained_owned
-    if boundary_set:
-        return perm_is, constrained_nodes
-    else:
-        return perm_is
+    return perm_is, (lidx[1], lidx[3]) 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
