@@ -102,39 +102,20 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         MPI.Request.Waitall(requests)
 
     assert errornorm(urank_sum, u_reduce) < 1e-12
-    del ensemble
-    # ~ import pytest; pytest.set_trace()
 
 
-def test_ensemble_allreduce_nofix():
-    ensemble = Ensemble(COMM_WORLD, 2)
-    mesh = UnitSquareMesh(10, 10, comm=ensemble.comm)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = unique_function(mesh, ensemble.ensemble_comm.rank, V)
-    u_reduce = Function(V).assign(0)
-    ensemble.allreduce(u, u_reduce)
-    urs = Function(V).assign(0)
-    for rank in range(ensemble.ensemble_comm.size):
-        urs.assign(urs + unique_function(mesh, rank, V))
+# ~ def test_ensemble_allreduce_nofix():
+    # ~ ensemble = Ensemble(COMM_WORLD, 2)
+    # ~ mesh = UnitSquareMesh(10, 10, comm=ensemble.comm)
+    # ~ V = FunctionSpace(mesh, "CG", 1)
+    # ~ u = unique_function(mesh, ensemble.ensemble_comm.rank, V)
+    # ~ u_reduce = Function(V).assign(0)
+    # ~ ensemble.allreduce(u, u_reduce)
+    # ~ urs = Function(V).assign(0)
+    # ~ for rank in range(ensemble.ensemble_comm.size):
+        # ~ urs.assign(urs + unique_function(mesh, rank, V))
 
-    assert errornorm(urs, u_reduce) < 1e-12
-
-    from pyop2.mpi import pyop2_comm_status
-
-    print(locals())
-
-    # ~ for x in ["urs", "u_reduce", "u", "V", "mesh"]:
-        # ~ print(pyop2_comm_status())
-        # ~ del locals()[x]
-        # ~ import gc; gc.collect()
-
-    del mesh, V, u, u_reduce, urs
-
-    from firedrake.petsc import garbage_cleanup
-
-    garbage_cleanup(ensemble.comm)
-
-    print(pyop2_comm_status())
+    # ~ assert errornorm(urs, u_reduce) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=2)

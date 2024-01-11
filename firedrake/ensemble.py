@@ -1,10 +1,22 @@
 import weakref
+import atexit
 
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI, internal_comm
+from pyop2.mpi import MPI, internal_comm, decref, innercomm_keyval
 from itertools import zip_longest
 
 __all__ = ("Ensemble", )
+
+
+def printing_free(comm):
+    print(f"Finalizing and freeing {comm.name}")
+    comm.Free()
+
+
+def decreffing_free(comm):
+    icomm = comm.Get_attr(innercomm_keyval)
+    decref(icomm)
+    comm.Free()
 
 
 class Ensemble(object):
@@ -23,22 +35,21 @@ class Ensemble(object):
 
         rank = comm.rank
 
-        # User global comm
-        self.global_comm = comm
-        # Internal global comm
-        self._global_comm = internal_comm(comm, self)
+        global_comm = comm
 
         # User split comm
-        self.comm = self.global_comm.Split(color=(rank // M), key=rank)
+        self.comm = global_comm.Split(color=(rank // M), key=rank)
         self.comm.name = "Ensemble split comm"
-        weakref.finalize(self, self.comm.Free)
-        # Internal split comm
         self._comm = internal_comm(self.comm, self)
+        weakref.finalize(self, self.comm.Free)
+
+        # Internal split comm
+
         """The communicator for spatial parallelism, contains a
         contiguous chunk of M processes from :attr:`global_comm`"""
 
         # User ensemble comm
-        self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
+        self.ensemble_comm = global_comm.Split(color=(rank % M), key=rank)
         self.ensemble_comm.name = "Ensemble ensemble comm"
         weakref.finalize(self, self.ensemble_comm.Free)
         # Internal ensemble comm
@@ -49,16 +60,14 @@ class Ensemble(object):
 
 
 
+         # User global comm
+        self.global_comm = global_comm
+        # Internal global comm
+        self._global_comm = internal_comm(global_comm, self)
+
+
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            self.comm.Free()
-            del self.comm
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
 
     def _check_function(self, f, g=None):
         """
