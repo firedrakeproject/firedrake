@@ -47,6 +47,16 @@ def py_file(rst_file, tmpdir, monkeypatch):
             # Skip if unable to make mesh
             pytest.skip("Unable to generate mesh file, skipping test")
 
+    if basename(rst_file) == 'netgen_mesh.py.rst':
+        pytest.importorskip(
+            "netgen",
+            reason="Netgen unavailable, skipping Netgen test."
+        )
+        pytest.importorskip(
+            "ngsPETSc",
+            reason="ngsPETSc unavailable, skipping Netgen test."
+        )
+
     # Get the name of the python file that pylit will make
     name = splitext(basename(rst_file))[0]
     output = str(tmpdir.join(name))
