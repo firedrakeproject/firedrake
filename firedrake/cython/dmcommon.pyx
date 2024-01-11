@@ -1235,7 +1235,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
 
     if boundary_set:
         renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm, 
-            mesh._entity_classes, reordering=None, boundary_set=boundary_set)
+            mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
     else:
         renumbering = mesh._dm_renumbering
         constrainedStart = -1
