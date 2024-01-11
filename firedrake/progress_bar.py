@@ -39,7 +39,7 @@ class ProgressBar(FillingSquaresBar):
     -----
 
     Further parameters can be passed as per the `progress package documentation
-    <https://github.com/verigak/progress#readme>`_, or you can customise
+    <https://github.com/verigak/progress>`_, or you can customise
     further by subclassing.
 
     Examples
