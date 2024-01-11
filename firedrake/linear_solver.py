@@ -74,9 +74,8 @@ class LinearSolver(OptionsManager):
 
         W = self.test_space
         # DM provides fieldsplits (but not operators)
-        # FIXME I don't yet know how to do function space DMs
-        # self.ksp.setDM(W.dm)
-        # self.ksp.setDMActive(False)
+        self.ksp.setDM(W.dm)
+        self.ksp.setDMActive(False)
 
         if nullspace is not None:
             nullspace._apply(self.A)

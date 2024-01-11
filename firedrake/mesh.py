@@ -504,15 +504,66 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
+# TODO do we need to ensure that the cell orientation is always zero?
+# Note that the permutation is expressed numbering each entity type from zero,
+# meaning that the indices shown in the diagrams must be offset.
 _PLEX_TO_FIAT_CLOSURE_PERM = {
-    "triangle": {
-        # 0: [6, 4, 5],
-        0: [2, 0, 1],
-        # 1: [1, 2, 3],
-        1: [0, 1, 2],
-        2: [0],
+    # UFCInterval:
+    #
+    #   0---2---1
+    #
+    # PETSc.DM.PolytopeType.SEGMENT:
+    #
+    #   1---0---2
+    "interval": {
+        0: np.array([1, 2]) - 1,
+        1: np.array([0]),
     },
+
+    # UFCTriangle:
+    #
+    #   1
+    #   | \
+    #   5   3
+    #   |  6   \
+    #   0---4---2
+    #
+    # PETSc.DM.PolytopeType.TRIANGLE:
+    #
+    #  4
+    #  | \
+    #  3   1
+    #  |  0   \
+    #  6---2---5
+    "triangle": {
+        0: np.array([6, 4, 5]) - 1 - 3,
+        1: np.array([1, 2, 3]) - 1,
+        2: np.array([0]),
+    },
+
+    # UFCQuadrilateral:
+    #
+    #   1---7---3
+    #   |       |
+    #   4   8   5
+    #   |       |
+    #   0---6---2
+    #
+    # PETSc.DM.PolytopeType.QUADRILATERAL
+    #
+    #   5---4---8
+    #   |       |
+    #   1   0   3
+    #   |       |
+    #   6---2---7
+    "quadrilateral": {
+        0: np.array([6, 5, 7, 8]) - 1 - 4,
+        1: np.array([1, 3, 2, 4]) - 1,
+        2: np.array([0]),
+    }
 }
+"""
+"""
 
 
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
@@ -1338,23 +1389,25 @@ class MeshTopology(AbstractMeshTopology):
                 np.empty(sum(sizes[d]), dtype=IntType)
                 for d in range(self.dimension+1)
             )
-            ptrs = [0] * (self.dimension+1)
+            offsets = tuple(op3.utils.steps(sizes[d]) for d in range(self.dimension+1))
             for pt in range(pstart, pend):
                 cpt, cpt_pt = self.points.axis_to_component_number(pt)
                 renum_cpt_pt = self.points.renumber_point(cpt, cpt_pt)
 
-                map_pts = map_func(pt)
+                ptrs = [0] * (self.dimension + 1)
 
                 # DMPlex queries return points in *decreasing* order of dimension (i.e.
                 # cells -> faces -> ...). This is the opposite to Firedrake's convention
                 # so we have to be careful how we parse the points returned from map_func.
+                # !!! Actually I don't think this is true, depends on traversal order
                 for map_pt in map_func(pt):
+                    # determine whether map_pt is a cell, edge, etc
                     map_cpt, map_cpt_pt = self.points.axis_to_component_number(map_pt)
                     map_dim = int(map_cpt.label)
                     renum_map_cpt_pt = self.points.renumber_point(map_cpt, map_cpt_pt)
-                    map_data[map_dim][ptrs[map_dim]] = renum_map_cpt_pt
+                    map_data[map_dim][offsets[map_dim][renum_cpt_pt] + ptrs[map_dim]] = renum_map_cpt_pt
                     ptrs[map_dim] += 1
-            assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
+            # assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
         return sizes, map_data
 
     @cached_property
@@ -1501,6 +1554,10 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def cells(self):
         return self.points[self.cell_label]
+
+    @cached_property
+    def vertices(self):
+        return self.points[self.vert_label]
 
     @property
     @op3.utils.deprecated("cells")

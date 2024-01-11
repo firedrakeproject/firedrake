@@ -195,18 +195,14 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
 
-        # func_halos_valid = all(f.dat.halo_valid for f in self._functions)
-        # assign_to_halos = (
-        #     func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
-        #FIXME PYOP3
-        if self._assignee.dat.comm.size > 1:
-            raise NotImplementedError("TODO pyop3 parallel")
-        func_halos_valid = True
-        assign_to_halos = True
+        func_halos_valid = all(f.dat.leaves_valid for f in self._functions)
+        assign_to_halos = (
+            func_halos_valid and (not self._subset or self._assignee.dat.leaves_valid))
 
         if assign_to_halos:
             subset_indices = self._subset.indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro_with_halos")
+            # FIXME This isn't quite right as we need to do a transfer
+            data_ro = operator.attrgetter("_data")
         else:
             subset_indices = self._subset.owned_indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro")
@@ -240,7 +236,8 @@ class Assigner:
 
     def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
         if assign_to_halos:
-            lhs_dat.data_wo_with_halos[indices] = rvalue
+            # TODO set modified
+            lhs_dat.buffer._data[indices] = rvalue
         else:
             lhs_dat.data_wo[indices] = rvalue
 

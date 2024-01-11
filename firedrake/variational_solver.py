@@ -198,7 +198,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u.dof_dset.layout_vec.duplicate()
+        self._work = problem.u.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)

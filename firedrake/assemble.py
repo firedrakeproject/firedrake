@@ -408,11 +408,12 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
     if mat_type != "aij":
         raise NotImplementedError
 
-    adjacency_map = op3.transforms.compress(mesh.points, lambda p: mesh.closure(mesh.star(p)), uniquify=True)
+    # not sure that this is strictly needed any more
+    # adjacency_map = op3.transforms.compress(mesh.points, lambda p: mesh.closure(mesh.star(p)), uniquify=True)
 
     def adjacency(pt):
-        # return mesh.closure(mesh.star(pt))
-        return adjacency_map(pt)
+        return mesh.closure(mesh.star(pt))
+        # return adjacency_map(pt)
 
     test_arg, trial_arg = arguments
     mymat = op3.PetscMat(
@@ -968,7 +969,9 @@ class ZeroFormAssembler(FormAssembler):
 
     @property
     def result(self):
-        # must use private attribute here because 
+        # Must use private attribute here because the public .data_ro
+        # attribute only yields the owned data, which for a global is empty
+        # apart from rank 0.
         return self._tensor.buffer._data[0]
 
 

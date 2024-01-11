@@ -582,7 +582,7 @@ class FunctionSpace:
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
+        return hash((self.mesh(), self.axes, self.ufl_element()))
 
     @utils.cached_property
     def _ad_parent_space(self):
@@ -597,19 +597,90 @@ class FunctionSpace:
 
     def _dm(self):
         from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setLocalSection(self.local_section)
+        dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self.global_numbering)
+                             section=dm.getGlobalSection())
         # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(space_dm, self)
-        return space_dm
+        dmhooks.set_function_space(dm, self)
+        return dm
 
+    @utils.cached_property
+    def template_vec(self):
+        """Dummy PETSc Vec of the right size for this set of axes."""
+        vec = PETSc.Vec().create(comm=self.comm)
+        # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
+        # because cdim is not really something pyop3 considers.
+        # size = (self.size * self.cdim, None)
+        # "size" is a 2-tuple of (local size, global size), setting global size
+        # to None means PETSc will determine it for us.
+        size = (self.axes.size, None)
+        # vec.setSizes(size, bsize=self.cdim)
+        vec.setSizes(size)
+        vec.setUp()
+        return vec
 
     @utils.cached_property
     def _ises(self):
-        return self.dof_dset.field_ises
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        ises = []
+        nlocal_rows = 0
+        # FIXME will not work for mixed
+        if len(self) > 1:
+            raise NotImplementedError
+        # for dset in self:
+            # nlocal_rows += dset.size * dset.cdim
+        nlocal_rows += self.axes.size
+        offset = self.comm.scan(nlocal_rows)
+        offset -= nlocal_rows
+
+        # for dset in self:
+        #     nrows = dset.size * dset.cdim
+        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+        #                                    comm=self.comm)
+        #     iset.setBlockSize(dset.cdim)
+        #     ises.append(iset)
+        #     offset += nrows
+        nrows = self.axes.size
+        iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+                                       comm=self.comm)
+        iset.setBlockSize(self._cdim)
+        ises.append(iset)
+        offset += nrows
+        return tuple(ises)
+
+    @utils.cached_property
+    def local_section(self):
+        section = PETSc.Section().create(comm=self.comm)
+        points = self.mesh().topology.points
+        section.setChart(0, points.size)
+        for p in points.iter():
+            clabel = op3.utils.just_one(p.source_path.values())
+            # p_renum = points.default_to_applied_component_number(
+            #     clabel,
+            #     op3.utils.just_one(p.target_exprs.values())
+            # )
+            p_renum = op3.utils.just_one(p.target_exprs.values())
+            p_ = points.component_to_axis_number(clabel, p_renum)
+            offset = self.axes.offset(p.target_path, p.target_exprs, insert_zeros=True)
+            section.setOffset(p_, offset)
+        # could also try setting a permutation?
+        perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
+        section.setPermutation(perm)
+        return section
+
+    @property
+    def _cdim(self):
+        if self.shape:
+            return numpy.prod(self.shape, dtype=int)
+        else:
+            return 1
 
     @utils.cached_property
     def cell_node_list(self):
@@ -700,7 +771,7 @@ class FunctionSpace:
         r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
-        return self.dof_dset.layout_vec.getSize()
+        return self.template_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
