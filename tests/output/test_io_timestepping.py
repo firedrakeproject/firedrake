@@ -74,3 +74,39 @@ def test_io_timestepping(element, tmpdir):
                 g = Function(V)
                 _project(g, _get_expr(V, i), method)
                 assert assemble(inner(g - f, g - f) * dx) < 1.e-16
+
+
+def test_setting_time():
+    import numpy as np
+    mesh = UnitSquareMesh(5, 5)
+    cg2_space = FunctionSpace(mesh, "CG", 2)
+    cg1_space = FunctionSpace(mesh, "CG", 1)
+    mixed_space = MixedFunctionSpace([cg2_space, cg1_space])
+    z = Function(mixed_space, name="z")
+    u, v = z.subfunctions
+    u.rename("u")
+    v.rename("v")
+
+    indices = range(0, 10, 2)
+    ts = np.random.rand(len(indices))*2*np.pi
+    timesteps = np.random.rand(len(indices))*2*np.pi
+
+    with CheckpointFile("tstepping_test.h5", mode="w") as f:
+        f.save_mesh(mesh)
+        for idx, t, timestep in zip(indices, ts, timesteps):
+            u.interpolate(cos(Constant(t)/pi))
+            f.save_function(z, idx=idx, t=t, timestep=timestep)
+
+    with CheckpointFile("tstepping_test.h5", mode="r") as f:
+        mesh = f.load_mesh(name="firedrake_default")
+        loaded_indices, loaded_ts, loaded_timesteps = f.get_timesteps(mesh, name="u")
+        loaded_u = f.load_function(mesh, "u", idx=loaded_indices[-2])
+
+    assert (indices == loaded_indices).all()
+    assert (ts == loaded_ts).all()
+    assert (timesteps == loaded_timesteps).all()
+
+    u_answer = interpolate(
+        cos(Constant(loaded_ts[-2])/pi),
+        loaded_u.function_space())
+    assert assemble((loaded_u - u_answer)**2 * dx) < 1.0e-16
