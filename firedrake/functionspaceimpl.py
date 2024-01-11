@@ -535,22 +535,6 @@ class FunctionSpace(object):
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
         self.global_numbering = sdata.global_numbering
 
-    def _init_with_shared_data(self, name, sdata):
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
                            name=f"{self.name}_nodes_dset")
@@ -1171,22 +1155,35 @@ class RealFunctionSpace(FunctionSpace):
 
 class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
-        super().__init__(function_space._mesh.topology, function_space.ufl_element(), function_space.name)
-        # 1: make a call to __super__ for __init__ using function_space.mesh etc
-        # 2: create self.boundary_set (the union of all bc.sub_domain)
-        # 3: self.function_space = function_space
-        self.function_space = function_space
         boundary_set = set()
         self.bcs = bcs
         for bc in bcs:
             boundary_set = boundary_set.union(set(bc.sub_domain))
         self.boundary_set = frozenset(boundary_set)
+        super().__init__(function_space._mesh.topology, function_space.ufl_element(), function_space.name)
+        self.function_space = function_space
         self.name = name or (function_space.name + "_"
                              + "_".join(sorted(
                                         [str(i) for i in self.boundary_set])))
-        sdata = get_shared_data(function_space._mesh, function_space.ufl_element(), self.boundary_set)
+
+    def set_shared_data(self):
+        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
         self._shared_data = sdata
-        self._init_with_shared_data(name, sdata)
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        self.finat_element = create_element(self.ufl_element())
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
