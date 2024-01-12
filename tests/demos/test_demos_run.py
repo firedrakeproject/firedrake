@@ -8,6 +8,26 @@ import sys
 
 cwd = abspath(dirname(__file__))
 demo_dir = join(cwd, "..", "..", "demos")
+VTK_DEMOS = [
+    "benny_luke.py.rst",
+    "burgers.py.rst",
+    "camassaholm.py.rst",
+    "geometric_multigrid.py.rst",
+    "helmholtz.py.rst",
+    "higher_order_mass_lumping.py.rst",
+    "linear_fluid_structure_interaction.py.rst",
+    "linear_wave_equation.py.rst",
+    "ma-demo.py.rst",
+    "navier_stokes.py.rst",
+    "netgen_mesh.py.rst",
+    "poisson_mixed.py.rst",
+    "qg_1layer_wave.py.rst",
+    "qgbasinmodes.py.rst",
+    "qg_winddrivengyre.py.rst",
+    "rayleigh-benard.py.rst",
+    "stokes.py.rst",
+    "test_extrusion_lsw.py",
+]
 
 
 # Discover the demo files by globbing the demo directory
@@ -78,5 +98,11 @@ def test_demo_runs(py_file, env):
             import matplotlib  # noqa: F401
         except ImportError:
             pytest.skip(reason=f"Matplotlib unavailable, skipping {basename(py_file)}")
+
+    if basename(py_file) in VTK_DEMOS:
+        try:
+            import vtkmodules.vtkCommonDataModel  # noqa: F401
+        except ImportError:
+            pytest.skip(msg=f"VTK unavailable, skipping {basename(py_file)}")
 
     subprocess.check_call([sys.executable, py_file], env=env)
