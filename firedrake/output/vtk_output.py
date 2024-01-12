@@ -635,7 +635,7 @@ class VTKFile(object):
 
     @PETSc.Log.EventDecorator()
     def write(self, *functions, **kwargs):
-        """Write functions to this :class:`File`.
+        """Write functions to this :class:`VTKFile`.
 
         :arg functions: list of functions to write.
         :kwarg time: optional timestep value.
