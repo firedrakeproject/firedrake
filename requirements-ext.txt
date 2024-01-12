@@ -1,16 +1,15 @@
 cached_property
 cachetools
 ipython
-nbval
+nbval        # Testing
 packaging
 pkgconfig
 progress
-pylint
-pylit
-pytest
-pytest-xdist
+pylint       # Development
+pylit        # Testing + docs
+pytest       # Testing
+pytest-xdist # Testing
 requests
 rtree>=1.2
 scipy
 sympy
-vtk>=9.0.1

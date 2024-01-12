@@ -93,7 +93,6 @@ from firedrake.exceptions import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
-from firedrake.output import *
 from firedrake.linear_solver import *
 from firedrake.preconditioners import *
 from firedrake.mesh import *
@@ -128,7 +127,9 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot
+from firedrake._deprecation import output, plot
+sys.modules["firedrake.output"] = output
+from firedrake.output import *
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
