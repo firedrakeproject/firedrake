@@ -1,3 +1,5 @@
+import weakref
+
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI, internal_comm
 from itertools import zip_longest
@@ -21,36 +23,27 @@ class Ensemble(object):
 
         rank = comm.rank
 
-        # User global comm
+        # Global comm
         self.global_comm = comm
         # Internal global comm
-        self._global_comm = internal_comm(comm, self)
+        self._comm = internal_comm(comm, self)
 
-        # User split comm
+        # User and internal communicator for spatial parallelism, contains a
+        # contiguous chunk of M processes from `global_comm`.
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
-        # Internal split comm
-        self._comm = internal_comm(self.comm, self)
-        """The communicator for spatial parallelism, contains a
-        contiguous chunk of M processes from :attr:`global_comm`"""
+        self.comm.name = "Ensemble spatial comm"
+        weakref.finalize(self, self.comm.Free)
+        self._spatial_comm = internal_comm(self.comm, self)
 
-        # User ensemble comm
+        # User and internal communicator for ensemble parallelism, contains all
+        # processes in `global_comm` which have the same rank in `comm`.
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
-        # Internal ensemble comm
+        self.comm.name = "Ensemble ensemble comm"
+        weakref.finalize(self, self.ensemble_comm.Free)
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
-        """The communicator for ensemble parallelism, contains all
-        processes in :attr:`global_comm` which have the same rank in
-        :attr:`comm`."""
 
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            self.comm.Free()
-            del self.comm
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
 
     def _check_function(self, f, g=None):
         """
@@ -62,7 +55,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+        if MPI.Comm.Compare(f._comm, self._spatial_comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
 
         if g is not None:
