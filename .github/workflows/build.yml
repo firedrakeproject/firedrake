@@ -86,7 +86,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
-            pytest-cov pytest-timeout pytest-xdist pytest-timeout
+            pytest-cov pytest-timeout pytest-xdist pytest-timeout ipympl
           python -m pip list
       - name: Test Firedrake
         run: |
