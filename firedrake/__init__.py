@@ -13,7 +13,7 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
 elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
-del sys, config
+del config
 
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
@@ -92,7 +92,6 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
-from firedrake.plot import *
 from firedrake.projection import *
 from firedrake.slate import *
 from firedrake.slope_limiter import *
@@ -114,8 +113,13 @@ from firedrake.logging import *
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
+# Moved functionality
+from firedrake._deprecation import plot
+sys.modules["firedrake.plot"] = plot
+from firedrake.plot import *
+
 check()
-del check
+del check, sys
 
 from firedrake._version import get_versions
 __version__ = get_versions()['version']

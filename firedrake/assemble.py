@@ -530,12 +530,13 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
             if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()
-                res = firedrake.Cofunction(col.function_space().dual())
+                # The matrix-vector product lives in the dual of the test space.
+                res = firedrake.Function(row.function_space().dual())
 
                 with rhs.dat.vec_ro as v_vec:
                     with res.dat.vec as res_vec:
                         petsc_mat.mult(v_vec, res_vec)
-                return firedrake.Cofunction(row.function_space().dual(), val=res.dat)
+                return res
             elif isinstance(rhs, matrix.MatrixBase):
                 petsc_mat = lhs.petscmat
                 (row, col) = lhs.arguments()

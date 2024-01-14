@@ -19,10 +19,20 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skiptorch: mark as skipped if PyTorch is not installed")
+    config.addinivalue_line(
+        "markers",
+        "skipplot: mark as skipped if matplotlib is not installed")
 
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+
+    try:
+        import matplotlib
+        del matplotlib
+        matplotlib_installed = True
+    except ImportError:
+        matplotlib_installed = False
 
     try:
         import firedrake.ml.pytorch as fd_ml
@@ -44,6 +54,10 @@ def pytest_collection_modifyitems(session, config, items):
         if not ml_backend:
             if item.get_closest_marker("skiptorch") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
+
+        if not matplotlib_installed:
+            if item.get_closest_marker("skipplot") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Matplotlib is installed"))
 
 
 @pytest.fixture(scope="module", autouse=True)

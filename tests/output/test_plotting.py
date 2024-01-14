@@ -1,11 +1,16 @@
 import pytest
-from firedrake import *
-from firedrake.plot import FunctionPlotter
-import matplotlib.pyplot as plt
-import matplotlib.colors
-from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
+from firedrake import *
+
+try:
+    from firedrake.pyplot import *
+    import matplotlib.pyplot as plt
+    import matplotlib.colors
+    from matplotlib.animation import FuncAnimation
+    from mpl_toolkits.mplot3d import Axes3D
+except ImportError:
+    # Matplotlib is not installed
+    pytest.skip("Matplotlib not installed", allow_module_level=True)
 
 
 def test_plotting_1d():
