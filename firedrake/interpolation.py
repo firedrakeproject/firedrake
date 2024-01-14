@@ -48,7 +48,7 @@ class Interpolate(ufl.Interpolate):
                  access=op2.WRITE,
                  allow_missing_dofs=False,
                  default_missing_val=None):
-        r""" Symbolic representation of the interpolation operator.
+        """Symbolic representation of the interpolation operator.
 
         Parameters
         ----------
@@ -297,8 +297,7 @@ class Interpolator(abc.ABC):
         self.expr_renumbered = expr
 
     def _interpolate_future(self, *function, transpose=False, default_missing_val=None):
-        """
-        Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
+        """Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
 
         Parameters
         ----------
@@ -349,8 +348,7 @@ class Interpolator(abc.ABC):
 
     @PETSc.Log.EventDecorator()
     def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
-        """
-        Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
+        """Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
         Parameters
         ----------
