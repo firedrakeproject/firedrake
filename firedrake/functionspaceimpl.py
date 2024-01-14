@@ -1184,6 +1184,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
 
     def __eq__(self, other):
         # 1: check if other isInstance(RestrictedFunctionSpace)
@@ -1191,7 +1192,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         # 3: check if self.boundary_set == other.boundary_set
         if not isinstance(other, RestrictedFunctionSpace):
             return False
-        return super().__eq__(self.function_space, other.function_space) and \
+        return self.function_space == other.function_space and \
             self.boundary_set == other.boundary_set
 
     def __ne__(self, other):
