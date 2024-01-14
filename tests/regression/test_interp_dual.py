@@ -53,11 +53,9 @@ def test_assemble_interp_matrix(V1, V2, f1):
 
     # Get the interpolation matrix
     a = assemble(Iv1)
-    res = Cofunction(V2.dual())
     # Check that `I * f1 == b` with I the interpolation matrix
     # and b the interpolation of f1 into V2.
-    with f1.dat.vec_ro as x, res.dat.vec_ro as y:
-        a.petscmat.mult(x, y)
+    res = assemble(action(a, f1))
     assert np.allclose(res.dat.data, b.dat.data)
 
 

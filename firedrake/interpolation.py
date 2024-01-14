@@ -300,9 +300,32 @@ class Interpolator(abc.ABC):
         """
         Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
 
-        .. note::
-            This method is the default future behaviour of interpolation. In a future release, the
-            ``Interpolator.interpolate`` method will be replaced by this method.
+        Parameters
+        ----------
+        *function: firedrake.function.Function or firedrake.cofunction.Cofunction
+                   If the expression being interpolated contains an argument,
+                   then the function value to interpolate.
+        transpose: bool, optional
+                   Set to true to apply the transpose (adjoint) of the
+                   interpolation operator.
+        default_missing_val: bool, optional
+                             For interpolation across meshes: the
+                             optional value to assign to DoFs in the target mesh that are
+                             outside the source mesh. If this is not set then the values are
+                             either (a) unchanged if some ``output`` is specified to the
+                             :meth:`interpolate` method or (b) set to zero. This does not affect
+                             transpose interpolation. Ignored if interpolating within the same
+                             mesh or onto a :func:`.VertexOnlyMesh`.
+
+        Returns
+        -------
+        firedrake.interpolation.Interpolate or ufl.action.Action or ufl.adjoint.Adjoint
+            The symbolic object representing the interpolation operation.
+
+        Notes
+        -----
+        This method is the default future behaviour of interpolation. In a future release, the
+        ``Interpolator.interpolate`` method will be replaced by this method.
         """
 
         V = self.V
@@ -329,21 +352,29 @@ class Interpolator(abc.ABC):
         """
         Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
-        :arg function: If the expression being interpolated contains an
-            :class:`ufl.Argument`, then the :class:`.Function` value to
-            interpolate.
-        :kwarg output: Optional. A :class:`.Function` to contain the output.
-        :kwarg transpose: Set to true to apply the transpose (adjoint) of the
-              interpolation operator.
-        :kwarg default_missing_val: For interpolation across meshes: the
-            optional value to assign to DoFs in the target mesh that are
-            outside the source mesh. If this is not set then the values are
-            either (a) unchanged if some ``output`` is specified to the
-            :meth:`interpolate` method or (b) set to zero. This does not affect
-            transpose interpolation. Ignored if interpolating within the same
-            mesh or onto a :func:`.VertexOnlyMesh`.
+        Parameters
+        ----------
+        *function: firedrake.function.Function or firedrake.cofunction.Cofunction
+                   If the expression being interpolated contains an argument,
+                   then the function value to interpolate.
+        output: firedrake.function.Function or firedrake.cofunction.Cofunction, optional
+                A function to contain the output.
+        transpose: bool, optional
+                   Set to true to apply the transpose (adjoint) of the
+                   interpolation operator.
+        default_missing_val: bool, optional
+                             For interpolation across meshes: the
+                             optional value to assign to DoFs in the target mesh that are
+                             outside the source mesh. If this is not set then the values are
+                             either (a) unchanged if some ``output`` is specified to the
+                             :meth:`interpolate` method or (b) set to zero. This does not affect
+                             transpose interpolation. Ignored if interpolating within the same
+                             mesh or onto a :func:`.VertexOnlyMesh`.
 
-        :returns: The resulting interpolated :class:`.Function`.
+        Returns
+        -------
+        firedrake.function.Function or firedrake.cofunction.Cofunction
+            The resulting interpolated function.
         """
         import warnings
         from firedrake.assemble import assemble
@@ -362,13 +393,7 @@ of interest. For example,
 from firedrake.__future__ import interpolate
 ...
 
-interp = interpolate(expr, V)
-assemble(interp)
-
-# OR
-
-interp = Function(V).interpolate(expr)
-f = assemble(interp)
+assemble(interpolate(expr, V))
 ```
 
 Alternatively, you can also perform other symbolic operations on `interp`, such as taking
@@ -569,7 +594,7 @@ class CrossMeshInterpolator(Interpolator):
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         f_dest_node_coords = assemble(f_dest_node_coords)
         dest_node_coords = f_dest_node_coords.dat.data_ro
         try:
