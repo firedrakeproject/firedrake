@@ -20,6 +20,74 @@ np.import_array()
 include "petschdr.pxi"
 
 
+# Do nurbs first.
+# Tsplines would require removing constrained DoFs in create_section.
+# Can do the same for hanging nodes?
+
+
+# section should now be cached with edofs_key instead of nodes_per_entity,
+# as entity_dofs is now anisotropic.
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def tmesh_create_section(PETSc.DM dm,
+                         entity_dofs,
+                         PetscInt block_size=1,
+                         dm_renumbering=None):
+    """Create the section describing a global numbering.
+
+    :arg mesh: The mesh.
+    :arg nodes_per_entity: Number of nodes on each
+        type of topological entity of the mesh.  Or, if the mesh is
+        extruded, the number of nodes on, and on top of, each
+        topological entity in the base mesh.
+    :arg on_base: If True, assume extruded space is actually Foo x Real.
+    :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
+        to get the true data layout.
+
+    :returns: A PETSc Section providing the number of dofs, and offset
+        of each dof, on each mesh point.
+
+
+    Notes
+    -----
+    ``dm`` represents T-mesh, i.e., pure topology, where each face/edge
+    is aligned with the parametric coordinate axes, e.g., xi, eta, and zeta in 3D.
+
+    This function assumes that dm cells are oriented with respect to
+    the parametric coordinate axes with orientation 0.
+
+    The "local element" is always to be mapped to the T-mesh with orientation 0.
+
+    """
+    cdef:
+        PETSc.DM dm
+        PETSc.Section section
+        PETSc.IS dm_renumbering
+        PetscInt i, p, layers, pStart, pEnd
+        PetscInt dimension, ndof
+        np.ndarray[PetscInt, ndim=2, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        bint variable, extruded, on_base_
+
+    nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
+    section = PETSc.Section().create(comm=mesh._comm)
+    get_chart(dm.dm, &pStart, &pEnd)
+    section.setChart(pStart, pEnd)
+    if dm_renumbering is not None:
+        CHKERR(PetscSectionSetPermutation(section.sec, dm_renumbering.iset))
+    dimension = get_topological_dimension(dm)
+    nodes = nodes_per_entity.reshape(dimension + 1, -1)
+    for i in range(dimension + 1):
+        get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+        ndof = nodes[i, 0]
+        for p in range(pStart, pEnd):
+            CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
+    section.setUp()
+    return section
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def _tmesh_nurbs_base(PetscInt dim,
@@ -70,7 +138,7 @@ def _tmesh_nurbs_base(PetscInt dim,
         global_knot_vectors.setSizes((0, PETSc.DETERMINE), 1)
     CHKERR(VecGetArray(global_knot_vectors.vec, &global_knot_arrays))
     if rank == 0:
-        for d in range(d):
+        for d in range(dim):
             if periodic[d] == 0:
                 for i in range(ppp[d]):
                     global_knot_arrays[koff + i] = 0.
@@ -150,7 +218,7 @@ def _tmesh_nurbs_base(PetscInt dim,
             for iy in range(my):
                 poffset = ((px + 2) + (py + 2)) * (mx * iy + ix)  # cell order in BoxMesh
                 w_array[] =
-                X_array[] =# what to do with periodic ... 
+                X_array[] =# what to do with periodic -> Use IGACoordElem (DG like element; discontinuous across periodic boundary).
     CHKERR(VecRestoreArray(w_vec.vec, &w_array))
     CHKERR(VecRestoreArray(X_vec.vec, &X_array))
     CHKERR(PetscFree5(lll, nnn, ppp, mmm, periodic))
