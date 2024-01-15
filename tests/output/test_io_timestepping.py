@@ -4,6 +4,7 @@ from pyop2.mpi import COMM_WORLD
 import ufl
 import finat.ufl
 import os
+import numpy as np
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 
@@ -79,7 +80,6 @@ def test_io_timestepping(element, tmpdir):
 def test_io_timestepping_setting_time(tmpdir):
     filename = os.path.join(str(tmpdir), "test_io_timestepping_setting_time_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
-    import numpy as np
     mesh = UnitSquareMesh(5, 5)
     cg2_space = FunctionSpace(mesh, "CG", 2)
     cg1_space = FunctionSpace(mesh, "CG", 1)
@@ -90,8 +90,8 @@ def test_io_timestepping_setting_time(tmpdir):
     v.rename("v")
 
     indices = range(0, 10, 2)
-    ts = np.random.rand(len(indices))*2*np.pi
-    timesteps = np.random.rand(len(indices))*2*np.pi
+    ts = np.linspace(0, 1.0, len(indices))*2*np.pi
+    timesteps = np.linspace(0, 1.0, len(indices))
 
     with CheckpointFile(filename, mode="w") as f:
         f.save_mesh(mesh)
