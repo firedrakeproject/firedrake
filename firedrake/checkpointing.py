@@ -720,15 +720,45 @@ class CheckpointFile(object):
 
     @PETSc.Log.EventDecorator("SetTimestep")
     def _set_timestep(self, mesh, name, idx, t, timestep):
-        """ Saving timestepping attributes for function name
-
-        Args:
-            mesh: mesh under which the function is saved
-            name (str): name of the function
-            idx (int): optional index under which the function is saved
-            t (float): optional time at which the function is saved
-            timestep (float): optional associated timestep
         """
+        Store indices, times, and timesteps as attributes for a specified function within a mesh.
+
+        This method is utilised in checkpointing scenarios during timestepping. It associates a
+        function with an index and optionally, with time (t) and timestep values. These associations
+        are stored as attributes of the function. The function supports both mixed and standard
+        functions defined within the mesh. If the function name does not correspond to any existing
+        function in the mesh, a ValueError is raised.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshGeometry
+            The mesh under which the function should be searched.
+        name : str
+            The name of the function for which indices, times, and timesteps are to be stored. This
+            function must be a part of the provided mesh.
+        idx : int
+            The index of the function `name` in the timestepping sequence. It uniquely identifies the
+            function's position in the sequence of timesteps.
+        t : float, optional
+            The time associated with the function `name` at the given index `idx`.
+            If not provided, a default real value is used.
+        timestep : float, optional
+            The timestep value associated with the function `name` at the given index `idx`.
+            If not provided, a default real value is used.
+
+        Raises
+        ------
+        ValueError
+            If `t` or `timestep` are provided but cannot be converted to float.
+
+        Notes
+        -----
+        The method identifies the correct function (if mixed) based on the provided `name` and stores
+        the `idx`, `t`, and `timestep` attributes accordingly. It concatenates these values with any
+        existing indices, times, and timesteps for the function, ensuring a comprehensive record of
+        all timesteps.
+        """
+
         t = CheckpointFile.DEFAULT_REAL if t is None else t
         timestep = CheckpointFile.DEFAULT_REAL if timestep is None else timestep
         try:
@@ -736,7 +766,7 @@ class CheckpointFile(object):
             timestep = float(timestep)
         except ValueError:
             raise ValueError(
-                f"""t and timestep must be convertible to float."""
+                """t and timestep must be convertible to float."""
             )
 
         # check if the function is mixed
