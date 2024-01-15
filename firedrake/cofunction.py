@@ -151,7 +151,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self._count == other._count and self._function_space == other._function_space
 
     def zero(self, subset=None):
-        """Set all values to zero.
+        """Set values to zero.
 
         :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
             zero. If ``None`` then the whole function is zeroed.
