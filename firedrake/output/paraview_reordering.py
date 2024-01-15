@@ -7,7 +7,8 @@ try:
     del vtkmodules.vtkCommonDataModel
 except ModuleNotFoundError as e:
     raise ModuleNotFoundError(
-        "Error importing vtkmodules, you may need to install by executing\n\t"
+        "Error importing vtkmodules. Firedrake does not install VTK by default, "
+        "you may need to install VTK by running\n\t"
         "pip install vtk"
     ) from e
 from vtkmodules.vtkCommonDataModel import (
