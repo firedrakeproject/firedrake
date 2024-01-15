@@ -48,7 +48,7 @@ def test_scalar_cofunction_zero(V):
     assert np.allclose(f.dat.data_ro, 0.0)
 
 
-def test_scalar_function_zero_with_subset(V):
+def test_scalar_cofunction_zero_with_subset(V):
     f = Cofunction(V.dual())
     # create an arbitrary subset consisting of the first two nodes
     assert V.node_set.size > 2
