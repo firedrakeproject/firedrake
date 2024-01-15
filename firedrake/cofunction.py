@@ -153,8 +153,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def zero(self, subset=None):
         """Set values to zero.
 
-        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
-            zero. If ``None`` then the whole function is zeroed.
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
         """
         return self.assign(0, subset=subset)
 
