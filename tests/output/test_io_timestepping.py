@@ -76,7 +76,9 @@ def test_io_timestepping(element, tmpdir):
                 assert assemble(inner(g - f, g - f) * dx) < 1.e-16
 
 
-def test_setting_time():
+def test_io_timestepping_setting_time(tmpdir):
+    filename = os.path.join(str(tmpdir), "test_io_timestepping_setting_time_dump.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
     import numpy as np
     mesh = UnitSquareMesh(5, 5)
     cg2_space = FunctionSpace(mesh, "CG", 2)
@@ -91,13 +93,13 @@ def test_setting_time():
     ts = np.random.rand(len(indices))*2*np.pi
     timesteps = np.random.rand(len(indices))*2*np.pi
 
-    with CheckpointFile("tstepping_test.h5", mode="w") as f:
+    with CheckpointFile(filename, mode="w") as f:
         f.save_mesh(mesh)
         for idx, t, timestep in zip(indices, ts, timesteps):
             u.interpolate(cos(Constant(t)/pi))
             f.save_function(z, idx=idx, t=t, timestep=timestep)
 
-    with CheckpointFile("tstepping_test.h5", mode="r") as f:
+    with CheckpointFile(filename, mode="r") as f:
         mesh = f.load_mesh(name="firedrake_default")
         loaded_indices, loaded_ts, loaded_timesteps = f.get_timesteps(mesh, name="u")
         loaded_u = f.load_function(mesh, "u", idx=loaded_indices[-2])

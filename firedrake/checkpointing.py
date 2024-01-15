@@ -729,16 +729,15 @@ class CheckpointFile(object):
             t (float): optional time at which the function is saved
             timestep (float): optional associated timestep
         """
-        # what to use if t or timestep is not provided
-        unset_val = np.nan
-
-        # make sure t/timestep is float
-        for in_prm in [t, timestep]:
-            if in_prm is not None:
-                if not isinstance(in_prm, float):
-                    raise ValueError(
-                        f"""{type(in_prm)} is not valid for t/timestep"""
-                    )
+        t = CheckpointFile.DEFAULT_REAL if t is None else t
+        timestep = CheckpointFile.DEFAULT_REAL if timestep is None else timestep
+        try:
+            t = float(t)
+            timestep = float(timestep)
+        except ValueError:
+            raise ValueError(
+                f"""t and timestep must be convertible to float."""
+            )
 
         # check if the function is mixed
         if name in self._get_mixed_function_name_mixed_function_space_name_map(mesh.name):
@@ -749,22 +748,14 @@ class CheckpointFile(object):
             V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
             path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
 
-        # check if the function's path has the attribute already, if not generate it
-        if self.has_attr(path, PREFIX_TIMESTEPPING + "_indices"):
-            # collect previous indices and timestamps and add the current index and timestamp
-            old_indices, old_ts, old_timesteps = self.get_timesteps(mesh, name)
-            indices = np.concatenate((old_indices, [idx]))
-            ts = np.concatenate((old_ts, [unset_val if t is None else t]))
-            timesteps = np.concatenate((old_timesteps, [unset_val if timestep is None else timestep]))
-        else:
-            # initiate timestepping, assuming the saving the function has succeeded
-            indices = [idx]
-            ts = [unset_val if t is None else t]
-            timesteps = [unset_val if timestep is None else timestep]
+        old_indices, old_ts, old_timesteps = self.get_timesteps(mesh, name)
+        indices = np.concatenate((old_indices, [idx]))
+        ts = np.concatenate((old_ts, [t]))
+        timesteps = np.concatenate((old_timesteps, [timestep]))
 
         # store all timesteps and indices
         self.set_attr(path, PREFIX_TIMESTEPPING + "_indices", indices)
-        self.set_attr(path, PREFIX_TIMESTEPPING + "_ts", ts)
+        self.set_attr(path, PREFIX_TIMESTEPPING + "_times", ts)
         self.set_attr(path, PREFIX_TIMESTEPPING + "_timesteps", timesteps)
 
     @PETSc.Log.EventDecorator("GetTimesteps")
