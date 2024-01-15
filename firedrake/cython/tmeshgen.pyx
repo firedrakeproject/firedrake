@@ -29,6 +29,9 @@ include "petschdr.pxi"
 # as entity_dofs is now anisotropic.
 
 
+# tmesh.default_scalar_section
+# Make another section for periodic coordinates.
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def tmesh_create_section(PETSc.DM dm,
