@@ -154,6 +154,22 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return True
         return self._count == other._count and self._function_space == other._function_space
 
+    def zero(self, subset=None):
+        """Set values to zero.
+
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        return self.assign(0, subset=subset)
+
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
