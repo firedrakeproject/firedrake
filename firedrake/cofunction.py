@@ -150,6 +150,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return True
         return self._count == other._count and self._function_space == other._function_space
 
+    def zero(self, subset=None):
+        """Set all values to zero.
+
+        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
+            zero. If ``None`` then the whole function is zeroed.
+        """
+        return self.assign(0, subset=subset)
+
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
