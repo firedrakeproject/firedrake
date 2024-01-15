@@ -7,6 +7,7 @@ import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.petsc import PETSc
 
 
 class Cofunction(ufl.Cofunction, FunctionMixin):
@@ -27,6 +28,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
@@ -79,6 +81,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if hasattr(self, "_comm"):
             mpi.decref(self._comm)
 
+    @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
@@ -121,6 +124,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
 
@@ -166,6 +170,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self.assign(0, subset=subset)
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):

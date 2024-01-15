@@ -8,7 +8,7 @@ WORKDIR /home/firedrake
 # PETSC_ARCH inherited from firedrakeproject/firedrake
 
 # Install an iPython kernel for firedrake
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install nbclassic nbformat nbconvert"
+RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install nbclassic nbformat nbconvert ipympl"
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbclassic --generate-config"
 
 # Remove the install log.
