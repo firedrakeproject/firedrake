@@ -521,7 +521,7 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-    DEFAULT_REAL = -1.0
+    DEFAULT_REAL = -1e30
 
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
@@ -759,7 +759,9 @@ class CheckpointFile(object):
             V = self._load_function_space(mesh, V_name)
             tV = V.topological
             path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
+
             if PREFIX_EMBEDDED in self.h5pyfile[path]:
+
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 return self.get_timesteps(mesh, _name)
@@ -945,6 +947,7 @@ class CheckpointFile(object):
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
+
             with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
@@ -953,6 +956,10 @@ class CheckpointFile(object):
                     topology_dm.globalVectorView(self.viewer, dm, vec)
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
+            has_indices_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_indices")
+            old_indices = self.get_attr(path, PREFIX_TIMESTEPPING + "_indices") if has_indices_attr else []
+            indices = np.concatenate((old_indices, [idx]))
+            self.set_attr(path, PREFIX_TIMESTEPPING + "_indices", indices)
             self.viewer.popTimestepping()
 
     @PETSc.Log.EventDecorator("LoadMesh")
