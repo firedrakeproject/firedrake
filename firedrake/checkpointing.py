@@ -521,6 +521,8 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
+    DEFAULT_REAL = float('nan')
+
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
@@ -830,7 +832,7 @@ class CheckpointFile(object):
         if self.has_attr(path, PREFIX_TIMESTEPPING + "_indices"):
             return (
                 self.get_attr(path, PREFIX_TIMESTEPPING + "_indices"),
-                self.get_attr(path, PREFIX_TIMESTEPPING + "_ts"),
+                self.get_attr(path, PREFIX_TIMESTEPPING + "_times"),
                 self.get_attr(path, PREFIX_TIMESTEPPING + "_timesteps"),
                 )
         else:
