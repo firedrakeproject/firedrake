@@ -593,6 +593,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
             # testing, try to orient the cells (simplices and quads only)
             plex = self.topology_dm
+            # plex.orient()
+            # return
             # NOTE: This is not a permutation, this is the numbering shown in the plex book
             omap = {
                 (2, 1, 3): -3,
@@ -603,14 +605,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 (3, 1, 2): 2,
             }
 
-            oinv_map = {
-                -3: -3,
-                -2: -2,
-                -1: -1,
-                0: 0,
-                1: 2,
-                2: 1,
-            }
+            # Do not rely on Koki's diagrams, they are misleading I think.
+            # This orientPoint approach seems right.
+            # I want to get rid of the "reorder_plex_XXX" functions. Or at least use
+            # the updated diagrams. Why are they needed?
 
             def ordering(_vs):
                 _vs = list(_vs)
@@ -1156,6 +1154,7 @@ class MeshTopology(AbstractMeshTopology):
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
         if cell.is_simplex():
+        # if False:
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1184,7 +1183,7 @@ class MeshTopology(AbstractMeshTopology):
 
             return dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
-        elif cell.cellname() == "hexahedron":
+        elif cell.cellname() == "hexahedron" or cell.is_simplex():
             # TODO: Should change and use create_cell_closure() for all cell types.
             topology = FIAT.ufc_cell(cell).get_topology()
             closureSize = sum([len(ents) for _, ents in topology.items()])
