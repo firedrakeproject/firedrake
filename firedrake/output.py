@@ -403,9 +403,8 @@ class File(object):
         self._comm = internal_comm(self.comm)
 
         if self._comm.rank == 0 and mode == "w":
-            outdir = os.path.dirname(os.path.abspath(filename))
-            if not os.path.exists(outdir):
-                os.makedirs(outdir)
+            if not os.path.exists(basename):
+                os.makedirs(basename)
         elif self._comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
@@ -413,6 +412,16 @@ class File(object):
 
         self.filename = filename
         self.basename = basename
+        # The vtu files will be in the subdirectory named same with the pvd file.
+        # Assuming the absolute path of the pvd file is "/path/to/foo.pvd", the vtu
+        # files will be in the subdirectory "foo" like this:
+        #
+        #     /path/to/foo/foo_0.vtu
+        #     /path/to/foo/foo_1.vtu
+        #
+        # The basename for this example is `/path/to/foo`, and the vtu_basename
+        # is `/path/to/foo/foo`.
+        self.vtu_basename = os.path.join(basename, os.path.basename(basename))
         self.project = project_output
         self.target_degree = target_degree
         self.target_continuity = target_continuity
@@ -536,7 +545,7 @@ class File(object):
         if self._topology is None or self._adaptive:
             self._topology = get_topology(coordinates.function)
 
-        basename = "%s_%s" % (self.basename, next(self.counter))
+        basename = f"{self.vtu_basename}_{next(self.counter)}"
 
         vtu = self._write_single_vtu(basename, coordinates, *functions)
 
@@ -628,7 +637,7 @@ class File(object):
             for rank in range(size):
                 # need a relative path so files can be moved around:
                 vtu_name = os.path.relpath(get_vtu_name(basename, rank, size),
-                                           os.path.dirname(self.basename))
+                                           os.path.dirname(self.vtu_basename))
                 f.write(('<Piece Source="%s" />\n' % vtu_name).encode('ascii'))
 
             f.write(b'</PUnstructuredGrid>\n')

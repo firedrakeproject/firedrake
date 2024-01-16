@@ -420,8 +420,16 @@ class Function(ufl.Coefficient, FunctionMixin):
     def zero(self, subset=None):
         """Set all values to zero.
 
-        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
-            zero. If ``None`` then the whole function is zeroed.
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
