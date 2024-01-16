@@ -1256,7 +1256,7 @@ class MeshTopology(AbstractMeshTopology):
                     else:
                         partitioner_type = "ptscotch"
                 else:
-                    partitioner_type = "chaco"
+                    partitioner_type = "ptscotch"
             partitioner.setType({"chaco": partitioner.Type.CHACO,
                                  "ptscotch": partitioner.Type.PTSCOTCH,
                                  "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
