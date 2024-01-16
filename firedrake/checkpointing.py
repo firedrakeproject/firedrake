@@ -521,7 +521,7 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-    DEFAULT_REAL = float('nan')
+    DEFAULT_REAL = -1.0
 
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
