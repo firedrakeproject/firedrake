@@ -115,6 +115,35 @@ def get_petsc_variables():
     return {k.strip(): v.strip() for k, v in splitlines}
 
 
+@functools.lru_cache()
+def get_petscconf_h():
+    """Get dict of PETSc include variables from the file:
+    $PETSC_DIR/$PETSC_ARCH/include/petscconf.h
+
+    The #define and PETSC_ prefix are dropped in the dictionary key.
+
+    The result is memoized to avoid constantly reading the file.
+    """
+    config = petsc4py.get_config()
+    path = [config["PETSC_DIR"], config["PETSC_ARCH"], "include/petscconf.h"]
+    petscconf_h = os.path.join(*path)
+    with open(petscconf_h) as fh:
+        # use `removeprefix("#define PETSC_")` in place of
+        # `lstrip("#define PETSC")[1:]` when support for Python 3.8 is dropped
+        splitlines = (
+            line.lstrip("#define PETSC")[1:].split(" ", maxsplit=1)
+            for line in filter(lambda x: x.startswith("#define PETSC_"), fh.readlines())
+        )
+    return {k: v.strip() for k, v in splitlines}
+
+
+def get_external_packages():
+    """Return a list of PETSc external packages that are installed.
+
+    """
+    return get_petscconf_h()["HAVE_PACKAGES"].split(":")[1:-1]
+
+
 def _get_dependencies(filename):
     """Get all the dependencies of a shared object library"""
     # Linux uses `ldd` to look at shared library linkage, MacOS uses `otool`
