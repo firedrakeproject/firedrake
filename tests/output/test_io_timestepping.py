@@ -81,9 +81,9 @@ def test_io_timestepping_setting_time(tmpdir):
     filename = os.path.join(str(tmpdir), "test_io_timestepping_setting_time_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
     mesh = UnitSquareMesh(5, 5)
-    cg2_space = FunctionSpace(mesh, "CG", 2)
+    RT2_space = VectorFunctionSpace(mesh, "RT", 2)
     cg1_space = FunctionSpace(mesh, "CG", 1)
-    mixed_space = MixedFunctionSpace([cg2_space, cg1_space])
+    mixed_space = MixedFunctionSpace([RT2_space, cg1_space])
     z = Function(mixed_space, name="z")
     u, v = z.subfunctions
     u.rename("u")
@@ -96,19 +96,20 @@ def test_io_timestepping_setting_time(tmpdir):
     with CheckpointFile(filename, mode="w") as f:
         f.save_mesh(mesh)
         for idx, t, timestep in zip(indices, ts, timesteps):
-            u.interpolate(cos(Constant(t)/pi))
+            u.assign(t)
+            v.interpolate((cos(Constant(t)/pi)))
             f.save_function(z, idx=idx, t=t, timestep=timestep)
 
     with CheckpointFile(filename, mode="r") as f:
         mesh = f.load_mesh(name="firedrake_default")
         loaded_indices, loaded_ts, loaded_timesteps = f.get_timesteps(mesh, name="u")
-        loaded_u = f.load_function(mesh, "u", idx=loaded_indices[-2])
+        loaded_v = f.load_function(mesh, "v", idx=loaded_indices[-2])
 
     assert (indices == loaded_indices).all()
     assert (ts == loaded_ts).all()
     assert (timesteps == loaded_timesteps).all()
 
-    u_answer = interpolate(
+    v_answer = interpolate(
         cos(Constant(loaded_ts[-2])/pi),
-        loaded_u.function_space())
-    assert assemble((loaded_u - u_answer)**2 * dx) < 1.0e-16
+        loaded_v.function_space())
+    assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16
