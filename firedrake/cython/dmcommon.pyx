@@ -345,9 +345,24 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        plex_cone_new[0] = plex_cone_old[0]
+        plex_cone_new[1] = plex_cone_old[1]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        # UFCTriangle:            + 
+        #                         | \
+        #                         2   0
+        #                         |      \
+        #                         +---1---+
+        #
+        # PETSc.DM.PolytopeType.  +
+        # TRIANGLE:               | \
+        #                         2   0
+        #                         |      \
+        #                         +---1---+
+        # no, from diagram it's 5, 4, 6
+        plex_cone_new[0] = plex_cone_old[1]
+        plex_cone_new[1] = plex_cone_old[2]
+        plex_cone_new[2] = plex_cone_old[0]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
@@ -426,6 +441,18 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         |  6   \
         #                         0---4---2
         #
+        # PETSc.DM.PolytopeType.  1
+        # TRIANGLE:               | \
+        #                         6   4
+        #                         |  0   \
+        #                         3---5---2
+        # so rotate CCW once...
+        # 5 <- 4
+        # 3 <- 5
+        # 4 <- 6 
+        # == [1, 2, 0]
+
+
         # PETSc.DM.PolytopeType.  4
         # TRIANGLE:               | \
         #                         3   1
@@ -1078,7 +1105,8 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
         # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
         # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
-        return _compute_orientation_simplex(fiat_cone, cone, coneSize)
+        _reorder_plex_cone(dm, p, cone, plex_cone)
+        return _compute_orientation_simplex(fiat_cone, plex_cone, coneSize)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
         dim = 2
