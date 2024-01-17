@@ -61,7 +61,7 @@ class Interpolate(ufl.Interpolate):
                  An optional subset to apply the interpolation over.
                  Cannot, at present, be used when interpolating across meshes unless
                  the target mesh is a :func:`.VertexOnlyMesh`.
-        access : pyop2.types.Access
+        access : pyop2.types.access.Access
                  The pyop2 access descriptor for combining updates to shared
                  DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
                  supported at present when interpolating across meshes. See note in
