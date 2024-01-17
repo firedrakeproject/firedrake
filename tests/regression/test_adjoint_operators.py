@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from numpy.random import rand
 from firedrake import *
+from firedrake.__future__ import *
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
 
 
@@ -159,7 +160,7 @@ def test_interpolate_tlm():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_tlm_wit_constant():
+def test_interpolate_tlm_with_constant():
     from firedrake.adjoint import ReducedFunctional, Control, taylor_test
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 2)

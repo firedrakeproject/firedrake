@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.ufl_expr import extract_unique_domain
 import numpy as np
 import pytest

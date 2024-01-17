@@ -574,7 +574,7 @@ class CrossMeshInterpolator(Interpolator):
                 for input_sub_func, target_sub_func in zip(
                     expr_subfunctions, V_dest.subfunctions
                 ):
-                    sub_interpolator = CrossMeshInterpolator(
+                    sub_interpolator = type(self)(
                         input_sub_func,
                         target_sub_func,
                         subset=subset,

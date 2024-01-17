@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from pyadjoint import (ReducedFunctional, get_working_tape, stop_annotating,
                        pause_annotation, Control)
 import numpy as np

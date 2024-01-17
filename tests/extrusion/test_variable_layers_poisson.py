@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import numpy
 from firedrake.utils import IntType
 

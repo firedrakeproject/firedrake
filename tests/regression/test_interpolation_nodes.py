@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these

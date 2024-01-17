@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import pytest
 # Ensure that the code shown in the manual runs without error. If you change
 # the code here make sure you update the .. literalinclude:: bits in the manual

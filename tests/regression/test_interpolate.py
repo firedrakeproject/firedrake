@@ -2,6 +2,7 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 cwd = abspath(dirname(__file__))
 
