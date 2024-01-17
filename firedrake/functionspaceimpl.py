@@ -1160,7 +1160,8 @@ class RestrictedFunctionSpace(FunctionSpace):
         for bc in bcs:
             boundary_set = boundary_set.union(set(bc.sub_domain))
         self.boundary_set = frozenset(boundary_set)
-        super().__init__(function_space._mesh.topology, function_space.ufl_element(), function_space.name)
+        super().__init__(function_space._mesh.topology,
+                         function_space.ufl_element(), function_space.name)
         self.function_space = function_space
         self.name = name or (function_space.name + "_"
                              + "_".join(sorted(
@@ -1187,9 +1188,6 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.global_numbering = sdata.global_numbering
 
     def __eq__(self, other):
-        # 1: check if other isInstance(RestrictedFunctionSpace)
-        # 2: check if self.function_space = other.function_space (__super__)
-        # 3: check if self.boundary_set == other.boundary_set
         if not isinstance(other, RestrictedFunctionSpace):
             return False
         return self.function_space == other.function_space and \
@@ -1199,18 +1197,14 @@ class RestrictedFunctionSpace(FunctionSpace):
         return not self.__eq__(other)
 
     def __hash__(self):
-        # 1: I want to do a hash similar to before but also add bc.sub_domain
         return hash((self.function_space.mesh(), self.function_space.dof_dset,
                      self.function_space.ufl_element(), self.boundary_set))
 
     def __repr__(self):
-        # 1: Look at previous __repr__
-        # 2: Want to display "RestrictedFunctionSpace(FunctionSpace(), ..., bcs)"
         return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
             str(self.function_space), self.name, self.bcs)
 
     def __str__(self):
-        # __str__ == __repr__
         return self.__repr__()
 
     @utils.cached_property
@@ -1222,7 +1216,6 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     def local_to_global_map(self, lgmap=None):
         if self.bcs is None or len(self.bcs) == 0:
-            # Maybe raise an error here or further up in __init__ - should have at least 1 bc to be a RFS?
             return lgmap or self.dof_dset.lgmap
         for bc in self.bcs:
             fs = bc.function_space()
