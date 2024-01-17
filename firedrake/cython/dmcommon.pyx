@@ -326,21 +326,6 @@ def facet_numbering(PETSc.DM plex, kind,
     return facet_local_num, facet_cells
 
 
-# def cone_permutation(PETSc.DMPolytopeType ct, PetscInt o):
-#     cdef:
-#         PetscInt narr
-#         PetscInt *arr
-#
-#     # typos fixed upstream
-#     narr = DMPolytopeTypeGetNumArrangments(ct)
-#     arr = DMPolytopeTypeGetArrangment(ct, o)
-#     arr_py = np.empty(narr, dtype=IntType)
-#     for i in range(narr):
-#         arr_py[i] = arr[i]
-#     return arr_py
-
-
-
 cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
                                         PetscInt p,
                                         PetscInt *plex_cone_old,
@@ -357,45 +342,13 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
     The reordered DMPlex cones are later used to construct cell_closure and to
     compute orientations.
 
-    Ultimately here we are asking, how do the points in the actual cone differ
-    from those in the canonical one? This can definitely be done purely referencing
-    the cone orientations (but this is hard).
-
     """
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
-        plex_cone_new[0] = plex_cone_old[0]
-        plex_cone_new[1] = plex_cone_old[1]
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
-        # UFCTriangle:            + 
-        #                         | \
-        #                         2   0
-        #                         |      \
-        #                         +---1---+
-        # UFCTriangle:            1 
-        #                         | \
-        #                         5   3
-        #                         |  6   \
-        #                         0---4---2
-        #
-        #
-        # UFCTriangle (flipped)   2 
-        #                         | \
-        #                         4   3
-        #                         |  6   \
-        #                         0---5---1
-        #
-        # PETSc.DM.PolytopeType.  3
-        # TRIANGLE:               | \
-        #                         6   5
-        #                         |  0   \
-        #                         1---4---2
-        # No, from diagram it's 5, 6, 4 (we reflect to get the vertices the same).
-        # But that isn't viable I think with hexes. Ordering can be entirely different.
-        plex_cone_new[0] = plex_cone_old[1]
-        plex_cone_new[1] = plex_cone_old[2]
-        plex_cone_new[2] = plex_cone_old[0]
+        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
@@ -462,7 +415,7 @@ cdef inline PetscInt _reorder_plex_closure(
     Indeed the same FIAT closure can be obtained merely using
     _reorder_plex_cone() and ensuring that the cell orientation is 0.
     """
-    cdef PetscDMPolytopeType ct = PETSc.DM.PolytopeType.TRIANGLE
+    cdef PetscDMPolytopeType ct = dm.getCellType(p)
 
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
@@ -478,18 +431,16 @@ cdef inline PetscInt _reorder_plex_closure(
         orientations[1] = plex_closure[2*1+1]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
         # UFCTriangle:            1 
-        #                         | \   ↘
-        #                       ↑ 5   3
-        #                         |  6   \
-        #                         0---4---2
-        #                             →
+        #                         ↑ ↘
+        #                         5   3
+        #                         ↑  6  ↘
+        #                         0 → 4 → 2
         #
         # PETSc.DM.PolytopeType.  5
-        # TRIANGLE:               | \   ↘
-        #                       ↑ 1   2
-        #                         |  0   \
-        #                         4---3---6
-        #                             ←
+        # TRIANGLE:               ↑ ↘
+        #                         1   2
+        #                         ↑  0  ↘
+        #                         4 ← 3 ← 6
 
         # TODO: could straightforwardly-ish convert these directly to FIAT orientations
         fiat_closure[0] = plex_closure[2*4]
@@ -618,19 +569,15 @@ def cell_orientation_from_vertex_arrangement(
     nvert = DMPolytopeTypeGetNumVertices(ct)
     narr = DMPolytopeTypeGetNumArrangments(ct)
     shift = narr // 2
-    print("vo: ", vertex_ordering)
     for o in range(-shift, shift):
-        print(o)
         arr = DMPolytopeTypeGetVertexArrangment(ct, o)
 
         # compare to vertex_ordering
         equal = True
         for i in range(nvert):
-            print(arr[i], end=",")
             if arr[i] != vertex_ordering[i]:
                 equal = False
                 break
-        print()
         if equal:
             return o
 
@@ -679,7 +626,7 @@ def create_cell_closure(PETSc.DM dm,
         PetscInt c, cStart, cEnd, cell, i
         PetscInt closureSize = _closureSize, closureSize1
         PetscInt *closure = NULL
-        PetscInt *fiat_closure, *fiat_orientations = NULL
+        PetscInt *fiat_closure = NULL, *fiat_orientations = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -1223,7 +1170,6 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
         # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
         # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
-        _reorder_plex_cone(dm, p, cone, plex_cone)
         return _compute_orientation_simplex(fiat_cone, plex_cone, coneSize)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL

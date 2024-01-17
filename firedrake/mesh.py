@@ -495,20 +495,6 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
-def cone_permutation(ct, o):
-    if ct == PETSc.DM.PolytopeType.TRIANGLE:
-        return {
-            -3: (0, 2, 1),
-            -2: (2, 1, 0),
-            -1: (1, 0, 2),
-            0: (0, 1, 2),
-            1: (1, 2, 0),
-            2: (2, 0, 1),
-        }
-    else:
-        raise AssertionError
-
-
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
