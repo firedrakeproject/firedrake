@@ -1170,7 +1170,7 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         # UFCInterval      <- PETSc.DM.PolytopeType.SEGMENT
         # UFCTriangle      <- PETSc.DM.PolytopeType.TRIANGLE
         # UFCTetrahedron   <- PETSc.DM.PolytopeType.TETRAHEDRON
-        return _compute_orientation_simplex(fiat_cone, plex_cone, coneSize)
+        return _compute_orientation_simplex(fiat_cone, cone, coneSize)
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.QUADRILATERAL:
         # UFCQuadrilateral <- PETSc.DM.PolytopeType.QUADRILATERAL
         dim = 2

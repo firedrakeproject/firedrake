@@ -599,56 +599,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             # out an error if the mesh is non-orientable. It appears that all of
             # our test meshes *are* orientable at the moment so this is hard to
             # verify.
-            # We would want something like:
-            # try:
-            #     plex.orient()
-            #     orient_by_vertex_num(plex)
-            # except OrientationError:
-            #    pass
-            # Actually perhaps not - we can still orient things more nicely if
-            # we reorder.
-
+            # The difference between having an orientable and a non-orientable mesh
+            # is that an orientable mesh can be coerced into having a closure ordering
+            # with a (FIAT) orientation of all zeros.
             dmcommon.orient_mesh(self.topology_dm, self._vertex_numbering)
-            #
-            # plex = 
-            # # I think what I have currently is completely consistent. We orient the cells
-            # # and edges based on the global vertex numbering. The conversion between
-            # # plex and FIAT is, I believe, quite arbitrary. We can probably define some
-            # # straightforward permutations between canonical representations.
-            #
-            # def ordering(_vs):
-            #     _vs = list(_vs)
-            #     return tuple(_vs.index(v) for v in sorted(_vs))
-            #
-            # omap = {
-            #     (1, 0): -1,
-            #     (0, 1): 0,
-            # }
-            #
-            # estart, eend = plex.getDepthStratum(1)
-            # for e in range(estart, eend):
-            #     vs = plex.getCone(e)
-            #     vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-            #     order = ordering(vs_renum)
-            #     o = omap[order]
-            #     plex.orientPoint(e, o)
-            #
-            # omap = {
-            #     (1, 0, 2): -3,
-            #     (0, 2, 1): -2,
-            #     (2, 1, 0): -1,
-            #     (0, 1, 2): 0,
-            #     (1, 2, 0): 1,
-            #     (2, 0, 1): 2,
-            # }
-            #
-            # cstart, cend = plex.getHeightStratum(0)
-            # for c in range(cstart, cend):
-            #     vs = plex.getTransitiveClosure(c)[0][-3:]
-            #     vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-            #     order = ordering(vs_renum)
-            #     o = omap[order]
-            #     plex.orientPoint(c, o)
 
         self._callback = callback
         self.name = name
