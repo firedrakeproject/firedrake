@@ -57,16 +57,16 @@ class Interpolate(ufl.Interpolate):
         v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
-        subset : pyop2.types.set.Subset, optional
+        subset : pyop2.types.set.Subset
                  An optional subset to apply the interpolation over.
                  Cannot, at present, be used when interpolating across meshes unless
                  the target mesh is a :func:`.VertexOnlyMesh`.
-        access : pyop2.types.Access, optional
+        access : pyop2.types.Access
                  The pyop2 access descriptor for combining updates to shared
                  DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
                  supported at present when interpolating across meshes. See note in
                  :func:`.interpolate` if changing this from default.
-        allow_missing_dofs : bool, optional
+        allow_missing_dofs : bool
                              For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
                              in the target mesh that cannot be defined on the source mesh.
                              For example, where nodes are point evaluations, points in the target mesh
@@ -78,7 +78,7 @@ class Interpolate(ufl.Interpolate):
                              This does not affect transpose interpolation. Ignored if interpolating within
                              the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
                              :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
-        default_missing_val : float, optional
+        default_missing_val : float
                               For interpolation across meshes: the optional value to assign to DoFs
                               in the target mesh that are outside the source mesh. If this is not set
                               then the values are either (a) unchanged if some ``output`` is given to
