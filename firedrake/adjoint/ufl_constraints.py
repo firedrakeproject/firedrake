@@ -1,20 +1,10 @@
-from firedrake.adjoint_utils.blocks import backend
 import ufl
 import ufl.algorithms
-import numpy
+from pyadjoint.optimization.constraints import (
+    Constraint, EqualityConstraint, InequalityConstraint,
+)
 
-from pyadjoint.optimization.constraints import Constraint, \
-    EqualityConstraint, InequalityConstraint
-
-backend_types = backend
-
-
-def as_vec(x):
-    with x.dat.vec_ro as vec:
-        copy = numpy.array(vec)
-    if len(copy) == 1:
-        copy = copy[0]
-    return backend_types.Constant(copy)
+import firedrake
 
 
 class UFLConstraint(Constraint):
@@ -26,7 +16,7 @@ class UFLConstraint(Constraint):
 
     def __init__(self, form, control):
 
-        if not isinstance(control.control, backend.Function):
+        if not isinstance(control.control, firedrake.Function):
             raise NotImplementedError("Only implemented for Function controls")
 
         args = ufl.algorithms.extract_arguments(form)
@@ -38,19 +28,19 @@ class UFLConstraint(Constraint):
         # We want to make a copy of the control purely for use
         # in the constraint, so that our writing it isn't
         # bothering anyone else
-        self.u = backend_types.Function(self.V)
+        self.u = firedrake.Function(self.V)
         self.form = ufl.replace(form, {u: self.u})
 
-        self.trial = backend.TrialFunction(self.V)
-        self.dform = backend.derivative(self.form, self.u, self.trial)
+        self.trial = firedrake.TrialFunction(self.V)
+        self.dform = firedrake.derivative(self.form, self.u, self.trial)
         if len(ufl.algorithms.extract_arguments(
             ufl.algorithms.expand_derivatives(self.dform)
         )) == 0:
             raise ValueError("Form must depend on control")
 
-        self.test = backend.TestFunction(self.V)
+        self.test = firedrake.TestFunction(self.V)
         self.hess = ufl.algorithms.expand_derivatives(
-            backend.derivative(self.dform, self.u, self.test)
+            firedrake.derivative(self.dform, self.u, self.test)
         )
         if len(ufl.algorithms.extract_arguments(self.hess)) == 0:
             self.zero_hess = True
@@ -62,15 +52,15 @@ class UFLConstraint(Constraint):
             assert len(m) == 1
             m = m[0]
 
-        if isinstance(m, backend.Function):
+        if isinstance(m, firedrake.Function):
             self.u.assign(m)
         else:
             self.u._ad_assign_numpy(self.u, m, 0)
 
     def function(self, m):
         self.update_control(m)
-        b = backend.assemble(self.form)
-        return backend_types.Constant(b)
+        b = firedrake.assemble(self.form)
+        return firedrake.Constant(b)
 
     def jacobian(self, m):
         if isinstance(m, list):
@@ -78,7 +68,7 @@ class UFLConstraint(Constraint):
             m = m[0]
 
         self.update_control(m)
-        out = [backend.assemble(self.dform)]
+        out = [firedrake.assemble(self.dform)]
         return out
 
     def jacobian_action(self, m, dm, result):
@@ -92,8 +82,8 @@ class UFLConstraint(Constraint):
             m = m[0]
         self.update_control(m)
 
-        form = backend.action(self.dform, dm)
-        result.assign(backend.assemble(form))
+        form = firedrake.action(self.dform, dm)
+        result.assign(firedrake.assemble(form))
 
     def jacobian_adjoint_action(self, m, dp, result):
         """Computes the Jacobian adjoint action of c(m) in direction dp.
@@ -106,11 +96,11 @@ class UFLConstraint(Constraint):
             m = m[0]
         self.update_control(m)
 
-        asm = backend.assemble(
+        asm = firedrake.assemble(
             dp * ufl.replace(self.dform, {self.trial: self.test})
         )
-        if isinstance(result, backend.Function):
-            if backend.__name__ in ["dolfin", "fenics"]:
+        if isinstance(result, firedrake.Function):
+            if firedrake.__name__ in ["dolfin", "fenics"]:
                 result.vector().zero()
                 result.vector().axpy(1.0, asm)
             else:
@@ -130,18 +120,18 @@ class UFLConstraint(Constraint):
         self.update_control(m)
 
         H = dm * ufl.replace(self.hess, {self.trial: dp})
-        if isinstance(result, backend.Function):
-            if backend.__name__ in ["dolfin", "fenics"]:
+        if isinstance(result, firedrake.Function):
+            if firedrake.__name__ in ["dolfin", "fenics"]:
                 if self.zero_hess:
                     result.vector().zero()
                 else:
                     result.vector().zero()
-                    result.vector().axpy(1.0, backend.assemble(H))
+                    result.vector().axpy(1.0, firedrake.assemble(H))
             else:
                 if self.zero_hess:
                     result.assign(0)
                 else:
-                    result.assign(backend.assemble(H))
+                    result.assign(firedrake.assemble(H))
 
         else:
             raise NotImplementedError("Do I need to untangle all controls?")
@@ -149,7 +139,7 @@ class UFLConstraint(Constraint):
     def output_workspace(self):
         """Return an object like the output of c(m) for calculations."""
 
-        return backend_types.Constant(backend.assemble(self.form))
+        return firedrake.Constant(firedrake.assemble(self.form))
 
     def _get_constraint_dim(self):
         """Returns the number of constraint components."""
