@@ -605,6 +605,65 @@ cdef inline PetscInt _reorder_plex_closure(
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
 
 
+def cell_orientation_from_vertex_arrangement(
+    cell_type,
+    vertex_ordering
+):
+    cdef:
+        PetscDMPolytopeType ct
+        PetscInt nvert, narr
+        PetscInt *arr
+
+    ct = cell_type
+    nvert = DMPolytopeTypeGetNumVertices(ct)
+    narr = DMPolytopeTypeGetNumArrangments(ct)
+    shift = narr // 2
+    print("vo: ", vertex_ordering)
+    for o in range(-shift, shift):
+        print(o)
+        arr = DMPolytopeTypeGetVertexArrangment(ct, o)
+
+        # compare to vertex_ordering
+        equal = True
+        for i in range(nvert):
+            print(arr[i], end=",")
+            if arr[i] != vertex_ordering[i]:
+                equal = False
+                break
+        print()
+        if equal:
+            return o
+
+    raise ValueError(f"No valid orientation found for vertex arrangement {vertex_ordering}")
+
+
+def _ordering(iterable):
+    iterable = list(iterable)
+    return tuple(iterable.index(p) for p in sorted(iterable))
+
+
+def orient_mesh(PETSc.DM dm, vertex_numbering):
+    cdef:
+        PetscDMPolytopeType ct
+        PetscInt o, nverts
+
+    pstart, pend = dm.getChart()
+    for p in range(pstart, pend):
+        cell_type = dm.getCellType(p)
+
+        # vertices have just a single orientation
+        if cell_type == PETSc.DM.PolytopeType.POINT:
+            continue
+
+        ct = cell_type
+        nverts = DMPolytopeTypeGetNumVertices(ct)
+        verts = dm.getTransitiveClosure(p)[0][-nverts:]
+        verts_renum = [vertex_numbering.getOffset(v) for v in verts]
+        vertex_ordering = _ordering(verts_renum)
+        o = cell_orientation_from_vertex_arrangement(cell_type, vertex_ordering)
+        DMPlexOrientPoint(dm.dm, p, o)
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_cell_closure(PETSc.DM dm,

@@ -75,6 +75,8 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
 
+    int DMPlexOrientPoint(PETSc.PetscDM,PetscInt,PetscInt)
+
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
@@ -92,7 +94,12 @@ cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+
+    PetscInt DMPolytopeTypeGetNumVertices(PetscDMPolytopeType)
     PetscInt DMPolytopeTypeComposeOrientation(PetscDMPolytopeType,PetscInt,PetscInt)
+    PetscInt DMPolytopeTypeGetNumArrangments(PetscDMPolytopeType)
+    PetscInt* DMPolytopeTypeGetArrangment(PetscDMPolytopeType,PetscInt)
+    PetscInt* DMPolytopeTypeGetVertexArrangment(PetscDMPolytopeType,PetscInt)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)

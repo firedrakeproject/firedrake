@@ -605,48 +605,64 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                     facet_numbering = self.create_section(entity_dofs)
                     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
-            # Give the mesh a globally consistent orientation
-            # TODO also support tetrahedra and quads
-            if self.ufl_cell().cellname() == "triangle":
-                plex = self.topology_dm
-                # I think what I have currently is completely consistent. We orient the cells
-                # and edges based on the global vertex numbering. The conversion between
-                # plex and FIAT is, I believe, quite arbitrary. We can probably define some
-                # straightforward permutations between canonical representations.
+            # Try to give the mesh a globally consistent orientation. This will set
+            # entity_orientations to all zeros, meaning that no transformations are
+            # required when packing.
+            # NOTE: I believe that the quadrilateral numbering algorithm has
+            # effectively been reproduced in DMPlexOrient which claims to spit
+            # out an error if the mesh is non-orientable. It appears that all of
+            # our test meshes *are* orientable at the moment so this is hard to
+            # verify.
+            # We would want something like:
+            # try:
+            #     plex.orient()
+            #     orient_by_vertex_num(plex)
+            # except OrientationError:
+            #    pass
+            # Actually perhaps not - we can still orient things more nicely if
+            # we reorder.
 
-                def ordering(_vs):
-                    _vs = list(_vs)
-                    return tuple(_vs.index(v) for v in sorted(_vs))
-
-                omap = {
-                    (1, 0): -1,
-                    (0, 1): 0,
-                }
-
-                estart, eend = plex.getDepthStratum(1)
-                for e in range(estart, eend):
-                    vs = plex.getCone(e)
-                    vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-                    order = ordering(vs_renum)
-                    o = omap[order]
-                    plex.orientPoint(e, o)
-
-                omap = {
-                    (1, 0, 2): -3,
-                    (0, 2, 1): -2,
-                    (2, 1, 0): -1,
-                    (0, 1, 2): 0,
-                    (1, 2, 0): 1,
-                    (2, 0, 1): 2,
-                }
-
-                cstart, cend = plex.getHeightStratum(0)
-                for c in range(cstart, cend):
-                    vs = plex.getTransitiveClosure(c)[0][-3:]
-                    vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-                    order = ordering(vs_renum)
-                    o = omap[order]
-                    plex.orientPoint(c, o)
+            dmcommon.orient_mesh(self.topology_dm, self._vertex_numbering)
+            #
+            # plex = 
+            # # I think what I have currently is completely consistent. We orient the cells
+            # # and edges based on the global vertex numbering. The conversion between
+            # # plex and FIAT is, I believe, quite arbitrary. We can probably define some
+            # # straightforward permutations between canonical representations.
+            #
+            # def ordering(_vs):
+            #     _vs = list(_vs)
+            #     return tuple(_vs.index(v) for v in sorted(_vs))
+            #
+            # omap = {
+            #     (1, 0): -1,
+            #     (0, 1): 0,
+            # }
+            #
+            # estart, eend = plex.getDepthStratum(1)
+            # for e in range(estart, eend):
+            #     vs = plex.getCone(e)
+            #     vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
+            #     order = ordering(vs_renum)
+            #     o = omap[order]
+            #     plex.orientPoint(e, o)
+            #
+            # omap = {
+            #     (1, 0, 2): -3,
+            #     (0, 2, 1): -2,
+            #     (2, 1, 0): -1,
+            #     (0, 1, 2): 0,
+            #     (1, 2, 0): 1,
+            #     (2, 0, 1): 2,
+            # }
+            #
+            # cstart, cend = plex.getHeightStratum(0)
+            # for c in range(cstart, cend):
+            #     vs = plex.getTransitiveClosure(c)[0][-3:]
+            #     vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
+            #     order = ordering(vs_renum)
+            #     o = omap[order]
+            #     plex.orientPoint(c, o)
 
         self._callback = callback
         self.name = name
@@ -1148,50 +1164,7 @@ class MeshTopology(AbstractMeshTopology):
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        plex = self.topology_dm
-        tdim = plex.getDimension()
-
-        # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
-
-        cell = self.ufl_cell()
-        assert tdim == cell.topological_dimension()
-        # if cell.is_simplex():
-        if False:
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-
-            return dmcommon.closure_ordering(plex, vertex_numbering,
-                                             cell_numbering, entity_per_cell)
-
-        elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
-            # Quadrilateral mesh
-            cell_ranks = dmcommon.get_cell_remote_ranks(plex)
-
-            facet_orientations = dmcommon.quadrilateral_facet_orientations(
-                plex, vertex_numbering, cell_ranks)
-
-            cell_orientations = dmcommon.orientations_facet2cell(
-                plex, vertex_numbering, cell_ranks,
-                facet_orientations, cell_numbering)
-
-            dmcommon.exchange_cell_orientations(plex,
-                                                cell_numbering,
-                                                cell_orientations)
-
-            return dmcommon.quadrilateral_closure_ordering(
-                plex, vertex_numbering, cell_numbering, cell_orientations)
-        elif cell.cellname() == "hexahedron" or cell.is_simplex():
-            # TODO: Should change and use create_cell_closure() for all cell types.
-            return self._closure_and_orientations[0]
-        else:
-            raise NotImplementedError("Cell type '%s' not supported." % cell)
+        return self._closure_and_orientations[0]
 
     @utils.cached_property
     def entity_orientations(self):
@@ -1201,14 +1174,15 @@ class MeshTopology(AbstractMeshTopology):
     def _closure_and_orientations(self):
         cell = self.ufl_cell()
 
-        cell_numbering = self._cell_numbering
-
-        if cell.cellname() != "triangle":
-            raise NotImplementedError
+        # can I replace this with calling DMPlexOrient?
+        if cell.cellname() == "quadrilateral":
+            from firedrake_citations import Citations
+            Citations().register("Homolya2016")
+            Citations().register("McRae2016")
 
         topology = FIAT.ufc_cell(cell).get_topology()
         closureSize = sum([len(ents) for _, ents in topology.items()])
-        return dmcommon.create_cell_closure(self.topology_dm, cell_numbering, closureSize)
+        return dmcommon.create_cell_closure(self.topology_dm, self._cell_numbering, closureSize)
 
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
