@@ -304,10 +304,10 @@ class Interpolator(abc.ABC):
         *function: firedrake.function.Function or firedrake.cofunction.Cofunction
                    If the expression being interpolated contains an argument,
                    then the function value to interpolate.
-        transpose: bool, optional
+        transpose: bool
                    Set to true to apply the transpose (adjoint) of the
                    interpolation operator.
-        default_missing_val: bool, optional
+        default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
@@ -355,12 +355,12 @@ class Interpolator(abc.ABC):
         *function: firedrake.function.Function or firedrake.cofunction.Cofunction
                    If the expression being interpolated contains an argument,
                    then the function value to interpolate.
-        output: firedrake.function.Function or firedrake.cofunction.Cofunction, optional
+        output: firedrake.function.Function or firedrake.cofunction.Cofunction
                 A function to contain the output.
-        transpose: bool, optional
+        transpose: bool
                    Set to true to apply the transpose (adjoint) of the
                    interpolation operator.
-        default_missing_val: bool, optional
+        default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
