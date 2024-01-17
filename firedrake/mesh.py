@@ -495,6 +495,20 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
+def cone_permutation(ct, o):
+    if ct == PETSc.DM.PolytopeType.TRIANGLE:
+        return {
+            -3: (0, 2, 1),
+            -2: (2, 1, 0),
+            -1: (1, 0, 2),
+            0: (0, 1, 2),
+            1: (1, 2, 0),
+            2: (2, 0, 1),
+        }
+    else:
+        raise AssertionError
+
+
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -591,58 +605,48 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                     facet_numbering = self.create_section(entity_dofs)
                     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
-            # testing, try to orient the cells (simplices and quads only)
-            plex = self.topology_dm
-            # plex.orient()
-            # return
-            # NOTE: This is not a permutation, this is the numbering shown in the plex book
-            omap = {
-                (2, 1, 3): -3,
-                (1, 3, 2): -2,
-                (3, 2, 1): -1,
-                (1, 2, 3): 0,
-                (2, 3, 1): 1,
-                (3, 1, 2): 2,
-            }
+            # Give the mesh a globally consistent orientation
+            # TODO also support tetrahedra and quads
+            if self.ufl_cell().cellname() == "triangle":
+                plex = self.topology_dm
+                # I think what I have currently is completely consistent. We orient the cells
+                # and edges based on the global vertex numbering. The conversion between
+                # plex and FIAT is, I believe, quite arbitrary. We can probably define some
+                # straightforward permutations between canonical representations.
 
-            # Do not rely on Koki's diagrams, they are misleading I think.
-            # This orientPoint approach seems right.
-            # I want to get rid of the "reorder_plex_XXX" functions. Or at least use
-            # the updated diagrams. Why are they needed?
+                def ordering(_vs):
+                    _vs = list(_vs)
+                    return tuple(_vs.index(v) for v in sorted(_vs))
 
-            def ordering(_vs):
-                _vs = list(_vs)
-                return tuple(_vs.index(v) + 1 for v in sorted(_vs))
+                omap = {
+                    (1, 0): -1,
+                    (0, 1): 0,
+                }
 
-            def invert(p):
-                p = np.asanyarray(p)  # in case p is a tuple, etc.
-                s = np.empty_like(p)
-                s[p] = np.arange(p.size)
-                return tuple(s)
+                estart, eend = plex.getDepthStratum(1)
+                for e in range(estart, eend):
+                    vs = plex.getCone(e)
+                    vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
+                    order = ordering(vs_renum)
+                    o = omap[order]
+                    plex.orientPoint(e, o)
 
-            cstart, cend = plex.getHeightStratum(0)
-            for c in range(cstart, cend):
-                vs = plex.getTransitiveClosure(c)[0][-3:]
-                vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-                order = ordering(vs_renum)
-                o = omap[order]
-                plex.orientPoint(c, o)
+                omap = {
+                    (1, 0, 2): -3,
+                    (0, 2, 1): -2,
+                    (2, 1, 0): -1,
+                    (0, 1, 2): 0,
+                    (1, 2, 0): 1,
+                    (2, 0, 1): 2,
+                }
 
-            omap = {
-                (2, 1): -1,
-                (1, 2): 0,
-            }
-
-            estart, eend = plex.getDepthStratum(1)
-            for e in range(estart, eend):
-                vs = plex.getCone(e)
-                vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
-                order = ordering(vs_renum)
-                o = omap[order]
-                plex.orientPoint(e, o)
-
-            # can I do something similar for hexes that would ensure a cell orientation
-            # of zero?
+                cstart, cend = plex.getHeightStratum(0)
+                for c in range(cstart, cend):
+                    vs = plex.getTransitiveClosure(c)[0][-3:]
+                    vs_renum = [self._vertex_numbering.getOffset(v) for v in vs]
+                    order = ordering(vs_renum)
+                    o = omap[order]
+                    plex.orientPoint(c, o)
 
         self._callback = callback
         self.name = name
@@ -1153,8 +1157,8 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        if cell.is_simplex():
-        # if False:
+        # if cell.is_simplex():
+        if False:
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1185,18 +1189,26 @@ class MeshTopology(AbstractMeshTopology):
                 plex, vertex_numbering, cell_numbering, cell_orientations)
         elif cell.cellname() == "hexahedron" or cell.is_simplex():
             # TODO: Should change and use create_cell_closure() for all cell types.
-            topology = FIAT.ufc_cell(cell).get_topology()
-            closureSize = sum([len(ents) for _, ents in topology.items()])
-            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
+            return self._closure_and_orientations[0]
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
     @utils.cached_property
     def entity_orientations(self):
-        # this should break hexes in an informative way
-        # breaks test_integral_hex_exterior_facet[Q-True]
-        # return np.zeros_like(self.cell_closure)
-        return dmcommon.entity_orientations(self, self.cell_closure)
+        return self._closure_and_orientations[1]
+
+    @utils.cached_property
+    def _closure_and_orientations(self):
+        cell = self.ufl_cell()
+
+        cell_numbering = self._cell_numbering
+
+        if cell.cellname() != "triangle":
+            raise NotImplementedError
+
+        topology = FIAT.ufc_cell(cell).get_topology()
+        closureSize = sum([len(ents) for _, ents in topology.items()])
+        return dmcommon.create_cell_closure(self.topology_dm, cell_numbering, closureSize)
 
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):

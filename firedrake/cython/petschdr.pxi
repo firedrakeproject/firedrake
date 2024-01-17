@@ -26,6 +26,27 @@ cdef extern from "petsc.h":
         PETSC_COMPLEX,
         PETSC_DATATYPE_UNKNOWN
 
+cdef extern from * nogil:
+    ctypedef enum PetscDMPolytopeType "DMPolytopeType":
+        DM_POLYTOPE_POINT
+        DM_POLYTOPE_SEGMENT
+        DM_POLYTOPE_POINT_PRISM_TENSOR
+        DM_POLYTOPE_TRIANGLE
+        DM_POLYTOPE_QUADRILATERAL
+        DM_POLYTOPE_SEG_PRISM_TENSOR
+        DM_POLYTOPE_TETRAHEDRON
+        DM_POLYTOPE_HEXAHEDRON
+        DM_POLYTOPE_TRI_PRISM
+        DM_POLYTOPE_TRI_PRISM_TENSOR
+        DM_POLYTOPE_QUAD_PRISM_TENSOR
+        DM_POLYTOPE_PYRAMID
+        DM_POLYTOPE_FV_GHOST
+        DM_POLYTOPE_INTERIOR_GHOST
+        DM_POLYTOPE_UNKNOWN
+        DM_POLYTOPE_UNKNOWN_CELL
+        DM_POLYTOPE_UNKNOWN_FACE
+        DM_NUM_POLYTOPES
+
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
     int PetscMalloc2(PetscInt,void*,PetscInt,void*)
@@ -71,6 +92,7 @@ cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+    PetscInt DMPolytopeTypeComposeOrientation(PetscDMPolytopeType,PetscInt,PetscInt)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
