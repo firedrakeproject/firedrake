@@ -83,13 +83,6 @@ class ObjectCached(object):
     details).  The object on which the cache is stored should contain
     a dict in its ``_cache`` attribute.
 
-    .. warning ::
-
-       This kind of cache sets up a circular reference.  If either of
-       the objects implements ``__del__``, the Python garbage
-       collector will not be able to collect this cycle, and hence
-       the cache will never be evicted.
-
     .. warning::
 
         The derived class' :meth:`__init__` is still called if the

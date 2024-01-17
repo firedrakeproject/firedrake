@@ -8,3 +8,4 @@ decorator<=4.4.2
 dataclasses
 cachetools
 packaging
+pytools

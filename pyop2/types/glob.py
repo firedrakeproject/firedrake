@@ -26,10 +26,6 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "%s_#x%x" % (self.__class__.__name__.lower(), id(self))
 
-    def __del__(self):
-        if hasattr(self, "comm"):
-            mpi.decref(self.comm)
-
     @utils.cached_property
     def _kernel_args_(self):
         return (self._data.ctypes.data, )
@@ -247,15 +243,11 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
             super().__init__(dim, data, dtype, name)
             if comm is None:
                 warnings.warn("PyOP2.Global has no comm, this is likely to break in parallel!")
-            self.comm = mpi.internal_comm(comm)
+            self.comm = mpi.internal_comm(comm, self)
 
             # Object versioning setup
             petsc_counter = (comm and self.dtype == PETSc.ScalarType)
             VecAccessMixin.__init__(self, petsc_counter=petsc_counter)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            mpi.decref(self.comm)
 
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \

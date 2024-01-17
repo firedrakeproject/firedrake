@@ -536,8 +536,7 @@ class TestDiskCachedDecorator:
 
     def collective_key(self, *args):
         """Return a cache key suitable for use when collective over a communicator."""
-        # Explicitly `mpi.decref(self.comm)` in any test that uses this comm
-        self.comm = mpi.internal_comm(mpi.COMM_SELF)
+        self.comm = mpi.internal_comm(mpi.COMM_SELF, self)
         return self.comm, cachetools.keys.hashkey(*args)
 
     @pytest.fixture
@@ -575,7 +574,6 @@ class TestDiskCachedDecorator:
         assert obj1 == obj2 and obj1 is not obj2
         assert len(cache) == 2
         assert len(os.listdir(cachedir.name)) == 1
-        mpi.decref(self.comm)
 
     def test_decorator_disk_cache_reuses_results(self, cache, cachedir):
         decorated_func = disk_cached(cache, cachedir.name)(self.myfunc)

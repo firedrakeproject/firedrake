@@ -188,14 +188,8 @@ class Compiler(ABC):
         self._debug = configuration["debug"]
 
         # Compilation communicators are reference counted on the PyOP2 comm
-        self.pcomm = mpi.internal_comm(comm)
-        self.comm = mpi.compilation_comm(self.pcomm)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            mpi.decref(self.comm)
-        if hasattr(self, "pcomm"):
-            mpi.decref(self.pcomm)
+        self.pcomm = mpi.internal_comm(comm, self)
+        self.comm = mpi.compilation_comm(self.pcomm, self)
 
     def __repr__(self):
         return f"<{self._name} compiler, version {self.version or 'unknown'}>"

@@ -89,6 +89,7 @@ install_requires = [
     'decorator',
     'mpi4py',
     'numpy>=1.6',
+    'pytools',
 ]
 
 version = sys.version_info[:2]

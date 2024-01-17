@@ -24,6 +24,7 @@ jobs:
       PETSC_ARCH: default
       PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1 --with-c2html=0 --with-fortran-bindings=0
       RDMAV_FORK_SAFE: 1
+      PYOP2_CI_TESTS: 1
     timeout-minutes: 60
 
     steps:
