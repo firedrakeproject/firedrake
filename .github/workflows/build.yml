@@ -80,7 +80,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --package-branch pyop2 JDBetteridge/check_something \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |

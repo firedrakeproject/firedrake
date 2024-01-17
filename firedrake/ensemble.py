@@ -14,7 +14,7 @@ class Ensemble(object):
 
         :arg comm: The communicator to split.
         :arg M: the size of the communicators used for spatial parallelism.
-        :kwarg ensememble_name: string used as communicator name prefix, for debugging.
+        :kwarg ensemble_name: string used as communicator name prefix, for debugging.
         :raises ValueError: if ``M`` does not divide ``comm.size`` exactly.
         """
         size = comm.size
