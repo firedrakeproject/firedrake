@@ -42,10 +42,7 @@ class UFLConstraint(Constraint):
         self.hess = ufl.algorithms.expand_derivatives(
             firedrake.derivative(self.dform, self.u, self.test)
         )
-        if len(ufl.algorithms.extract_arguments(self.hess)) == 0:
-            self.zero_hess = True
-        else:
-            self.zero_hess = False
+        self.zero_hess = len(ufl.algorithms.extract_arguments(self.hess)) == 0
 
     def update_control(self, m):
         if isinstance(m, list):
@@ -100,11 +97,7 @@ class UFLConstraint(Constraint):
             dp * ufl.replace(self.dform, {self.trial: self.test})
         )
         if isinstance(result, firedrake.Function):
-            if firedrake.__name__ in ["dolfin", "fenics"]:
-                result.vector().zero()
-                result.vector().axpy(1.0, asm)
-            else:
-                result.assign(asm)
+            result.assign(asm)
         else:
             raise NotImplementedError("Do I need to untangle all controls?")
 
@@ -121,17 +114,10 @@ class UFLConstraint(Constraint):
 
         H = dm * ufl.replace(self.hess, {self.trial: dp})
         if isinstance(result, firedrake.Function):
-            if firedrake.__name__ in ["dolfin", "fenics"]:
-                if self.zero_hess:
-                    result.vector().zero()
-                else:
-                    result.vector().zero()
-                    result.vector().axpy(1.0, firedrake.assemble(H))
+            if self.zero_hess:
+                result.assign(0)
             else:
-                if self.zero_hess:
-                    result.assign(0)
-                else:
-                    result.assign(firedrake.assemble(H))
+                result.assign(firedrake.assemble(H))
 
         else:
             raise NotImplementedError("Do I need to untangle all controls?")
