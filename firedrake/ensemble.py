@@ -1,17 +1,20 @@
+import weakref
+
 from firedrake.petsc import PETSc
-from pyop2.mpi import MPI, internal_comm, decref
+from pyop2.mpi import MPI, internal_comm
 from itertools import zip_longest
 
 __all__ = ("Ensemble", )
 
 
 class Ensemble(object):
-    def __init__(self, comm, M):
+    def __init__(self, comm, M, **kwargs):
         """
         Create a set of space and ensemble subcommunicators.
 
         :arg comm: The communicator to split.
         :arg M: the size of the communicators used for spatial parallelism.
+        :kwarg ensemble_name: string used as communicator name prefix, for debugging.
         :raises ValueError: if ``M`` does not divide ``comm.size`` exactly.
         """
         size = comm.size
@@ -21,40 +24,28 @@ class Ensemble(object):
 
         rank = comm.rank
 
-        # User global comm
+        # Global comm
         self.global_comm = comm
         # Internal global comm
-        self._global_comm = internal_comm(comm)
+        self._comm = internal_comm(comm, self)
 
-        # User split comm
+        ensemble_name = kwargs.get("ensemble_name", "Ensemble")
+        # User and internal communicator for spatial parallelism, contains a
+        # contiguous chunk of M processes from `global_comm`.
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
-        # Internal split comm
-        self._comm = internal_comm(self.comm)
-        """The communicator for spatial parallelism, contains a
-        contiguous chunk of M processes from :attr:`global_comm`"""
+        self.comm.name = f"{ensemble_name} spatial comm"
+        weakref.finalize(self, self.comm.Free)
+        self._spatial_comm = internal_comm(self.comm, self)
 
-        # User ensemble comm
+        # User and internal communicator for ensemble parallelism, contains all
+        # processes in `global_comm` which have the same rank in `comm`.
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
-        # Internal ensemble comm
-        self._ensemble_comm = internal_comm(self.ensemble_comm)
-        """The communicator for ensemble parallelism, contains all
-        processes in :attr:`global_comm` which have the same rank in
-        :attr:`comm`."""
+        self.ensemble_comm.name = f"{ensemble_name} ensemble comm"
+        weakref.finalize(self, self.ensemble_comm.Free)
+        self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
-
-    def __del__(self):
-        if hasattr(self, "comm"):
-            self.comm.Free()
-            del self.comm
-        if hasattr(self, "ensemble_comm"):
-            self.ensemble_comm.Free()
-            del self.ensemble_comm
-        for comm_name in ["_global_comm", "_comm", "_ensemble_comm"]:
-            if hasattr(self, comm_name):
-                comm = getattr(self, comm_name)
-                decref(comm)
 
     def _check_function(self, f, g=None):
         """
@@ -66,7 +57,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
-        if MPI.Comm.Compare(f._comm, self._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+        if MPI.Comm.Compare(f._comm, self._spatial_comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
 
         if g is not None:
