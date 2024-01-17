@@ -8,12 +8,13 @@ __all__ = ("Ensemble", )
 
 
 class Ensemble(object):
-    def __init__(self, comm, M):
+    def __init__(self, comm, M, **kwargs):
         """
         Create a set of space and ensemble subcommunicators.
 
         :arg comm: The communicator to split.
         :arg M: the size of the communicators used for spatial parallelism.
+        :kwarg ensememble_name: string used as communicator name prefix, for debugging.
         :raises ValueError: if ``M`` does not divide ``comm.size`` exactly.
         """
         size = comm.size
@@ -28,17 +29,18 @@ class Ensemble(object):
         # Internal global comm
         self._comm = internal_comm(comm, self)
 
+        ensemble_name = kwargs.get("ensemble_name", "Ensemble")
         # User and internal communicator for spatial parallelism, contains a
         # contiguous chunk of M processes from `global_comm`.
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
-        self.comm.name = "Ensemble spatial comm"
+        self.comm.name = f"{ensemble_name} spatial comm"
         weakref.finalize(self, self.comm.Free)
         self._spatial_comm = internal_comm(self.comm, self)
 
         # User and internal communicator for ensemble parallelism, contains all
         # processes in `global_comm` which have the same rank in `comm`.
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
-        self.comm.name = "Ensemble ensemble comm"
+        self.ensemble_comm.name = f"{ensemble_name} ensemble comm"
         weakref.finalize(self, self.ensemble_comm.Free)
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
