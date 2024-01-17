@@ -15,6 +15,7 @@ import numbers
 import abc
 import rtree
 from textwrap import dedent
+from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -2310,21 +2311,18 @@ values from f.)"""
                 }}
             """)
 
-            libspatialindex_so = os.path.join(
-                rtree.core.get_libraries(),
-                rtree.core.get_library_name()
-            )
-            lsi_runpath = f"-Wl,-rpath,{rtree.core.get_libraries()}"
+            libspatialindex_so = Path(rtree.core.rt._name)
+            lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
             locator = compilation.load(
                 src, "c", "locator",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.core.get_include()}"
+                    f"-I{rtree.finder.get_include()}"
                 ] + [f"-I{d}/include" for d in get_petsc_dir()],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    libspatialindex_so,
+                    str(libspatialindex_so),
                     f"-Wl,-rpath,{sys.prefix}/lib",
                     lsi_runpath
                 ]

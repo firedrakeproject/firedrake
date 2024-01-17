@@ -1,6 +1,7 @@
 from setuptools import setup, find_packages
 from glob import glob
 from os import environ as env, path
+from pathlib import Path
 from Cython.Distutils import build_ext
 import os
 import sys
@@ -60,12 +61,13 @@ cythonfiles = [("dmcommon", ["petsc"]),
 petsc_dirs = get_petsc_dir()
 if os.environ.get("HDF5_DIR"):
     petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
-include_dirs = [np.get_include(), petsc4py.get_include(), rtree.core.get_include()]
+include_dirs = [np.get_include(), petsc4py.get_include(), rtree.finder.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
-link_args += [os.path.join(rtree.core.get_libraries(), rtree.core.get_library_name())]
-link_args += ["-Wl,-rpath,%s" % rtree.core.get_libraries()]
+libspatialindex_so = Path(rtree.core.rt._name)
+link_args += [str(libspatialindex_so)]
+link_args += ["-Wl,-rpath,%s" % libspatialindex_so.parent]
 
 extensions = [Extension("firedrake.cython.{}".format(ext),
                         sources=[os.path.join("firedrake", "cython", "{}.pyx".format(ext))],
