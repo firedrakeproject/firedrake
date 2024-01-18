@@ -2,15 +2,16 @@ import ufl
 import firedrake
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
-from .backend import Backend
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
+from .block_utils import isconstant
 
 
-class AssembleBlock(Block, Backend):
+class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') else None
+        mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') \
+            else None
 
         if mesh and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
@@ -43,7 +44,8 @@ class AssembleBlock(Block, Backend):
             if dform_adj == 0:
                 # `dform_adj` is a `ZeroBaseForm`
                 return AdjFloat(0.), dform
-            # Return the adjoint model of `form` scaled by the scalar `adj_input`
+            # Return the adjoint model of `form` scaled by the scalar
+            # `adj_input`
             adj_output = dform_adj._ad_mul(adj_input)
             return adj_output, dform
         elif arity_form == 1:
@@ -59,7 +61,7 @@ class AssembleBlock(Block, Backend):
             if not isinstance(c_rep, firedrake.SpatialCoordinate):
                 # Symbolically compute: (dform/dc_rep)^* * adj_input
                 adj_output = firedrake.action(firedrake.adjoint(dform),
-                                                 adj_input)
+                                              adj_input)
                 adj_output = firedrake.assemble(adj_output)
             else:
                 adj_output = firedrake.Cofunction(space.dual())
@@ -99,12 +101,12 @@ class AssembleBlock(Block, Backend):
         from ufl.algorithms.analysis import extract_arguments
         arity_form = len(extract_arguments(form))
 
-        if self.compat.isconstant(c):
+        if isconstant(c):
             mesh = self.form.ufl_domain()
             space = c._ad_function_space(mesh)
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
-        elif isinstance(c, self.compat.MeshType):
+        elif isinstance(c, firedrake.MeshGeometry):
             c_rep = firedrake.SpatialCoordinate(c_rep)
             space = c._ad_function_space()
 
@@ -126,13 +128,15 @@ class AssembleBlock(Block, Backend):
 
             if tlm_value is None:
                 continue
-            if isinstance(c_rep, self.compat.MeshType):
+            if isinstance(c_rep, firedrake.MeshGeometry):
                 X = firedrake.SpatialCoordinate(c_rep)
-                # Spatial coordinates derivatives cannot be expanded in the physical space,
-                # which is required by symbolic operators such as `action`.
+                # Spatial coordinates derivatives cannot be expanded in the
+                # physical space, which is required by symbolic operators such
+                # as `action`.
                 dform += firedrake.derivative(form, X, tlm_value)
             else:
-                dform += firedrake.action(firedrake.derivative(form, c_rep), tlm_value)
+                dform += firedrake.action(firedrake.derivative(form, c_rep),
+                                          tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = firedrake.assemble(dform)
@@ -156,12 +160,12 @@ class AssembleBlock(Block, Backend):
         c1 = block_variable.output
         c1_rep = block_variable.saved_output
 
-        if self.compat.isconstant(c1):
+        if isconstant(c1):
             mesh = form.ufl_domain()
             space = c1._ad_function_space(mesh)
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
-        elif isinstance(c1, self.compat.MeshType):
+        elif isinstance(c1, firedrake.MeshGeometry):
             c1_rep = firedrake.SpatialCoordinate(c1)
             space = c1._ad_function_space()
         else:
@@ -179,7 +183,7 @@ class AssembleBlock(Block, Backend):
             if tlm_input is None:
                 continue
 
-            if isinstance(c2_rep, self.compat.MeshType):
+            if isinstance(c2_rep, firedrake.MeshGeometry):
                 X = firedrake.SpatialCoordinate(c2_rep)
                 ddform += firedrake.derivative(dform, X, tlm_input)
             else:
@@ -187,8 +191,11 @@ class AssembleBlock(Block, Backend):
 
         if not isinstance(ddform, float):
             ddform = ufl.algorithms.expand_derivatives(ddform)
-            if not (isinstance(ddform, ufl.ZeroBaseForm) or (isinstance(ddform, ufl.Form) and ddform.empty())):
-                hessian_outputs += self.compute_action_adjoint(adj_input, arity_form, dform=ddform)[0]
+            if not (isinstance(ddform, ufl.ZeroBaseForm)
+                    or (isinstance(ddform, ufl.Form) and ddform.empty())):
+                hessian_outputs += self.compute_action_adjoint(
+                    adj_input, arity_form, dform=ddform
+                )[0]
 
         return hessian_outputs
 

@@ -4,10 +4,10 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, OverloadedType, AdjFloat
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
     DelegatedFunctionCheckpoint
-from .backend import Backend
+from .block_utils import isconstant
 
 
-class FunctionAssignBlock(Block, Backend):
+class FunctionAssignBlock(Block):
     def __init__(self, func, other, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.other = None
@@ -55,7 +55,7 @@ class FunctionAssignBlock(Block, Backend):
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
-            elif self.compat.isconstant(block_variable.output):
+            elif isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
                     prepared.function_space().mesh()
                 )
@@ -70,7 +70,7 @@ class FunctionAssignBlock(Block, Backend):
             # Linear combination
             expr, adj_input_func = prepared
             adj_output = firedrake.Function(adj_input_func.function_space())
-            if not self.compat.isconstant(block_variable.output):
+            if not isconstant(block_variable.output):
                 diff_expr = ufl.algorithms.expand_derivatives(
                     ufl.derivative(
                         expr, block_variable.saved_output, adj_input_func
@@ -91,7 +91,7 @@ class FunctionAssignBlock(Block, Backend):
                 adj_output.assign(diff_expr)
                 return adj_output.dat.inner(adj_input_func.dat)
 
-            if self.compat.isconstant(block_variable.output):
+            if isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
                     adj_output.function_space().mesh()
                 )
@@ -236,7 +236,7 @@ class SubfunctionBlock(Block):
         return f"{self.get_dependencies()[0]}[{self.idx}]"
 
 
-class FunctionMergeBlock(Block, Backend):
+class FunctionMergeBlock(Block):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)

@@ -7,10 +7,24 @@ from pyadjoint import Block, stop_annotating
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .backend import Backend
+from .block_utils import isconstant
 
 
-class GenericSolveBlock(Block, Backend):
+def extract_subfunction(u, V):
+    """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
+    if V.index is not None:
+        # V is an indexed subspace of a MixedFunctionSpace
+        return u.sub(V.index)
+    elif V.component is not None:
+        # V is a vector component subspace.
+        # The vector functionspace V.parent may itself be a subspace
+        # so call this function recursively
+        return extract_subfunction(u, V.parent).sub(V.component)
+    else:
+        return u
+
+
+class GenericSolveBlock(Block):
     pop_kwargs_keys = ["adj_cb", "adj_bdy_cb", "adj2_cb", "adj2_bdy_cb",
                        "forward_args", "forward_kwargs", "adj_args",
                        "adj_kwargs"]
@@ -87,7 +101,7 @@ class GenericSolveBlock(Block, Backend):
         bcs = []
         for bc in self.bcs:
             if isinstance(bc, firedrake.DirichletBC):
-                bc = self.compat.create_bc(bc, homogenize=True)
+                bc = bc.reconstruct(g=0)
             bcs.append(bc)
         return bcs
 
@@ -188,7 +202,9 @@ class GenericSolveBlock(Block, Backend):
         if compute_bdy:
             adj_sol_bdy = firedrake.Function(
                 self.function_space.dual(),
-                dJdu_copy.dat - firedrake.assemble(firedrake.action(dFdu_adj_form, adj_sol)).dat
+                dJdu_copy.dat - firedrake.assemble(
+                    firedrake.action(dFdu_adj_form, adj_sol)
+                ).dat
             )
 
         return adj_sol, adj_sol_bdy
@@ -204,7 +220,7 @@ class GenericSolveBlock(Block, Backend):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if self.compat.isconstant(c):
+        if isconstant(c):
             mesh = F_form.ufl_domain()
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
@@ -212,13 +228,11 @@ class GenericSolveBlock(Block, Backend):
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.DirichletBC):
-            tmp_bc = self.compat.create_bc(
-                c,
-                value=self.compat.extract_subfunction(adj_sol_bdy,
-                                                      c.function_space())
+            tmp_bc = c.reconstruct(
+                g=extract_subfunction(adj_sol_bdy, c.function_space())
             )
             return [tmp_bc]
-        elif isinstance(c, self.compat.MeshType):
+        elif isinstance(c, firedrake.MeshGeometry):
             # Using CoordinateDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = firedrake.action(F_form, adj_sol)
@@ -231,8 +245,7 @@ class GenericSolveBlock(Block, Backend):
             if dFdm == 0:
                 return firedrake.Function(c._ad_function_space().dual())
 
-            dFdm = firedrake.assemble(dFdm,
-                                                      **self.assemble_kwargs)
+            dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
@@ -274,11 +287,11 @@ class GenericSolveBlock(Block, Backend):
 
             if isinstance(c, firedrake.DirichletBC):
                 if tlm_value is None:
-                    bcs.append(self.compat.create_bc(c, homogenize=True))
+                    bcs.append(c.reconstruct(g=0))
                 else:
                     bcs.append(tlm_value)
                 continue
-            elif isinstance(c, self.compat.MeshType):
+            elif isinstance(c, firedrake.MeshGeometry):
                 X = firedrake.SpatialCoordinate(c)
                 c_rep = X
 
@@ -300,9 +313,7 @@ class GenericSolveBlock(Block, Backend):
         dFdm = firedrake.assemble(dFdm)
         dudm = firedrake.Function(V)
         return self._assemble_and_solve_tlm_eq(
-            firedrake.assemble(dFdu,
-                                               bcs=bcs,
-                                               **self.assemble_kwargs),
+            firedrake.assemble(dFdu, bcs=bcs, **self.assemble_kwargs),
             dFdm, dudm, bcs
         )
 
@@ -325,17 +336,17 @@ class GenericSolveBlock(Block, Backend):
             if (c == self.func and not self.linear) or tlm_input is None:
                 continue
 
-            if isinstance(c, self.compat.MeshType):
+            if isinstance(c, firedrake.MeshGeometry):
                 X = firedrake.SpatialCoordinate(c)
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
-                                               adj_sol)
+                                            adj_sol)
                 d2Fdudm = ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdu_adj, X, tlm_input))
                 if len(d2Fdudm.integrals()) > 0:
                     b_form += d2Fdudm
             elif not isinstance(c, firedrake.DirichletBC):
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
-                                               adj_sol)
+                                            adj_sol)
                 b_form += firedrake.derivative(dFdu_adj, c_rep, tlm_input)
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
@@ -349,7 +360,8 @@ class GenericSolveBlock(Block, Backend):
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = firedrake.adjoint(dFdu_form)
-        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b, compute_bdy)
+        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b,
+                                                                 compute_bdy)
         if self.adj2_cb is not None:
             self.adj2_cb(adj_sol2)
         if self.adj2_bdy_cb is not None and compute_bdy:
@@ -373,10 +385,10 @@ class GenericSolveBlock(Block, Backend):
 
         # Using the equation Form derive dF/du, d^2F/du^2 * du/dm * direction.
         dFdu_form = firedrake.derivative(F_form,
-                                            fwd_block_variable.saved_output)
+                                         fwd_block_variable.saved_output)
         d2Fdu2 = ufl.algorithms.expand_derivatives(
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
-                                    tlm_output))
+                                 tlm_output))
 
         adj_sol = self.adj_sol
         if adj_sol is None:
@@ -412,17 +424,15 @@ class GenericSolveBlock(Block, Backend):
         # If m = DirichletBC then d^2F(u,m)/dm^2 = 0 and d^2F(u,m)/dudm = 0,
         # so we only have the term dF(u,m)/dm * adj_sol2
         if isinstance(c, firedrake.DirichletBC):
-            tmp_bc = self.compat.create_bc(
-                c,
-                value=self.compat.extract_subfunction(adj_sol2_bdy,
-                                                      c.function_space())
+            tmp_bc = c.reconstruct(
+                g=extract_subfunction(adj_sol2_bdy, c.function_space())
             )
             return [tmp_bc]
 
-        if self.compat.isconstant(c_rep):
+        if isconstant(c_rep):
             mesh = F_form.ufl_domain()
             W = c._ad_function_space(mesh)
-        elif isinstance(c, self.compat.MeshType):
+        elif isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
         else:
@@ -431,7 +441,7 @@ class GenericSolveBlock(Block, Backend):
         dc = firedrake.TestFunction(W)
         form_adj = firedrake.action(F_form, adj_sol)
         form_adj2 = firedrake.action(F_form, adj_sol2)
-        if isinstance(c, self.compat.MeshType):
+        if isinstance(c, firedrake.MeshGeometry):
             dFdm_adj = firedrake.derivative(form_adj, X, dc)
             dFdm_adj2 = firedrake.derivative(form_adj2, X, dc)
         else:
@@ -442,7 +452,7 @@ class GenericSolveBlock(Block, Backend):
         # or not.
         d2Fdudm = ufl.algorithms.expand_derivatives(
             firedrake.derivative(dFdm_adj, fwd_block_variable.saved_output,
-                                    tlm_output))
+                                 tlm_output))
 
         d2Fdm2 = 0
         # We need to add terms from every other dependency
@@ -462,7 +472,7 @@ class GenericSolveBlock(Block, Backend):
                 continue
 
             # TODO: If tlm_input is a Sum, this crashes in some instances?
-            if isinstance(c2_rep, self.compat.MeshType):
+            if isinstance(c2_rep, firedrake.MeshGeometry):
                 X = firedrake.SpatialCoordinate(c2_rep)
                 d2Fdm2 += ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdm_adj, X, tlm_input)
@@ -498,7 +508,7 @@ class GenericSolveBlock(Block, Backend):
 
     def _forward_solve(self, lhs, rhs, func, bcs):
         firedrake.solve(lhs == rhs, func, bcs, *self.forward_args,
-                           **self.forward_kwargs)
+                        **self.forward_kwargs)
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
@@ -689,12 +699,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 c._ad_function_space(mesh)
             )
         elif isinstance(c, firedrake.DirichletBC):
-            tmp_bc = self.compat.create_bc(
-                c, value=self.compat.extract_subfunction(
-                    adj_sol_bdy, c.function_space())
+            tmp_bc = c.reconstruct(
+                g=extract_subfunction(adj_sol_bdy, c.function_space())
             )
             return [tmp_bc]
-        elif isinstance(c, self.compat.MeshType):
+        elif isinstance(c, firedrake.MeshGeometry):
             # Using CoordianteDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = firedrake.action(F_form, adj_sol)
@@ -703,8 +712,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 c._ad_function_space())
             )
 
-            dFdm = firedrake.assemble(dFdm,
-                                                      **self.assemble_kwargs)
+            dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
             return dFdm
 
         # dFdm_cache works with original variables, not block saved outputs.
@@ -744,7 +752,7 @@ class ProjectBlock(SolveVarFormBlock):
         solve_init_params(self, args, kwargs, varform=True)
 
 
-class SupermeshProjectBlock(Block, Backend):
+class SupermeshProjectBlock(Block):
     r"""
     Annotates supermesh projection.
 
@@ -838,7 +846,8 @@ class SupermeshProjectBlock(Block, Backend):
           Step 1. multiply :math:`w := M_{AB} * v_A`; Step 2. solve :math:`M_B
           * v_B = w`.
 
-        For a seed vector :math:`v_B^{seed}` from the target space, the adjoint is given by:
+        For a seed vector :math:`v_B^{seed}` from the target space, the adjoint
+        is given by:
           Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
           Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
         """
