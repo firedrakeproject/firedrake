@@ -85,7 +85,7 @@ class FunctionAssignBlock(Block, Backend):
                     ufl.derivative(
                         expr,
                         block_variable.saved_output,
-                        self.compat.create_constant(1., domain=mesh)
+                        firedrake.Constant(1., domain=mesh)
                     )
                 )
                 adj_output.assign(diff_expr)

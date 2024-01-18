@@ -127,18 +127,6 @@ def compat(backend):
         return function_from_vector(obj.function_space(), obj.vector(), cls=cls)
     compat.type_cast_function = type_cast_function
 
-    def create_constant(*args, **kwargs):
-        """Initialises a firedrake.Constant object and returns it."""
-        from firedrake import Constant
-        return Constant(*args, **kwargs)
-    compat.create_constant = create_constant
-
-    def create_function(*args, **kwargs):
-        """Initialises a firedrake.Function object and returns it."""
-        from firedrake import Function
-        return Function(*args, **kwargs)
-    compat.create_function = create_function
-
     def isconstant(expr):
         """Check whether expression is constant type.
         In firedrake this is a function in the real space

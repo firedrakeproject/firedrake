@@ -73,7 +73,7 @@ class GenericSolveBlock(Block, Backend):
         # Process the equation forms, replacing values with checkpoints,
         # and gathering lhs and rhs in one single form.
         if self.linear:
-            tmp_u = self.compat.create_function(self.function_space)
+            tmp_u = firedrake.Function(self.function_space)
             F_form = firedrake.action(self.lhs, tmp_u) - self.rhs
         else:
             tmp_u = self.func
@@ -179,7 +179,7 @@ class GenericSolveBlock(Block, Backend):
         for bc in bcs:
             bc.apply(dJdu)
 
-        adj_sol = self.compat.create_function(self.function_space)
+        adj_sol = firedrake.Function(self.function_space)
         self.compat.linalg_solve(
             dFdu, adj_sol, dJdu, *self.adj_args, **self.adj_kwargs
         )
