@@ -78,55 +78,6 @@ def compat(backend):
         return r
     compat.extract_bc_subvector = extract_bc_subvector
 
-    def extract_mesh_from_form(form):
-        """Takes in a form and extracts a mesh which can be used to construct function spaces.
-
-        Dolfin only accepts dolfin.cpp.mesh.Mesh types for function spaces, while firedrake use ufl.Mesh.
-
-        Args:
-            form (ufl.Form): Form to extract mesh from
-
-        Returns:
-            ufl.Mesh: The extracted mesh
-
-        """
-        return form.ufl_domain()
-    compat.extract_mesh_from_form = extract_mesh_from_form
-
-    def constant_function_firedrake_compat(value):
-        """Takes a Function/vector and returns the array.
-
-        The Function should belong to the space of Reals.
-        This function is needed because Firedrake does not
-        accept a Function as argument to Constant constructor.
-        It does accept vector (which is what we work with in dolfin),
-        but since we work with Functions instead of vectors in firedrake,
-        this function call is needed in firedrake_adjoint.
-
-        Args:
-            value (Function): A Function to convert
-
-        Returns:
-            numpy.ndarray: A numpy array of the function values.
-
-        """
-        return value.dat.data
-    compat.constant_function_firedrake_compat = constant_function_firedrake_compat
-
-    def gather(vec):
-        return vec.gather()
-    compat.gather = gather
-
-    compat.linalg_solve = backend.solve
-
-    def type_cast_function(obj, cls):
-        """Type casts Function object `obj` to an instance of `cls`.
-
-        Useful when converting backend.Function to overloaded Function.
-        """
-        return function_from_vector(obj.function_space(), obj.vector(), cls=cls)
-    compat.type_cast_function = type_cast_function
-
     def isconstant(expr):
         """Check whether expression is constant type.
         In firedrake this is a function in the real space

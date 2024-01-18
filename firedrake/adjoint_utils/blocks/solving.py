@@ -180,7 +180,7 @@ class GenericSolveBlock(Block, Backend):
             bc.apply(dJdu)
 
         adj_sol = firedrake.Function(self.function_space)
-        self.compat.linalg_solve(
+        firedrake.solve(
             dFdu, adj_sol, dJdu, *self.adj_args, **self.adj_kwargs
         )
 
@@ -205,7 +205,7 @@ class GenericSolveBlock(Block, Backend):
         c_rep = block_variable.saved_output
 
         if self.compat.isconstant(c):
-            mesh = self.compat.extract_mesh_from_form(F_form)
+            mesh = F_form.ufl_domain()
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )
@@ -420,7 +420,7 @@ class GenericSolveBlock(Block, Backend):
             return [tmp_bc]
 
         if self.compat.isconstant(c_rep):
-            mesh = self.compat.extract_mesh_from_form(F_form)
+            mesh = F_form.ufl_domain()
             W = c._ad_function_space(mesh)
         elif isinstance(c, self.compat.MeshType):
             X = firedrake.SpatialCoordinate(c)
@@ -684,7 +684,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if isinstance(c, firedrake.Function):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            mesh = self.compat.extract_mesh_from_form(F_form)
+            mesh = F_form.ufl_domain()
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )

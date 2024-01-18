@@ -100,7 +100,7 @@ class AssembleBlock(Block, Backend):
         arity_form = len(extract_arguments(form))
 
         if self.compat.isconstant(c):
-            mesh = self.compat.extract_mesh_from_form(self.form)
+            mesh = self.form.ufl_domain()
             space = c._ad_function_space(mesh)
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
@@ -157,7 +157,7 @@ class AssembleBlock(Block, Backend):
         c1_rep = block_variable.saved_output
 
         if self.compat.isconstant(c1):
-            mesh = self.compat.extract_mesh_from_form(form)
+            mesh = form.ufl_domain()
             space = c1._ad_function_space(mesh)
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
