@@ -39,7 +39,7 @@ class AssembleBlock(Block, Backend):
             if dform is None:
                 dc = firedrake.TestFunction(space)
                 dform = firedrake.derivative(form, c_rep, dc)
-            dform_adj = self.compat.assemble_adjoint_value(dform)
+            dform_adj = firedrake.assemble(dform)
             if dform_adj == 0:
                 # `dform_adj` is a `ZeroBaseForm`
                 return AdjFloat(0.), dform
@@ -60,12 +60,12 @@ class AssembleBlock(Block, Backend):
                 # Symbolically compute: (dform/dc_rep)^* * adj_input
                 adj_output = firedrake.action(firedrake.adjoint(dform),
                                                  adj_input)
-                adj_output = self.compat.assemble_adjoint_value(adj_output)
+                adj_output = firedrake.assemble(adj_output)
             else:
                 adj_output = firedrake.Cofunction(space.dual())
                 # Assemble `dform`: derivatives are expanded along the way
                 # which may lead to a ZeroBaseForm
-                assembled_dform = self.compat.assemble_adjoint_value(dform)
+                assembled_dform = firedrake.assemble(dform)
                 if assembled_dform == 0:
                     return adj_output, dform
                 # Get PETSc matrix
@@ -107,7 +107,7 @@ class AssembleBlock(Block, Backend):
             dc = firedrake.TestFunction(V)
 
             dform = firedrake.derivative(form, c_rep, dc)
-            output = self.compat.assemble_adjoint_value(dform)
+            output = firedrake.assemble(dform)
             return [[adj_input * output, V]]
 
         if self.compat.isconstant(c):
@@ -146,7 +146,7 @@ class AssembleBlock(Block, Backend):
                 dform += firedrake.action(firedrake.derivative(form, c_rep), tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
-            dform = self.compat.assemble_adjoint_value(dform)
+            dform = firedrake.assemble(dform)
         return dform
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,

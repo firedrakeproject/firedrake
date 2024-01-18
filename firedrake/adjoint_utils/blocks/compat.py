@@ -113,8 +113,6 @@ def compat(backend):
         return value.dat.data
     compat.constant_function_firedrake_compat = constant_function_firedrake_compat
 
-    compat.assemble_adjoint_value = backend.assemble
-
     def gather(vec):
         return vec.gather()
     compat.gather = gather

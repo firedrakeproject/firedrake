@@ -174,7 +174,7 @@ class GenericSolveBlock(Block, Backend):
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
         kwargs["bcs"] = bcs
-        dFdu = self.compat.assemble_adjoint_value(dFdu_adj_form, **kwargs)
+        dFdu = firedrake.assemble(dFdu_adj_form, **kwargs)
 
         for bc in bcs:
             bc.apply(dJdu)
@@ -188,7 +188,7 @@ class GenericSolveBlock(Block, Backend):
         if compute_bdy:
             adj_sol_bdy = firedrake.Function(
                 self.function_space.dual(),
-                dJdu_copy.dat - self.compat.assemble_adjoint_value(firedrake.action(dFdu_adj_form, adj_sol)).dat
+                dJdu_copy.dat - firedrake.assemble(firedrake.action(dFdu_adj_form, adj_sol)).dat
             )
 
         return adj_sol, adj_sol_bdy
@@ -235,14 +235,14 @@ class GenericSolveBlock(Block, Backend):
             if dFdm == 0:
                 return firedrake.Function(c._ad_function_space().dual())
 
-            dFdm = self.compat.assemble_adjoint_value(dFdm,
+            dFdm = firedrake.assemble(dFdm,
                                                       **self.assemble_kwargs)
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
         dFdm = firedrake.adjoint(dFdm)
         dFdm = dFdm * adj_sol
-        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+        dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         if isinstance(c, self.compat.ExpressionType):
             return [[dFdm, c_fs]]
         else:
@@ -304,10 +304,10 @@ class GenericSolveBlock(Block, Backend):
             ) * firedrake.dx
 
         dFdm = ufl.algorithms.expand_derivatives(dFdm)
-        dFdm = self.compat.assemble_adjoint_value(dFdm)
+        dFdm = firedrake.assemble(dFdm)
         dudm = firedrake.Function(V)
         return self._assemble_and_solve_tlm_eq(
-            self.compat.assemble_adjoint_value(dFdu,
+            firedrake.assemble(dFdu,
                                                bcs=bcs,
                                                **self.assemble_kwargs),
             dFdm, dudm, bcs
@@ -347,7 +347,7 @@ class GenericSolveBlock(Block, Backend):
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
         if len(b_form.integrals()) > 0:
-            b -= self.compat.assemble_adjoint_value(b_form)
+            b -= firedrake.assemble(b_form)
 
         return b
 
@@ -487,7 +487,7 @@ class GenericSolveBlock(Block, Backend):
         )
         hessian_output = 0
         if not hessian_form.empty():
-            hessian_output = self.compat.assemble_adjoint_value(hessian_form)
+            hessian_output = firedrake.assemble(hessian_form)
             hessian_output *= -1.
 
         if isinstance(c, self.compat.ExpressionType):
@@ -716,7 +716,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 c._ad_function_space())
             )
 
-            dFdm = self.compat.assemble_adjoint_value(dFdm,
+            dFdm = firedrake.assemble(dFdm,
                                                       **self.assemble_kwargs)
             return dFdm
 
@@ -734,7 +734,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dFdm = replace(dFdm, replace_map)
 
         dFdm = dFdm * adj_sol
-        dFdm = self.compat.assemble_adjoint_value(dFdm, **self.assemble_kwargs)
+        dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
 
