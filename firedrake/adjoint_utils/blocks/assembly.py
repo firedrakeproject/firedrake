@@ -99,17 +99,6 @@ class AssembleBlock(Block, Backend):
         from ufl.algorithms.analysis import extract_arguments
         arity_form = len(extract_arguments(form))
 
-        if isinstance(c, self.compat.ExpressionType):
-            # Create a FunctionSpace from self.form and Expression.
-            # And then make a TestFunction from this space.
-            mesh = self.form.ufl_domain().ufl_cargo()
-            V = c._ad_function_space(mesh)
-            dc = firedrake.TestFunction(V)
-
-            dform = firedrake.derivative(form, c_rep, dc)
-            output = firedrake.assemble(dform)
-            return [[adj_input * output, V]]
-
         if self.compat.isconstant(c):
             mesh = self.compat.extract_mesh_from_form(self.form)
             space = c._ad_function_space(mesh)
@@ -172,9 +161,6 @@ class AssembleBlock(Block, Backend):
             space = c1._ad_function_space(mesh)
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
-        elif isinstance(c1, self.compat.ExpressionType):
-            mesh = form.ufl_domain().ufl_cargo()
-            space = c1._ad_function_space(mesh)
         elif isinstance(c1, self.compat.MeshType):
             c1_rep = firedrake.SpatialCoordinate(c1)
             space = c1._ad_function_space()
@@ -204,10 +190,7 @@ class AssembleBlock(Block, Backend):
             if not (isinstance(ddform, ufl.ZeroBaseForm) or (isinstance(ddform, ufl.Form) and ddform.empty())):
                 hessian_outputs += self.compute_action_adjoint(adj_input, arity_form, dform=ddform)[0]
 
-        if isinstance(c1, self.compat.ExpressionType):
-            return [(hessian_outputs, space)]
-        else:
-            return hessian_outputs
+        return hessian_outputs
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return self.prepare_evaluate_adj(inputs, None, None)

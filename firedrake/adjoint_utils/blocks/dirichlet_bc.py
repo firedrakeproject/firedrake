@@ -80,13 +80,6 @@ class DirichletBCBlock(Block, Backend):
                 r = self.compat.extract_bc_subvector(
                     adj_value, c.function_space(), bc
                 )
-            elif isinstance(c, self.compat.Expression):
-                adj_value = firedrake.Function(self.parent_space.dual())
-                adj_input.apply(adj_value)
-                output = self.compat.extract_bc_subvector(
-                    adj_value, self.collapsed_space, bc
-                )
-                r = [[output, self.collapsed_space]]
             if adj_output is None:
                 adj_output = r
             else:

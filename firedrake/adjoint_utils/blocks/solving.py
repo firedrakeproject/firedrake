@@ -211,10 +211,6 @@ class GenericSolveBlock(Block, Backend):
             )
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
-        elif isinstance(c, self.compat.ExpressionType):
-            mesh = F_form.ufl_domain().ufl_cargo()
-            c_fs = c._ad_function_space(mesh)
-            trial_function = firedrake.TrialFunction(c_fs)
         elif isinstance(c, firedrake.DirichletBC):
             tmp_bc = self.compat.create_bc(
                 c,
@@ -243,10 +239,7 @@ class GenericSolveBlock(Block, Backend):
         dFdm = firedrake.adjoint(dFdm)
         dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
-        if isinstance(c, self.compat.ExpressionType):
-            return [[dFdm, c_fs]]
-        else:
-            return dFdm
+        return dFdm
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         fwd_block_variable = self.get_outputs()[0]
@@ -429,9 +422,6 @@ class GenericSolveBlock(Block, Backend):
         if self.compat.isconstant(c_rep):
             mesh = self.compat.extract_mesh_from_form(F_form)
             W = c._ad_function_space(mesh)
-        elif isinstance(c, self.compat.ExpressionType):
-            mesh = F_form.ufl_domain().ufl_cargo()
-            W = c._ad_function_space(mesh)
         elif isinstance(c, self.compat.MeshType):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
@@ -490,10 +480,7 @@ class GenericSolveBlock(Block, Backend):
             hessian_output = firedrake.assemble(hessian_form)
             hessian_output *= -1.
 
-        if isinstance(c, self.compat.ExpressionType):
-            return [(hessian_output, W)]
-        else:
-            return hessian_output
+        return hessian_output
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return self._replace_recompute_form()

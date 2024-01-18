@@ -119,14 +119,6 @@ def compat(backend):
 
     compat.linalg_solve = backend.solve
 
-    class Expression(object):
-        def __init__(self, *args, **kwargs):
-            raise NotImplementedError("Firedrake does not have Expression objects")
-
-    compat.ExpressionType = Expression
-
-    compat.Expression = Expression
-
     def type_cast_function(obj, cls):
         """Type casts Function object `obj` to an instance of `cls`.
 
