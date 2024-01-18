@@ -2,6 +2,7 @@ import firedrake_configuration
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 import finat
 
 config = firedrake_configuration.get_config()
@@ -39,7 +40,7 @@ def interpolation_expr(mesh_type):
 def run_interpolation(mesh, expr, p):
     expr = expr(*SpatialCoordinate(mesh))
     V = FunctionSpace(mesh, "KMV", p)
-    return errornorm(expr, interpolate(expr, V))
+    return errornorm(expr, assemble(interpolate(expr, V)))
 
 
 def test_interpolation_KMV(mesh, max_degree, interpolation_expr):
@@ -58,7 +59,7 @@ def run_projection(mesh, expr, p):
     u, v = TrialFunction(V), TestFunction(V)
     qr = finat.quadrature.make_quadrature(T, p, "KMV")
     r = Function(V)
-    f = interpolate(expr(*SpatialCoordinate(mesh)), V)
+    f = assemble(interpolate(expr(*SpatialCoordinate(mesh)), V))
     solve(
         inner(u, v) * dx(scheme=qr) == inner(f, v) * dx(scheme=qr),
         r,

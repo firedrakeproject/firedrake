@@ -15,7 +15,8 @@ class AssembleBlock(Block, Backend):
         else:
             mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') else None
 
-        if mesh:
+        if mesh and not isinstance(self.form, ufl.Interpolate):
+            # Interpolation differentiation wrt spatial coordinates is currently not supported.
             self.add_dependency(mesh)
 
         for c in self.form.coefficients():

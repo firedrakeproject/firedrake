@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 from FIAT.dual_set import DualSet
 from FIAT.finite_element import CiarletElement
 from FIAT.reference_element import UFCInterval
@@ -117,7 +118,7 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     V = FunctionSpace(mesh, e)
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr) for node in dual_basis])
@@ -125,13 +126,13 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = 1-x[0]
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr_fiat) for node in dual_basis])
     expr = x[0]**2
     expr_fiat = (1-x[0])**2
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr_fiat) for node in dual_basis])

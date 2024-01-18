@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
@@ -101,7 +102,7 @@ def test_poisson_inverse_conductivity(num_points):
     solve(F == 0, u, bc)
 
     # Two terms in the functional
-    misfit_expr = 0.5 * ((u_obs - interpolate(u, P0DG)) / σ)**2
+    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / σ)**2
     α = Constant(0.5, domain=m)
     regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
 

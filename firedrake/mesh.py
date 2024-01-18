@@ -3692,6 +3692,7 @@ def _parent_mesh_embedding(
     import firedrake.functionspace as functionspace
     import firedrake.constant as constant
     import firedrake.interpolation as interpolation
+    import firedrake.assemble as assemble
 
     # In parallel, we need to make sure we know which point is which and save
     # it.
@@ -3753,9 +3754,10 @@ def _parent_mesh_embedding(
     # nessesary, to other processes.
     P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
     with stop_annotating():
-        visible_ranks = interpolation.interpolate(
+        visible_ranks = interpolation.Interpolate(
             constant.Constant(parent_mesh.comm.rank), P0DG
-        ).dat.data_ro_with_halos.real
+        )
+        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
 
     locally_visible = np.full(ncoords_global, False)
     # See below for why np.inf is used here.

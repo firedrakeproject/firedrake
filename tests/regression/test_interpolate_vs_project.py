@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(params=["square", "cube"], scope="module")
@@ -52,6 +53,6 @@ def test_interpolate_vs_project(V):
         elif len(shape) == 2:
             expression = as_tensor(([x, y, z], [x, y, z], [x, y, z]))
 
-    f = interpolate(expression, V)
+    f = assemble(interpolate(expression, V))
     expect = project(expression, V)
     assert np.allclose(f.dat.data, expect.dat.data, atol=1e-06)

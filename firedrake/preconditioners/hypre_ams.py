@@ -1,3 +1,4 @@
+import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
@@ -70,7 +71,8 @@ class HypreAMS(PCBase):
             pc.setHYPRESetBetaPoissonMatrix(None)
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        pc.setCoordinates(interpolate(SpatialCoordinate(mesh), VectorP1).dat.data_ro.copy())
+        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
+        pc.setCoordinates(assemble.assemble(interp).dat.data_ro.copy())
         pc.setFromOptions()
         self.pc = pc
 
