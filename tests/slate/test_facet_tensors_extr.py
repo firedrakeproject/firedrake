@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -29,7 +30,7 @@ def test_horiz_facet_interior_avg(mesh):
     u = TestFunction(DG)
 
     x, y, z = SpatialCoordinate(mesh)
-    f = interpolate(x + 2*y + 4*z, DG)
+    f = assemble(interpolate(x + 2*y + 4*z, DG))
     form = avg(inner(f, u))*dS_h
 
     A = assemble(Tensor(form)).dat.data
@@ -58,7 +59,7 @@ def test_vert_facet_interior_avg(mesh):
     u = TestFunction(DG)
 
     x, y, z = SpatialCoordinate(mesh)
-    f = interpolate(x + 2*y + 4*z, DG)
+    f = assemble(interpolate(x + 2*y + 4*z, DG))
     form = avg(inner(f, u))*dS_v
 
     A = assemble(Tensor(form)).dat.data
@@ -117,7 +118,7 @@ def test_total_interior_avg(mesh):
     u = TestFunction(DG)
 
     x, y, z = SpatialCoordinate(mesh)
-    f = interpolate(x + 2*y + 4*z, DG)
+    f = assemble(interpolate(x + 2*y + 4*z, DG))
     form = avg(inner(f, u))*(dS_v + dS_h)
 
     A = assemble(Tensor(form)).dat.data

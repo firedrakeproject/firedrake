@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.petsc import PETSc
 import pytest
 import numpy as np
@@ -171,7 +172,7 @@ def test_near_nullspace(tmpdir):
     n1 = Constant((0, 1))
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
-    n_interp = [interpolate(n, V) for n in ns]
+    n_interp = [assemble(interpolate(n, V)) for n in ns]
     nsp = VectorSpaceBasis(vecs=n_interp)
     nsp.orthonormalize()
 
