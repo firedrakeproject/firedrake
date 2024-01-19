@@ -3,6 +3,13 @@ import pytest
 from firedrake import *
 
 
+try:
+    from slepc4py import SLEPc  # noqa: F401
+except ImportError:
+    # SLEPc is not installed
+    pytest.skip("SLEPc not installed", allow_module_level=True)
+
+
 def evals(n, degree=1, mesh=None, restrict=False):
     '''We base this test on the 1D Poisson problem with Dirichlet boundary
     conditions, outlined in part 1 of Daniele Boffi's
