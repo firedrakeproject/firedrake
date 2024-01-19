@@ -2,12 +2,13 @@ import ufl
 from ufl.corealg.traversal import traverse_unique_terminals
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, OverloadedType, AdjFloat
+import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
     DelegatedFunctionCheckpoint
-from .backend import Backend
+from .block_utils import isconstant
 
 
-class FunctionAssignBlock(Block, Backend):
+class FunctionAssignBlock(Block):
     def __init__(self, func, other, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.other = None
@@ -36,7 +37,7 @@ class FunctionAssignBlock(Block, Backend):
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         adj_input_func, = adj_inputs
-        if isinstance(adj_input_func, self.backend.Cofunction):
+        if isinstance(adj_input_func, firedrake.Cofunction):
             adj_input_func = adj_input_func.riesz_representation(riesz_map="l2")
 
         if self.expr is None:
@@ -55,13 +56,13 @@ class FunctionAssignBlock(Block, Backend):
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
-            elif self.compat.isconstant(block_variable.output):
+            elif isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
                     prepared.function_space().mesh()
                 )
                 return self._adj_assign_constant(prepared, R)
             else:
-                adj_output = self.backend.Function(
+                adj_output = firedrake.Function(
                     block_variable.output.function_space())
                 adj_output.assign(prepared)
                 adj_output = adj_output.riesz_representation(riesz_map="l2")
@@ -69,8 +70,8 @@ class FunctionAssignBlock(Block, Backend):
         else:
             # Linear combination
             expr, adj_input_func = prepared
-            adj_output = self.backend.Function(adj_input_func.function_space())
-            if not self.compat.isconstant(block_variable.output):
+            adj_output = firedrake.Function(adj_input_func.function_space())
+            if not isconstant(block_variable.output):
                 diff_expr = ufl.algorithms.expand_derivatives(
                     ufl.derivative(
                         expr, block_variable.saved_output, adj_input_func
@@ -85,13 +86,13 @@ class FunctionAssignBlock(Block, Backend):
                     ufl.derivative(
                         expr,
                         block_variable.saved_output,
-                        self.compat.create_constant(1., domain=mesh)
+                        firedrake.Constant(1., domain=mesh)
                     )
                 )
                 adj_output.assign(diff_expr)
                 return adj_output.dat.inner(adj_input_func.dat)
 
-            if self.compat.isconstant(block_variable.output):
+            if isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
                     adj_output.function_space().mesh()
                 )
@@ -100,7 +101,7 @@ class FunctionAssignBlock(Block, Backend):
                 return adj_output
 
     def _adj_assign_constant(self, adj_output, constant_fs):
-        r = self.backend.Function(constant_fs)
+        r = firedrake.Function(constant_fs)
         shape = r.ufl_shape
         if shape == () or shape[0] == 1:
             # Scalar Constant
@@ -112,7 +113,7 @@ class FunctionAssignBlock(Block, Backend):
             values = []
             for i in range(shape[0]):
                 values.append(adj_output.sub(i, deepcopy=True).dat.data_ro.sum())
-            r.assign(self.backend.Constant(values))
+            r.assign(firedrake.Constant(values))
         return r
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
@@ -127,8 +128,8 @@ class FunctionAssignBlock(Block, Backend):
             return tlm_inputs[0]
 
         expr = prepared
-        dudm = self.backend.Function(block_variable.output.function_space())
-        dudmi = self.backend.Function(block_variable.output.function_space())
+        dudm = firedrake.Function(block_variable.output.function_space())
+        dudmi = firedrake.Function(block_variable.output.function_space())
         for dep in self.get_dependencies():
             if dep.tlm_value:
                 dudmi.assign(ufl.algorithms.expand_derivatives(
@@ -186,7 +187,7 @@ class FunctionAssignBlock(Block, Backend):
         else:
             if self.expr is None:
                 prepared = inputs[0]
-            output = self.backend.Function(
+            output = firedrake.Function(
                 block_variable.output.function_space()
             )
             output.assign(prepared)
@@ -201,7 +202,7 @@ class FunctionAssignBlock(Block, Backend):
         return f"assign({rhs_str})"
 
 
-class SubfunctionBlock(Block, Backend):
+class SubfunctionBlock(Block):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
@@ -209,8 +210,8 @@ class SubfunctionBlock(Block, Backend):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = self.backend.Cofunction(block_variable.output.function_space().dual())
-        if type(adj_inputs[0]) is self.backend.Cofunction:
+        eval_adj = firedrake.Cofunction(block_variable.output.function_space().dual())
+        if type(adj_inputs[0]) is firedrake.Cofunction:
             eval_adj.sub(self.idx).assign(adj_inputs[0])
         else:
             eval_adj.sub(self.idx).assign(adj_inputs[0].function)
@@ -218,25 +219,25 @@ class SubfunctionBlock(Block, Backend):
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
-        return self.backend.Function.sub(tlm_inputs[0], self.idx)
+        return firedrake.Function.sub(tlm_inputs[0], self.idx)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = self.backend.Cofunction(block_variable.output.function_space().dual())
+        eval_hessian = firedrake.Cofunction(block_variable.output.function_space().dual())
         eval_hessian.sub(self.idx).assign(hessian_inputs[0])
         return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return maybe_disk_checkpoint(
-            self.backend.Function.sub(inputs[0], self.idx)
+            firedrake.Function.sub(inputs[0], self.idx)
         )
 
     def __str__(self):
         return f"{self.get_dependencies()[0]}[{self.idx}]"
 
 
-class FunctionMergeBlock(Block, Backend):
+class FunctionMergeBlock(Block):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
@@ -257,9 +258,9 @@ class FunctionMergeBlock(Block, Backend):
             return
         output = self.get_outputs()[0]
         fs = output.output.function_space()
-        f = self.backend.Function(fs)
+        f = firedrake.Function(fs)
         output.add_tlm_output(
-            self.backend.Function.assign(f.sub(self.idx), tlm_input)
+            firedrake.Function.assign(f.sub(self.idx), tlm_input)
         )
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
@@ -270,7 +271,7 @@ class FunctionMergeBlock(Block, Backend):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
         parent_in = inputs[1]
-        parent_out = self.backend.Function(parent_in)
+        parent_out = firedrake.Function(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
         return maybe_disk_checkpoint(parent_out)
 

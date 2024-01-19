@@ -1,9 +1,21 @@
 import ufl
+import firedrake
 from pyadjoint import Block, OverloadedType, no_annotations
-from .backend import Backend
+from .block_utils import isconstant
 
 
-class DirichletBCBlock(Block, Backend):
+def extract_bc_subvector(value, Vtarget, bc):
+    """Extract from value (a function in a mixed space), the sub
+    function corresponding to the part of the space bc applies
+    to.  Vtarget is the target (collapsed) space."""
+    r = value
+    for idx in bc._indices:
+        r = r.sub(idx)
+    assert Vtarget == r.function_space()
+    return r
+
+
+class DirichletBCBlock(Block):
     def __init__(self, *args, **kwargs):
         Block.__init__(self, ad_block_tag=kwargs.pop('ad_block_tag', None))
         self.function_space = args[0]
@@ -38,14 +50,14 @@ class DirichletBCBlock(Block, Backend):
         adj_inputs = adj_inputs[0]
         adj_output = None
         for adj_input in adj_inputs:
-            if self.compat.isconstant(c):
-                adj_value = self.backend.Function(self.parent_space.dual())
+            if isconstant(c):
+                adj_value = firedrake.Function(self.parent_space.dual())
                 adj_input.apply(adj_value)
                 if self.function_space != self.parent_space:
-                    vec = self.compat.extract_bc_subvector(
+                    vec = extract_bc_subvector(
                         adj_value, self.collapsed_space, bc
                     )
-                    adj_value = self.backend.Function(self.collapsed_space, vec.dat)
+                    adj_value = firedrake.Function(self.collapsed_space, vec.dat)
 
                 if adj_value.ufl_shape == () or adj_value.ufl_shape[0] <= 1:
                     r = adj_value.dat.data_ro.sum()
@@ -65,28 +77,21 @@ class DirichletBCBlock(Block, Backend):
                             ).dat.data_ro.sum()
                         )
 
-                    r = self.backend.cpp.la.Vector(self.backend.MPI.comm_world,
-                                                   len(output))
+                    r = firedrake.cpp.la.Vector(firedrake.MPI.comm_world,
+                                                len(output))
                     r[:] = output
-            elif isinstance(c, self.backend.Function):
+            elif isinstance(c, firedrake.Function):
                 # TODO: This gets a little complicated.
                 #       The function may belong to a different space,
                 #       and with `Function.set_allow_extrapolation(True)`
                 #       you can even use the Function outside its domain.
                 # For now we will just assume the FunctionSpace is the same for
                 # the BC and the Function.
-                adj_value = self.backend.Function(self.parent_space.dual())
+                adj_value = firedrake.Function(self.parent_space.dual())
                 adj_input.apply(adj_value)
-                r = self.compat.extract_bc_subvector(
+                r = extract_bc_subvector(
                     adj_value, c.function_space(), bc
                 )
-            elif isinstance(c, self.compat.Expression):
-                adj_value = self.backend.Function(self.parent_space.dual())
-                adj_input.apply(adj_value)
-                output = self.compat.extract_bc_subvector(
-                    adj_value, self.collapsed_space, bc
-                )
-                r = [[output, self.collapsed_space]]
             if adj_output is None:
                 adj_output = r
             else:
@@ -106,15 +111,14 @@ class DirichletBCBlock(Block, Backend):
             if self.function_space != self.parent_space and not isinstance(
                 tlm_input, ufl.Coefficient
             ):
-                tlm_input = self.backend.project(tlm_input,
-                                                 self.collapsed_space)
+                tlm_input = firedrake.project(tlm_input, self.collapsed_space)
 
             # TODO: This is gonna crash for dirichletbcs with multiple
             #       dependencies (can't add two bcs) However, if there is
             #       multiple dependencies, we need to AD the expression (i.e if
             #       value=f*g then dvalue = tlm_f * g + f * tlm_g). Right now
             #       we can only handle value=f => dvalue = tlm_f.
-            m = self.compat.create_bc(bc, value=tlm_input)
+            m = bc.reconstruct(g=tlm_input)
         return m
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
