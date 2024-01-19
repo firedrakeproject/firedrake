@@ -4,7 +4,10 @@ from contextlib import ExitStack
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake import function
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.petsc import (
+    PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
+    DEFAULT_SNES_PARAMETERS
+)
 from firedrake.function import Function
 from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
@@ -126,11 +129,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-                               "snes_linesearch_type": "basic"}
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS.copy()
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS.copy()
     DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
 
     @PETSc.Log.EventDecorator()
@@ -402,7 +404,9 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
     DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
+    # Tighter default tolerance for KSP only.
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS.copy()
+    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-7
 
     def invalidate_jacobian(self):
         r"""

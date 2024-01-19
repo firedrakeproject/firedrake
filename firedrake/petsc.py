@@ -12,7 +12,13 @@ from petsc4py import PETSc
 from pyop2 import mpi
 
 
-__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
+__all__ = (
+    "PETSc",
+    "OptionsManager",
+    "get_petsc_variables",
+    "get_petscconf_h",
+    "get_external_packages"
+)
 
 
 class FiredrakePETScError(Exception):
@@ -363,3 +369,61 @@ def garbage_view(obj: Any):
         PETSc.garbage_view(comm)
     else:
         raise FiredrakePETScError("No comm found, cannot view garbage")
+
+
+external_packages = get_external_packages()
+
+# Setup default partitioner
+# Manually define the priority until
+# https://petsc.org/main/src/dm/partitioner/interface/partitioner.c.html#PetscPartitionerGetDefaultType
+# is added to petsc4py
+partitioner_priority = ["parmetis", "ptscotch", "chaco"]
+for partitioner in partitioner_priority:
+    if partitioner in external_packages:
+        DEFAULT_PARTITIONER = partitioner
+        break
+else:
+    # RAISE WARNING
+    DEFAULT_PARTITIONER = "simple"
+
+# Setup default direct solver
+direct_solver_priority = ["mumps", "superlu_dist", "pastix"]
+for solver in direct_solver_priority:
+    if solver in external_packages:
+        DEFAULT_DIRECT_SOLVER = solver
+        DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": solver}
+        break
+else:
+    # RAISE WARNING
+    DEFAULT_DIRECT_SOLVER = "petsc"
+    DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
+
+# Mumps needs an additional parameter set
+if DEFAULT_DIRECT_SOLVER == "mumps":
+    DEFAULT_DIRECT_SOLVER_PARAMETERS["mat_mumps_icntl_14"] = 200
+
+# Setup default AMG preconditioner
+amg_priority = ["hypre", "ml"]
+for amg in amg_priority:
+    if amg in external_packages:
+        DEFAULT_AMG_PC = amg
+else:
+    # RAISE WARNING
+    DEFAULT_AMG_PC = "gamg"
+
+
+DEFAULT_KSP_PARAMETERS = {
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "ksp_rtol": 1e-7,
+    "pc_type": "lu",
+    "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+}
+
+DEFAULT_SNES_PARAMETERS = {
+    "snes_type": "newtonls",
+    "snes_linesearch_type": "basic",
+    # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSovler class works
+}
+# We want looser KSP tolerances for non-linear solves
+# DEFAULT_SNES_PARAMETERS["ksp_rtol"] = 1e-5
