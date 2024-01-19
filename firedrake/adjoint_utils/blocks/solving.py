@@ -842,13 +842,18 @@ class SupermeshProjectBlock(Block):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         """
-        Recall that the forward propagation can be broken down as
-          Step 1. multiply :math:`w := M_{AB} * v_A`; Step 2. solve :math:`M_B
-          * v_B = w`.
+        Evaluate the adjoint to one output of the block
+
+        Recall that the forward propagation can be broken down as:
+          Step 1. multiply :math:`w := M_{AB} * v_A`;
+
+          Step 2. solve :math:`M_B * v_B = w`.
 
         For a seed vector :math:`v_B^{seed}` from the target space, the adjoint
         is given by:
+
           Adjoint of step 2. solve :math:`M_B^T * w = v_B^{seed}` for `w`;
+
           Adjoint of step 1. multiply :math:`v_A^{adj} := M_{AB}^T * w`.
         """
         if len(adj_inputs) != 1:
