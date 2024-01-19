@@ -157,12 +157,7 @@ def test_interpolate_tlm():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-<<<<<<< Updated upstream
 def test_interpolate_tlm_with_constant():
-    from firedrake.adjoint import ReducedFunctional, Control, taylor_test
-=======
-def test_interpolate_tlm_wit_constant():
->>>>>>> Stashed changes
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 2)
     V2 = FunctionSpace(mesh, "DG", 1)
