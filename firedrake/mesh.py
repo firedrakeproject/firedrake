@@ -890,6 +890,46 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             # closures are, for now, always a constant size
             assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
 
+            # If we are passing the closure to TSFC then we need to transform the
+            # maps to deliver data in the canonical ordering declared by FIAT.
+            if ordering == ClosureOrdering.FIAT:
+                # For now, just re-concat the closure maps, should really refactor
+                # closure_ordering
+                closure_data_concat = np.concatenate(closure_data, axis=1)
+
+                if self.comm.size > 1:
+                    # TODO determine the *global* vertex numbering, else ranks may disagree
+                    # on the direction of some edges/faces
+                    # TODO cache this
+                    # vertex_numbering = self._vertex_numbering.createGlobalSection(
+                    #     self.topology_dm.getPointSF()
+                    # )
+                    raise NotImplementedError
+                # ah, but the vertices have already been renumbered! Therefore don't
+                # want to use the component_numbering but instead an identity numbering
+                # vertex_numbering = self.points.component_numbering(self.vert_label)
+                vertex_numbering = None  # change this when implemented
+
+                cell = self.ufl_cell()
+                if cell.is_simplex():
+                    topology = FIAT.ufc_cell(cell).get_topology()
+                    entity_per_cell = np.zeros(len(topology), dtype=IntType)
+                    for d, ents in topology.items():
+                        entity_per_cell[d] = len(ents)
+
+                    reordered = dmcommon.closure_ordering(
+                        self,
+                        closure_data_concat,
+                        vertex_numbering,
+                        entity_per_cell
+                    )
+                    # reordered is ordered in order of increasing dimension
+                    closure_data = tuple(
+                        reordered[:, start:stop] for start, stop in pairwise(steps(closure_sizes))
+                    )
+                else:
+                    raise NotImplementedError
+
             map_components = []
             for map_dim, (size, data) in enumerate(
                 checked_zip(closure_sizes, closure_data)
@@ -905,20 +945,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 map_dat = op3.HierarchicalArray(
                     map_axes, data=data.flatten()
                 )
-
-                # If we are passing the closure to TSFC then we need to permute the
-                # maps to deliver data in the canonical ordering declared by FIAT.
-                if ordering == ClosureOrdering.FIAT:
-                    cell_name = self.ufl_cell().cellname()
-                    perm_data = _PLEX_TO_FIAT_CLOSURE_PERM[cell_name][map_dim]
-                    perm_axis = op3.Axis(
-                        {inner_axis.component.label: len(perm_data)}, inner_axis.label
-                    )
-                    perm = op3.HierarchicalArray(
-                        perm_axis, data=np.asarray(perm_data, dtype=IntType),
-                    )
-                    map_dat = map_dat[:, perm]
-
                 map_components.append(
                     op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
                 )
@@ -1547,6 +1573,7 @@ class MeshTopology(AbstractMeshTopology):
     def edge_label(self):
         return "1"
 
+    # TODO I prefer "vertex_label"
     @property
     def vert_label(self):
         return "0"

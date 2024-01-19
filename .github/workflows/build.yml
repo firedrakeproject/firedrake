@@ -56,12 +56,12 @@ jobs:
           rm -rf firedrake_venv
       - name: Build Firedrake
         run: |
+          unset PETSC_DIR PETSC_ARCH
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
-            --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
             --mpicxx="$MPICH_DIR"/mpicxx \
             --mpif90="$MPICH_DIR"/mpif90 \
@@ -80,11 +80,12 @@ jobs:
             --install irksome \
             --install femlium \
             --package-branch tsfc connorjward/pyop3 \
-            # for petsc4py only
             --package-branch petsc connorjward/pyop3 \
+            --package-branch pyop3 firedrake \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
+          unset PETSC_DIR PETSC_ARCH
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
@@ -92,6 +93,7 @@ jobs:
           python -m pip list
       - name: Test Firedrake
         run: |
+          unset PETSC_DIR PETSC_ARCH
           . ../firedrake_venv/bin/activate
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
@@ -108,6 +110,7 @@ jobs:
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
           python -m pytest \

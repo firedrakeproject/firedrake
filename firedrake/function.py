@@ -115,13 +115,21 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
-            raise NotImplementedError("need to label mixed things nicely")
 
-        return tuple(
-            CoordinatelessFunction(fs, dat, name=f"{self.name()}[{i}]")
-            for i, (fs, dat) in enumerate(zip(self.function_space(), [self.dat]))
-        )
+        # NOTE: In parallel, for mixed functions, the halo data is not contiguous
+        # with the owned data so modifying things can be expensive as it is not
+        # a simple view.
+        # TODO: raise a warning when this happens
+
+        nspaces = len(self.function_space())
+        if nspaces > 1:
+            return tuple(
+                CoordinatelessFunction(V, self.dat[str(i)], name=f"{self.name()}[{i}]")
+                for i, V in enumerate(self.function_space())
+            )
+        else:
+            assert nspaces == 1
+            return (self,)
 
     @PETSc.Log.EventDecorator()
     def split(self):

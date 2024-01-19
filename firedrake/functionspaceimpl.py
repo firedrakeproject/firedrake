@@ -785,41 +785,8 @@ class FunctionSpace:
     # this is badly named, loop_index must currently only be cells
     def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
-        # I reckon it would be much much nicer to implicitly add slices? but then
-        # reordering mixed would lead to undefined behaviour...
-        closure_map = self.mesh().closure(loop_index, "fiat")
-
-        index_forest = {}
-        dof_slicess = []
-        for path in loop_index.paths:
-            loop_context = freeze({loop_index.id: path})
-
-            cf_closure_map = closure_map.with_context(loop_context)
-            index_tree = op3.IndexTree(cf_closure_map)
-            for clabel, target_path in op3.utils.checked_zip(
-                cf_closure_map.component_labels,
-                cf_closure_map.leaf_target_paths,
-            ):
-                mesh_axis, mesh_component = self.axes._node_from_path(target_path)
-                dof_axis = self.axes.child(mesh_axis, mesh_component)
-                dof_slice = op3.Slice(
-                    dof_axis.label,
-                    [op3.AffineSliceComponent(dof_axis.component.label)]
-                )
-                index_tree = index_tree.add_node(dof_slice, cf_closure_map, clabel)
-
-                shape_axis = self.axes.child(dof_axis, dof_axis.component)
-                parent_index = dof_slice
-                while shape_axis:
-                    shape_slice = op3.Slice(shape_axis.label, [op3.AffineSliceComponent(shape_axis.component.label)])
-                    index_tree = index_tree.add_node(shape_slice, parent_index, parent_index.component_label)
-                    shape_axis = self.axes.child(shape_axis, shape_axis.component)
-                    parent_index = shape_slice
-
-            index_forest[loop_context] = index_tree
-        # TODO
-        # return op3.IndexForest(
-        return freeze(index_forest)
+        # TODO Is this property even needed?
+        return self.mesh().closure(loop_index, "fiat")
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
@@ -913,7 +880,7 @@ class FunctionSpace:
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
-class MixedFunctionSpace(object):
+class MixedFunctionSpace:
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -929,7 +896,6 @@ class MixedFunctionSpace(object):
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None):
-        super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
@@ -938,6 +904,15 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
+
+        # TODO I think .layout may be a better name
+        # TODO it would be nice for function spaces to have default names so they could
+        # be used to distinguish bits here
+        root = op3.Axis({str(i): 1 for i, _ in enumerate(spaces)})
+        axes = op3.PartialAxisTree(root)
+        for i, space in enumerate(spaces):
+            axes = axes.add_subtree(space.axes, root, str(i), uniquify=True)
+        self.axes = axes.set_up()
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1088,16 +1063,21 @@ class MixedFunctionSpace(object):
         If BCs is provided, mask out those dofs which match the BC nodes."""
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
+    # NOTE: This function is exactly the same as make_dat for a non-mixed space
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
-        raise NotImplementedError
         if val is not None:
-            assert len(val) == len(self)
-        else:
-            val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
-                            for i, (s, v) in enumerate(zip(self._spaces, val)))
+            raise NotImplementedError("TODO")
+        if val is not None and val.size != self.axes.size:
+            raise ValueError("Provided array has the wrong number of entries")
+
+        return op3.HierarchicalArray(
+            self.axes,
+            data=val,
+            dtype=valuetype,
+            name=name,
+        )
 
     @utils.cached_property
     def dm(self):

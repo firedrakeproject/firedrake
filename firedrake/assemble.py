@@ -425,178 +425,6 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
     return matrix.Matrix(expr, bcs, mat_type, mymat, options_prefix=options_prefix)
 
-    raise NotImplementedError("TODO")
-
-    # NOTE: The sparsity is here is topological, it doesn't yet know about DoFs
-    sparsity = make_sparsity(mesh, adjacency)
-
-    raise NotImplementedError("below unmodified")
-
-    # I think iteration_region is a bad design pattern, we just care about subsets
-
-    get_cell_map = operator.methodcaller("cell_node_map")
-    get_extf_map = operator.methodcaller("exterior_facet_node_map")
-    get_intf_map = operator.methodcaller("interior_facet_node_map")
-    domains = OrderedDict((k, set()) for k in (get_cell_map,
-                                               get_extf_map,
-                                               get_intf_map))
-    mapping = {"cell": (get_cell_map, op2.ALL),
-               "exterior_facet_bottom": (get_cell_map, op2.ON_BOTTOM),
-               "exterior_facet_top": (get_cell_map, op2.ON_TOP),
-               "interior_facet_horiz": (get_cell_map, op2.ON_INTERIOR_FACETS),
-               "exterior_facet": (get_extf_map, op2.ALL),
-               "exterior_facet_vert": (get_extf_map, op2.ALL),
-               "interior_facet": (get_intf_map, op2.ALL),
-               "interior_facet_vert": (get_intf_map, op2.ALL)}
-    for integral_type in integral_types:
-        try:
-            get_map, region = mapping[integral_type]
-        except KeyError:
-            raise ValueError(f"Unknown integral type '{integral_type}'")
-        domains[get_map].add(region)
-
-    test, trial = arguments
-    map_pairs, iteration_regions = zip(*(((get_map(test), get_map(trial)),
-                                          tuple(sorted(regions)))
-                                         for get_map, regions in domains.items()
-                                         if regions))
-    try:
-        sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                 trial.function_space().dof_dset),
-                                tuple(map_pairs),
-                                iteration_regions=tuple(iteration_regions),
-                                nest=nest,
-                                block_sparse=baij)
-    except SparsityFormatError:
-        raise ValueError("Monolithic matrix assembly not supported for systems "
-                         "with R-space blocks")
-
-    return matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
-                         options_prefix=options_prefix)
-
-
-# TODO should accept a subset I think, to account for iteration regions
-def make_sparsity(mesh, adjacency):
-    # NOTE: A lot of this code is very similar to op3.transforms.compress
-    # In fact, it is almost exactly identical and the outputs are the same!
-    # The only difference, I think, is that one produces a big array
-    # whereas the other produces a map. This needs some more thought.
-    # ---
-    # I think it might be fair to say that a sparsity and adjacency maps are
-    # completely equivalent to each other. Constructing the indices explicitly
-    # isn't actually very helpful.
-
-    # currently unused
-    # inc_lpy_kernel = lp.make_kernel(
-    #     "{ [i]: 0 <= i < 1 }",
-    #     "x[i] = x[i] + 1",
-    #     [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType)],
-    #     name="inc",
-    #     target=op3.ir.LOOPY_TARGET,
-    #     lang_version=op3.ir.LOOPY_LANG_VERSION,
-    # )
-    # inc_kernel = op3.Function(inc_lpy_kernel, [op3.INC])
-
-    iterset = mesh.points.as_tree()
-
-    # prepare nonzero arrays
-    sizess = {}
-    for leaf_axis, leaf_clabel in iterset.leaves:
-        iterset_path = iterset.path(leaf_axis, leaf_clabel)
-
-        # bit unpleasant to have to create a loop index for this
-        sizes = {}
-        index = iterset.index()
-        cf_map = adjacency(index).with_context({index.id: iterset_path})
-        for target_path in cf_map.leaf_target_paths:
-            if iterset.depth != 1:
-                # TODO For now we assume iterset to have depth 1
-                raise NotImplementedError
-            # The axes of the size array correspond only to the specific
-            # components selected from iterset by iterset_path.
-            clabels = (op3.utils.just_one(iterset_path.values()),)
-            subiterset = iterset[clabels]
-
-            # subiterset is an axis tree with depth 1, we only want the axis
-            assert subiterset.depth == 1
-            subiterset = subiterset.root
-
-            sizes[target_path] = op3.HierarchicalArray(subiterset, dtype=utils.IntType, prefix="nnz")
-        sizess[iterset_path] = sizes
-    sizess = freeze(sizess)
-
-    # count nonzeros
-    # TODO Currently a Python loop because nnz is context sensitive and things get
-    # confusing. I think context sensitivity might be better not tied to a loop index.
-    # op3.do_loop(
-    #     p := mesh.points.index(),
-    #     op3.loop(
-    #         q := adjacency(p).index(),
-    #         inc_kernel(nnz[p])  # TODO would be nice to support __setitem__ for this
-    #     ),
-    # )
-    for p in iterset.iter():
-        counter = collections.defaultdict(lambda: 0)
-        for q in adjacency(p.index).iter({p}):
-            counter[q.target_path] += 1
-
-        for target_path, npoints in counter.items():
-            nnz = sizess[p.source_path][target_path]
-            nnz.set_value(p.source_path, p.source_exprs, npoints)
-
-    # now populate the sparsity
-    # unused
-    # set_lpy_kernel = lp.make_kernel(
-    #     "{ [i]: 0 <= i < 1 }",
-    #     "y[i] = x[i]",
-    #     [lp.GlobalArg("x", shape=(1,), dtype=utils.IntType),
-    #      lp.GlobalArg("y", shape=(1,), dtype=utils.IntType)],
-    #     name="set",
-    #     target=op3.ir.LOOPY_TARGET,
-    #     lang_version=op3.ir.LOOPY_LANG_VERSION,
-    # )
-    # set_kernel = op3.Function(set_lpy_kernel, [op3.READ, op3.WRITE])
-
-    # prepare sparsity, note that this is different to how we produce the maps since
-    # the result is a single array
-    subaxes = {}
-    for iterset_path, sizes in sizess.items():
-        axlabel, clabel = op3.utils.just_one(iterset_path.items())
-        assert axlabel == mesh.name
-        subaxes[clabel] = op3.Axis(
-            [
-                op3.AxisComponent(nnz, label=str(target_path))
-                for target_path, nnz in sizes.items()
-            ],
-            "inner",
-        )
-    sparsity_axes = op3.AxisTree.from_nest({mesh.points.copy(numbering=None, sf=None): subaxes})
-    sparsity = op3.HierarchicalArray(sparsity_axes, dtype=utils.IntType, prefix="sparsity")
-
-    # The following works if I define .enumerate() (needs to be a counter, not
-    # just a loop index).
-    # op3.do_loop(
-    #     p := mesh.points.index(),
-    #     op3.loop(
-    #         q := adjacency(p).enumerate(),
-    #         set_kernel(q, indices[p, q.i])
-    #     ),
-    # )
-    for p in iterset.iter():
-        # this is needed because a simple enumerate cannot distinguish between
-        # different labels
-        counters = collections.defaultdict(itertools.count)
-        for q in adjacency(p.index).iter({p}):
-            leaf_axis = sparsity.axes.child(*sparsity.axes._node_from_path(p.source_path))
-            leaf_clabel = str(q.target_path)
-            path = p.source_path | {leaf_axis.label: leaf_clabel}
-            indices = p.source_exprs | {leaf_axis.label: next(counters[q.target_path])}
-            # we expect maps to only output a single target index
-            q_value = op3.utils.just_one(q.target_exprs.values())
-            sparsity.set_value(path, indices, q_value)
-
-    return sparsity
-
 
 @PETSc.Log.EventDecorator()
 def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
@@ -817,6 +645,10 @@ class FormAssembler(abc.ABC):
         self._needs_zeroing = needs_zeroing
         self.weight = weight
 
+        # we can swap tensor out but we need to remember the name so we can
+        # swap it into parloops in the right place
+        self._tensor_name = self._as_pyop3_type(tensor).name
+
     @property
     @abc.abstractmethod
     def result(self):
@@ -838,11 +670,11 @@ class FormAssembler(abc.ABC):
                 "Use assemble instead."
             )
 
-        # FIXME getting rid just for now to see if other bits work
-        # if self._needs_zeroing:
-        #     self._as_pyop3_type(self._tensor).zero()
+        if self._needs_zeroing:
+            self._as_pyop3_type(self._tensor).zero()
 
-        self.execute_parloops()
+        for parloop in self.parloops:
+            parloop(**{self._tensor_name: self._as_pyop3_type(self._tensor)})
 
         for bc in self._bcs:
             if isinstance(bc, EquationBC):  # can this be lifted?
@@ -852,18 +684,7 @@ class FormAssembler(abc.ABC):
         return self.result
 
     def replace_tensor(self, tensor):
-        if tensor is self._tensor:
-            return
-
-        # TODO We should have some proper checks here
-        for (lknl, _), parloop in zip(self.local_kernels, self.parloops):
-            data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
-            parloop.arguments[0].data = data
-        self._tensor = tensor
-
-    def execute_parloops(self):
-        for parloop in self.parloops:
-            parloop()
+        self._tensor = self._as_pyop3_type(tensor)
 
     @cached_property
     def local_kernels(self):
@@ -948,7 +769,7 @@ class FormAssembler(abc.ABC):
 
     @staticmethod
     def _as_pyop3_type(tensor):
-        if isinstance(tensor, pyop3.Global):
+        if isinstance(tensor, op3.HierarchicalArray):
             return tensor
         elif isinstance(tensor, firedrake.Cofunction):
             return tensor.dat
@@ -999,16 +820,6 @@ class OneFormAssembler(FormAssembler):
     @property
     def result(self):
         return self._tensor
-
-    def execute_parloops(self):
-        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
-        # can be skipped.
-        #FIXME PYOP3 restore halo freezing - we get this by default now!
-        # with self._tensor.dat.frozen_halo(pyop3.INC):
-        #     for parloop in self.parloops:
-        #         parloop()
-        for parloop in self.parloops:
-            parloop()
 
     def _apply_bc(self, bc):
         # TODO Maybe this could be a singledispatchmethod?
@@ -1413,37 +1224,29 @@ class _FormHandler:
         """Return the function spaces of the form's arguments, indexed
         if necessary.
         """
-        if all(i is None for i in indices):
+        if op3.utils.strictly_all(i is None for i in indices):
             return tuple(a.ufl_function_space() for a in form.arguments())
-        elif all(i is not None for i in indices):
-            return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
         else:
-            raise AssertionError
+            return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
 
     @staticmethod
     def index_tensor(tensor, form, indices, diagonal):
-        """Return the PyOP2 data structure tied to ``tensor``, indexed
-        if necessary.
-        """
-        rank = len(form.arguments())
-        is_indexed = any(i is not None for i in indices)
+        """Return the (indexed) pyop3 data structure tied to ``tensor``."""
+        is_indexed = op3.utils.strictly_all(i is not None for i in indices)
+        index_str = tuple(str(i) for i in indices)
 
+        rank = len(form.arguments())
         if rank == 0:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
-            i, = indices
-            # FIXME
-            if i != 0:
-                raise NotImplementedError("mixed needs thought")
-            return tensor.dat
-            # return tensor.dat[i] if is_indexed else tensor.dat
+            is_mixed = type(tensor.ufl_element()) is finat.ufl.MixedElement
+            return tensor.dat[index_str] if is_mixed and is_indexed else tensor.dat
         elif rank == 2:
-            i, j = indices
-            # FIXME
-            if i != 0 or j != 0:
-                raise NotImplementedError("mixed needs thought")
-            return tensor.M
-            # return tensor.M[i, j] if is_indexed else tensor.M
+            is_mixed = any(
+                type(arg.ufl_element()) is finat.ufl.MixedElement
+                for arg in tensor.a.arguments()
+            )
+            return tensor.M[index_str] if is_mixed and is_indexed else tensor.M
         else:
             raise AssertionError
 

@@ -567,9 +567,9 @@ def create_cell_closure(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def closure_ordering(PETSc.DM dm,
+def closure_ordering(mesh,
+                     np.ndarray[PetscInt, ndim=2, mode="c"] closure_data,
                      PETSc.Section vertex_numbering,
-                     PETSc.Section cell_numbering,
                      np.ndarray[PetscInt, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
@@ -591,13 +591,19 @@ def closure_ordering(PETSc.DM dm,
         PetscInt nclosure, nfacet_closure, nface_vertices
         PetscInt *vertices = NULL
         PetscInt *v_global = NULL
-        PetscInt *closure = NULL
+        # PetscInt *closure = NULL
+        np.ndarray[PetscInt, ndim=1, mode="c"] closure
         PetscInt *facets = NULL
         PetscInt *faces = NULL
         PetscInt *face_indices = NULL
         const PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+
+        PETSc.DM dm = mesh.topology_dm
+
+    if vertex_numbering is not None:
+        raise NotImplementedError("TODO, see comments in mesh._closure_map")
 
     dim = get_topological_dimension(dm)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -624,22 +630,27 @@ def closure_ordering(PETSc.DM dm,
     cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
 
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
+        # renumbering already complete
+        # CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        cell_dim, cell = mesh.points.axis_to_component_number(c)
+        assert int(cell_dim.label) == dim
+
+        # closure already packed
+        # get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
+        # NOTE: This closure omits orientations, so the factor of 2 can be omitted
+        closure = closure_data[cell, :]
 
         # Find vertices and translate universal numbers
-        vi = 0
-        for ci in range(nclosure):
-            if vStart <= closure[2*ci] < vEnd:
-                vertices[vi] = closure[2*ci]
-                CHKERR(PetscSectionGetOffset(vertex_numbering.sec,
-                                             closure[2*ci], &v))
-                # Correct -ve offsets for non-owned entities
-                if v >= 0:
-                    v_global[vi] = v
-                else:
-                    v_global[vi] = -(v+1)
-                vi += 1
+        nverts = entity_per_cell[0]
+        for i in range(nverts):
+            vertices[i] = closure[i]
+            
+        if dm.comm.size > 1:
+            raise NotImplementedError
+        # TODO for now assume that we are serial and that the local and
+        # global numbers match
+        for i in range(nverts):
+            v_global[i] = vertices[i]
 
         # Sort vertices by universal number
         CHKERR(PetscSortIntWithArray(v_per_cell,v_global,vertices))
@@ -653,15 +664,16 @@ def closure_ordering(PETSc.DM dm,
 
         # Find all edges (dim=1) (only relevant for `DMPlex`)
         if dim > 2:
+            raise NotImplementedError("think about renumbered cones")
             assert isinstance(dm, PETSc.DMPlex)
             nfaces = 0
             for ci in range(nclosure):
-                if eStart <= closure[2*ci] < eEnd:
-                    faces[nfaces] = closure[2*ci]
+                if eStart <= closure[ci] < eEnd:
+                    faces[nfaces] = closure[ci]
 
-                    CHKERR(DMPlexGetConeSize(dm.dm, closure[2*ci],
+                    CHKERR(DMPlexGetConeSize(dm.dm, closure[ci],
                                              &nface_vertices))
-                    CHKERR(DMPlexGetCone(dm.dm, closure[2*ci],
+                    CHKERR(DMPlexGetCone(dm.dm, closure[ci],
                                          &face_vertices))
 
                     # Edges in 3D are tricky because we need a
@@ -689,16 +701,11 @@ def closure_ordering(PETSc.DM dm,
                 cell_closure[cell, offset+fi] = faces[fi]
             offset += nfaces
 
-        # Calling get_transitive_closure() again invalidates the
-        # current work array, so we need to get the facets and cell
-        # out before getting the facet closures.
-
         # Find all facets (co-dim=1)
-        nfacets = 0
-        for ci in range(nclosure):
-            if fStart <= closure[2*ci] < fEnd:
-                facets[nfacets] = closure[2*ci]
-                nfacets += 1
+        nfacets = entity_per_cell[dim-1]
+        for i in range(nfacets):
+            # add nverts to skip those, bad for 3D
+            facets[i] = closure[nverts+i]
 
         # The cell itself is always the first entry in the Plex closure
         cell_closure[cell, cell_offset] = closure[0]
@@ -707,15 +714,15 @@ def closure_ordering(PETSc.DM dm,
         if dim > 1:
             for f in range(nfacets):
                 # Derive facet vertices from facet_closure
-                get_transitive_closure(dm.dm, facets[f],
-                                       PETSC_TRUE,
-                                       &nfacet_closure,
-                                       &closure)
-                vi = 0
-                for fi in range(nfacet_closure):
-                    if vStart <= closure[2*fi] < vEnd:
-                        facet_vertices[vi] = closure[2*fi]
-                        vi += 1
+                myverts = mesh._closures[dim-1][1][0][facets[f]]
+
+                if dim > 2:
+                    # skip tets for now, assume facets are edges
+                    # and therefore that the closure has 3 entries
+                    raise NotImplementedError
+
+                facet_vertices[0] = myverts[0]
+                facet_vertices[1] = myverts[1]
 
                 # Find non-incident vertices
                 for v in range(v_per_cell):
@@ -731,9 +738,6 @@ def closure_ordering(PETSc.DM dm,
                         break
 
             offset += nfacets
-
-    if closure != NULL:
-        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
 
     CHKERR(PetscFree(vertices))
     CHKERR(PetscFree(v_global))
