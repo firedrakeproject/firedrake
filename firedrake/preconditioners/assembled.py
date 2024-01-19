@@ -21,7 +21,7 @@ class AssembledPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import allocate_matrix, TwoFormAssembler
-        _, P = pc.getOperators()
+        A, P = pc.getOperators()
 
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -81,7 +81,7 @@ class AssembledPC(PCBase):
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(Pmat, Pmat)
+        pc.setOperators(A, Pmat)
         self.pc = pc
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
             pc.setFromOptions()

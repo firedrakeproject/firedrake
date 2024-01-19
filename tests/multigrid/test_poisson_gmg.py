@@ -159,7 +159,8 @@ def test_preconditioner_coarsening(solver_type):
         "ksp_richardson_scale": float(beta),  # undo the rescaling
         "pc_type": "python",
         "pc_python_type": "firedrake.AssembledPC",
-        "assembled": solver_parameters(solver_type)
+        "assembled": solver_parameters(solver_type),
+        "assembled_pc_use_amat": False
     }
     solve(a == L, uh, bcs=bcs, J=a, Jp=Jp, solver_parameters=parameters)
 
