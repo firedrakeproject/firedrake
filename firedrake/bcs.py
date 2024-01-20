@@ -339,7 +339,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(self.function_space())
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg).interpolate
+                # Use `Interpolator` instead of assembling an `Interpolate` form
+                # as the expression compilation needs to happen at this stage to
+                # determine if we should use interpolation or projection
+                #  -> e.g. interpolation may not be supported for the element.
+                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(self.function_space()).project(g)

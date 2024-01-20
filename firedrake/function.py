@@ -66,7 +66,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm)
+        self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
@@ -80,10 +80,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     @utils.cached_property
     def topological(self):
@@ -380,8 +376,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         expression,
         subset=None,
         allow_missing_dofs=False,
-        default_missing_val=None,
-        ad_block_tag=None,
+        default_missing_val=None
     ):
         r"""Interpolate an expression onto this :class:`Function`.
 
@@ -403,19 +398,14 @@ class Function(ufl.Coefficient, FunctionMixin):
             value to assign to DoFs in the target mesh that are outside the source
             mesh. If this is not set then zero is used. Ignored if interpolating
             within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        :kwarg ad_block_tag: An optional string for tagging the resulting block on
-            the Pyadjoint tape.
         :returns: this :class:`Function` object"""
-        from firedrake import interpolation
-
-        return interpolation.interpolate(
-            expression,
-            self,
-            subset=subset,
-            allow_missing_dofs=allow_missing_dofs,
-            default_missing_val=default_missing_val,
-            ad_block_tag=ad_block_tag,
-        )
+        from firedrake import interpolation, assemble
+        V = self.function_space()
+        interp = interpolation.Interpolate(expression, V,
+                                           subset=subset,
+                                           allow_missing_dofs=allow_missing_dofs,
+                                           default_missing_val=default_missing_val)
+        return assemble(interp, tensor=self)
 
     def zero(self, subset=None):
         """Set all values to zero.

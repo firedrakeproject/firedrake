@@ -1,3 +1,4 @@
+import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace

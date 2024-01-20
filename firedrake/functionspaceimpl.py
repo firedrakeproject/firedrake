@@ -99,11 +99,7 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -512,14 +508,15 @@ class FunctionSpace(object):
         r"""The (optional) descriptive name for this space."""
         # User comm
         self.comm = mesh.comm
+        # Internal comm
+        self._comm = mpi.internal_comm(self.comm, self)
+
         self.set_shared_data()
         self.dof_dset = self.make_dof_dset()
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
         self.node_set = self.dof_dset.set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
 
     def set_shared_data(self):
         element = self.ufl_element()
@@ -541,10 +538,6 @@ class FunctionSpace(object):
     def make_dof_dset(self):
         return op2.DataSet(self._shared_data.node_set, self.shape or 1,
                            name=f"{self.name}_nodes_dset")
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -824,7 +817,8 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self.comm = self.node_set.comm
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1132,7 +1126,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self.comm)
+        return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."

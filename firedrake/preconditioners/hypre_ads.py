@@ -2,7 +2,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
+from firedrake.interpolation import Interpolator, Interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
