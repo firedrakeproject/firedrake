@@ -108,6 +108,7 @@ def test_firedrake_Poisson_netgen():
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
 
+
 @pytest.mark.parallel
 def test_firedrake_Poisson_netgen_parallel():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
@@ -115,6 +116,7 @@ def test_firedrake_Poisson_netgen_parallel():
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
+
 
 def test_firedrake_Poisson3D_netgen():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
@@ -202,6 +204,31 @@ def test_firedrake_integral_ball_netgen():
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
+def test_firedrake_integral_ball_netgen():
+    try:
+        from netgen.csg import CSGeometry, Pnt, Sphere
+        from netgen.meshing import MeshingParameters
+        from netgen.meshing import MeshingStep
+        import netgen
+    except ImportError:
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+
+    # Setting up Netgen geometry and mes
+    comm = COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
+        ngmesh = geo.GenerateMesh(mp=mp)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+
+    msh = Mesh(ngmesh)
+    V = FunctionSpace(msh, "CG", 3)
+    x, y, z = SpatialCoordinate(msh)
+    f = Function(V).interpolate(1+0*x)
+    assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
+
 def test_firedrake_integral_sphere_high_order_netgen():
     try:
         from netgen.csg import CSGeometry, Pnt, Sphere
@@ -224,6 +251,32 @@ def test_firedrake_integral_sphere_high_order_netgen():
     x, y, z = SpatialCoordinate(homsh)
     f = Function(V).interpolate(1+0*x)
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
+
+
+@pytest.mark.parallel
+def test_firedrake_integral_sphere_high_order_netgen_parallel():
+    try:
+        from netgen.csg import CSGeometry, Pnt, Sphere
+        import netgen
+    except ImportError:
+        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+
+    # Setting up Netgen geometry and mes
+    comm = COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        ngmesh = geo.GenerateMesh(maxh=0.7)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+
+    msh = Mesh(ngmesh)
+    homsh = Mesh(msh.curve_field(2))
+    V = FunctionSpace(homsh, "CG", 2)
+    x, y, z = SpatialCoordinate(homsh)
+    f = Function(V).interpolate(1+0*x)
+    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
+
 
 @pytest.mark.parallel
 def test_firedrake_integral_circle_high_order_netgen_parallel():
