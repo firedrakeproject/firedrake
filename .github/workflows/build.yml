@@ -80,6 +80,7 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --package-branch pyop2 connorjward/passthrough-params \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
