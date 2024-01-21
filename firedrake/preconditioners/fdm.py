@@ -418,7 +418,7 @@ class FDMPC(PCBase):
         return Smat, Pmats
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
-    def assemble_coefficients(self, J, fcp, block_diagonal=True):
+    def assemble_coefficients(self, J, fcp, block_diagonal=False):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
