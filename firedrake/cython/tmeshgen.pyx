@@ -22,6 +22,14 @@ include "petschdr.pxi"
 
 # Do nurbs first.
 # Tsplines would require removing constrained DoFs in create_section.
+# +---+---+
+# |   |b  |
+# |  a+-- +
+# |   |c  |
+# +---+---+
+# Remove "a" as these are not linearly independent?
+# or remove "b" and "c"?
+# Support is the same.
 # Can do the same for hanging nodes?
 
 
@@ -29,8 +37,16 @@ include "petschdr.pxi"
 # as entity_dofs is now anisotropic.
 
 
-# tmesh.default_scalar_section
+# Make:
+# -- idx_section
+# -- dof_section
+# -- 
+#
 # Make another section for periodic coordinates.
+#
+
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
