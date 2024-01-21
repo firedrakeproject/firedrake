@@ -824,6 +824,7 @@ PetscErrorCode %(name)s(const Mat A, const Mat B,
 
 class SchurComplementPattern(SchurComplementKernel):
     condense_code = """
+    PetscCall(MatProductNumeric(A11));
     PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
     """
 
