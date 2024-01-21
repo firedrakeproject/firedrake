@@ -591,8 +591,8 @@ def hash_fiat_element(element):
     return (family, element.ref_el, degree, restriction)
 
 
-def generate_key_evaluate_dual(source, target, alpha=tuple()):
-    return hash_fiat_element(source) + hash_fiat_element(target) + (alpha,)
+def generate_key_evaluate_dual(source, target, derivative=None):
+    return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
 
 
 def get_readonly_view(arr):
@@ -602,16 +602,18 @@ def get_readonly_view(arr):
 
 
 @cached({}, key=generate_key_evaluate_dual)
-def evaluate_dual(source, target, alpha=tuple()):
+def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
-       on the (derivative of order alpha of the) basis functions of the source
+       on the (derivative of the) basis functions of the source
        element."""
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
     B = numpy.transpose(primal.get_coeffs())
-    if sum(alpha) != 0:
+    if derivative == "grad":
         dmats = primal.get_dmats()
+        assert len(dmats) == 1
+        alpha = (1,)
         for i in range(len(alpha)):
             for j in range(alpha[i]):
                 B = numpy.dot(dmats[i], B)
