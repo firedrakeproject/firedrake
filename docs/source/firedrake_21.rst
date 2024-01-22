@@ -42,7 +42,7 @@ Laakmann and
 `Reuben Nixon-Hill <https://www.imperial.ac.uk/people/reuben.nixon-hill10>`_.
 
 Each winner receives a copy of `PETSc for Partial Differential Equations:
-Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
+Numerical Solutions in C and Python <https://epubs.siam.org/doi/10.1137/1.9781611976311>`_
 by Ed Bueler, which contains an excellent chapter on using Firedrake.
 
 Further details
