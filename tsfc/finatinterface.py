@@ -191,14 +191,14 @@ def convert_finiteelement(element, **kwargs):
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell))
     elif element.family() == ["DPC", "DPC L2"]:
-        if element.cell.geometric_dimension() == 2:
+        if element.cell.topological_dimension() == 2:
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell.geometric_dimension() == 3:
+        elif element.cell.topological_dimension() == 3:
             element = element.reconstruct(cell=ufl.cell.hypercube(3))
     elif element.family() == "S":
-        if element.cell.geometric_dimension() == 2:
+        if element.cell.topological_dimension() == 2:
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell.geometric_dimension() == 3:
+        elif element.cell.topological_dimension() == 3:
             element = element.reconstruct(cell=ufl.cell.hypercube(3))
 
     return lmbda(cell, element.degree()), set()
