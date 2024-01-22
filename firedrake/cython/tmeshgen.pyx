@@ -37,13 +37,17 @@ include "petschdr.pxi"
 # as entity_dofs is now anisotropic.
 
 
-# Make:
-# -- idx_section
-# -- dof_section
+# -- knot_vec (indices + values)
+# -- knot_sec (attach an index set to each DoF (anchor) required for basis construction)
+# -- w_sec (scalar), X_sec (vector)
+#
+# -- dof_sec (this can be made after distribution, but in theory can also be distributed)
 # -- 
 #
-# Make another section for periodic coordinates.
-#
+# If periodic in any direction:
+# -- knot_vec should be amended for coordinates that are not periodic.
+# -- knot_sec remains the same -> corresponding IS uses augumented knot indices
+# -- w_sec, X_sec should be unchanged
 
 
 
