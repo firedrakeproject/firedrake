@@ -55,18 +55,6 @@ jobs:
         run: |
           cd ..
           rm -rf firedrake_venv
-      # REMOVE before merging vvv
-      - name: Build Rtree wheel
-        run: |
-          cd ..
-          sudo apt-get update
-          sudo apt-get install -y unzip python3-build python3-virtualenv
-          rm -rf rtree
-          git clone --branch JDBetteridge/include_headers https://github.com/JDBetteridge/rtree.git
-          cd rtree
-          ./ci/install_libspatialindex.bash
-          python3 -m build --wheel
-      # REMOVE before merging ^^^
       - name: Build Firedrake
         run: |
           cd ..
@@ -92,7 +80,6 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
-            --pip-install $(ls /__w/firedrake/rtree/dist/Rtree*.whl) \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
