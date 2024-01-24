@@ -1923,10 +1923,9 @@ if mode == "install":
     with environment(**compiler_env):
         build_and_install_libsupermesh()
 
-    with pipargs("--no-deps"):
+    with pipargs("--no-deps"), environment(**compiler_env, **link_env):
         for p in ("PyOP2", "firedrake"):
-            with environment(**compiler_env, **link_env):
-                install(p+"/")
+            install(p+"/")
 
     # Work around easy-install.pth bug.
     try:
@@ -2089,10 +2088,9 @@ Please consider updating your PETSc manually.
         with environment(**compiler_env):
             build_and_install_libsupermesh()
 
-        with pipargs("--no-deps"):
+        with pipargs("--no-deps"), environment(**compiler_env, **link_env):
             for p in ("PyOP2", "firedrake"):
-                with environment(**compiler_env, **link_env):
-                    install(p+"/")
+                install(p+"/")
 
         # Ensure pytest is at the latest version
         run_pip(["install", "-U", "pytest"])
