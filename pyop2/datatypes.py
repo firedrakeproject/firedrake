@@ -69,3 +69,11 @@ def dtype_limits(dtype):
         except ValueError as e:
             raise ValueError("Unable to determine numeric limits from %s" % dtype) from e
     return info.min, info.max
+
+
+class OpaqueType(lp.types.OpaqueType):
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def __repr__(self):
+        return self.name

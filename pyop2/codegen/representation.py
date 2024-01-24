@@ -352,8 +352,6 @@ class Indexed(Scalar):
         for index, extent in zip(multiindex, aggregate.shape):
             if isinstance(index, Index):
                 index.set_extent(extent)
-        if not multiindex:
-            return aggregate
 
         self = super().__new__(cls)
         self.children = (aggregate, multiindex)

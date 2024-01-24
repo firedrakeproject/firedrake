@@ -206,6 +206,16 @@ class MixedDatKernelArg:
         return DatPack
 
 
+class PassthroughKernelArg:
+    @property
+    def cache_key(self):
+        return type(self)
+
+    @property
+    def maps(self):
+        return ()
+
+
 @dataclass(frozen=True)
 class MixedMatKernelArg:
     """Class representing a :class:`pyop2.types.MixedDat` being passed to the kernel.
