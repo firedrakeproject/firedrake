@@ -5,10 +5,9 @@ import itertools
 import os
 import subprocess
 import sys
-
 from contextlib import contextmanager
-from pyop2 import mpi
 from typing import Any
+
 from mpi4py import MPI
 
 # When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
@@ -17,12 +16,16 @@ from mpi4py import MPI
 # point the worker's stderr stream has already been destroyed by xdist, causing
 # a crash. To prevent this we disable unused options checking in PETSc when
 # running with xdist.
+# NOTE: petsc4py.init must be called before importing PyOP2 since PyOP2 would
+# initialise PETSc incorrectly.
 import petsc4py
 if "PYTEST_XDIST_WORKER" in os.environ:
     petsc4py.init(sys.argv + ["-options_left", "no"])
 else:
     petsc4py.init(sys.argv)
 from petsc4py import PETSc
+
+from pyop2 import mpi
 
 
 __all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
