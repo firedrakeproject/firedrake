@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import numpy
 from firedrake.utils import IntType
 
@@ -30,7 +31,7 @@ def test_steady_advection_variable_layers():
 
     x, = SpatialCoordinate(mesh)
 
-    selector = interpolate(
+    selector = assemble(interpolate(
         conditional(
             Or(real(x) < 0.1,
                real(x) > 0.9),
@@ -38,7 +39,7 @@ def test_steady_advection_variable_layers():
             conditional(Or(And(real(x) > 0.1, real(x) < 0.2),
                            And(real(x) > 0.8, real(x) < 0.9)),
                         3, 2)),
-        V)
+        V))
 
     layers = numpy.empty((10, 2), dtype=IntType)
 
@@ -93,15 +94,15 @@ def test_steady_advection_variable_layers():
     out = Function(DG0)
     solve(a == L, out)
 
-    expected = interpolate(conditional(real(x) > 0.5,
-                                       conditional(real(y) < 0.25,
-                                                   0.5,
-                                                   conditional(real(y) < 0.5,
-                                                               1.0,
-                                                               0.0)),
-                                       conditional(And(real(y) > 0.25, real(y) < 0.75),
-                                                   1.0,
-                                                   0.5)),
-                           DG0)
+    expected = assemble(interpolate(conditional(real(x) > 0.5,
+                                                conditional(real(y) < 0.25,
+                                                            0.5,
+                                                            conditional(real(y) < 0.5,
+                                                                        1.0,
+                                                                        0.0)),
+                                                conditional(And(real(y) > 0.25, real(y) < 0.75),
+                                                            1.0,
+                                                            0.5)),
+                                    DG0))
 
     assert numpy.allclose(out.dat.data_ro, expected.dat.data_ro)

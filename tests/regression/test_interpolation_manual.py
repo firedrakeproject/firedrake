@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import pytest
 import numpy as np
 
@@ -33,7 +34,7 @@ def test_line_integral():
     V_line = FunctionSpace(line, "CG", 2)
 
     # ... and interpolate our function f onto it.
-    f_line = interpolate(f, V_line)
+    f_line = assemble(interpolate(f, V_line))
 
     # The integral of f along the line is then a simple form expression which
     # we assemble:
@@ -62,14 +63,14 @@ def test_cross_mesh():
 
     with pytest.raises(DofNotDefinedError):
         # ... but get a DofNotDefinedError if we try
-        f_dest = interpolate(f_src, V_dest)  # raises DofNotDefinedError
+        f_dest = assemble(interpolate(f_src, V_dest))  # raises DofNotDefinedError
 
     with pytest.raises(DofNotDefinedError):
         # as will the interpolate method of a Function
         f_dest = Function(V_dest).interpolate(f_src)
 
     # Setting the allow_missing_dofs keyword allows the interpolation to proceed.
-    f_dest = interpolate(f_src, V_dest, allow_missing_dofs=True)
+    f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
 
@@ -87,9 +88,9 @@ def test_cross_mesh():
     assert np.isclose(f_dest.at(1.5, 1.5), 0.0)
 
     # We can alternatively specify a value to use for missing points:
-    f_dest = interpolate(
+    f_dest = assemble(interpolate(
         f_src, V_dest, allow_missing_dofs=True, default_missing_val=np.nan
-    )
+    ))
     f_dest.at(1.5, 1.5)  # returns np.nan
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
@@ -100,7 +101,7 @@ def test_cross_mesh():
     interpolator = Interpolator(f_src, V_dest, allow_missing_dofs=True)
 
     # A default missing value can be specified when calling interpolate.
-    f_dest = interpolator.interpolate(default_missing_val=np.nan)
+    f_dest = assemble(interpolator.interpolate(default_missing_val=np.nan))
 
     # If we supply an output function and don't set default_missing_val
     # then any points outside the domain are left as they were.
@@ -110,7 +111,7 @@ def test_cross_mesh():
 
     assert np.isclose(f_dest.at(0.5, 0.5), 1.0)
 
-    interpolator.interpolate(output=f_dest)
+    assemble(interpolator.interpolate(), tensor=f_dest)
     f_dest.at(0.5, 0.5)  # now returns x_src^2 + y_src^2 = 0.5
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)

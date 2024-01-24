@@ -42,6 +42,7 @@ jobs:
     env:
       # PETSC_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
+      PYOP2_CI_TESTS: 1
       PETSC_ARCH: ${{ matrix.petsc_arch }}
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -85,7 +86,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
-            pytest-cov pytest-timeout pytest-xdist pytest-timeout
+            pytest-cov pytest-timeout pytest-xdist pytest-timeout ipympl
           python -m pip list
       - name: Test Firedrake
         run: |
@@ -100,7 +101,7 @@ jobs:
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
             -n 12 --dist worksteal \
-            -v tests
+            -sv tests
         timeout-minutes: 120
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
@@ -113,7 +114,7 @@ jobs:
             --timeout-method=thread \
             -o faulthandler_timeout=660 \
             -n 12 --dist worksteal \
-            -v tests/firedrake_adjoint
+            -sv tests/firedrake_adjoint
         timeout-minutes: 30
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
