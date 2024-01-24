@@ -44,13 +44,13 @@ def test_math_functions(mesh, expr, value, typ, fs_type):
             f = inner(f, f)
     elif typ == 'Constant':
         if fs_type == 'vector':
-            f = Constant([value, value], domain=mesh)
+            f = Constant([value, value])
             f = dot(f, f)
         elif fs_type == 'tensor':
-            f = Constant([[value, value], [value, value]], domain=mesh)
+            f = Constant([[value, value], [value, value]])
             f = inner(f, f)
         else:
-            f = Constant(value, domain=mesh)
+            f = Constant(value)
 
     H = FunctionSpace(mesh, 'CG', 1)
     u = TrialFunction(H)
