@@ -8,11 +8,8 @@ printf = lambda msg: PETSc.Sys.Print(msg)
 
 
 def poisson(h, degree=2):
-    try:
-        from netgen.geom2d import SplineGeometry
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.geom2d import SplineGeometry
+    import netgen
 
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
@@ -53,11 +50,8 @@ def poisson(h, degree=2):
 
 
 def poisson3D(h, degree=2):
-    try:
-        from netgen.csg import CSGeometry, OrthoBrick, Pnt
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.csg import CSGeometry, OrthoBrick, Pnt
+    import netgen
 
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
@@ -101,6 +95,7 @@ def poisson3D(h, degree=2):
     return S
 
 
+@pytest.mark.skipnetgen
 def test_firedrake_Poisson_netgen():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
@@ -109,6 +104,7 @@ def test_firedrake_Poisson_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
+@pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_firedrake_Poisson_netgen_parallel():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
@@ -118,6 +114,7 @@ def test_firedrake_Poisson_netgen_parallel():
     assert (np.array(conv) > 2.8).all()
 
 
+@pytest.mark.skipnetgen
 def test_firedrake_Poisson3D_netgen():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
     print("l2 error norms:", diff)
@@ -126,12 +123,10 @@ def test_firedrake_Poisson3D_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
+@pytest.mark.skipnetgen
 def test_firedrake_integral_2D_netgen():
-    try:
-        from netgen.geom2d import SplineGeometry
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.geom2d import SplineGeometry
+    import netgen
 
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
@@ -150,14 +145,11 @@ def test_firedrake_integral_2D_netgen():
     assert abs(assemble(f * dx) - (5/6)) < 1.e-10
 
 
+@pytest.mark.skipnetgen
 def test_firedrake_integral_3D_netgen():
-    try:
-        from netgen.csg import CSGeometry, OrthoBrick, Pnt
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.csg import CSGeometry, OrthoBrick, Pnt
+    import netgen
 
-    # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
         box = OrthoBrick(Pnt(0, 0, 0), Pnt(1, 1, 1))
@@ -178,16 +170,13 @@ def test_firedrake_integral_3D_netgen():
     assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
 
 
+@pytest.mark.skipnetgen
 def test_firedrake_integral_ball_netgen():
-    try:
-        from netgen.csg import CSGeometry, Pnt, Sphere
-        from netgen.meshing import MeshingParameters
-        from netgen.meshing import MeshingStep
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.csg import CSGeometry, Pnt, Sphere
+    from netgen.meshing import MeshingParameters
+    from netgen.meshing import MeshingStep
+    import netgen
 
-    # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = CSGeometry()
@@ -204,39 +193,11 @@ def test_firedrake_integral_ball_netgen():
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
-def test_firedrake_integral_ball_netgen():
-    try:
-        from netgen.csg import CSGeometry, Pnt, Sphere
-        from netgen.meshing import MeshingParameters
-        from netgen.meshing import MeshingStep
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
-
-    # Setting up Netgen geometry and mes
-    comm = COMM_WORLD
-    if comm.Get_rank() == 0:
-        geo = CSGeometry()
-        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
-        mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
-        ngmesh = geo.GenerateMesh(mp=mp)
-    else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
-
-    msh = Mesh(ngmesh)
-    V = FunctionSpace(msh, "CG", 3)
-    x, y, z = SpatialCoordinate(msh)
-    f = Function(V).interpolate(1+0*x)
-    assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
-
+@pytest.mark.skipnetgen
 def test_firedrake_integral_sphere_high_order_netgen():
-    try:
-        from netgen.csg import CSGeometry, Pnt, Sphere
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.csg import CSGeometry, Pnt, Sphere
+    import netgen
 
-    # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = CSGeometry()
@@ -253,15 +214,12 @@ def test_firedrake_integral_sphere_high_order_netgen():
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
 
 
+@pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_firedrake_integral_sphere_high_order_netgen_parallel():
-    try:
-        from netgen.csg import CSGeometry, Pnt, Sphere
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.csg import CSGeometry, Pnt, Sphere
+    import netgen
 
-    # Setting up Netgen geometry and mes
     comm = COMM_WORLD
     if comm.Get_rank() == 0:
         geo = CSGeometry()
@@ -278,38 +236,11 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
 
 
-@pytest.mark.parallel
-def test_firedrake_integral_circle_high_order_netgen_parallel():
-    try:
-        from netgen.geom2d import CSG2d, Cricle
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
-
-    # Setting up Netgen geometry and mes
-    comm = COMM_WORLD
-    if comm.Get_rank() == 0:
-        geo = CSG2d() 
-        circle = Circle(center=(1,1), radius=0.1, bc="curve")
-        geo.Add(circle)
-        ngmesh = geo.GenerateMesh(maxh=0.3)
-    else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
-
-    msh = Mesh(ngmesh)
-    homsh = Mesh(msh.curve_field(4))
-    V = FunctionSpace(homsh, "CG", 4)
-    x, y, z = SpatialCoordinate(homsh)
-    f = Function(V).interpolate(1+0*x)
-    assert abs(assemble(f * dx) - np.pi) < 1.e-4
-
+@pytest.mark.skipnetgen
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
-    try:
-        from netgen.geom2d import SplineGeometry
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.geom2d import SplineGeometry
+    import netgen
 
     try:
         from slepc4py import SLEPc
@@ -407,17 +338,15 @@ def test_firedrake_Adaptivity_netgen():
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.refine_marked_elements(mark)
-        File("Sol.pvd").write(uh)
     assert (abs(lam-exact) < 1e-2)
 
+
+@pytest.mark.skipnetgen
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_firedrake_Adaptivity_netgen_parallel():
-    try:
-        from netgen.geom2d import SplineGeometry
-        import netgen
-    except ImportError:
-        pytest.skip(reason="Netgen unavailable, skipping Netgen test.")
+    from netgen.geom2d import SplineGeometry
+    import netgen
 
     try:
         from slepc4py import SLEPc
@@ -515,5 +444,4 @@ def test_firedrake_Adaptivity_netgen_parallel():
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.refine_marked_elements(mark)
-        File("Sol.pvd").write(uh)
     assert (abs(lam-exact) < 1e-2)

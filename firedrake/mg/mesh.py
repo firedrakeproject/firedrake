@@ -11,6 +11,7 @@ from .utils import set_level
 
 try:
     import netgen
+    import ngsPETSc
 except ImportError:
     netgen = None
     ngsPETSc = None
@@ -85,7 +86,7 @@ class HierarchyBase(object):
 
 def MeshHierarchy(mesh, refinement_levels,
                   refinements_per_level=1,
-                  order=1,
+                  degree=1,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh):
@@ -95,6 +96,9 @@ def MeshHierarchy(mesh, refinement_levels,
     :arg refinement_levels: the number of levels of refinement
     :arg refinements_per_level: the number of refinements for each
         level in the hierarchy.
+    :arg degree: the degree of the finite element space used for
+        isoparametric representation of the geometry. Only relevant
+        if mesh is a Netgen mesh.
     :arg distribution_parameters: options controlling mesh
         distribution, see :func:`~.Mesh` for details.  If ``None``,
         use the same distribution parameters as were used to
@@ -112,8 +116,10 @@ def MeshHierarchy(mesh, refinement_levels,
         try:
             from ngsPETSc import NetgenHierarchy
         except ImportError:
-            raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
-        return NetgenHierarchy(mesh, refinement_levels, order=order, digits=8, adaptive=False)
+            raise ImportError("Unable to import ngsPETSc. Please ensure that netgen and ngsPETSc\
+                               installed and available to Firedrake. You can do this via \
+                               firedrake-update --netgen.")
+        return NetgenHierarchy(mesh, refinement_levels, order=degree, tol=1e-8)
 
     cdm = mesh.topology_dm
     cdm.setRefinementUniform(True)
