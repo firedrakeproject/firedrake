@@ -1276,7 +1276,6 @@ def build_and_install_libsupermesh():
                     "-DMPIEXEC_EXECUTABLE=" + args.mpiexec,
                     "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"
                 ]
-                print(" ".join(cmd))
                 check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
