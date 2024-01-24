@@ -96,7 +96,7 @@ class UFLConstraint(Constraint):
         asm = firedrake.assemble(
             dp * ufl.replace(self.dform, {self.trial: self.test})
         )
-        if isinstance(result, firedrake.Function):
+        if isinstance(result, firedrake.Cofunction):
             result.assign(asm)
         else:
             raise NotImplementedError("Do I need to untangle all controls?")
