@@ -573,6 +573,12 @@ def expand_element(ele):
         return ele
 
 
+def get_readonly_view(arr):
+    result = arr.view()
+    result.flags.writeable = False
+    return result
+
+
 def hash_fiat_element(element):
     """FIAT elements are not hashable,
        this is not the best way to create a hash"""
@@ -595,17 +601,12 @@ def generate_key_evaluate_dual(source, target, derivative=None):
     return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
 
 
-def get_readonly_view(arr):
-    result = arr.view()
-    result.flags.writeable = False
-    return result
-
-
 @cached({}, key=generate_key_evaluate_dual)
 def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
-       on the (derivative of the) basis functions of the source
-       element."""
+    on the (derivative of the) basis functions of the source element.
+
+    """
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)

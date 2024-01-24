@@ -194,6 +194,7 @@ class FDMPC(PCBase):
         """
         Allocate the FDM sparse preconditioner.
 
+        :arg Amat: the original Jacobian :class:`PETSc.Mat`
         :arg V: the :class:`.FunctionSpace` of the form arguments
         :arg J: the Jacobian bilinear form
         :arg bcs: an iterable of boundary conditions on V
@@ -202,7 +203,8 @@ class FDMPC(PCBase):
         :arg use_static_condensation: are we assembling the statically-condensed Schur complement on facets?
         :arg use_amat: are we computing the Schur complement exactly?
 
-        :returns: 3-tuple with the stiffness and preconditioner :class:`PETSc.Mats` and a list of assembly callables
+        :returns: 3-tuple with the Jacobian :class:`PETSc.Mat`, the
+                  preconditioner :class:`PETSc.Mat`, and a list of assembly callables
         """
         symmetric = pmat_type.endswith("sbaij")
         ifacet = [i for i, Vsub in enumerate(V) if is_restricted(Vsub.finat_element)[1]]
@@ -295,7 +297,6 @@ class FDMPC(PCBase):
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
             if ptype.endswith("sbaij"):
                 P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-            # P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
             P.setUp()
 
             # append callables to zero entries, insert element matrices, and apply BCs
