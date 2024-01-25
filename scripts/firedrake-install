@@ -1254,7 +1254,7 @@ def build_and_install_h5py():
 
 def build_and_install_libsupermesh():
     log.info("Installing libsupermesh")
-    url = "git+https://github.com/firedrakeproject/libsupermesh.git@JDBetteridge/remove_libspatialindex"
+    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
         changed = git_update("libsupermesh", url)
     else:
