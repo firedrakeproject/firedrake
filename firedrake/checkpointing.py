@@ -947,7 +947,6 @@ class CheckpointFile(object):
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
-
             with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
