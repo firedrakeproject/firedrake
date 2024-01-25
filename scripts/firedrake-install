@@ -1274,7 +1274,6 @@ def build_and_install_libsupermesh():
                     "-DMPI_Fortran_COMPILER=" + f90,
                     "-DCMAKE_Fortran_COMPILER=" + f90,
                     "-DMPIEXEC_EXECUTABLE=" + args.mpiexec,
-                    "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"
                 ]
                 check_call(cmd)
                 check_call(["make"])
