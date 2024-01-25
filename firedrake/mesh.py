@@ -971,7 +971,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 checked_zip(sizes, map_data)
             ):
                 outer_axis = self.points[str(dim)].root
-                size_dat = op3.HierarchicalArray(outer_axis, data=size)
+                size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size))
                 inner_axis = op3.Axis(size_dat)
                 map_axes = op3.AxisTree.from_nest(
                     {outer_axis: inner_axis}
