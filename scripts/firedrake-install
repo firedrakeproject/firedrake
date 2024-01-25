@@ -1273,7 +1273,7 @@ def build_and_install_libsupermesh():
                     "-DMPI_CXX_COMPILER=" + cxx,
                     "-DMPI_Fortran_COMPILER=" + f90,
                     "-DCMAKE_Fortran_COMPILER=" + f90,
-                    "-DMPIEXEC_EXECUTABLE=" + args.mpiexec,
+                    "-DMPIEXEC_EXECUTABLE=" + mpiexec,
                 ]
                 check_call(cmd)
                 check_call(["make"])
@@ -1759,6 +1759,7 @@ if mode == "install":
 cc = options["mpicc"]
 cxx = options["mpicxx"]
 f90 = options["mpif90"]
+mpiexec = options["mpiexec"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
