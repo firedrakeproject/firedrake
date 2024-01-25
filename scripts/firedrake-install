@@ -1868,6 +1868,7 @@ if mode == "install":
         cc = os.path.join(compilerbin, "mpicc")
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
+        mpiexec = os.path.join(compilerbin, "mpiexec")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
