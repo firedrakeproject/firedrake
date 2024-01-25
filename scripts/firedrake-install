@@ -1252,7 +1252,7 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_libsupermesh():
+def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
     log.info("Installing libsupermesh")
     url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
@@ -1921,7 +1921,7 @@ if mode == "install":
             sys.path.append(os.getcwd() + "/" + p)
 
     with environment(**compiler_env):
-        build_and_install_libsupermesh()
+        build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
     with pipargs("--no-deps"), environment(**compiler_env, **link_env):
         for p in ("PyOP2", "firedrake"):
@@ -2086,7 +2086,7 @@ Please consider updating your PETSc manually.
                 install(p+"/")
 
         with environment(**compiler_env):
-            build_and_install_libsupermesh()
+            build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
         with pipargs("--no-deps"), environment(**compiler_env, **link_env):
             for p in ("PyOP2", "firedrake"):
