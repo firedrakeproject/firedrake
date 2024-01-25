@@ -1266,18 +1266,15 @@ def build_and_install_libsupermesh():
             check_call(["git", "clean", "-f", "-x", "-d"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
-                cmd = ["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                       "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                       "-DMPI_C_COMPILER=" + cc,
-                       "-DMPI_CXX_COMPILER=" + cxx,
-                       "-DMPI_Fortran_COMPILER=" + f90,
-                       "-DCMAKE_Fortran_COMPILER=" + f90,
-                       "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
-                fortran, version = sniff_compiler(f90)
-                if fortran == "GNU" and version >= Version("10"):
-                    # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
-                    # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
-                    cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
+                cmd = [
+                    "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                    "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                    "-DMPI_C_COMPILER=" + cc,
+                    "-DMPI_CXX_COMPILER=" + cxx,
+                    "-DMPI_Fortran_COMPILER=" + f90,
+                    "-DCMAKE_Fortran_COMPILER=" + f90,
+                    "-DMPIEXEC_EXECUTABLE=" + args.mpiexec,
+                ]
                 check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
@@ -1342,39 +1339,6 @@ def build_and_install_torch():
         run_pip_install(["typing_extensions"])
     extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/cpu"] if args.torch == "cpu" else []
     run_pip_install(["torch"] + extra_index_url)
-
-
-def build_and_install_libspatialindex():
-    log.info("Installing libspatialindex")
-    if os.path.exists("libspatialindex"):
-        log.info("Updating the git repository for libspatialindex")
-        with directory("libspatialindex"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            libspatialindex_changed = git_sha != git_sha_new
-            if libspatialindex_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
-        libspatialindex_changed = True
-
-    if libspatialindex_changed:
-        with directory("libspatialindex"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            # Patch Makefile.am to skip building test
-            check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
-            # Build and install
-            check_call(["./autogen.sh"])
-            check_call(["./configure", "--prefix=" + firedrake_env,
-                        "--enable-shared", "--disable-static"])
-            check_call(["make"])
-            check_call(["make", "install"])
-    else:
-        log.info("No need to rebuild libspatialindex")
 
 
 def build_and_install_slepc():
@@ -1934,9 +1898,6 @@ if mode == "install":
 
     with environment(**compiler_env):
         build_and_install_h5py()
-        build_and_install_libsupermesh()
-
-    build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -1944,6 +1905,12 @@ if mode == "install":
         packages.remove("loopy")
 
     with pipargs("--no-deps"):
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+
         for p in packages:
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
@@ -1952,13 +1919,19 @@ if mode == "install":
                 install(p+"/")
             sys.path.append(os.getcwd() + "/" + p)
 
+    with environment(**compiler_env):
+        build_and_install_libsupermesh()
+
+    with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+        for p in ("PyOP2", "firedrake"):
+            install(p+"/")
+
     # Work around easy-install.pth bug.
     try:
         packages.remove("petsc")
     except ValueError:
         pass
     packages.remove("petsc4py")
-    packages.remove("firedrake")
 
 else:
     # Update mode
@@ -2083,8 +2056,6 @@ Please consider updating your PETSc manually.
         # Always rebuild h5py.
         with environment(**compiler_env):
             build_and_install_h5py()
-            build_and_install_libsupermesh()
-        build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -2104,13 +2075,20 @@ Please consider updating your PETSc manually.
             packages.remove("firedrake")
         except ValueError:
             pass
-        packages += ("PyOP2", "firedrake")
+
         for p in packages:
             clean(p)
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
                     install(p+"/")
             else:
+                install(p+"/")
+
+        with environment(**compiler_env):
+            build_and_install_libsupermesh()
+
+        with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+            for p in ("PyOP2", "firedrake"):
                 install(p+"/")
 
         # Ensure pytest is at the latest version
