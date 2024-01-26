@@ -443,6 +443,7 @@ def test_bcs_nodes(domain, expected):
 
 @pytest.mark.parallel(nprocs=4)
 def test_layer_extents_parallel():
+    from petsc4py import PETSc
     # +-----+-----+
     # |\  1 |\  3 |  cell_layers = [[0, 1],
     # | \   | \   |                 [0, 1],
@@ -462,25 +463,27 @@ def test_layer_extents_parallel():
     else:
         sizes = None
         points = None
-
+    
+    print("BEFORE MESH")
     mesh = UnitSquareMesh(2, 1, reorder=False, distribution_parameters={"partition":
                                                                         (sizes, points)})
+    print("AFTER MESH")
     V = FunctionSpace(mesh, "DG", 0)
-
+    print("2")
     x, _ = SpatialCoordinate(mesh)
     selector = assemble(interpolate(x - 0.5, V))
-
+    print("3")
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
-
+    print("4")
     data = selector.dat.data_ro_with_halos.real
     for cell in V.cell_node_map().values_with_halo:
         if data[cell] < 0.25:
             layers[cell, :] = [0, 1]
         else:
             layers[cell, :] = [0, 2]
-
+    print("5")
     extmesh = ExtrudedMesh(mesh, layers=layers, layer_height=1)
-
+    print("6")
     if mesh.comm.rank == 0:
         #  Top view, plex points
         #  4--8--6
@@ -585,12 +588,14 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 3, 0, 3],
             [0, 3, 0, 3]], dtype=IntType)
-
+    print("7")
     assert numpy.equal(extmesh.layer_extents, expected).all()
 
     V = FunctionSpace(extmesh, "CG", 1)
-
+    
     assert V.dof_dset.layout_vec.getSize() == 15
+    
+    print("END")
 
 
 @pytest.mark.parallel(nprocs=3)

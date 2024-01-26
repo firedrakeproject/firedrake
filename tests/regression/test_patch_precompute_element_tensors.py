@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 
 @pytest.fixture(scope='module')
@@ -42,8 +43,7 @@ def test_patch_precompute_element_tensors(mesh, V):
           "mg_coarse_pc_type": "python",
           "mg_coarse_pc_python_type": "firedrake.AssembledPC",
           "mg_coarse_assembled_pc_type": "lu",
-          "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-          "mg_coarse_assembled_mat_mumps_icntl_14": 200,
+          "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
           "mg_levels_ksp_type": "richardson",
           "mg_levels_ksp_max_it": 1,
           "mg_levels_ksp_richardson_scale": 1/3,
@@ -57,7 +57,8 @@ def test_patch_precompute_element_tensors(mesh, V):
           "mg_levels_patch_pc_patch_symmetrise_sweep": False,
           "mg_levels_patch_pc_patch_construct_dim": 0,
           "mg_levels_patch_sub_ksp_type": "preonly",
-          "mg_levels_patch_sub_pc_type": "lu"}
+          "mg_levels_patch_sub_pc_type": "lu",
+          "snes_view": None}
 
     nvproblem = NonlinearVariationalProblem(F, u, bcs=bcs)
     solver = NonlinearVariationalSolver(nvproblem, solver_parameters=sp)
