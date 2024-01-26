@@ -4,7 +4,7 @@ from firedrake import *
 
 
 try:
-    from slepc4py import SLEPc
+    from slepc4py import SLEPc  # noqa: F401
 except ImportError:
     # SLEPc is not installed
     pytest.skip("SLEPc not installed", allow_module_level=True)
