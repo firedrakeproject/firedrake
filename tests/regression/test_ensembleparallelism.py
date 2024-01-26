@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from pyop2.mpi import MPI
 import pytest
 
@@ -356,11 +357,12 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     u_combined = Function(W)
     u_separate = Function(W)
 
-    params = {'ksp_type': 'preonly',
-              'pc_type': 'redundant',
-              "redundant_pc_type": "lu",
-              "redundant_pc_factor_mat_solver_type": "mumps",
-              "redundant_mat_mumps_icntl_14": 200}
+    params = {
+        "ksp_type": "preonly",
+        "pc_type": "redundant",
+        "redundant_pc_type": "lu",
+        "redundant_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+    }
 
     combinedProblem = LinearVariationalProblem(a, Lcombined, u_combined)
     combinedSolver = LinearVariationalSolver(combinedProblem,

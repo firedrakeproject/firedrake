@@ -3,6 +3,7 @@ import numpy as np
 
 from firedrake import *
 from firedrake.__future__ import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.mark.skipcomplex
@@ -159,6 +160,38 @@ def test_real_extruded_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
+def mixed_poisson_opts():
+    # The default R space solver options are sufficient if the direct solver is
+    # MUMPS, otherwise we use an iterative solver to ensure the tests pass
+    if DEFAULT_DIRECT_SOLVER == "mumps":
+        opts = None
+    else:
+        opts = {
+            "mat_type": "matfree",
+            "ksp_type": "fgmres",
+            "pc_type": "fieldsplit",
+            "pc_fieldsplit_type": "schur",
+            "pc_fieldsplit_schur_fact_type": "full",
+            "pc_fieldsplit_0_fields": "0",
+            "pc_fieldsplit_1_fields": "1",
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                "assembled": {
+                    "ksp_type": "gmres",
+                    "ksp_rtol": 1e-7,
+                    "pc_type": "jacobi",
+                },
+            },
+            "fieldsplit_1": {
+                "ksp_type": "gmres",
+                "pc_type": "none",
+            }
+        }
+    return opts
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_real_mixed_solve():
@@ -185,7 +218,7 @@ def test_real_mixed_solve():
 
         residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
-        solve(residual_form == 0, phi)
+        solve(residual_form == 0, phi, solver_parameters=mixed_poisson_opts())
 
         return sqrt(assemble(inner(f - phi, f - phi) * dx))
 
@@ -218,7 +251,7 @@ def test_real_mixed_solve_split_comms():
 
         residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
-        solve(residual_form == 0, phi)
+        solve(residual_form == 0, phi, solver_parameters=mixed_poisson_opts())
 
         return sqrt(assemble(inner(f - phi, f - phi) * dx))
 

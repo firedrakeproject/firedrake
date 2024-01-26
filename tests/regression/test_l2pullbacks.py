@@ -207,8 +207,11 @@ def laplacian_IP(r, degree, meshd, meshtype):
     # Compute solution
     sol = Function(V)
 
-    solve(a == L, sol, solver_parameters={'pc_type': 'ilu',
-                                          'ksp_type': 'lgmres'})
+    solve(a == L, sol, solver_parameters={
+        'pc_type': 'ilu',
+        'pc_factor_mat_solver_type': 'petsc',
+        'ksp_type': 'lgmres'
+    })
 
     # Analytical solution
     if meshtype in ['planar-quad', 'planar-tri', 'extruded']:
