@@ -57,7 +57,6 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
         }
     }
 
-
     if nested:
         params['condensed_field']['localsolve'] = {'ksp_type': 'preonly',
                                                    'pc_type': 'fieldsplit',

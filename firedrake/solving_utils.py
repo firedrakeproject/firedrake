@@ -3,7 +3,6 @@ from itertools import chain
 import numpy
 
 from pyop2 import op2
-from firedrake_configuration import get_config
 from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
