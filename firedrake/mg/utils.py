@@ -141,7 +141,7 @@ def physical_node_locations(V):
     mesh = V.mesh()
     Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
     # FIXME: This is unsafe for DG coordinates and CG target spaces.
-    return firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+    return firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
 
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
