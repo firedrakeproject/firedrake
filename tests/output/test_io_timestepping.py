@@ -104,13 +104,14 @@ def test_io_timestepping_setting_time(tmpdir):
     with CheckpointFile(filename, mode="r") as f:
         mesh = f.load_mesh(name="firedrake_default")
         timestepping_history = f.get_timestepping_history(mesh, name="u")
-        loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("indices")[-2])
+        timestepping_history_z = f.get_timestepping_history(mesh, name="z")
+        loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("index")[-2])
 
-    assert (indices == timestepping_history.get("indices")).all()
-    assert (ts == timestepping_history.get("time")).all()
-    assert (timesteps == timestepping_history.get("timestep")).all()
+for timestepping_hist in [timestepping_history, timestepping_history_z]:
+    assert (indices == timestepping_hist.get("index")).all()
+    assert (ts == timestepping_hist.get("time")).all()
+    assert (timesteps == timestepping_hist.get("timestep")).all()
 
     # checking if the function is exactly what we think
-    v_answer = interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi),
-                           loaded_v.function_space())
+    v_answer = Function(loaded_v.function_space()).interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi))
     assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16

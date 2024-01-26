@@ -50,6 +50,9 @@ r"""The prefix attached to the DG function resulting from projecting the origina
 PREFIX_TIMESTEPPING = "_".join([PREFIX, "timestepping"])
 r"""The prefix attached to the attributes associated with timestepping."""
 
+PREFIX_TIMESTEPPING_HISTORY = "_".join([PREFIX_TIMESTEPPING, "history"])
+r"""The prefix attached to the attributes associated with timestepping history."""
+
 # This is the distribution_parameters and reorder that one must use when
 # distribution and permutation are loaded.
 distribution_parameters_noop = {"partition": False,
@@ -781,12 +784,12 @@ class CheckpointFile(object):
                 dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
                 tpath = self._path_to_vec(tV.mesh().name, dm_name, tf_name)
                 timestepping_info = {}
-                if self.has_attr(tpath, PREFIX_TIMESTEPPING + "_indices"):
-                    timestepping_info["indices"] = self.get_attr(tpath, PREFIX_TIMESTEPPING + "_indices")
-                    stored_keys = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys")
-                    if stored_keys != "":
-                        for key in stored_keys.split("_"):
-                            timestepping_info[key] = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{key}")
++                if self.has_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index"):
++                    timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
+                    for key in self.h5pyfile[path].attrs.keys():
+                        if key.startswith(PREFIX_TIMESTEPPING_HISTORY):
+                            key_ = key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                            timestepping_info[key_] = self.get_attr(path, key)
                 return timestepping_info
         else:
             raise RuntimeError(
@@ -913,26 +916,21 @@ class CheckpointFile(object):
                 self._save_function_topology(tf, idx=idx)
                 # store timstepping_info only if in timestepping mode
                 if idx is not None:
-                    # We make sure the provided timestepping_info is consistent all along timestepping
-                    # For this we store an attribute with "_history_keys" in the first instance
-                    # and we make sure the provided info at each timestep is consistent with that
-                    if self.has_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys"):
-                        key_names = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys")
-                        if key_names != "_".join(timestepping_info.keys()):
+                    # We make sure the provided timestepping_info is consistent all along timestepping.
+                    if not new:
+                        existing_keys = {key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                                         for key in self.h5pyfile[path].attrs.keys()
+                                         if key.startswith(PREFIX_TIMESTEPPING_HISTORY)}
+                        if timestepping_info.keys() != existing_keys:
                             raise RuntimeError(
                                 r"Provided keys in timestepping_info must remain consistent")
-                    else:
-                        key_names = "_".join(timestepping_info.keys())
-                        self.set_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys", key_names)
-
                     # store items in timestepping_info accordingly
                     for ts_info_key, ts_info_value in timestepping_info.items():
                         try:
                             ts_info_value = float(ts_info_value)
                         except ValueError:
                             raise ValueError(f"{ts_info_key} should be convertible to float.")
-                        has_key_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}")
-                        old_items = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}") if has_key_attr else []
+                        old_items = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}")
                         items = np.concatenate((old_items, [ts_info_value]))
                         self.set_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}", items)
 
@@ -976,10 +974,10 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
-            has_indices_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_indices")
-            old_indices = self.get_attr(path, PREFIX_TIMESTEPPING + "_indices") if has_indices_attr else []
+            has_indices_attr = self.has_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index")
+            old_indices = self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index") if has_indices_attr else []
             indices = np.concatenate((old_indices, [idx]))
-            self.set_attr(path, PREFIX_TIMESTEPPING + "_indices", indices)
+            self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index", indices)
 
 
     @PETSc.Log.EventDecorator("LoadMesh")
