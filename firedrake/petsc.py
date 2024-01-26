@@ -412,13 +412,13 @@ else:
     DEFAULT_AMG_PC = "gamg"
 
 
-DEFAULT_KSP_PARAMETERS = {
+DEFAULT_KSP_PARAMETERS = flatten_parameters({
     "mat_type": "aij",
     "ksp_type": "preonly",
     "ksp_rtol": 1e-7,
     "pc_type": "lu",
     "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
-}
+})
 
 DEFAULT_SNES_PARAMETERS = {
     "snes_type": "newtonls",
