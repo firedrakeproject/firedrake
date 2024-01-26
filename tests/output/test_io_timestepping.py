@@ -107,11 +107,11 @@ def test_io_timestepping_setting_time(tmpdir):
         timestepping_history_z = f.get_timestepping_history(mesh, name="z")
         loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("index")[-2])
 
-for timestepping_hist in [timestepping_history, timestepping_history_z]:
-    assert (indices == timestepping_hist.get("index")).all()
-    assert (ts == timestepping_hist.get("time")).all()
-    assert (timesteps == timestepping_hist.get("timestep")).all()
+    for timesteppng_hist in [timestepping_history, timestepping_history_z]:
+        assert (indices == timestepping_history.get("index")).all()
+        assert (ts == timestepping_history.get("time")).all()
+        assert (timesteps == timestepping_history.get("timestep")).all()
 
-    # checking if the function is exactly what we think
-    v_answer = Function(loaded_v.function_space()).interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi))
-    assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16
+        # checking if the function is exactly what we think
+        v_answer = Function(loaded_v.function_space()).interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi))
+        assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16

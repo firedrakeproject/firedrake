@@ -784,8 +784,8 @@ class CheckpointFile(object):
                 dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
                 tpath = self._path_to_vec(tV.mesh().name, dm_name, tf_name)
                 timestepping_info = {}
-+                if self.has_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index"):
-+                    timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
+                if self.has_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index"):
+                    timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
                     for key in self.h5pyfile[path].attrs.keys():
                         if key.startswith(PREFIX_TIMESTEPPING_HISTORY):
                             key_ = key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
@@ -911,6 +911,7 @@ class CheckpointFile(object):
             else:
                 # -- Save function topology --
                 path = self._path_to_function(tmesh.name, mesh.name, V_name, f.name())
+                new = path not in self.h5pyfile
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
@@ -932,8 +933,7 @@ class CheckpointFile(object):
                             raise ValueError(f"{ts_info_key} should be convertible to float.")
                         old_items = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}")
                         items = np.concatenate((old_items, [ts_info_value]))
-                        self.set_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}", items)
-
+                        self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}", items)
 
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
