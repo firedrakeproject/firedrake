@@ -521,7 +521,6 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-    DEFAULT_REAL = -1e30
 
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
@@ -721,60 +720,75 @@ class CheckpointFile(object):
             self.viewer.popGroup()
 
     @PETSc.Log.EventDecorator("GetTimesteps")
-    def get_timesteps(self, mesh, name):
+    def get_timestepping_history(self, mesh, name):
         """
-        Retrieve the stored indices along with associated times and timesteps for a given function.
+        Retrieve the timestepping history and indices for a specified function within a mesh.
 
-        This function is useful in checkpointing scenarios during timestepping. Each function within
-        the timestepping mode is associated with an index and, optionally, a t (time) or a timestep.
-        This method returns the stored indices, their corresponding times, and timesteps for a
-        specified function. If a function is not store in timestepping mode, empty lists are returned.
+        This method is primarily used in checkpointing scenarios during timestepping simulations.
+        It returns the indices associated with each function call in the timestepping mode,
+        along with any additional timestepping-related information (like time or timestep values) if available.
+        If the specified function has not been stored in timestepping mode, it returns an empty dictionary.
 
         Parameters
         ----------
         mesh : firedrake.mesh.MeshGeometry
-            The mesh under which the function should be searched.
+            The mesh containing the function to be queried.
         name : str
-            The name of the function for which indices, times, and timesteps are to be retrieved.
+            The name of the function whose timestepping history is to be retrieved.
 
         Returns
         -------
-        indices : list
-            A list of stored indices for the function with the specified 'name'.
-        ts : list
-            A list of associated times for the indices. Each element is 'nan' if not provided for an index.
-        timesteps : list
-            A list of associated timesteps for the indices. Each element is 'nan' if not provided for an index.
+        dict
+            - Returns an empty dictionary if the function `name` has not been stored in timestepping mode.
+            - If the function `name` is stored in timestepping mode, returns a dictionary with the following contents:
+                - 'indices': A list of all stored indices for the function.
+                - Additional key-value pairs representing timestepping information, if available.
+
+        Raises
+        ------
+        RuntimeError
+            If the function `name` is not found within the given `mesh` in the current file.
+
+        See Also
+        --------
+        CheckpointFile.save_function : Describes how timestepping information should be provided.
+
+        Notes
+        -----
+        The function internally checks whether the specified function is mixed or exists in the file.
+        It then retrieves the appropriate data paths and extracts the timestepping information
+        as specified in the checkpoint file.
         """
+
         # check if the function is mixed, or even exists in file
         if name in self._get_mixed_function_name_mixed_function_space_name_map(mesh.name):
             V_name = self._get_mixed_function_name_mixed_function_space_name_map(mesh.name)[name]
             base_path = self._path_to_mixed_function(mesh.name, V_name, name)
             path = os.path.join(base_path, str(0))  # path to subfunction 0
             fsub_name = self.get_attr(path, PREFIX + "_function")
-            return self.get_timesteps(mesh, fsub_name)
+            return self.get_timestepping_history(mesh, fsub_name)
         elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
             tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
             V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
             V = self._load_function_space(mesh, V_name)
             tV = V.topological
             path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
-
             if PREFIX_EMBEDDED in self.h5pyfile[path]:
-
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
-                return self.get_timesteps(mesh, _name)
+                return self.get_timestepping_history(mesh, _name)
             else:
                 tf_name = self.get_attr(path, PREFIX + "_vec")
                 dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
                 tpath = self._path_to_vec(tV.mesh().name, dm_name, tf_name)
+                timestepping_info = {}
                 if self.has_attr(tpath, PREFIX_TIMESTEPPING + "_indices"):
-                    return self.get_attr(tpath, PREFIX_TIMESTEPPING + "_indices"), \
-                           self.get_attr(path, PREFIX_TIMESTEPPING + "_times"), \
-                           self.get_attr(path, PREFIX_TIMESTEPPING + "_timesteps")
-                else:
-                    return [], [], []
+                    timestepping_info["indices"] = self.get_attr(tpath, PREFIX_TIMESTEPPING + "_indices")
+                    stored_keys = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys")
+                    if stored_keys != "":
+                        for key in stored_keys.split("_"):
+                            timestepping_info[key] = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{key}")
+                return timestepping_info
         else:
             raise RuntimeError(
                 f"""Function ({name}) not found in {self.filename}""")
@@ -842,7 +856,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None, t=None, timestep=None):
+    def save_function(self, f, idx=None, name=None, timestepping_info={}):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -853,14 +867,16 @@ class CheckpointFile(object):
             set or never be called with the idx parameter set.
         :kwarg name: optional alternative name to save the function under.
         :kwarg t: optional (requires idx) time to be stored with function.
-        :kwarg timestep: optional (requires idx) timestep associated function.
+        :kwarg timestepping_info: optional (requires idx) additional information
+            such as time, timestepping that can be stored along a function for
+            each index.
         """
         V = f.function_space()
         mesh = V.mesh()
 
         if name:
             g = Function(V, val=f.dat, name=name)
-            return self.save_function(g, idx=idx, t=t, timestep=timestep)
+            return self.save_function(g, idx=idx, timestepping_info=timestepping_info)
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
@@ -872,7 +888,7 @@ class CheckpointFile(object):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())
-                self.save_function(fsub, idx=idx, t=t, timestep=timestep)
+                self.save_function(fsub, idx=idx, timestepping_info=timestepping_info)
             self._update_mixed_function_name_mixed_function_space_name_map(mesh.name, {f.name(): V_name})
         else:
             tf = f.topological
@@ -890,7 +906,7 @@ class CheckpointFile(object):
                 _name = "_".join([PREFIX_EMBEDDED, f.name()])
                 _f = Function(_V, name=_name)
                 self._project_function_for_checkpointing(_f, f, method)
-                self.save_function(_f, idx=idx, t=t, timestep=timestep)
+                self.save_function(_f, idx=idx, timestepping_info=timestepping_info)
                 self.set_attr(path, PREFIX_EMBEDDED + "_function", _name)
             else:
                 # -- Save function topology --
@@ -900,22 +916,29 @@ class CheckpointFile(object):
                 # store index or timestamp mode if in timestepping mode
                 self._save_function_topology(tf, idx=idx)
                 if idx is not None:
-                    t = CheckpointFile.DEFAULT_REAL if t is None else t
-                    timestep = CheckpointFile.DEFAULT_REAL if timestep is None else timestep
-                    try:
-                        t = float(t)
-                        timestep = float(timestep)
-                    except ValueError:
-                        raise ValueError(
-                            """t and timestep must be convertible to float."""
-                        )
-                    has_time_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_times")
-                    old_times = self.get_attr(path, PREFIX_TIMESTEPPING + "_times") if has_time_attr else []
-                    old_timesteps = self.get_attr(path, PREFIX_TIMESTEPPING + "_timesteps") if has_time_attr else []
-                    times = np.concatenate((old_times, [t]))
-                    timesteps = np.concatenate((old_timesteps, [timestep]))
-                    self.set_attr(path, PREFIX_TIMESTEPPING + "_times", times)
-                    self.set_attr(path, PREFIX_TIMESTEPPING + "_timesteps", timesteps)
+                    # We make sure the provided timestepping_info is consistent all along timestepping
+                    # For this we store an attribute with "_history_keys" in the first instance
+                    # and we make sure the provided info at each timestep is consistent with that
+                    if self.has_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys"):
+                        key_names = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys")
+                        if key_names != "_".join(timestepping_info.keys()):
+                            raise RuntimeError(
+                                r"Provided keys in timestepping_info must remain consistent")
+                    else:
+                        key_names = "_".join(timestepping_info.keys())
+                        self.set_attr(path, PREFIX_TIMESTEPPING + "_history" + "_keys", key_names)
+
+                    # store items in timestepping_info accordingly
+                    for ts_info_key, ts_info_value in timestepping_info.items():
+                        try:
+                            ts_info_value = float(ts_info_value)
+                        except ValueError:
+                            raise ValueError(f"{ts_info_key} should be convertible to float.")
+                        has_key_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}")
+                        old_items = self.get_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}") if has_key_attr else []
+                        items = np.concatenate((old_items, [ts_info_value]))
+                        self.set_attr(path, PREFIX_TIMESTEPPING + "_history" + f"_{ts_info_key}", items)
+
 
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
@@ -947,7 +970,6 @@ class CheckpointFile(object):
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
-
             with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
@@ -956,11 +978,12 @@ class CheckpointFile(object):
                     topology_dm.globalVectorView(self.viewer, dm, vec)
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
+            self.viewer.popTimestepping()
             has_indices_attr = self.has_attr(path, PREFIX_TIMESTEPPING + "_indices")
             old_indices = self.get_attr(path, PREFIX_TIMESTEPPING + "_indices") if has_indices_attr else []
             indices = np.concatenate((old_indices, [idx]))
             self.set_attr(path, PREFIX_TIMESTEPPING + "_indices", indices)
-            self.viewer.popTimestepping()
+
 
     @PETSc.Log.EventDecorator("LoadMesh")
     def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
