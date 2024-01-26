@@ -15,10 +15,26 @@ elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_ARCH"] = "default"
 del config
 
+# Set up the cache directories before importing PyOP2.
+firedrake_configuration.setup_cache_dirs()
+
 # Ensure petsc is initialised by us before anything else gets in there.
-import firedrake.petsc as petsc
+#
+# When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
+# crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
+# is because PETSc wants to complain about unused options to stderr, but by this
+# point the worker's stderr stream has already been destroyed by xdist, causing
+# a crash. To prevent this we disable unused options checking in PETSc when
+# running with xdist.
+import petsc4py
+if "PYTEST_XDIST_WORKER" in os.environ:
+    petsc4py.init(sys.argv + ["-options_left", "no"])
+else:
+    petsc4py.init(sys.argv)
+del petsc4py
 
 # Initialise PETSc events for both import and entire duration of program
+from firedrake import petsc
 _is_logging = "log_view" in petsc.OptionsManager.commandline_options
 if _is_logging:
     _main_event = petsc.PETSc.Log.Event("firedrake")
@@ -55,8 +71,6 @@ except AttributeError:
 del ufl
 from ufl import *
 from finat.ufl import *
-# Set up the cache directories before importing PyOP2.
-firedrake_configuration.setup_cache_dirs()
 
 # By default we disable pyadjoint annotation.
 # To enable annotation, the user has to call continue_annotation().
