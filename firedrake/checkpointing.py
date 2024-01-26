@@ -521,7 +521,6 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
-
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
@@ -866,14 +865,12 @@ class CheckpointFile(object):
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
         :kwarg name: optional alternative name to save the function under.
-        :kwarg t: optional (requires idx) time to be stored with function.
         :kwarg timestepping_info: optional (requires idx) additional information
             such as time, timestepping that can be stored along a function for
             each index.
         """
         V = f.function_space()
         mesh = V.mesh()
-
         if name:
             g = Function(V, val=f.dat, name=name)
             return self.save_function(g, idx=idx, timestepping_info=timestepping_info)
@@ -913,8 +910,8 @@ class CheckpointFile(object):
                 path = self._path_to_function(tmesh.name, mesh.name, V_name, f.name())
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
-                # store index or timestamp mode if in timestepping mode
                 self._save_function_topology(tf, idx=idx)
+                # store timstepping_info only if in timestepping mode
                 if idx is not None:
                     # We make sure the provided timestepping_info is consistent all along timestepping
                     # For this we store an attribute with "_history_keys" in the first instance

@@ -55,11 +55,9 @@ def test_io_timestepping(element, tmpdir):
     filename = COMM_WORLD.bcast(filename, root=0)
     mycolor = (COMM_WORLD.rank > COMM_WORLD.size - 1)
     comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
-    method = "project" if isinstance(
-        element, finat.ufl.MixedElement) else "interpolate"
+    method = "project" if isinstance(element, finat.ufl.MixedElement) else "interpolate"
     if mycolor == 0:
-        mesh = Mesh("./docs/notebooks/stokes-control.msh",
-                    name=mesh_name, comm=comm)
+        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
         V = FunctionSpace(mesh, element)
         f = Function(V, name=func_name)
         with CheckpointFile(filename, 'w', comm=comm) as afile:
@@ -101,8 +99,7 @@ def test_io_timestepping_setting_time(tmpdir):
         for idx, t, timestep in zip(indices, ts, timesteps):
             u.assign(t)
             v.interpolate((cos(Constant(t)/pi)))
-            f.save_function(z, idx=idx, timestepping_info={
-                            "time": t, "timestep": timestep})
+            f.save_function(z, idx=idx, timestepping_info={"time": t, "timestep": timestep})
 
     with CheckpointFile(filename, mode="r") as f:
         mesh = f.load_mesh(name="firedrake_default")
@@ -114,8 +111,6 @@ def test_io_timestepping_setting_time(tmpdir):
     assert (timesteps == timestepping_history.get("timestep")).all()
 
     # checking if the function is exactly what we think
-    v_answer = interpolate(
-        cos(Constant(timestepping_history.get("time")[-2])/pi),
-        loaded_v.function_space())
-
+    v_answer = interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi),
+                           loaded_v.function_space())
     assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16
