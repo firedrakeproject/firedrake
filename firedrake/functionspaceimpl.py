@@ -91,11 +91,11 @@ class WithGeometryBase(object):
         Firedrake-specific data that is not required for code
         generation.
     """
-    def __init__(self, mesh, element, component=None, cargo=None):
+    def __init__(self, mesh, element, component=None, cargo=None, label=None):
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
 
-        super().__init__(mesh, element)
+        super().__init__(mesh, element, label)
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
@@ -415,10 +415,10 @@ class WithGeometryBase(object):
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
-    def __init__(self, mesh, element, component=None, cargo=None):
+    def __init__(self, mesh, element, component=None, cargo=None, label=None):
         super(WithGeometry, self).__init__(mesh, element,
                                            component=component,
-                                           cargo=cargo)
+                                           cargo=cargo, label=label)
 
     def dual(self):
         return FiredrakeDualSpace.create(self.topological, self.mesh())
@@ -467,7 +467,7 @@ class FunctionSpace(object):
 
     """
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None):
+    def __init__(self, mesh, element, name=None, label=""):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -490,7 +490,8 @@ class FunctionSpace(object):
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
+        self.label = label
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, self.label)
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -1157,11 +1158,14 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, name=None, bcs=[]):
         boundary_set = set()
         self.bcs = bcs
+        label = ""
         for bc in bcs:
             boundary_set = boundary_set.union(set(bc.sub_domain))
+        for boundary_domain in boundary_set:
+            label += str(boundary_domain)
         self.boundary_set = frozenset(boundary_set)
         super().__init__(function_space._mesh.topology,
-                         function_space.ufl_element(), function_space.name)
+                         function_space.ufl_element(), function_space.name, label=label)
         self.function_space = function_space
         self.name = name or (function_space.name + "_"
                              + "_".join(sorted(
