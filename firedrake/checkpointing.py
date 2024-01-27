@@ -3,7 +3,7 @@ import pickle
 from petsc4py.PETSc import ViewerHDF5
 import finat.ufl
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
+from pyop2.mpi import COMM_WORLD, internal_comm, MPI
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc, OptionsManager
@@ -103,7 +103,7 @@ class DumbCheckpoint(object):
             warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.mode = mode
 
         self._single = single_file
@@ -346,9 +346,6 @@ class DumbCheckpoint(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-            del self._comm
 
 
 class HDF5File(object):
@@ -381,7 +378,7 @@ class HDF5File(object):
             warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
 
         self._filename = filename
         self._mode = file_mode
@@ -506,8 +503,6 @@ class HDF5File(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
 
 class CheckpointFile(object):
@@ -528,7 +523,7 @@ class CheckpointFile(object):
         self.viewer = ViewerHDF5()
         self.filename = filename
         self.comm = comm
-        self._comm = internal_comm(comm)
+        self._comm = internal_comm(comm, self)
         r"""The neme of the checkpoint file."""
         self.viewer.create(filename, mode=mode, comm=self._comm)
         self.commkey = self._comm.py2f()
@@ -537,10 +532,6 @@ class CheckpointFile(object):
         self._function_load_utils = {}
         self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
         r"""DMPlex HDF5 version options."""
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     def __enter__(self):
         return self

@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(scope="module")
@@ -222,7 +223,7 @@ def test_cell_subdomain(subdomain):
                      "meshes", "cell-sets.msh"))
 
     V = FunctionSpace(mesh, "DG", 0)
-    expect = interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain))
+    expect = assemble(interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain)))
 
     f = Function(V)
 

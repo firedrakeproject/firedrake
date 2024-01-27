@@ -8,7 +8,7 @@ import shutil
 import atexit
 from abc import ABC, abstractmethod
 from numbers import Number
-_stop_disk_checkpointing = 1
+_enable_disk_checkpoint = False
 _checkpoint_init_data = False
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
@@ -73,30 +73,34 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
 
 
 def disk_checkpointing():
-    """Return true if disk checkpointing of the adjoint tape is active."""
-    return _stop_disk_checkpointing <= 0
+    """Return whether disk checkpointing is enabled."""
+    return _enable_disk_checkpoint
 
 
 def pause_disk_checkpointing():
     """Pause disk checkpointing and instead checkpoint to memory."""
-    global _stop_disk_checkpointing
-    _stop_disk_checkpointing += 1
+    global _enable_disk_checkpoint
+    _enable_disk_checkpoint = False
 
 
 def continue_disk_checkpointing():
     """Resume disk checkpointing."""
-    global _stop_disk_checkpointing
-    _stop_disk_checkpointing -= 1
-    return _stop_disk_checkpointing <= 0
+    global _enable_disk_checkpoint
+    _enable_disk_checkpoint = True
+    return _enable_disk_checkpoint
 
 
-class stop_disk_checkpointing(object):
+class stop_disk_checkpointing:
     """A context manager inside which disk checkpointing is paused."""
+    def __init__(self):
+        self._original_state = disk_checkpointing()
+
     def __enter__(self):
         pause_disk_checkpointing()
 
     def __exit__(self, *args):
-        continue_disk_checkpointing()
+        global _enable_disk_checkpoint
+        _enable_disk_checkpoint = self._original_state
 
 
 class CheckPointFileReference:
