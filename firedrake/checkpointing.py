@@ -773,9 +773,11 @@ class CheckpointFile(object):
             else:
                 tf_name = self.get_attr(path, PREFIX + "_vec")
                 dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
-                tpath = self._path_to_vec(tV.mesh().name, dm_name, tf_name)
                 timestepping_info = {}
-                if self.has_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index"):
+                tpath = self._path_to_vec_timestepping(tV.mesh().name, dm_name, tf_name)
+                path = self._path_to_function_timestepping(tmesh_name, mesh.name, V_name, name)
+                if tpath in self.h5pyfile:
+                    assert path in self.h5pyfile
                     timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
                     for key in self.h5pyfile[path].attrs.keys():
                         if key.startswith(PREFIX_TIMESTEPPING_HISTORY):
@@ -902,12 +904,14 @@ class CheckpointFile(object):
             else:
                 # -- Save function topology --
                 path = self._path_to_function(tmesh.name, mesh.name, V_name, f.name())
-                new = path not in self.h5pyfile
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
                 # store timstepping_info only if in timestepping mode
                 if idx is not None:
+                    path = self._path_to_function_timestepping(tmesh.name, mesh.name, V_name, f.name())
+                    new = path not in self.h5pyfile
+                    self.require_group(path)
                     # We make sure the provided timestepping_info is consistent all along timestepping.
                     if not new:
                         existing_keys = {key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
@@ -965,11 +969,12 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
-            has_indices_attr = self.has_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index")
-            old_indices = self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index") if has_indices_attr else []
+            path = self._path_to_vec_timestepping(tmesh.name, dm_name, tf.name())
+            new = path not in self.h5pyfile
+            self.require_group(path)
+            old_indices = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index")
             indices = np.concatenate((old_indices, [idx]))
             self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index", indices)
-
 
     @PETSc.Log.EventDecorator("LoadMesh")
     def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
