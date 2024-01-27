@@ -950,7 +950,8 @@ class CheckpointFile(object):
         else:
             topology_dm = tmesh.topology_dm
             dm = self._get_dm_for_checkpointing(tV)
-            path = self._path_to_vec(tmesh.name, dm.name, tf.name())
+            dm_name = dm.name
+            path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             if path in self.h5pyfile:
                 try:
                     timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
@@ -1426,6 +1427,9 @@ class CheckpointFile(object):
     def _path_to_vecs(self, tmesh_name, dm_name):
         return os.path.join(self._path_to_dm(tmesh_name, dm_name), "vecs")
 
+    def _path_to_vec_timestepping(self, tmesh_name, dm_name, tf_name):
+        return os.path.join(self._path_to_vec(tmesh_name, dm_name, tf_name), PREFIX_TIMESTEPPING)
+
     def _path_to_vec(self, tmesh_name, dm_name, tf_name):
         return os.path.join(self._path_to_vecs(tmesh_name, dm_name), tf_name)
 
@@ -1449,6 +1453,9 @@ class CheckpointFile(object):
 
     def _path_to_function(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_functions(tmesh_name, mesh_name, V_name), function_name)
+
+    def _path_to_function_timestepping(self, tmesh_name, mesh_name, V_name, function_name):
+        return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_TIMESTEPPING)
 
     def _path_to_function_embedded(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_EMBEDDED)
