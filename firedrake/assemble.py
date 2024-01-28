@@ -1476,7 +1476,8 @@ class _GlobalKernelBuilder:
                                 extruded=extruded,
                                 extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
-                                subset=self._needs_subset)
+                                subset=self._needs_subset,
+                                form_signature=self._form.signature())
 
     @property
     def _integral_type(self):
