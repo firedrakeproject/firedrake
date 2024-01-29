@@ -8,7 +8,7 @@ def test_moore_spence():
     try:
         from slepc4py import SLEPc
     except ImportError:
-        pytest.skip(msg="SLEPc unavailable, skipping eigenvalue test")
+        pytest.skip(reason="SLEPc unavailable, skipping eigenvalue test")
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)

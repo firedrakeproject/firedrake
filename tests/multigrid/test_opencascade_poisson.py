@@ -21,7 +21,7 @@ def test_opencascade_poisson(stepdata, order):
     try:
         mh = OpenCascadeMeshHierarchy(stepfile, element_size=h, levels=2, order=order, cache=False, verbose=True)
     except ImportError:
-        pytest.skip(msg="OpenCascade unavailable, skipping test")
+        pytest.skip(reason="OpenCascade unavailable, skipping test")
 
     # Solve Poisson
     mesh = mh[-1]

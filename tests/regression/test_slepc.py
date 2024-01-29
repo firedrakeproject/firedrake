@@ -12,7 +12,7 @@ def test_laplace_physical_ev(parallel=False):
     try:
         from slepc4py import SLEPc
     except ImportError:
-        pytest.skip(msg="SLEPc unavailable, skipping eigenvalue test")
+        pytest.skip(reason="SLEPc unavailable, skipping eigenvalue test")
 
     mesh = UnitSquareMesh(64, 64)
     V = FunctionSpace(mesh, 'CG', 1)
