@@ -54,7 +54,7 @@ def test_sum_factorisation_scalar_tensor(mesh, element):
     source = element(degree - 1)
     target = element(degree)
     tensor_flops = flop_count(mesh, source, target)
-    expect =FunctionSpace(mesh, target).value_size
+    expect = FunctionSpace(mesh, target).value_size
     if isinstance(target, FiniteElement):
         scalar_flops = tensor_flops
     else:
