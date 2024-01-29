@@ -3,6 +3,7 @@ from os.path import abspath, dirname, join, exists
 from firedrake import *
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.utils import IntType
+import shutil
 
 
 test_version = "2024_01_27"
@@ -276,6 +277,37 @@ def test_io_backward_compat_timestepping_load(version):
     with CheckpointFile(filename, "r") as afile:
         mesh = afile.load_mesh(mesh_name)
         for i in range(5):
+            f = afile.load_function(mesh, func_name, idx=i)
+            V_ = f.function_space()
+            f_ = Function(V_)
+            _initialise_function(f_, _get_expr_timestepping(V_, i))
+            assert assemble(inner(f - f_, f - f_) * dx) < 1.e-16
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize('version', ["2024_01_27"])
+def test_io_backward_compat_timestepping_append(version, tmpdir):
+    filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
+    copyname = join(str(tmpdir), "test_io_backward_compat_timestepping_append_dump.h5")
+    copyname = COMM_WORLD.bcast(copyname, root=0)
+    shutil.copyfile(filename, copyname)
+    with CheckpointFile(copyname, "r") as afile:
+        version = afile.opts.parameters['dm_plex_view_hdf5_storage_version']
+        assert version == CheckpointFile.latest_version
+        mesh = afile.load_mesh(mesh_name)
+        f = afile.load_function(mesh, func_name, idx=0)
+        V = f.function_space()
+    with CheckpointFile(copyname, 'a') as afile:
+        version = afile.opts.parameters['dm_plex_view_hdf5_storage_version']
+        assert version == '2.1.0'
+        for i in range(5, 10):
+            _initialise_function(f, _get_expr_timestepping(V, i))
+            afile.save_function(f, idx=i)
+    with CheckpointFile(copyname, "r") as afile:
+        version = afile.opts.parameters['dm_plex_view_hdf5_storage_version']
+        assert version == CheckpointFile.latest_version
+        for i in range(0, 10):
             f = afile.load_function(mesh, func_name, idx=i)
             V_ = f.function_space()
             f_ = Function(V_)
