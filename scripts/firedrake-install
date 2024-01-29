@@ -41,6 +41,8 @@ firedrake_apps = {
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
     "femlium": ("""Interactive visualization of finite element simulations on geographic maps with folium. https://femlium.github.io/""",
                 "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
+    "fascd": ("""Full approximation scheme constraint decomposition solver for variational inequalities. https://bitbucket.org/pefarrell/fascd""",
+              "git+ssh://bitbucket.org/pefarrell/fascd.git@master#egg=fascd"),
 }
 
 
