@@ -1,4 +1,3 @@
-import pytest
 from tsfc import compile_form
 from ufl import (Coefficient, FacetNormal,
                  FunctionSpace, Mesh, as_matrix,
