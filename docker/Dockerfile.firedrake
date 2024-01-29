@@ -15,6 +15,7 @@ RUN bash -c "source firedrake/bin/activate; \
         --slepc \
         --tinyasm \
         --install femlium \
+        --install fascd \
         --install gusto \
         --install icepack \
         --install irksome \
