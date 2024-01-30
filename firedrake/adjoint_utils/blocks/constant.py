@@ -2,7 +2,7 @@ from pyadjoint import Block, OverloadedType
 import numpy
 
 from pyadjoint.reduced_functional_numpy import gather
-from .backend import Backend
+from .block_utils import isconstant
 
 
 def constant_from_values(constant, values=None):
@@ -25,7 +25,7 @@ def constant_from_values(constant, values=None):
     return type(constant)(numpy.reshape(values, constant.ufl_shape))
 
 
-class ConstantAssignBlock(Block, Backend):
+class ConstantAssignBlock(Block):
     def __init__(self, other, ad_block_tag=None):
         super(ConstantAssignBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.assigned_float = False
@@ -66,7 +66,7 @@ class ConstantAssignBlock(Block, Backend):
             values = numpy.zeros(self.value.shape)
             for i, tlm_input in enumerate(tlm_inputs):
                 values.flat[self.dependency_to_index[i]] = tlm_input
-        elif self.compat.isconstant(values):
+        elif isconstant(values):
             values = values.values()
         return constant_from_values(block_variable.output, values)
 
@@ -87,6 +87,6 @@ class ConstantAssignBlock(Block, Backend):
             for i, inp in enumerate(inputs):
                 self.value[self.dependency_to_index[i]] = inp
             values = self.value
-        elif self.compat.isconstant(values):
+        elif isconstant(values):
             values = values.values()
         return constant_from_values(block_variable.output, values)

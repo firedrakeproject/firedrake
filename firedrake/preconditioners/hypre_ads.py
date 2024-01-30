@@ -2,7 +2,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
+from firedrake.interpolation import Interpolator, Interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
@@ -50,8 +50,10 @@ class HypreADS(PCBase):
         pc.setHYPREType('ads')
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
+
+        from firedrake.assemble import assemble
         V = VectorFunctionSpace(mesh, "Lagrange", 1)
-        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
+        linear_coordinates = assemble(Interpolate(SpatialCoordinate(mesh), V)).dat.data_ro.copy()
         pc.setCoordinates(linear_coordinates)
 
         pc.setFromOptions()

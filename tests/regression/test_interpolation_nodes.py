@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these
@@ -57,7 +58,7 @@ def test_div_curl_preserving(V):
         else:
             expression = as_vector([sin(y)*z, cos(x)*z, exp(x)])
 
-    f = interpolate(expression, V)
+    f = assemble(interpolate(expression, V))
     if "Nedelec" in V.ufl_element().family():
         norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
@@ -81,7 +82,7 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
             expression = as_vector([sin(y)*z*cos(x), cos(x)*z*x, exp(x)*y])
         V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant="integral")
         V = FunctionSpace(mesh, V_el)
-        f = interpolate(expression, V)
+        f = assemble(interpolate(expression, V))
         error_l2 = errornorm(expression, f, 'L2')
         if "Nedelec" in V.ufl_element().family():
             error_hD = errornorm(expression, f, 'hcurl')

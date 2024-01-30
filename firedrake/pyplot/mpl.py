@@ -18,7 +18,7 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
-from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
+from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry
@@ -117,7 +117,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if element.degree() != 1:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
-        coordinates = interpolate(coordinates, V)
+        coordinates = assemble(Interpolate(coordinates, V))
 
     coords = toreal(coordinates.dat.data_ro, "real")
     result = []
@@ -207,7 +207,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = interpolate(sqrt(inner(function, function)), Q)
+        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -320,7 +320,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = interpolate(sqrt(inner(function, function)), Q)
+        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -349,7 +349,8 @@ def quiver(function, *, complex_component="real", **kwargs):
 
     coords = toreal(extract_unique_domain(function).coordinates.dat.data_ro, "real")
     V = extract_unique_domain(function).coordinates.function_space()
-    vals = toreal(interpolate(function, V).dat.data_ro, complex_component)
+    function_interp = assemble(Interpolate(function, V))
+    vals = toreal(function_interp.dat.data_ro, complex_component)
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
@@ -797,7 +798,8 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        return _bezier_plot(interpolate(function, V), axes, complex_component=complex_component,
+        interp = assemble(Interpolate(function, V))
+        return _bezier_plot(interp, axes, complex_component=complex_component,
                             **kwargs)
     y_vals = _bezier_calculate_points(function)
     x = SpatialCoordinate(mesh)
