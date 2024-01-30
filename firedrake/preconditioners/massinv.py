@@ -1,5 +1,4 @@
 from firedrake.preconditioners.assembled import AssembledPC
-from firedrake.petsc import PETSc
 from firedrake import inner, dx
 
 __all__ = ("MassInvPC", )
