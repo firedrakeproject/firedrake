@@ -91,13 +91,17 @@ def continue_disk_checkpointing():
     return _enable_disk_checkpoint
 
 
-class stop_disk_checkpointing(object):
+class stop_disk_checkpointing:
     """A context manager inside which disk checkpointing is paused."""
+    def __init__(self):
+        self._original_state = disk_checkpointing()
+
     def __enter__(self):
         pause_disk_checkpointing()
 
     def __exit__(self, *args):
-        continue_disk_checkpointing()
+        global _enable_disk_checkpoint
+        _enable_disk_checkpoint = self._original_state
 
 
 class CheckPointFileReference:
