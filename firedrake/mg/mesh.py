@@ -11,10 +11,8 @@ from .utils import set_level
 
 try:
     import netgen
-    import ngsPETSc
 except ImportError:
     netgen = None
-    ngsPETSc = None
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")
@@ -112,7 +110,7 @@ def MeshHierarchy(mesh, refinement_levels,
         callback receives the refined DM (and the current level).
     :arg mesh_builder: Function to turn a DM into a ``Mesh``. Used by pyadjoint.
     """
-    if netgen and isinstance(mesh, netgen.libngpy._meshing.Mesh):
+    if netgen and hasattr(mesh, 'netgen_mesh'):
         try:
             from ngsPETSc import NetgenHierarchy
         except ImportError:
