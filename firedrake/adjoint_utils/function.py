@@ -274,8 +274,11 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
-            if (get_working_tape()._reverse_computation
-                or get_working_tape()._recomputation):
+            if (
+                get_working_tape()._reverse_computation
+                or get_working_tape()._recomputation
+                or get_working_tape()._evaluate_tlm
+            ):
                 return checkpoint.restore()
             else:
                 return checkpoint
