@@ -45,6 +45,8 @@ class FacetSplitPC(PCBase):
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
+        self.work_vec_x = P.createVecLeft()
+        self.work_vec_y = P.createVecRight()
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -102,7 +104,8 @@ class FacetSplitPC(PCBase):
                     return nsp
                 vecs = [vec.duplicate() for vec in nsp.getVecs()]
                 for vec in vecs:
-                    vec.permute(self.iperm)
+                    self.work_vec_x.getArray(readonly=False)[:] = vec.getArray(readonly=True)[:]
+                    self._vec_permute(self.work_vec_x, vec, self.iperm)
                 return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vecs, comm=nsp.getComm())
 
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
@@ -152,23 +155,27 @@ class FacetSplitPC(PCBase):
 
     def apply(self, pc, x, y):
         if self.perm:
-            x.permute(self.iperm)
+            self._vec_permute(x, self.work_vec_x, self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            self.pc.apply(x, y)
+            self.pc.apply(self.work_vec_x, self.work_vec_y)
         if self.perm:
-            x.permute(self.perm)
-            y.permute(self.perm)
+            self._vec_permute(self.work_vec_y, y, self.perm)
 
     def applyTranspose(self, pc, x, y):
         if self.perm:
-            x.permute(self.iperm)
+            self._vec_permute(x, self.work_vec_y, self.iperm)
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            self.pc.applyTranspose(x, y)
+            self.pc.applyTranspose(self.work_vec_y, self.work_vec_x)
         if self.perm:
-            x.permute(self.perm)
-            y.permute(self.perm)
+            self._vec_permute(self.work_vec_x, y, self.perm)
+
+    def _vec_permute(self, vec_in, vec_out, perm):
+        array_in = vec_in.getArray(readonly=True)
+        array_out = vec_out.getArray(readonly=False)
+        with perm as perm_indices:
+            array_out[:] = array_in[perm_indices]
 
     def view(self, pc, viewer=None):
         super(FacetSplitPC, self).view(pc, viewer)
