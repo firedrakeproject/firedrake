@@ -90,25 +90,33 @@ def MeshHierarchy(mesh, refinement_levels,
                   mesh_builder=firedrake.Mesh):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
-    :arg mesh: the coarse :func:`~.Mesh` to refine
-    :arg refinement_levels: the number of levels of refinement
-    :arg refinements_per_level: the number of refinements for each
+    mesh: :func:`~.Mesh`
+        the coarse mesh to refine
+    :arg refinement_levels : int
+        the number of levels of refinement
+    :arg refinements_per_level : int
+        the number of refinements for each
         level in the hierarchy.
-    :arg degree: the degree of the finite element space used for
+    :arg degree : int
+        the degree of the finite element space used for
         isoparametric representation of the geometry. Only relevant
         if mesh is a Netgen mesh.
-    :arg distribution_parameters: options controlling mesh
-        distribution, see :func:`~.Mesh` for details.  If ``None``,
-        use the same distribution parameters as were used to
-        distribute the coarse mesh, otherwise, these options override
-        the default.
-    :arg reorder: optional flag indicating whether to reorder the
-         refined meshes.
-    :arg callbacks: A 2-tuple of callbacks to call before and
+    :arg distribution_parameters : dict
+        options controlling mesh distribution, see
+        :func:`~.Mesh` for details.  If ``None``, use
+        the same distribution parameters as were used to
+        distribute the coarse mesh, otherwise, these options
+        override the default.
+    :arg reorder : bool
+        optional flag indicating whether to reorder the
+        refined meshes.
+    :arg callbacks: tuple
+        A 2-tuple of callbacks to call before and
         after refinement of the DM.  The before callback receives
         the DM to be refined (and the current level), the after
         callback receives the refined DM (and the current level).
-    :arg mesh_builder: Function to turn a DM into a ``Mesh``. Used by pyadjoint.
+    :arg mesh_builder: function
+        Function to turn a DM into a ``Mesh``. Used by pyadjoint.
     """
     if netgen and hasattr(mesh, 'netgen_mesh'):
         try:
