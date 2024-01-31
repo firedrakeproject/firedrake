@@ -239,209 +239,161 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
 @pytest.mark.skipnetgen
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
-    from netgen.geom2d import SplineGeometry
-    import netgen
+    from netgen.occ import WorkPlane, OCCGeometry, Axes
+    from netgen.occ import X, Z
 
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        pytest.skip(reason="SLEPc unavailable, skipping adaptive test refinement.")
-
-    gc.collect()
-    comm = COMM_WORLD
-
-    def Solve(msh, labels):
-        V = FunctionSpace(msh, "CG", 2)
-        u = TrialFunction(V)
+    def solve_poisson(mesh):
+        V = FunctionSpace(mesh, "CG", 1)
+        uh = Function(V, name="Solution")
         v = TestFunction(V)
-        a = inner(grad(u), grad(v))*dx
-        m = (u*v)*dx
-        uh = Function(V)
-        bc = DirichletBC(V, 0, labels)
-        A = assemble(a, bcs=bc)
-        M = assemble(m)
-        Asc, Msc = A.M.handle, M.M.handle
-        E = SLEPc.EPS().create()
-        E.setType(SLEPc.EPS.Type.ARNOLDI)
-        E.setProblemType(SLEPc.EPS.ProblemType.GHEP)
-        E.setDimensions(1, SLEPc.DECIDE)
-        E.setOperators(Asc, Msc)
-        ST = E.getST()
-        ST.setType(SLEPc.ST.Type.SINVERT)
-        PC = ST.getKSP().getPC()
-        PC.setType("lu")
-        PC.setFactorSolverType("mumps")
-        E.setST(ST)
-        E.solve()
-        vr, vi = Asc.getVecs()
-        with uh.dat.vec_wo as vr:
-            lam = E.getEigenpair(0, vr, vi)
-        return (lam, uh, V)
+        bc = DirichletBC(V, 0, "on_boundary")
+        f = Constant(1)
+        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
+        solve(F == 0, uh, bc)
+        return uh
 
-    def Mark(msh, uh, lam):
-        W = FunctionSpace(msh, "DG", 0)
+
+    def estimate_error(mesh, uh):
+        W = FunctionSpace(mesh, "DG", 0)
+        eta_sq = Function(W)
         w = TestFunction(W)
-        R_T = lam.real*uh + div(grad(uh))
-        n = FacetNormal(V.mesh())
-        h = CellDiameter(msh)
-        R_dT = dot(grad(uh), n)
-        eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
-        frac = .95
-        delfrac = .05
-        part = .2
-        mark = Function(W)
-        with mark.dat.vec as markedVec:
-            with eta.dat.vec as etaVec:
-                sum_eta = etaVec.sum()
-                if sum_eta < tolerance:
-                    return markedVec
-                eta_max = etaVec.max()[1]
-                sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
-                markedVec0 = etaVec0.duplicate()
-                sct(etaVec, etaVec0)
-                if etaVec.getComm().getRank() == 0:
-                    eta = etaVec0.getArray()
-                    marked = np.zeros(eta.size, dtype='bool')
-                    sum_marked_eta = 0.
-                    while sum_marked_eta < part*sum_eta:
-                        new_marked = (~marked) & (eta > frac*eta_max)
-                        sum_marked_eta += sum(eta[new_marked])
-                        marked += new_marked
-                        frac -= delfrac
-                    markedVec0.getArray()[:] = 1.0*marked[:]
-                sct(markedVec0, markedVec, mode=PETSc.Scatter.Mode.REVERSE)
-        return mark
-    tolerance = 1e-16
-    max_iterations = 15
-    exact = 3.375610652693620492628**2
-    geo = SplineGeometry()
-    pnts = [(0, 0), (1, 0), (1, 1),
-            (0, 1), (-1, 1), (-1, 0),
-            (-1, -1), (0, -1)]
-    p1, p2, p3, p4, p5, p6, p7, p8 = [geo.AppendPoint(*pnt) for pnt in pnts]
-    curves = [[["line", p1, p2], "line"],
-              [["spline3", p2, p3, p4], "curve"],
-              [["spline3", p4, p5, p6], "curve"],
-              [["spline3", p6, p7, p8], "curve"],
-              [["line", p8, p1], "line"]]
-    [geo.Append(c, bc=bc) for c, bc in curves]
-    if comm.Get_rank() == 0:
-        ngmsh = geo.GenerateMesh(maxh=0.2)
-        labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name == "line" or name == "curve"]
-    else:
-        ngmsh = netgen.libngpy._meshing.Mesh(2)
-        labels = None
-    labels = comm.bcast(labels, root=0)
-    msh = Mesh(ngmsh)
+        f = Constant(1)
+        h = CellDiameter(mesh) 
+        n = FacetNormal(mesh)
+        v = CellVolume(mesh)
+
+        # Compute error indicator cellwise
+        G = (
+            inner(eta_sq / v, w)*dx
+            - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
+            - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
+            )
+
+        # Each cell is an independent 1x1 solve, so Jacobi is exact
+        sp = {"mat_type": "matfree",
+              "ksp_type": "richardson",
+              "pc_type": "jacobi"
+             }
+        solve(G == 0, eta_sq, solver_parameters=sp)
+        eta = Function(W)
+        eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
+
+        with eta.dat.vec_ro as eta_:
+            error_est = sqrt(eta_.dot(eta_))
+        return (eta, error_est)
+
+
+    def adapt(mesh, eta):
+        W = FunctionSpace(mesh, "DG", 0)
+        markers = Function(W)
+        with eta.dat.vec_ro as eta_:
+            eta_max = eta_.max()[1]
+
+        theta = 0.5
+        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
+        markers.interpolate(should_refine)
+
+        refined_mesh = mesh.refine_marked_elements(markers)
+        return refined_mesh
+
+
+    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
+    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
+    L = rect1 + rect2
+
+    geo = OCCGeometry(L, dim=2)
+    ngmsh = geo.GenerateMesh(maxh=0.1)
+    mesh = Mesh(ngmsh)
+
+    max_iterations = 10
+    error_estimators = []
+    dofs = []
     for i in range(max_iterations):
-        printf("level {}".format(i))
-        lam, uh, V = Solve(msh, labels)
-        mark = Mark(msh, uh, lam)
-        msh = msh.refine_marked_elements(mark)
-    assert (abs(lam-exact) < 1e-2)
+        uh = solve_poisson(mesh)
+        (eta, error_est) = estimate_error(mesh, uh)
+        error_estimators.append(error_est)
+        dofs.append(uh.function_space().dim())
+        mesh = adapt(mesh, eta)
+    assert error_estimators[-1] < 0.05
 
 
 @pytest.mark.skipnetgen
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_firedrake_Adaptivity_netgen_parallel():
-    from netgen.geom2d import SplineGeometry
-    import netgen
+    from netgen.occ import WorkPlane, OCCGeometry, Axes
+    from netgen.occ import X, Z
 
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        pytest.skip(reason="SLEPc unavailable, skipping adaptive test refinement.")
-
-    gc.collect()
-    comm = COMM_WORLD
-
-    def Solve(msh, labels):
-        V = FunctionSpace(msh, "CG", 2)
-        u = TrialFunction(V)
+    def solve_poisson(mesh):
+        V = FunctionSpace(mesh, "CG", 1)
+        uh = Function(V, name="Solution")
         v = TestFunction(V)
-        a = inner(grad(u), grad(v))*dx
-        m = (u*v)*dx
-        uh = Function(V)
-        bc = DirichletBC(V, 0, labels)
-        A = assemble(a, bcs=bc)
-        M = assemble(m)
-        Asc, Msc = A.M.handle, M.M.handle
-        E = SLEPc.EPS().create()
-        E.setType(SLEPc.EPS.Type.ARNOLDI)
-        E.setProblemType(SLEPc.EPS.ProblemType.GHEP)
-        E.setDimensions(1, SLEPc.DECIDE)
-        E.setOperators(Asc, Msc)
-        ST = E.getST()
-        ST.setType(SLEPc.ST.Type.SINVERT)
-        PC = ST.getKSP().getPC()
-        PC.setType("lu")
-        PC.setFactorSolverType("mumps")
-        E.setST(ST)
-        E.solve()
-        vr, vi = Asc.getVecs()
-        with uh.dat.vec_wo as vr:
-            lam = E.getEigenpair(0, vr, vi)
-        return (lam, uh, V)
+        bc = DirichletBC(V, 0, "on_boundary")
+        f = Constant(1)
+        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
+        solve(F == 0, uh, bc)
+        return uh
 
-    def Mark(msh, uh, lam):
-        W = FunctionSpace(msh, "DG", 0)
+
+    def estimate_error(mesh, uh):
+        W = FunctionSpace(mesh, "DG", 0)
+        eta_sq = Function(W)
         w = TestFunction(W)
-        R_T = lam.real*uh + div(grad(uh))
-        n = FacetNormal(V.mesh())
-        h = CellDiameter(msh)
-        R_dT = dot(grad(uh), n)
-        eta = assemble(h**2*R_T**2*w*dx + (h("+")+h("-"))*(R_dT("+")-R_dT("-"))**2*(w("+")+w("-"))*dS)
-        frac = .95
-        delfrac = .05
-        part = .2
-        mark = Function(W)
-        with mark.dat.vec as markedVec:
-            with eta.dat.vec as etaVec:
-                sum_eta = etaVec.sum()
-                if sum_eta < tolerance:
-                    return markedVec
-                eta_max = etaVec.max()[1]
-                sct, etaVec0 = PETSc.Scatter.toZero(etaVec)
-                markedVec0 = etaVec0.duplicate()
-                sct(etaVec, etaVec0)
-                if etaVec.getComm().getRank() == 0:
-                    eta = etaVec0.getArray()
-                    marked = np.zeros(eta.size, dtype='bool')
-                    sum_marked_eta = 0.
-                    while sum_marked_eta < part*sum_eta:
-                        new_marked = (~marked) & (eta > frac*eta_max)
-                        sum_marked_eta += sum(eta[new_marked])
-                        marked += new_marked
-                        frac -= delfrac
-                    markedVec0.getArray()[:] = 1.0*marked[:]
-                sct(markedVec0, markedVec, mode=PETSc.Scatter.Mode.REVERSE)
-        return mark
-    tolerance = 1e-16
-    max_iterations = 15
-    exact = 3.375610652693620492628**2
-    geo = SplineGeometry()
-    pnts = [(0, 0), (1, 0), (1, 1),
-            (0, 1), (-1, 1), (-1, 0),
-            (-1, -1), (0, -1)]
-    p1, p2, p3, p4, p5, p6, p7, p8 = [geo.AppendPoint(*pnt) for pnt in pnts]
-    curves = [[["line", p1, p2], "line"],
-              [["spline3", p2, p3, p4], "curve"],
-              [["spline3", p4, p5, p6], "curve"],
-              [["spline3", p6, p7, p8], "curve"],
-              [["line", p8, p1], "line"]]
-    [geo.Append(c, bc=bc) for c, bc in curves]
-    if comm.Get_rank() == 0:
-        ngmsh = geo.GenerateMesh(maxh=0.2)
-        labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name == "line" or name == "curve"]
-    else:
-        ngmsh = netgen.libngpy._meshing.Mesh(2)
-        labels = None
-    labels = comm.bcast(labels, root=0)
-    msh = Mesh(ngmsh)
+        f = Constant(1)
+        h = CellDiameter(mesh) 
+        n = FacetNormal(mesh)
+        v = CellVolume(mesh)
+
+        # Compute error indicator cellwise
+        G = (
+            inner(eta_sq / v, w)*dx
+            - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
+            - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
+            )
+
+        # Each cell is an independent 1x1 solve, so Jacobi is exact
+        sp = {"mat_type": "matfree",
+              "ksp_type": "richardson",
+              "pc_type": "jacobi"
+             }
+        solve(G == 0, eta_sq, solver_parameters=sp)
+        eta = Function(W)
+        eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
+
+        with eta.dat.vec_ro as eta_:
+            error_est = sqrt(eta_.dot(eta_))
+        return (eta, error_est)
+
+
+    def adapt(mesh, eta):
+        W = FunctionSpace(mesh, "DG", 0)
+        markers = Function(W)
+        with eta.dat.vec_ro as eta_:
+            eta_max = eta_.max()[1]
+
+        theta = 0.5
+        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
+        markers.interpolate(should_refine)
+
+        refined_mesh = mesh.refine_marked_elements(markers)
+        return refined_mesh
+
+
+    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
+    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
+    L = rect1 + rect2
+
+    geo = OCCGeometry(L, dim=2)
+    ngmsh = geo.GenerateMesh(maxh=0.1)
+    mesh = Mesh(ngmsh)
+
+    max_iterations = 10
+    error_estimators = []
+    dofs = []
     for i in range(max_iterations):
-        printf("level {}".format(i))
-        lam, uh, V = Solve(msh, labels)
-        mark = Mark(msh, uh, lam)
-        msh = msh.refine_marked_elements(mark)
-    assert (abs(lam-exact) < 1e-2)
+        uh = solve_poisson(mesh)
+        (eta, error_est) = estimate_error(mesh, uh)
+        error_estimators.append(error_est)
+        dofs.append(uh.function_space().dim())
+        mesh = adapt(mesh, eta)
+    assert error_estimators[-1] < 0.05
