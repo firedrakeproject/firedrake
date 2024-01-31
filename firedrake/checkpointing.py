@@ -1425,11 +1425,11 @@ class CheckpointFile(object):
     def _path_to_vecs(self, tmesh_name, dm_name):
         return os.path.join(self._path_to_dm(tmesh_name, dm_name), "vecs")
 
-    def _path_to_vec_timestepping(self, tmesh_name, dm_name, tf_name):
-        return os.path.join(self._path_to_vec(tmesh_name, dm_name, tf_name), PREFIX_TIMESTEPPING)
-
     def _path_to_vec(self, tmesh_name, dm_name, tf_name):
         return os.path.join(self._path_to_vecs(tmesh_name, dm_name), tf_name)
+
+    def _path_to_vec_timestepping(self, tmesh_name, dm_name, tf_name):
+        return os.path.join(self._path_to_vec(tmesh_name, dm_name, tf_name), PREFIX_TIMESTEPPING)
 
     def _path_to_meshes(self, tmesh_name):
         return os.path.join(self._path_to_topology(tmesh_name), PREFIX + "_meshes")
