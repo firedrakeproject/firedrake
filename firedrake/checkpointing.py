@@ -718,7 +718,7 @@ class CheckpointFile(object):
         Retrieve the timestepping history and indices for a specified function within a mesh.
 
         This method is primarily used in checkpointing scenarios during timestepping simulations.
-        It returns the indices associated with each function call in the timestepping mode,
+        It returns the indices associated with each function stored in the timestepping mode,
         along with any additional timestepping-related information (like time or timestep values) if available.
         If the specified function has not been stored in timestepping mode, it returns an empty dictionary.
 
