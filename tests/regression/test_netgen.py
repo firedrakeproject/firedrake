@@ -1,6 +1,5 @@
 from firedrake import *
 import numpy as np
-import gc
 from petsc4py import PETSc
 import pytest
 
@@ -252,28 +251,24 @@ def test_firedrake_Adaptivity_netgen():
         solve(F == 0, uh, bc)
         return uh
 
-
     def estimate_error(mesh, uh):
         W = FunctionSpace(mesh, "DG", 0)
         eta_sq = Function(W)
         w = TestFunction(W)
         f = Constant(1)
-        h = CellDiameter(mesh) 
+        h = CellDiameter(mesh)
         n = FacetNormal(mesh)
         v = CellVolume(mesh)
 
         # Compute error indicator cellwise
-        G = (
-            inner(eta_sq / v, w)*dx
-            - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-            - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
-            )
+        G = inner(eta_sq / v, w)*dx
+        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
+        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
 
         # Each cell is an independent 1x1 solve, so Jacobi is exact
         sp = {"mat_type": "matfree",
               "ksp_type": "richardson",
-              "pc_type": "jacobi"
-             }
+              "pc_type": "jacobi"}
         solve(G == 0, eta_sq, solver_parameters=sp)
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
@@ -281,7 +276,6 @@ def test_firedrake_Adaptivity_netgen():
         with eta.dat.vec_ro as eta_:
             error_est = sqrt(eta_.dot(eta_))
         return (eta, error_est)
-
 
     def adapt(mesh, eta):
         W = FunctionSpace(mesh, "DG", 0)
@@ -296,9 +290,8 @@ def test_firedrake_Adaptivity_netgen():
         refined_mesh = mesh.refine_marked_elements(markers)
         return refined_mesh
 
-
-    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
-    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
+    rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
+    rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     L = rect1 + rect2
 
     geo = OCCGeometry(L, dim=2)
@@ -334,28 +327,24 @@ def test_firedrake_Adaptivity_netgen_parallel():
         solve(F == 0, uh, bc)
         return uh
 
-
     def estimate_error(mesh, uh):
         W = FunctionSpace(mesh, "DG", 0)
         eta_sq = Function(W)
         w = TestFunction(W)
         f = Constant(1)
-        h = CellDiameter(mesh) 
+        h = CellDiameter(mesh)
         n = FacetNormal(mesh)
         v = CellVolume(mesh)
 
         # Compute error indicator cellwise
-        G = (
-            inner(eta_sq / v, w)*dx
-            - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-            - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
-            )
+        G = inner(eta_sq / v, w)*dx
+        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
+        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
 
         # Each cell is an independent 1x1 solve, so Jacobi is exact
         sp = {"mat_type": "matfree",
               "ksp_type": "richardson",
-              "pc_type": "jacobi"
-             }
+              "pc_type": "jacobi"}
         solve(G == 0, eta_sq, solver_parameters=sp)
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
@@ -363,7 +352,6 @@ def test_firedrake_Adaptivity_netgen_parallel():
         with eta.dat.vec_ro as eta_:
             error_est = sqrt(eta_.dot(eta_))
         return (eta, error_est)
-
 
     def adapt(mesh, eta):
         W = FunctionSpace(mesh, "DG", 0)
@@ -378,9 +366,8 @@ def test_firedrake_Adaptivity_netgen_parallel():
         refined_mesh = mesh.refine_marked_elements(markers)
         return refined_mesh
 
-
-    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
-    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
+    rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
+    rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     L = rect1 + rect2
 
     geo = OCCGeometry(L, dim=2)
