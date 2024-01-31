@@ -65,7 +65,7 @@ include_dirs = [np.get_include(), petsc4py.get_include(), rtree.finder.get_inclu
 include_dirs += ["%s/include" % d for d in petsc_dirs]
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
-libspatialindex_so = Path(rtree.core.rt._name)
+libspatialindex_so = Path(rtree.core.rt._name).absolute()
 link_args += [str(libspatialindex_so)]
 link_args += ["-Wl,-rpath,%s" % libspatialindex_so.parent]
 
