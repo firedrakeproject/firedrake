@@ -865,14 +865,25 @@ class CheckpointFile(object):
             self.viewer.popTimestepping()
 
     @PETSc.Log.EventDecorator("LoadMesh")
-    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
+    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None, topology=None):
         r"""Load a mesh.
 
-        :arg name: the name of the mesh to load (default to :obj:`~.DEFAULT_MESH_NAME`).
-        :kwarg reorder: whether to reorder the mesh (bool); see :func:`~.Mesh`.
-        :kwarg distribution_parameters: the `distribution_parameters` used for
-            distributing the mesh; see :func:`~.Mesh`.
-        :returns: the loaded mesh.
+        Parameters
+        ----------
+        name : str
+            the name of the mesh to load (default to `firedrake.mesh.DEFAULT_MESH_NAME`).
+        reorder : bool
+            whether to reorder the mesh; see `firedrake.Mesh`.
+        distribution_parameters : dict
+            the `distribution_parameters` used for distributing the mesh; see `firedrake.Mesh`.
+        topology : firedrake.mesh.MeshTopology
+            the underlying mesh topology if already known.
+
+        Returns
+        -------
+        firedrake.mesh.MeshGeometry
+            the loaded mesh.
+
         """
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
         path = self._path_to_topology_extruded(tmesh_name)
@@ -924,11 +935,16 @@ class CheckpointFile(object):
             # The followings are conceptually redundant, but needed.
             path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
             base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            mesh._base_mesh = self.load_mesh(base_mesh_name)
+            mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
             utils._init()
             # -- Load mesh topology --
-            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            if topology is None:
+                tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            else:
+                if topology.name != tmesh_name:
+                    raise RuntimeError(f"Got wrong mesh topology (f{topology.name}): expecting f{tmesh_name}")
+                tmesh = topology
             # -- Load coordinates --
             # tmesh.topology_dm has already been redistributed.
             path = self._path_to_mesh(tmesh_name, name)
