@@ -923,7 +923,7 @@ class CheckpointFile(object):
                     # store items in timestepping_info accordingly
                     for ts_info_key, ts_info_value in timestepping_info.items():
                         if not isinstance(ts_info_value, float):
-                            raise NotImplementedError(f"timestepping_info must have float values: got {type(ts_info_value)} )
+                            raise NotImplementedError(f"timestepping_info must have float values: got {type(ts_info_value)}")
                         old_items = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}")
                         items = np.concatenate((old_items, [ts_info_value]))
                         self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}", items)
