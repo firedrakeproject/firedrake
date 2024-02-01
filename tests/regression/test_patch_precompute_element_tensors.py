@@ -58,7 +58,7 @@ def test_patch_precompute_element_tensors(mesh, V):
           "mg_levels_patch_pc_patch_construct_dim": 0,
           "mg_levels_patch_sub_ksp_type": "preonly",
           "mg_levels_patch_sub_pc_type": "lu",
-          "snes_view": None}
+    }
 
     nvproblem = NonlinearVariationalProblem(F, u, bcs=bcs)
     solver = NonlinearVariationalSolver(nvproblem, solver_parameters=sp)
