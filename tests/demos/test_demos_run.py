@@ -78,7 +78,7 @@ def test_demo_runs(py_file, env):
     if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py"):
         if "hypre" not in get_external_packages():
             pytest.skip("hypre not installed with PETSc")
-    
+
     if basename(py_file) == "qgbasinmodes.py":
         try:
             # Do not use `pytest.importorskip` to check for slepc4py
@@ -91,7 +91,7 @@ def test_demo_runs(py_file, env):
             "matplotlib",
             reason=f"Matplotlib unavailable, skipping {basename(py_file)}"
         )
-            
+
     if basename(py_file) == "netgen_mesh.py":
         pytest.importorskip(
             "netgen",
