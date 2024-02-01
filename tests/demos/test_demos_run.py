@@ -71,12 +71,12 @@ def test_demo_runs(py_file, env):
         try:
             from slepc4py import SLEPc  # noqa: F401
         except ImportError:
-            pytest.skip(msg="SLEPc unavailable, skipping qgbasinmodes.py")
+            pytest.skip(reason="SLEPc unavailable, skipping qgbasinmodes.py")
 
     if basename(py_file) in ("DG_advection.py", "qgbasinmodes.py"):
         try:
             import matplotlib  # noqa: F401
         except ImportError:
-            pytest.skip(msg=f"Matplotlib unavailable, skipping {basename(py_file)}")
+            pytest.skip(reason=f"Matplotlib unavailable, skipping {basename(py_file)}")
 
     subprocess.check_call([sys.executable, py_file], env=env)

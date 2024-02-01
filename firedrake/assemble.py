@@ -289,7 +289,7 @@ def restructure_base_form(expr, visited=None):
             return ufl.replace(left, {arg: right})
         # -- Case (3) -- #
         if isinstance(left, ufl.Form) and is_rank_1(right):
-            # 1) Replace the highest numbered argument of left by right when needed
+            # 1) Replace the highest-numbered argument of left by right when needed
             #    -> e.g. if right is a BaseFormOperator with 1 argument.
             # Or
             # 2) Let expr as it is by returning `ufl.Action(left, right)`.

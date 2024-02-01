@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(params=["square", "cube"], scope="module")

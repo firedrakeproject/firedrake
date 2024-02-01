@@ -1,4 +1,5 @@
 import numpy as np
+import rtree
 import sys
 import ufl
 from ufl.duals import is_dual
@@ -9,6 +10,7 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
+from pathlib import Path
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -66,7 +68,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm)
+        self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
@@ -80,10 +82,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
 
     @utils.cached_property
     def topological(self):
@@ -414,8 +412,16 @@ class Function(ufl.Coefficient, FunctionMixin):
     def zero(self, subset=None):
         """Set all values to zero.
 
-        :arg subset: :class:`pyop2.types.set.Subset` indicating the nodes to
-            zero. If ``None`` then the whole function is zeroed.
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
@@ -753,10 +759,16 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
-    return compilation.load(src, "c", c_name,
-                            cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix]
-                            + ["-I%s/include" % d for d in get_petsc_dir()],
-                            ldargs=ldargs,
-                            comm=function.comm)
+    libspatialindex_so = Path(rtree.core.rt._name).absolute()
+    lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
+    ldargs += [str(libspatialindex_so), lsi_runpath]
+    return compilation.load(
+        src, "c", c_name,
+        cppargs=[
+            f"-I{path.dirname(__file__)}",
+            f"-I{sys.prefix}/include",
+            f"-I{rtree.finder.get_include()}"
+        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+        ldargs=ldargs,
+        comm=function.comm
+    )

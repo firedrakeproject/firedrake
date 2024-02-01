@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.ufl_expr import extract_unique_domain
 import numpy as np
 import pytest
@@ -743,3 +744,17 @@ def test_missing_dofs_parallel():
 @pytest.mark.parallel
 def test_exact_refinement_parallel():
     test_exact_refinement()
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize('periodic', [False, True])
+def test_interpolate_cross_mesh_interval(periodic):
+    m_src = PeriodicUnitIntervalMesh(3) if periodic else UnitIntervalMesh(3)
+    V_src = FunctionSpace(m_src, "CG", 2)
+    x_src, = SpatialCoordinate(m_src)
+    f_src = Function(V_src).interpolate(-(x_src - .5) ** 2)
+    m_dest = PeriodicUnitIntervalMesh(4) if periodic else UnitIntervalMesh(4)
+    V_dest = FunctionSpace(m_dest, "CG", 3)
+    f_dest = Function(V_dest).interpolate(f_src)
+    x_dest, = SpatialCoordinate(m_dest)
+    assert abs(assemble((f_dest - (-(x_dest - .5) ** 2)) ** 2 * dx)) < 1.e-16

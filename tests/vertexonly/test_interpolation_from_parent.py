@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import pytest
 import numpy as np
 from functools import reduce

@@ -4,7 +4,7 @@ import itertools
 from mpi4py import MPI
 import numpy
 
-from pyop2.mpi import internal_comm, decref, temp_internal_comm
+from pyop2.mpi import internal_comm, temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -92,7 +92,7 @@ class ImplicitMatrixContext(object):
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -168,10 +168,6 @@ class ImplicitMatrixContext(object):
             get_form_assembler(self.actionT,
                                tensor=self._xstar if len(self.bcs) == 0 else self._xbc,
                                form_compiler_parameters=self.fc_params))
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @cached_property
     def _diagonal(self):

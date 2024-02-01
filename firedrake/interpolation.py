@@ -57,16 +57,16 @@ class Interpolate(ufl.Interpolate):
         v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
-        subset : pyop2.types.set.Subset, optional
+        subset : pyop2.types.set.Subset
                  An optional subset to apply the interpolation over.
                  Cannot, at present, be used when interpolating across meshes unless
                  the target mesh is a :func:`.VertexOnlyMesh`.
-        access : pyop2.types.Access, optional
+        access : pyop2.types.access.Access
                  The pyop2 access descriptor for combining updates to shared
                  DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
                  supported at present when interpolating across meshes. See note in
                  :func:`.interpolate` if changing this from default.
-        allow_missing_dofs : bool, optional
+        allow_missing_dofs : bool
                              For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
                              in the target mesh that cannot be defined on the source mesh.
                              For example, where nodes are point evaluations, points in the target mesh
@@ -78,7 +78,7 @@ class Interpolate(ufl.Interpolate):
                              This does not affect transpose interpolation. Ignored if interpolating within
                              the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
                              :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
-        default_missing_val : float, optional
+        default_missing_val : float
                               For interpolation across meshes: the optional value to assign to DoFs
                               in the target mesh that are outside the source mesh. If this is not set
                               then the values are either (a) unchanged if some ``output`` is given to
@@ -304,10 +304,10 @@ class Interpolator(abc.ABC):
         *function: firedrake.function.Function or firedrake.cofunction.Cofunction
                    If the expression being interpolated contains an argument,
                    then the function value to interpolate.
-        transpose: bool, optional
+        transpose: bool
                    Set to true to apply the transpose (adjoint) of the
                    interpolation operator.
-        default_missing_val: bool, optional
+        default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
@@ -355,12 +355,12 @@ class Interpolator(abc.ABC):
         *function: firedrake.function.Function or firedrake.cofunction.Cofunction
                    If the expression being interpolated contains an argument,
                    then the function value to interpolate.
-        output: firedrake.function.Function or firedrake.cofunction.Cofunction, optional
+        output: firedrake.function.Function or firedrake.cofunction.Cofunction
                 A function to contain the output.
-        transpose: bool, optional
+        transpose: bool
                    Set to true to apply the transpose (adjoint) of the
                    interpolation operator.
-        default_missing_val: bool, optional
+        default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
@@ -574,7 +574,7 @@ class CrossMeshInterpolator(Interpolator):
                 for input_sub_func, target_sub_func in zip(
                     expr_subfunctions, V_dest.subfunctions
                 ):
-                    sub_interpolator = CrossMeshInterpolator(
+                    sub_interpolator = type(self)(
                         input_sub_func,
                         target_sub_func,
                         subset=subset,
@@ -594,7 +594,7 @@ class CrossMeshInterpolator(Interpolator):
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
         f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         f_dest_node_coords = assemble(f_dest_node_coords)
-        dest_node_coords = f_dest_node_coords.dat.data_ro
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
         try:
             self.vom_dest_node_coords_in_src_mesh = firedrake.VertexOnlyMesh(
                 src_mesh,
