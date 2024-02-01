@@ -93,8 +93,9 @@ def test_poisson_homogeneous_bcs():
     u2_interpolated = Function(V).interpolate(u2)
     assert np.allclose(u_interpolated.dat.data_ro_with_halos, u2.dat.data_ro_with_halos)
     assert np.allclose(u2_interpolated.dat.data_ro_with_halos, u.dat.data_ro_with_halos)
-    u_projected = Function(V_res).project(u)
-    u2_projected = Function(V).project(u2)
+    solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1.e-16}
+    u_projected = Function(V_res).project(u, solver_parameters=solver_parameters)
+    u2_projected = Function(V).project(u2, bcs=bc, solver_parameters=solver_parameters)
     assert np.allclose(u_projected.dat.data_ro_with_halos, u2.dat.data_ro_with_halos)
     assert np.allclose(u2_projected.dat.data_ro_with_halos - u.dat.data_ro_with_halos, 0)
 
