@@ -75,9 +75,6 @@ def py_file(rst_file, tmpdir, monkeypatch):
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 def test_demo_runs(py_file, env):
     # Add pytest skips for missing imports or packages
-    if basename(py_file) == 'qg_1layer_wave.py':
-        pytest.skip("This test occasionally fails due to presumed build hardware issues")
-        
     if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py"):
         if "hypre" not in get_external_packages():
             pytest.skip("hypre not installed with PETSc")
