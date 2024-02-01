@@ -113,7 +113,7 @@ def get_petscconf_h():
     """Get dict of PETSc include variables from the file:
     $PETSC_DIR/$PETSC_ARCH/include/petscconf.h
 
-    The #define and PETSC_ prefix are dropped in the dictionary key.
+    The ``#define`` and ``PETSC_`` prefix are dropped in the dictionary key.
 
     The result is memoized to avoid constantly reading the file.
     """
