@@ -2,6 +2,7 @@ import ufl
 from ufl.corealg.traversal import traverse_unique_terminals
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, OverloadedType, AdjFloat
+import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
     DelegatedFunctionCheckpoint
 from .block_utils import isconstant
