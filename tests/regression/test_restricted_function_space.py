@@ -55,6 +55,7 @@ def test_restricted_function_space_j_j_square(j):
     compare_function_space_assembly(mesh, V, V_res, [bc])
 
 
+@pytest.mark.parallel(nprocs=3)
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(3, 3)
     V = FunctionSpace(mesh, "CG", 2)   # fails for CG1
@@ -88,11 +89,14 @@ def test_poisson_homogeneous_bcs():
     solve(original_form == L, u, bcs=[bc])
     solve(restricted_form == L_res, u2)
 
-    # might run into problems if other non-boundary nodes evaluate at 0?
-    u_data_remove_zeros = u.dat.data[u.dat.data != 0]  # correspond to boundary
-    u2_data_remove_zeros = u2.dat.data[u2.dat.data != 0]
-
-    assert (np.all(np.isclose(u_data_remove_zeros, u2_data_remove_zeros, 1e-16)))
+    u_interpolated = Function(V_res).interpolate(u)
+    u2_interpolated = Function(V).interpolate(u2)
+    assert np.allclose(u_interpolated.dat.data_ro_with_halos, u2.dat.data_ro_with_halos)
+    assert np.allclose(u2_interpolated.dat.data_ro_with_halos, u.dat.data_ro_with_halos)
+    u_projected = Function(V_res).project(u)
+    u2_projected = Function(V).project(u2)
+    assert np.allclose(u_projected.dat.data_ro_with_halos, u2.dat.data_ro_with_halos)
+    assert np.allclose(u2_projected.dat.data_ro_with_halos - u.dat.data_ro_with_halos, 0)
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])
