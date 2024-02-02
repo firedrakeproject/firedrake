@@ -13,7 +13,7 @@ def test_netgen_mg_circle():
 
     ngmesh = geo.GenerateMesh(maxh=0.75)
     mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, degree=3)
+    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
 
     V = FunctionSpace(mesh, "CG", 3)
@@ -49,7 +49,7 @@ def test_netgen_mg_circle_parallel():
 
     ngmesh = geo.GenerateMesh(maxh=0.75)
     mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, degree=3)
+    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
 
     V = FunctionSpace(mesh, "CG", 3)
