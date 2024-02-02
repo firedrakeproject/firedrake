@@ -408,12 +408,8 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
     if mat_type != "aij":
         raise NotImplementedError
 
-    # not sure that this is strictly needed any more
-    # adjacency_map = op3.transforms.compress(mesh.points, lambda p: mesh.closure(mesh.star(p)), uniquify=True)
-
     def adjacency(pt):
         return mesh.closure(mesh.star(pt))
-        # return adjacency_map(pt)
 
     test_arg, trial_arg = arguments
     mymat = op3.PetscMat(

@@ -668,7 +668,7 @@ class FunctionSpace:
             # )
             p_renum = op3.utils.just_one(p.target_exprs.values())
             p_ = points.component_to_axis_number(clabel, p_renum)
-            offset = self.axes.offset(p.target_path, p.target_exprs, insert_zeros=True)
+            offset = self.axes.offset(p.target_exprs, p.target_path)
             section.setOffset(p_, offset)
         # could also try setting a permutation?
         perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)

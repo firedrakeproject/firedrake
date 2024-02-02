@@ -68,6 +68,7 @@ def run_test(x, degree=1, family='CG'):
     ret = Function(V)
     ret.project(e, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
+    breakpoint()
     return sqrt(assemble((ret - exact) * (ret - exact) * dx))
 
 
@@ -382,3 +383,6 @@ def run_extr_trace_projection(x, degree=1, family='DGT'):
                          + area * (w - ref) * (w - ref) * ds_b
                          + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_h
                          + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_v))
+
+
+run_test(1)

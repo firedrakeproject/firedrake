@@ -2321,7 +2321,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             plex_coords = self.topology.topology_dm.getCoordinatesLocal().array
             new_coords = np.empty_like(plex_coords)
 
-            from pyrsistent import pmap
             # coordinates_fs.axes.offset(pmap({self.topology.name: "0"}), pmap({self.topology.name: 0}), insert_zeros=True)
             # breakpoint()
 
@@ -2329,8 +2328,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             vstart, vend = self.topology.topology_dm.getDepthStratum(0)
             for i, v in enumerate(range(vstart, vend)):
                 # offset = coordinates_fs.axes.offset([("0", i), 0, 0])
-                i_renum = coordinates_fs.axes.root.default_to_applied_component_number("0", i)
-                offset = coordinates_fs.axes.offset(pmap({self.topology.name: "0"}), pmap({self.topology.name: i_renum}), insert_zeros=True)
+                i_renum = coordinates_fs.axes.root.default_to_applied_component_number(self.topology.vert_label, i)
+                offset = coordinates_fs.axes.offset({self.topology.name: i_renum}, {self.topology.name: self.topology.vert_label})
                 # breakpoint()
                 for j in range(gdim):
                     new_coords[offset+j] = plex_coords[i*gdim+j]
