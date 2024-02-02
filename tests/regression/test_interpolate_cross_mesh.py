@@ -64,7 +64,7 @@ def make_high_order(m_low_order, degree):
             ),
         ),
         "unitsquare_Regge_source",
-        "spheresphere",
+        pytest.param("spheresphere", marks=pytest.mark.slow),
         "sphereextrudedsphereextruded",
     ]
 )
