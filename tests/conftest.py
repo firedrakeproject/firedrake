@@ -8,32 +8,56 @@ def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
         "markers",
-        "skipcomplex: mark as skipped in complex mode")
+        "markif_fixture: conditional marker"
+    )
     config.addinivalue_line(
         "markers",
-        "skipreal: mark as skipped unless in complex mode")
+        "slow: mark a test that takes a while to run"
+    )
     config.addinivalue_line(
         "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
     )
     config.addinivalue_line(
         "markers",
-        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
+    )
     config.addinivalue_line(
         "markers",
-        "skiptorch: mark as skipped if PyTorch is not installed")
+        "skipcomplex: mark as skipped in complex mode"
+    )
     config.addinivalue_line(
         "markers",
-        "skipjax: mark as skipped if JAX is not installed")
+        "skipreal: mark as skipped unless in complex mode"
+    )
     config.addinivalue_line(
         "markers",
-        "skipplot: mark as skipped if matplotlib is not installed")
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
+    )
     config.addinivalue_line(
         "markers",
-        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed")
+        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
+    )
     config.addinivalue_line(
         "markers",
-        "skipvtk: mark as skipped if vtk is not installed")
+        "skipvtk: mark as skipped if vtk is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skiptorch: mark as skipped if PyTorch is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipjax: mark as skipped if JAX is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipplot: mark as skipped if matplotlib is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -77,6 +101,25 @@ def pytest_collection_modifyitems(session, config, items):
         vtk_installed = False
 
     for item in items:
+        markif_fixtures = [m for m in item.own_markers if m.name == "markif_fixture"]
+        for mark in markif_fixtures:
+            '''@pytest.mark.markif_fixture(*marks, **conditions)
+            marks: str | pytest.mark.structures.Mark
+                marks to apply if conditions are met
+            conditions: dict
+                dictionary of conditions; consisting of function argument keys
+                and fixture values or ids
+            '''
+            # (function argument names, fixture ids) in a list
+            fixtures = [(name, id_) for name, id_ in zip(item.callspec.params.keys(), item.callspec._idlist)]
+            # If all the fixtures are in the dictionary of conditions apply all of the marks
+            if all((k, str(v)) in fixtures for k, v in mark.kwargs.items()):
+                for label in mark.args:
+                    if isinstance(label, str):
+                        item.add_marker(getattr(pytest.mark, label)())
+                    else:
+                        item.add_marker(label())
+
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
