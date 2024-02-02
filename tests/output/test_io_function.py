@@ -148,42 +148,44 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree', [("triangle_small", "P", 1),
-                                                ("triangle_small", "P", 6),
-                                                ("triangle_small", "DP", 0),
-                                                ("triangle_small", "DP", 7),
-                                                ("quad_small", "Q", 1),
-                                                ("quad_small", "Q", 6),
-                                                ("quad_small", "DQ", 0),
-                                                ("quad_small", "DQ", 7),
-                                                ("triangle", "P", 5),
-                                                ("triangle", "RTE", 4),
-                                                ("triangle", "RTF", 4),
-                                                ("triangle", "DP", 0),
-                                                ("triangle", "DP", 6),
-                                                ("tetrahedra", "P", 6),
-                                                ("tetrahedra", "N1E", 2),  # slow if high order
-                                                ("tetrahedra", "N1F", 5),
-                                                ("tetrahedra", "DP", 0),
-                                                ("tetrahedra", "DP", 5),
-                                                ("triangle", "BDME", 4),
-                                                ("triangle", "BDMF", 4),
-                                                ("tetrahedra", "N2E", 2),  # slow if high order
-                                                ("tetrahedra", "N2F", 5),
-                                                ("quadrilateral", "Q", 7),
-                                                ("quadrilateral", "RTCE", 5),
-                                                ("quadrilateral", "RTCF", 5),
-                                                ("quadrilateral", "DQ", 0),
-                                                ("quadrilateral", "DQ", 7),
-                                                ("quadrilateral", "S", 5),
-                                                ("quadrilateral", "DPC", 5),
-                                                ("hexahedral", "Q", 5),
-                                                ("hexahedral", "DQ", 4),
-                                                ("hexahedral_möbius_solid", "Q", 6),
-                                                ("triangle_periodic", "P", 4),
-                                                ("tetrahedra_periodic", "P", 4),
-                                                ("triangle_3d", "BDMF", 4),
-                                                ("quad_3d", "RTCF", 4)])
+@pytest.mark.parametrize('cell_family_degree', [
+    ("triangle_small", "P", 1),
+    ("triangle_small", "P", 6),
+    ("triangle_small", "DP", 0),
+    ("triangle_small", "DP", 7),
+    ("quad_small", "Q", 1),
+    ("quad_small", "Q", 6),
+    ("quad_small", "DQ", 0),
+    ("quad_small", "DQ", 7),
+    ("triangle", "P", 5),
+    ("triangle", "RTE", 4),
+    ("triangle", "RTF", 4),
+    ("triangle", "DP", 0),
+    ("triangle", "DP", 6),
+    ("tetrahedra", "P", 6),
+    ("tetrahedra", "N1E", 2),
+    pytest.param(("tetrahedra", "N1F", 5), marks=pytest.mark.slow),
+    ("tetrahedra", "DP", 0),
+    ("tetrahedra", "DP", 5),
+    ("triangle", "BDME", 4),
+    ("triangle", "BDMF", 4),
+    ("tetrahedra", "N2E", 2),
+    pytest.param(("tetrahedra", "N2F", 5), marks=pytest.mark.slow),
+    ("quadrilateral", "Q", 7),
+    ("quadrilateral", "RTCE", 5),
+    ("quadrilateral", "RTCF", 5),
+    ("quadrilateral", "DQ", 0),
+    ("quadrilateral", "DQ", 7),
+    ("quadrilateral", "S", 5),
+    ("quadrilateral", "DPC", 5),
+    ("hexahedral", "Q", 5),
+    ("hexahedral", "DQ", 4),
+    ("hexahedral_möbius_solid", "Q", 6),
+    ("triangle_periodic", "P", 4),
+    ("tetrahedra_periodic", "P", 4),
+    ("triangle_3d", "BDMF", 4),
+    ("quad_3d", "RTCF", 4)
+])
 def test_io_function_base(cell_family_degree, tmpdir):
     # Parameters
     cell_type, family, degree = cell_family_degree
@@ -359,8 +361,10 @@ def test_io_function_tensor(cell_family_degree_shape_symmetry, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_type', ["tetrahedra",
-                                       "quadrilateral"])
+@pytest.mark.parametrize('cell_type', [
+    pytest.param("tetrahedra", marks=pytest.mark.slow),
+    "quadrilateral"
+])
 def test_io_function_mixed_vector(cell_type, tmpdir):
     filename = join(str(tmpdir), "test_io_function_mixed_vector_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
@@ -467,8 +471,10 @@ def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('cell_family_degree_dim', [("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2),
-                                                    ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)])
+@pytest.mark.parametrize('cell_family_degree_dim', [
+    pytest.param(("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2), marks=pytest.mark.slow),
+    ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)
+])
 def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir):
     cell_type, family0, degree0, dim0, family1, degree1, vfamily1, vdegree1, dim1 = cell_family_degree_dim
     filename = join(str(tmpdir), "test_io_function_mixed_vector_extrusion_real_dump.h5")
