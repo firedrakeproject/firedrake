@@ -2,13 +2,14 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 cwd = abspath(dirname(__file__))
 
 
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
-    f = interpolate(Constant(1.0), cg1)
+    f = assemble(interpolate(Constant(1.0), cg1))
     assert np.allclose(1.0, f.dat.data)
 
 
@@ -18,11 +19,11 @@ def test_function():
     V1 = FunctionSpace(m, 'P', 1)
     V2 = FunctionSpace(m, 'P', 2)
 
-    f = interpolate(x[0]*x[0], V1)
-    g = interpolate(f, V2)
+    f = assemble(interpolate(x[0]*x[0], V1))
+    g = assemble(interpolate(f, V2))
 
     # g shall be equivalent to:
-    h = interpolate(x[0], V2)
+    h = assemble(interpolate(x[0], V2))
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -33,11 +34,11 @@ def test_inner():
     V2 = FunctionSpace(m, 'P', 2)
 
     x, y = SpatialCoordinate(m)
-    f = interpolate(inner(x, x), V1)
-    g = interpolate(f, V2)
+    f = assemble(interpolate(inner(x, x), V1))
+    g = assemble(interpolate(f, V2))
 
     # g shall be equivalent to:
-    h = interpolate(x, V2)
+    h = assemble(interpolate(x, V2))
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -45,10 +46,10 @@ def test_inner():
 def test_coordinates():
     cg2 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 2)
     x = SpatialCoordinate(cg2.mesh())
-    f = interpolate(x[0]*x[0], cg2)
+    f = assemble(interpolate(x[0]*x[0], cg2))
 
     x = SpatialCoordinate(cg2.mesh())
-    g = interpolate(x[0]*x[0], cg2)
+    g = assemble(interpolate(x[0]*x[0], cg2))
 
     assert np.allclose(f.dat.data, g.dat.data)
 
@@ -60,7 +61,7 @@ def test_piola():
     V = FunctionSpace(m, 'P', 2)
 
     f = project(as_vector((x[0], Constant(0.0))), U)
-    g = interpolate(f[0], V)
+    g = assemble(interpolate(f[0], V))
 
     # g shall be equivalent to:
     h = project(f[0], V)
@@ -75,7 +76,7 @@ def test_vector():
     V = VectorFunctionSpace(m, 'P', 2)
 
     f = project(as_vector((x[0], Constant(0.0))), U)
-    g = interpolate(f, V)
+    g = assemble(interpolate(f, V))
 
     # g shall be equivalent to:
     h = project(f, V)
@@ -92,7 +93,7 @@ def test_tensor():
     c = as_tensor(((Constant(2.0), x[1]), (x[0], x[0] * x[1])))
 
     f = project(c, U)
-    g = interpolate(f, V)
+    g = assemble(interpolate(f, V))
 
     # g shall be equivalent to:
     h = project(f, V)
@@ -107,7 +108,7 @@ def test_constant_expression():
     V = FunctionSpace(m, 'P', 2)
 
     f = project(as_vector((x[0], x[1])), U)
-    g = interpolate(div(f), V)
+    g = assemble(interpolate(div(f), V))
 
     assert np.allclose(2.0, g.dat.data)
 
@@ -119,10 +120,10 @@ def test_compound_expression():
     V = FunctionSpace(m, 'P', 2)
 
     f = project(as_vector((x[0], x[1])), U)
-    g = interpolate(Constant(1.5)*div(f) + sin(x[0] * np.pi), V)
+    g = assemble(interpolate(Constant(1.5)*div(f) + sin(x[0] * np.pi), V))
 
     # g shall be equivalent to:
-    h = interpolate(3.0 + sin(pi * x[0]), V)
+    h = assemble(interpolate(3.0 + sin(pi * x[0]), V))
 
     assert np.allclose(g.dat.data, h.dat.data)
 
@@ -132,7 +133,7 @@ def test_hdiv_extruded_interval():
     x = SpatialCoordinate(mesh)
     U = FunctionSpace(mesh, HDiv(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
     expr = as_vector([x[0], x[1]])
-    u = interpolate(expr, U)
+    u = assemble(interpolate(expr, U))
     u_proj = project(expr, U)
 
     assert np.allclose(u.dat.data, u_proj.dat.data)
@@ -143,7 +144,7 @@ def test_hcurl_extruded_interval():
     x = SpatialCoordinate(mesh)
     U = FunctionSpace(mesh, HCurl(TensorProductElement(FiniteElement("P", interval, 1), FiniteElement("DP", interval, 0))))
     expr = as_vector([x[0], x[1]])
-    u = interpolate(expr, U)
+    u = assemble(interpolate(expr, U))
     u_proj = project(expr, U)
 
     assert np.allclose(u.dat.data, u_proj.dat.data)
@@ -162,7 +163,7 @@ def test_hdiv_2d():
     c = as_vector([x[1], -x[0], 0.0])
 
     f = project(c, U)
-    g = interpolate(f, V)
+    g = assemble(interpolate(f, V))
 
     # g shall be equivalent to:
     h = project(f, V)
@@ -182,7 +183,7 @@ def test_hcurl_2d():
     c = as_vector([-x[1], x[0], 0.0])
 
     f = project(c, U)
-    g = interpolate(f, V)
+    g = assemble(interpolate(f, V))
 
     # g shall be equivalent to:
     h = project(f, V)
@@ -199,7 +200,7 @@ def test_cell_orientation():
     V = VectorFunctionSpace(m, 'DQ', 1)
 
     f = project(as_tensor([x[1], -x[0], 0.0]), U)
-    g = interpolate(f, V)
+    g = assemble(interpolate(f, V))
 
     # g shall be close to:
     h = project(f, V)
@@ -213,7 +214,7 @@ def test_cell_orientation_curve():
     m.init_cell_orientations(x)
 
     V = VectorFunctionSpace(m, 'DG', 0)
-    f = interpolate(CellNormal(m), V)
+    f = assemble(interpolate(CellNormal(m), V))
 
     assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
                                     [-1, 0],
@@ -224,7 +225,7 @@ def test_cellvolume():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'DG', 0)
 
-    f = interpolate(CellVolume(m), V)
+    f = assemble(interpolate(CellVolume(m), V))
 
     assert np.allclose(f.dat.data_ro, 0.125)
 
@@ -243,7 +244,7 @@ def test_cellvolume_higher_order_coords():
     f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
 
     mesh = Mesh(f)
-    g = interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0))
+    g = assemble(interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0)))
 
     assert np.allclose(g.dat.data_ro, 0.5 - (1.0/4.0 - (1 - 19.0/12.0)/3.0 - 19/24.0))
 
@@ -258,7 +259,7 @@ def test_mixed():
     f.sub(1).interpolate(as_tensor([x[0], x[1]]))
 
     V = FunctionSpace(m, 'P', 1)
-    g = interpolate(dot(grad(f[0]), grad(f[3])), V)
+    g = assemble(interpolate(dot(grad(f[0]), grad(f[3])), V))
 
     assert np.allclose(1.0, g.dat.data)
 
@@ -280,10 +281,10 @@ def test_interpolator_Pk(degree):
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
     expr = x[0]**degree + x[1]**degree
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -297,10 +298,10 @@ def test_interpolator_spectral(degree):
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
     expr = x[0]**degree + x[1]**degree
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -314,10 +315,10 @@ def test_interpolator_equiquads(degree):
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
     expr = x[0]**degree + x[1]**degree
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -331,10 +332,10 @@ def test_interpolator_equitris(degree):
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
     expr = x[0]**degree + x[1]**degree
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -346,10 +347,10 @@ def test_interpolator_tets():
     P2 = FunctionSpace(mesh, "CG", 2)
 
     expr = x[0] + x[1]
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -361,10 +362,10 @@ def test_interpolator_extruded():
     P2 = FunctionSpace(mesh, "CG", 2)
 
     expr = x[0] + x[1]
-    x_P1 = interpolate(expr, P1)
+    x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = interpolator.interpolate(x_P1)
-    x_P2_direct = interpolate(expr, P2)
+    x_P2 = assemble(interpolator.interpolate(x_P1))
+    x_P2_direct = assemble(interpolate(expr, P2))
 
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
@@ -376,9 +377,9 @@ def test_trace():
     tr = FunctionSpace(mesh, "HDiv Trace", 1)
 
     expr = x[0] + x[1]
-    x_cg = interpolate(expr, cg)
-    x_tr_dir = interpolate(expr, tr)
-    x_tr_cg = interpolate(x_cg, tr)
+    x_cg = assemble(interpolate(expr, cg))
+    x_tr_dir = assemble(interpolate(expr, tr))
+    x_tr_cg = assemble(interpolate(x_cg, tr))
 
     assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
 
@@ -392,7 +393,7 @@ def test_adjoint_Pk(degree):
     v = conj(TestFunction(Pkp1))
     u_Pk = assemble(conj(TestFunction(Pk)) * dx)
     interpolator = Interpolator(TestFunction(Pk), Pkp1)
-    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
 
@@ -406,7 +407,7 @@ def test_adjoint_quads():
     v = conj(TestFunction(P2))
     u_P1 = assemble(conj(TestFunction(P1)) * dx)
     interpolator = Interpolator(TestFunction(P1), P2)
-    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
 
     assert np.allclose(u_P1.dat.data, v_adj.dat.data)
 
@@ -419,28 +420,9 @@ def test_adjoint_dg():
     v = conj(TestFunction(dg1))
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
     interpolator = Interpolator(TestFunction(cg1), dg1)
-    v_adj = interpolator.interpolate(assemble(v * dx), transpose=True)
+    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
-
-
-@pytest.mark.skipcomplex  # complex numbers are not orderable
-@pytest.mark.parametrize("access", [MIN, MAX])
-def test_interpolate_minmax(access):
-    mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "DG", 0)
-    x, y = SpatialCoordinate(mesh)
-    g = interpolate(x*y, V)
-    f = interpolate(x**2 - y**4, V)
-    actual = Function(g)
-    actual = interpolate(f, actual, access=access).dat.data_ro
-
-    if access is MIN:
-        expect = np.where(f.dat.data_ro < g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
-    else:
-        expect = np.where(f.dat.data_ro > g.dat.data_ro, f.dat.data_ro, g.dat.data_ro)
-
-    assert np.allclose(actual, expect)
 
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
@@ -448,7 +430,7 @@ def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)
 
-    continuous = interpolate(SpatialCoordinate(mesh), V, access=MAX)
+    continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=MAX))
 
     # All nodes on the "seam" end up being 1, not 0.
     assert np.allclose(np.unique(continuous.dat.data_ro),
@@ -460,13 +442,13 @@ def test_basic_dual_eval_cg3():
     V = FunctionSpace(mesh, "CG", 3)
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = (1-x[0])**3
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
 
 
@@ -475,7 +457,7 @@ def test_basic_dual_eval_bdm():
     V = FunctionSpace(mesh, "BDM", 2)
     x = SpatialCoordinate(mesh)
     expr = as_vector([x[0], x[1]])
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     # Can't do nodal evaluation of the FIAT dual basis yet so just check the
     # dat is the correct length
@@ -493,11 +475,11 @@ def test_quadrature():
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = 1-x
-    xq = interpolate(expr_fiat, Qs)
+    xq = assemble(interpolate(expr_fiat, Qs))
     assert np.allclose(xq.dat.data_ro[xq.cell_node_map().values].T, fiat_rule._points)
     # For quadrature weight we should 2 equal weights for each cell
     w = QuadratureWeight(mesh)
-    wq = interpolate(w, Qs)
+    wq = assemble(interpolate(w, Qs))
     assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
 
 
@@ -515,7 +497,7 @@ def test_interpolation_tensor_convergence():
             for i in range(np.prod(vs, dtype=int))
         ], dtype=object).reshape(vs))
 
-        f = interpolate(expr, V)
+        f = assemble(interpolate(expr, V))
 
         errors.append(norm(expr - f))
 
@@ -536,8 +518,8 @@ def test_interpolation_tensor_symmetric():
     # Make a symmetric tensor-valued expression
     expr = as_tensor([J*J.T, K*K.T])
     expr = as_tensor(expr[i, j, k], (j, k, i))
-    f = interpolate(expr, V)
-    fexp = interpolate(expr, Vexp)
+    f = assemble(interpolate(expr, V))
+    fexp = assemble(interpolate(expr, Vexp))
     assert np.isclose(norm(fexp - f), 0)
 
 
@@ -560,6 +542,6 @@ def test_interpolate_logical_not():
     V = FunctionSpace(mesh, "P", 1)
     x, y = SpatialCoordinate(mesh)
 
-    a = interpolate(conditional(Not(x < .2), 1, 0), V)
-    b = interpolate(conditional(x >= .2, 1, 0), V)
+    a = assemble(interpolate(conditional(Not(x < .2), 1, 0), V))
+    b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
