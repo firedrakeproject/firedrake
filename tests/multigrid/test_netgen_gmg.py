@@ -2,9 +2,7 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
-def test_netgen_mg_circle():
+def create_netgen_mesh_circle():
     from netgen.geom2d import Circle, CSG2d
     geo = CSG2d()
 
@@ -12,6 +10,13 @@ def test_netgen_mg_circle():
     geo.Add(circle)
 
     ngmesh = geo.GenerateMesh(maxh=0.75)
+    return ngmesh
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.skipnetgen
+def test_netgen_mg_circle():
+    ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
@@ -36,18 +41,13 @@ def test_netgen_mg_circle():
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
 
+
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgeun
 def test_netgen_mg_circle_non_uniform_degree():
-    from netgen.geom2d import Circle, CSG2d
-    geo = CSG2d()
-
-    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
-    geo.Add(circle)
-
-    ngmesh = geo.GenerateMesh(maxh=0.75)
+    ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": [1,2,3]})
+    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": [1, 2, 3]})
     mesh = nh[-1]
 
     V = FunctionSpace(mesh, "CG", 3)
@@ -70,17 +70,12 @@ def test_netgen_mg_circle_non_uniform_degree():
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
 
+
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 @pytest.mark.skipnetgen
 def test_netgen_mg_circle_parallel():
-    from netgen.geom2d import Circle, CSG2d
-    geo = CSG2d()
-
-    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
-    geo.Add(circle)
-
-    ngmesh = geo.GenerateMesh(maxh=0.75)
+    ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
