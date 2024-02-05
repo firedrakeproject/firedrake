@@ -90,7 +90,8 @@ jobs:
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
-            pytest-xdist pytest-timeout ipympl
+          pytest-xdist pytest-timeout ipympl
+          python -m pip uninstall -y pytest-mpi
           python -m pip list
       - name: Test Firedrake Serial
         run: |
