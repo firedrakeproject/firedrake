@@ -58,10 +58,8 @@ def run_facet_split(quadrilateral, pc_type, refine=2):
     return sqrt(assemble(inner(uh - u_exact, uh - u_exact) * dx))
 
 
-@pytest.mark.parametrize(['quadrilateral', 'pc_type'],
-                         [(q, p)
-                          for q in [True, False]
-                          for p in ["lu", "jacobi"]])
+@pytest.mark.parametrize("quadrilateral", [True, False])
+@pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
 def test_facet_split(quadrilateral, pc_type):
     assert run_facet_split(quadrilateral, pc_type) < 1E-10
 
