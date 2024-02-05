@@ -1,6 +1,7 @@
 import numpy as np
 import finat
 import ufl
+
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
 import firedrake.assemble
@@ -8,6 +9,7 @@ import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.petsc import PETSc
 
 
 class Cofunction(ufl.Cofunction, FunctionMixin):
@@ -28,6 +30,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
@@ -58,7 +61,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # User comm
         self.comm = V.comm
         # Internal comm
-        self._comm = mpi.internal_comm(V.comm)
+        self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
         self.uid = utils._new_uid()
         self._name = name or 'cofunction_%d' % self.uid
@@ -76,10 +79,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(function_space, Cofunction):
             self.dat.copy(function_space.dat)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
-
+    @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
@@ -126,6 +126,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
 
@@ -155,6 +156,23 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return True
         return self._count == other._count and self._function_space == other._function_space
 
+    def zero(self, subset=None):
+        """Set values to zero.
+
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        return self.assign(0, subset=subset)
+
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
@@ -268,6 +286,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             self.dat *= expr.dat
             return self
         return NotImplemented
+
+    def interpolate(self, expression):
+        r"""Interpolate an expression onto this :class:`Cofunction`.
+
+        :param expression: a UFL expression to interpolate
+        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
+        from firedrake import interpolation
+        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
+        return firedrake.assemble(interp, tensor=self)
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this
