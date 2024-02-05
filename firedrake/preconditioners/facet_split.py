@@ -84,7 +84,7 @@ class FacetSplitPC(PCBase):
         self.iperm = None
         indices = self.get_permutation(V, W)
         if indices is not None:
-            self.perm = PETSc.IS().createGeneral(indices, comm=V._comm)
+            self.perm = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             self.iperm = self.perm.invertPermutation()
 
         if mat_type != "submatrix":
@@ -260,6 +260,4 @@ def get_permutation_map(V, W):
                  vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
 
     own = V.dof_dset.layout_vec.sizes[0]
-    perm = perm.reshape((-1, ))
-    perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]
