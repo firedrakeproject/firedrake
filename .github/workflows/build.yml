@@ -82,6 +82,7 @@ jobs:
             --install femlium \
             --install fascd \
             --install defcon \
+            --package-branch PyOP2 JDBetteridge/angus-g-fix \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
