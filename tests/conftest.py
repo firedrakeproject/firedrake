@@ -16,6 +16,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "parallel(nprocs): mark test to run in parallel on nprocs processors (default: 3)"
+    )
+    config.addinivalue_line(
+        "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
     )
     config.addinivalue_line(
@@ -119,6 +123,16 @@ def pytest_collection_modifyitems(session, config, items):
                         item.add_marker(getattr(pytest.mark, label)())
                     else:
                         item.add_marker(label())
+
+        if mark := item.get_closest_marker("parallel"):
+            nprocs = mark.kwargs.get("nprocs", 3)
+            marker = f"parallel[{nprocs}]"
+            if marker not in pytest.mark._markers:
+                config.addinivalue_line(
+                    "markers",
+                    f"{marker}: internal marker"
+                )
+            item.add_marker(getattr(pytest.mark, marker))
 
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
