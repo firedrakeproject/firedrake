@@ -46,7 +46,7 @@ class Interpolate(ufl.Interpolate):
 
     def __init__(self, expr, v,
                  subset=None,
-                 access=op2.WRITE,
+                 access=op3.WRITE,
                  allow_missing_dofs=False,
                  default_missing_val=None):
         """Symbolic representation of the interpolation operator.
