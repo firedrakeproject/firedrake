@@ -1216,14 +1216,23 @@ class ExplicitMatrixAssembler(FormAssembler):
         if not bcs:
             return None
 
-        lgmaps = []
-        for i, j in self.get_indicess(knl):
-            row_bcs, col_bcs = self._filter_bcs(bcs, i, j)
-            rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
-            rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-            clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
-            lgmaps.append((rlgmap, clgmap))
-        return tuple(lgmaps)
+        if self.get_indicess(knl) != ((0, 0),):
+            raise NotImplementedError("TODO, mixed matrices are confusing")
+
+        row_bcs, col_bcs = self._filter_bcs(bcs, 0, 0)
+        # rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
+        rlgmap = self.test_function_space.local_to_global_map(row_bcs)
+        clgmap = self.trial_function_space.local_to_global_map(col_bcs)
+        return ((rlgmap, clgmap),)
+
+        # lgmaps = []
+        # for i, j in self.get_indicess(knl):
+        #     row_bcs, col_bcs = self._filter_bcs(bcs, i, j)
+        #     rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
+        #     rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+        #     clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+        #     lgmaps.append((rlgmap, clgmap))
+        # return tuple(lgmaps)
 
     def _filter_bcs(self, bcs, row, col):
         if len(self.test_function_space) > 1:

@@ -21,6 +21,7 @@ from pyop3.utils import single_valued
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 
 def check_element(element, top=True):
@@ -820,7 +821,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs=()):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -828,8 +829,9 @@ class FunctionSpace:
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
-        if bcs is None or len(bcs) == 0:
-            return lgmap or self.dof_dset.lgmap
+        if not bcs:
+            return self._lgmap
+
         for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
@@ -866,6 +868,39 @@ class FunctionSpace:
         nodes = numpy.unique(numpy.concatenate(nodes))
         indices[nodes] = -1
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
+
+    @utils.cached_property
+    def _lgmap(self):
+        """Return the mapping from process-local indices to global indices."""
+        # TODO remove circular import
+        from firedrake.cython.dmcommon import make_global_numbering
+
+        lsec = self.dm.getDefaultSection()
+        gsec = self.dm.getDefaultGlobalSection()
+        return make_global_numbering(lsec, gsec)
+        # lgmap = PETSc.LGMap()
+        # if self.comm.size == 1:
+        #     lgmap.create(indices=numpy.arange(self.size, dtype=IntType),
+        #                  bsize=self.cdim, comm=self.comm)
+        # else:
+        #     lgmap.create(indices=self.halo.local_to_global_numbering,
+        #                  bsize=self.cdim, comm=self.comm)
+        # return lgmap
+
+    @utils.cached_property
+    def _unblocked_lgmap(self):
+        """Return the local-to-global mapping with a block size of 1."""
+        raise NotImplementedError
+        if self.cdim == 1:
+            return self._lgmap
+        else:
+            indices = self._lgmap.indices
+            lgmap = PETSc.LGMap().create(
+                indices=indices,
+                bsize=1,
+                comm=self._lgmap.comm,
+            )
+            return lgmap
 
     def collapse(self):
         from firedrake import FunctionSpace

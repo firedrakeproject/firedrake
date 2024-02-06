@@ -1,5 +1,6 @@
 import numpy as np
 import ctypes
+import functools
 import os
 import sys
 import ufl
@@ -570,7 +571,7 @@ _PLEX_TO_FIAT_CLOSURE_PERM = {
 """
 
 
-class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
+class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
@@ -1336,6 +1337,30 @@ class MeshTopology(AbstractMeshTopology):
             # No reordering
             reordering = None
         return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
+
+    def subdomain_points(self, subdomain_id):
+        if subdomain_id == "on_boundary":
+            label = "exterior_facets"
+            label_values = (1,)
+        else:
+            label = "Face Sets"
+            label_values = subdomain_id
+
+        dm = self.topology_dm
+
+        if not dm.hasLabel(label):
+            return tuple(np.empty(0, dtype=IntType) for _ in range(self.dimension+1))
+
+        # this is a very slow way to do this, should consider the fact that usually
+        # we know only a particular stratum (e.g. facets) is labelled
+        points = tuple([] for _ in range(self.dimension+1))
+        for label_value in label_values:
+            for pt in dm.getStratumIS(label, label_value).indices:
+                dim_cpt, dim_pt = self.points.axis_to_component_number(pt)
+                dim_pt_renum = self.points.default_to_applied_component_number(dim_cpt, dim_pt)
+                dim = int(dim_cpt.label)
+                points[dim].append(dim_pt_renum)
+        return tuple(np.unique(pts) for pts in points)
 
     @cached_property
     def _closures(self):

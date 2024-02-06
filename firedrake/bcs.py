@@ -9,6 +9,7 @@ from ufl import as_ufl, as_tensor
 from finat.ufl import VectorElement
 import finat
 
+import pyop3 as op3
 import pyop2 as op2
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
@@ -39,36 +40,21 @@ class BCBase(object):
     '''
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
-
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+        if (
+            isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell))
+            or (
+                isinstance(V.finat_element, finat.Hermite)
+                and V.mesh().topological_dimension() > 1
+            )
+        ):
+            raise NotImplementedError(
+                f"Strong BCs not implemented for element {V.finat_element}, use "
+                "Nitsche-type methods until we figure this out"
+            )
+
         self._function_space = V
         self.sub_domain = sub_domain
-        # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
-        # indices.
-        components = []
-        indexing = []
-        indices = []
-        fs = self._function_space
-        while True:
-            # Add index to indices if found
-            if fs.index is not None:
-                indexing.append(fs.index)
-                indices.append(fs.index)
-            if fs.component is not None:
-                components.append(fs.component)
-                indices.append(fs.component)
-            # Now try the parent
-            if fs.parent is not None:
-                fs = fs.parent
-            else:
-                # All done
-                break
-        # Used for indexing functions passed in.
-        self._indices = tuple(reversed(indices))
         # init bcs
         self.bcs = []
         # Remember the depth of the bc
@@ -93,39 +79,25 @@ class BCBase(object):
         return fs.index
 
     @utils.cached_property
-    def domain_args(self):
-        r"""The sub_domain the BC applies to."""
-        # Define facet, edge, vertex using tuples:
-        # Ex in 3D:
-        #           user input                                                         returned keys
-        # facet  = ((1, ), )                                  ->     ((2, ((1, ), )), (1, ()),         (0, ()))
-        # edge   = ((1, 2), )                                 ->     ((2, ()),        (1, ((1, 2), )), (0, ()))
-        # vertex = ((1, 2, 4), )                              ->     ((2, ()),        (1, ()),         (0, ((1, 2, 4), ))
-        #
-        # Multiple facets:
-        # (1, 2, 4) := ((1, ), (2, ), (4,))                   ->     ((2, ((1, ), (2, ), (4, ))), (1, ()), (0, ()))
-        #
-        # One facet and two edges:
-        # ((1,), (1, 3), (1, 4))                              ->     ((2, ((1,),)), (1, ((1,3), (1, 4))), (0, ()))
-        #
-
-        sub_d = self.sub_domain
-        # if string, return
-        if isinstance(sub_d, str):
-            return (sub_d, )
-        # convert: i -> (i, )
-        sub_d = as_tuple(sub_d)
-        # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
-        sub_d = [as_tuple(i) for i in sub_d]
-
-        ndim = self.function_space().mesh().topology_dm.getDimension()
-        sd = [[] for _ in range(ndim)]
-        for i in sub_d:
-            sd[ndim - len(i)].append(i)
-        s = []
-        for i in range(ndim):
-            s.append((ndim - 1 - i, as_tuple(sd[i])))
-        return as_tuple(s)
+    def _indices(self):
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
+            if fs.index is not None:
+                indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
+            # Now try the parent
+            if fs.parent is not None:
+                fs = fs.parent
+            else:
+                # All done
+                break
+        return tuple(reversed(indices))
 
     @utils.cached_property
     def nodes(self):
@@ -164,11 +136,62 @@ class BCBase(object):
         return np.concatenate(bcnodes)
 
     @utils.cached_property
-    def node_set(self):
-        '''The subset corresponding to the nodes at which this
-        boundary condition applies.'''
+    def constrained_points(self):
+        """Return the subset of mesh points constrained by the boundary condition."""
+        # NOTE: This returns facets, whose closure is then used when applying the BC
+        mesh = self._function_space.mesh().topology
+        tdim = mesh.dimension
 
-        return op2.Subset(self._function_space.node_set, self.nodes)
+        subset_data_per_dim = {
+            dim: [] for dim in range(tdim + 1)
+        }
+        # NOTE: Is this parsing correct?
+        subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+        for subdomain_id in subdomain_ids:
+            # subdomain_id is of one of the following formats:
+            # facet: (i,)
+            # edge: (i, j)
+            # vertex: (i, j, k)
+            # i, j, k can also be strings.
+            if (
+                len(subdomain_id) > 1
+                and not isinstance(
+                    self._function_space.finat_element,
+                    (finat.Lagrange, finat.GaussLobattoLegendre)
+                )
+            ):
+                raise TypeError(
+                    "Currently, edge conditions have only been tested with "
+                    "CG Lagrange elements"
+                )
+
+            if len(subdomain_id) > 1:
+                raise NotImplementedError("TODO pyop3")
+
+            subsets = mesh.subdomain_points(subdomain_id)
+            for dim, subset_data in subset_data_per_dim.items():
+                subset_data.append(subsets[dim])
+
+        flat_subset_data = {
+            dim: functools.reduce(np.intersect1d, data)
+            for dim, data in subset_data_per_dim.items()
+        }
+
+        subsets = []
+        for dim, data in flat_subset_data.items():
+            point_label = str(dim)
+            n, = data.shape
+            array = op3.HierarchicalArray(op3.Axis(n), data=data, prefix="subset")
+            subset = op3.Subset(point_label, array)
+            subsets.append(subset)
+        return op3.Slice(mesh.points.label, subsets)
+
+    # @utils.cached_property
+    # def node_set(self):
+    #     '''The subset corresponding to the nodes at which this
+    #     boundary condition applies.'''
+    #
+    #     return self._function_space.axes[self.nodes]
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -183,10 +206,16 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        try:
-            r.dat.zero(subset=self.node_set)
-        except exceptions.MapValueError:
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+        # TODO raise an exception if spaces are not compatible
+        # raise RuntimeError(f"{r} defined on incompatible FunctionSpace")
+
+        mesh = self._function_space.mesh().topology
+        op3.do_loop(
+            p := mesh.points[self.constrained_points].index(),
+            r.dat[p].assign(0),
+        )
+        # r.dat.zero(subset=self.node_set)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
