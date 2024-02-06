@@ -759,7 +759,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    libspatialindex_so = Path(rtree.core.rt._name)
+    libspatialindex_so = Path(rtree.core.rt._name).absolute()
     lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
     ldargs += [str(libspatialindex_so), lsi_runpath]
     return compilation.load(
