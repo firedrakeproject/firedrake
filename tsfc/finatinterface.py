@@ -148,7 +148,7 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.Lagrange
         elif kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
-        elif kind == 'hierarchical' and is_interval:
+        elif kind == 'integral':
             lmbda = finat.IntegratedLegendre
         elif kind in ['fdm', 'fdm_ipdg'] and is_interval:
             lmbda = finat.FDMLagrange
@@ -158,6 +158,8 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.FDMBrokenH1
         elif kind == 'fdm_hermite' and is_interval:
             lmbda = finat.FDMHermite
+        elif kind in ['demkowicz', 'fdm']:
+            lmbda = partial(finat.IntegratedLegendre, variant=kind)
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
@@ -174,7 +176,7 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.DiscontinuousLagrange
         elif kind == 'spectral':
             lmbda = finat.GaussLegendre
-        elif kind == 'hierarchical' and is_interval:
+        elif kind == 'integral':
             lmbda = finat.Legendre
         elif kind in ['fdm', 'fdm_quadrature'] and is_interval:
             lmbda = finat.FDMDiscontinuousLagrange
