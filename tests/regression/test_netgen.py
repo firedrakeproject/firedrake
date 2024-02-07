@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import interpolate
 import numpy as np
 from petsc4py import PETSc
 import pytest
@@ -6,16 +7,20 @@ import pytest
 printf = lambda msg: PETSc.Sys.Print(msg)
 
 
-def poisson(h, degree=2):
+def square_geometry(h):
     from netgen.geom2d import SplineGeometry
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (np.pi, np.pi), bc="rect")
+    ngmesh = geo.GenerateMesh(maxh=h)
+    return ngmesh
+
+def poisson(h, degree=2):
     import netgen
 
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
-        geo = SplineGeometry()
-        geo.AddRectangle((0, 0), (np.pi, np.pi), bc="rect")
-        ngmesh = geo.GenerateMesh(maxh=h)
+        ngmesh = square_geometry(h)
         labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
@@ -27,9 +32,8 @@ def poisson(h, degree=2):
     V = FunctionSpace(msh, "CG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
     x, y = SpatialCoordinate(msh)
-    f.interpolate(2*sin(x)*sin(y))
+    f = assemble(interpolate(2*sin(x)*sin(y),V))
     a = inner(grad(u), grad(v))*dx
     l = inner(f, v) * dx
     u = Function(V)
@@ -72,9 +76,8 @@ def poisson3D(h, degree=2):
     V = FunctionSpace(msh, "CG", degree)
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
     x, y, z = SpatialCoordinate(msh)
-    f.interpolate(3*sin(x)*sin(y)*sin(z))
+    f = assemble(interpolate(3*sin(x)*sin(y)*sin(z),V))
     a = inner(grad(u), grad(v))*dx
     l = inner(f, v) * dx
     u = Function(V)
@@ -140,7 +143,7 @@ def test_firedrake_integral_2D_netgen():
     msh = Mesh(ngmesh)
     V = FunctionSpace(msh, "CG", 3)
     x, y = SpatialCoordinate(msh)
-    f = Function(V).interpolate(x*x+y*y*y+x*y)
+    f = assemble(interpolate(x*x+y*y*y+x*y,V))
     assert abs(assemble(f * dx) - (5/6)) < 1.e-10
 
 
@@ -165,7 +168,7 @@ def test_firedrake_integral_3D_netgen():
     msh = Mesh(ngmesh)
     V = FunctionSpace(msh, "CG", 3)
     x, y, z = SpatialCoordinate(msh)
-    f = Function(V).interpolate(2 * x + 3 * y * y + 4 * z * z * z)
+    f = assemble(interpolate(2 * x + 3 * y * y + 4 * z * z * z,V))
     assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
 
 
@@ -188,7 +191,7 @@ def test_firedrake_integral_ball_netgen():
     msh = Mesh(ngmesh)
     V = FunctionSpace(msh, "CG", 3)
     x, y, z = SpatialCoordinate(msh)
-    f = Function(V).interpolate(1+0*x)
+    f = assemble(interpolate(1+0*x,V))
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
@@ -209,7 +212,7 @@ def test_firedrake_integral_sphere_high_order_netgen():
     homsh = Mesh(msh.curve_field(4))
     V = FunctionSpace(homsh, "CG", 4)
     x, y, z = SpatialCoordinate(homsh)
-    f = Function(V).interpolate(1+0*x)
+    f = assemble(interpolate(1+0*x,V))
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
 
 
@@ -231,7 +234,7 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
     homsh = Mesh(msh.curve_field(2))
     V = FunctionSpace(homsh, "CG", 2)
     x, y, z = SpatialCoordinate(homsh)
-    f = Function(V).interpolate(1+0*x)
+    f = assemble(interpolate(1+0*x, V))
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
 
 
@@ -384,3 +387,30 @@ def test_firedrake_Adaptivity_netgen_parallel():
         dofs.append(uh.function_space().dim())
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.05
+
+@pytest.mark.skipnetgen
+@pytest.mark.parallel
+def test_alfeld_stokes_netgen():
+    comm = COMM_WORLD
+    # Setting up Netgen geometry and mesh
+    ngmesh = square_geometry(0.75)
+    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
+
+    labels = comm.bcast(labels, root=0)
+    msh = Mesh(ngmesh, netgen_flags={"split": "Alfeld"})
+    # Setting up the problem
+    V = VectorFunctionSpace(msh, "CG", 2)
+    Q = FunctionSpace(msh, "DG", 1)
+    W = V*Q
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+    x, y = SpatialCoordinate(msh)
+    f = assemble(interpolate(as_vector([sin(x)*sin(y), sin(x)*sin(y)]),V))
+    a = (inner(grad(u), grad(v)) - div(u)*q - div(v)*p)*dx
+    l = inner(f, v) * dx
+    w = Function(W)
+    bc = DirichletBC(W.sub(0), as_vector([0, 0]), labels)
+    #Solve the problem
+    solve(a == l, w, bcs=bc)
+    u = w.split()[0]
+    assert assemble(div(u)*div(u)*dx) < 1e-16

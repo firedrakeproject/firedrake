@@ -87,7 +87,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
     Parameters
     ----------
-    mesh : Mesh
+    mesh : MeshGeometry
         the coarse mesh to refine
     refinement_levels : int
         the number of levels of refinement

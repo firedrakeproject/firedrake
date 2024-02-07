@@ -72,7 +72,7 @@ def test_netgen_mg_circle_non_uniform_degree():
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-@pytest.mark.skip
+#@pytest.mark.skip
 def test_netgen_mg_circle_alfeld():
     ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
