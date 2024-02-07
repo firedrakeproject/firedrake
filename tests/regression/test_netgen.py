@@ -391,6 +391,7 @@ def test_firedrake_Adaptivity_netgen_parallel():
 
 @pytest.mark.skipnetgen
 @pytest.mark.parallel
+@pytest.mark.skipcomplex
 def test_alfeld_stokes_netgen():
     ngmesh = square_geometry(0.75)
     labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
