@@ -80,6 +80,8 @@ jobs:
             --install icepack \
             --install irksome \
             --install femlium \
+            --install fascd \
+            --install defcon \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
