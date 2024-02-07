@@ -111,7 +111,7 @@ by some form of approximate commutator.::
 The mass inverse is dense, and therefore approximated with an incomplete
 LU factorization, which we configure now::
 
-      "fieldsplit_1_Mp_mat_type": "aij"
+      "fieldsplit_1_Mp_mat_type": "aij",
       "fieldsplit_1_Mp_pc_type": "ilu"
    }
 
