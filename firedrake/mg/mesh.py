@@ -94,7 +94,7 @@ def MeshHierarchy(mesh, refinement_levels,
     refinements_per_level : int
         the number of refinements for each level in the hierarchy.
     netgen_flags : bool, dict
-        either a bool or a dictionray containing options for Netgen.
+        either a bool or a dictionary containing options for Netgen.
         If not False the hierachy is constructed using ngsPETSc, if
         None hierarchy constructed in a standard manner.
     distribution_parameters : dict
