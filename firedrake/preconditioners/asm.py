@@ -158,6 +158,18 @@ class ASMStarPC(ASMPatchPC):
         for (i, W) in enumerate(V):
             V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
 
+        tdim = V.mesh().topological_dimension()
+        depths = [mesh_dm.getDepthStratum(k) for k in range(tdim+1)]
+
+        def sort_points(pt_array):
+            fstart, fend = depths[tdim-1]
+            istart, iend = depths[tdim]
+            ii = [i for i, pt in enumerate(pt_array) if (istart <= pt < iend) or (fstart <= pt < fend)]
+            pt_array[ii] = order_points(mesh_dm, pt_array[ii], ordering, self.prefix)
+            ii = numpy.setdiff1d(range(len(pt_array)), ii)
+            pt_array[ii] = order_points(mesh_dm, pt_array[ii], ordering, self.prefix)
+            return pt_array
+
         # Build index sets for the patches
         ises = []
         (start, end) = mesh_dm.getDepthStratum(depth)
@@ -168,7 +180,8 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
+            pt_array = pt_array[::-1]
+            pt_array = sort_points(pt_array)
 
             # Get DoF indices for patch
             indices = []
