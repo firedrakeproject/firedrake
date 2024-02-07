@@ -256,14 +256,11 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     elif isinstance(uc, (firedrake.Function, firedrake.Cofunction, BaseFormOperator)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
-        # if uc.ufl_shape != ():
-        #    raise ValueError("Real function space of vector elements not supported")
+        if uc.ufl_shape != ():
+            raise ValueError("Real function space of vector elements not supported")
         # Replace instances of the constant with a new argument ``x``
         # and differentiate wrt ``x``.
-        if uc.ufl_shape == ():
-            V = firedrake.FunctionSpace(mesh, "Real", 0)
-        else:
-            V = firedrake.TensorFunctionSpace(mesh, "Real", 0, shape=uc.ufl_shape)
+        V = firedrake.FunctionSpace(mesh, "Real", 0)
         x = ufl.Coefficient(V, n + 1)
         n += 1
         # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed

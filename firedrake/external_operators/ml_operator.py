@@ -4,7 +4,9 @@ from firedrake.matrix import AssembledMatrix
 
 class MLOperator(AbstractExternalOperator):
     r"""A :class:`MLOperator`: is an implementation of ExternalOperator that is defined through
-    a given neural network model N and whose values correspond to the output of the neural network represented by N.
+    a given machine learning model N and whose value correspond to the output of the neural network it represents.
+
+    TODO !!!
      """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
@@ -17,7 +19,6 @@ class MLOperator(AbstractExternalOperator):
         :param derivatives: tuple specifiying the derivative multiindex.
         :param operator_data: dictionary containing the:
                 - model: the machine learning model
-                - framework: it specifies wich machine learning framework we are dealing with (e.g. Pytorch or Tensorflow)
         """
 
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,

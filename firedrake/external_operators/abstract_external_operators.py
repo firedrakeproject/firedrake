@@ -17,7 +17,7 @@ class RegisteringAssemblyMethods(UFLType):
         # Populate assembly registry with registries from the base classes
         for base in bases:
             cls._assembly_registry.update(getattr(base, '_assembly_registry', {}))
-        for key, val in attrs.items():
+        for _, val in attrs.items():
             registry = getattr(val, '_registry', ())
             for e in registry:
                 cls._assembly_registry.update({e: val})
@@ -26,9 +26,9 @@ class RegisteringAssemblyMethods(UFLType):
 class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMethods):
     r"""Abstract base class from which stem all the Firedrake practical implementations of the
     ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
-    evaluated pointwise and to provide their own derivatives.
-    This class inherits from firedrake.function.Function and ufl.core.external_operator.ExternalOperator
-    Every subclass based on this class must provide the `_compute_derivatives` and '_evaluate' or `_evaluate_action` methods.
+    assembled.
+
+    TODO !!
     """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data=None):
@@ -57,7 +57,10 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
         return self._function_space
 
     def assemble_method(derivs, args=None):
-        r"""Decorator helper function for the user to specify his assemble functions.
+        r"""
+        TODO! The below doc might be out-of-date + lift the doc to the base class init.
+
+        Decorator helper function for the user to specify his assemble functions.
 
             `derivs`: derivative multi-index or number of derivatives taken.
             `args`: tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
@@ -220,14 +223,14 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
     def __eq__(self, other):
         if self is other:
             return True
-        return (type(self) == type(other) and
+        return (type(self) == type(other)
                 # Operands' output spaces will be taken into account via Interp.__eq__
                 # -> N(Interp(u, V1); v*) and N(Interp(u, V2); v*) will compare different.
-                all(a == b for a, b in zip(self.ufl_operands, other.ufl_operands)) and
-                all(a == b for a, b in zip(self._argument_slots, other._argument_slots)) and
-                self.derivatives == other.derivatives and
-                self.ufl_function_space() == other.ufl_function_space() and
-                self.operator_data == other.operator_data)
+                and all(a == b for a, b in zip(self.ufl_operands, other.ufl_operands))
+                and all(a == b for a, b in zip(self._argument_slots, other._argument_slots))
+                and self.derivatives == other.derivatives
+                and self.ufl_function_space() == other.ufl_function_space()
+                and self.operator_data == other.operator_data)
 
     def __repr__(self):
         "Default repr string construction for AbstractExternalOperator."

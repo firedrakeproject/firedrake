@@ -591,7 +591,7 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
                 'mat_type': mat_type, 'sub_mat_type': sub_mat_type,
                 'appctx': appctx, 'options_prefix': options_prefix,
                 'diagonal': diagonal}
-        # External operators might not have any children that needs to be assemble
+        # External operators might not have any children that needs to be assembled
         # -> e.g. N(u; v0, w) with v0 a ufl.Argument and w a ufl.Coefficient
         if args:
             # Replace base forms in the operands and argument slots of the external operator by their result

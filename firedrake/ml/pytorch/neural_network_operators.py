@@ -57,7 +57,7 @@ class PytorchOperator(MLOperator):
                             argument_slots=argument_slots, operator_data=operator_data)
 
         # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
-        self.model.double()  # or torch.set_default_dtype(torch.float64)
+        self.model.double()
 
     # Stash the output of the neural network for conserving the PyTorch tape
     # -> This enables to only traverse the graph once instead of running multiple
@@ -93,15 +93,11 @@ class PytorchOperator(MLOperator):
     # One could also extend assembly to hessian, hvp (hessian-vector product) and vhp (vector-hessian product)
     # using `torch.autograd.functional.{hvp, hessian, vhp}`
 
-    # vjp faster than jvp since adjoint and not TLM
-    # vjp faster than backward and give you model output + vjp at same time in 1 traversal
+    # `vjp` is faster than `.backward` and give you model output + vector-Jacbian product at same time in 1 traversal
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
 
     def _vjp(self, δy):
-        # What happens where more than one input: e.g. N(u1, u2, theta; v*) and want ((0, 1, 0), (0, None))
-        # Since users tell us how to map from u1 and u2 to a single model input.
-        # PyTorch bit can only provide jvp wrt that model input and then the rest depends on what users do
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
         δy_P = self._pre_forward_callback(δy)
@@ -110,9 +106,6 @@ class PytorchOperator(MLOperator):
         return vjp_F
 
     def _jvp(self, δx):
-        # What happens where more than one input: e.g. N(u1, u2, theta; v*) and want ((0, 1, 0), (0, None))
-        # Since users tell us how to map from u1 and u2 to a single model input.
-        # PyTorch bit can only provide jvp wrt that model input and then the rest depends on what users do
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
         δx_P = self._pre_forward_callback(δx)
@@ -144,20 +137,10 @@ class PytorchOperator(MLOperator):
         return J
 
     def _forward(self):
-        """
-        Evaluate the neural network by performing a forward pass through the network
-        The first argument is considered as the input of the network, if one want to correlate different
-        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
-        to either:
-                    - subclass this method to specify how this correlation should be done
-                    or
-                    - construct another pointwise operator that will do this job and pass it in as argument
-        """
+        """TODO !!"""
         model = self.model
 
-        # Process the inputs
-        # Once Interp is set up for ExternalOperator operands then this should be fine!
-        # ops = tuple(Function(space).interpolate(op) for op in self.operator_inputs())
+        # Get the input operands
         ops = self.ufl_operands
 
         # By default PyTorch annotation is on (i.e. equivalent to `with torch.enable_grad()`)
