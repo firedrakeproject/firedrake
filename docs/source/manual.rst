@@ -18,6 +18,7 @@ Manual
    mesh-coordinates
    interpolation
    point-evaluation
+   external_operator
    visualisation
    checkpointing
    matrix-free
