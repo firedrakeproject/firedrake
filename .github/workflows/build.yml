@@ -82,9 +82,6 @@ jobs:
             --install femlium \
             --install fascd \
             --install defcon \
-            --package-branch fiat pbrubeck/simplex-hierarchical \
-            --package-branch finat pbrubeck/variants \
-            --package-branch tsfc pbrubeck/cg-dg-integral \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
