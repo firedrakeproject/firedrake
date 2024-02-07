@@ -38,13 +38,6 @@ class MLOperator(AbstractExternalOperator):
          """
         return self.operator_data['inputs_format']
 
-    def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None, argument_slots=(), operator_data=None):
-        "Overwrite _ufl_expr_reconstruct to pass on params_version"
-        return AbstractExternalOperator._ufl_expr_reconstruct_(self, *operands, function_space=function_space,
-                                                               derivatives=derivatives,
-                                                               argument_slots=argument_slots,
-                                                               operator_data=operator_data)
-
     # -- Assembly methods -- #
 
     @assemble_method(0, (0,))
