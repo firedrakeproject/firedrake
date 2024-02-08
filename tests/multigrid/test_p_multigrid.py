@@ -28,8 +28,8 @@ def tp_family(tp_mesh, request):
     return families[request.param]
 
 
-@pytest.fixture(params=[None, "hierarchical", "fdm"],
-                ids=["spectral", "hierarchical", "fdm"])
+@pytest.fixture(params=[None, "integral", "fdm"],
+                ids=["spectral", "integral", "fdm"])
 def variant(request):
     return request.param
 

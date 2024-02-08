@@ -122,6 +122,8 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
                 assert np.array_equal(mesh.topology.layers, layers)
             v1 = _compute_integral(mesh)
             assert abs(v1 - v) < 2.e-14
+            if isinstance(mesh.topology, ExtrudedMeshTopology):
+                assert mesh.topology._base_mesh is mesh._base_mesh.topology
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)

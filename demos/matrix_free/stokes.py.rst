@@ -108,10 +108,10 @@ by some form of approximate commutator.::
       "fieldsplit_1_pc_type": "python",
       "fieldsplit_1_pc_python_type": "firedrake.MassInvPC",
 
-The mass inverse is dense, and therefore approximated with a Krylov
-iteration, which we configure now::
+The mass inverse is dense, and therefore approximated with an incomplete
+LU factorization, which we configure now::
 
-      "fieldsplit_1_Mp_ksp_type": "preonly",
+      "fieldsplit_1_Mp_mat_type": "aij",
       "fieldsplit_1_Mp_pc_type": "ilu"
    }
 
@@ -144,8 +144,9 @@ With an unassembled matrix, of course, we are not able to use standard
 preconditioners, so for this example, we will just invert the mass
 matrix using unpreconditioned conjugate gradients. ::
 
-  parameters["fieldsplit_1_Mp_ksp_type"] = "cg"
-  parameters["fieldsplit_1_Mp_pc_type"] = "none"
+  parameters["fieldsplit_1_Mp_pc_type"] = "ksp"
+  parameters["fieldsplit_1_Mp_ksp_ksp_type"] = "cg"
+  parameters["fieldsplit_1_Mp_ksp_pc_type"] = "none"
 
   up.assign(0)
   solve(a == L, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)

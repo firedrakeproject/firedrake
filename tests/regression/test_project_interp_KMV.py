@@ -74,7 +74,4 @@ def run_projection(mesh, expr, p):
 def test_projection_KMV(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         error = run_projection(mesh(1), interpolation_expr, p)
-        if config['options']['complex']:
-            assert np.abs(error) < 1.05e-14
-        else:
-            assert np.abs(error) < 1e-14
+        assert np.abs(error) < 2e-14

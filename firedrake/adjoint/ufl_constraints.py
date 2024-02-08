@@ -31,16 +31,16 @@ class UFLConstraint(Constraint):
         self.u = firedrake.Function(self.V)
         self.form = ufl.replace(form, {u: self.u})
 
-        self.trial = firedrake.TrialFunction(self.V)
-        self.dform = firedrake.derivative(self.form, self.u, self.trial)
+        self.test = firedrake.TestFunction(self.V)
+        self.dform = firedrake.derivative(self.form, self.u, self.test)
         if len(ufl.algorithms.extract_arguments(
             ufl.algorithms.expand_derivatives(self.dform)
         )) == 0:
             raise ValueError("Form must depend on control")
 
-        self.test = firedrake.TestFunction(self.V)
+        self.trial = firedrake.TrialFunction(self.V)
         self.hess = ufl.algorithms.expand_derivatives(
-            firedrake.derivative(self.dform, self.u, self.test)
+            firedrake.derivative(self.dform, self.u, self.trial)
         )
         self.zero_hess = len(ufl.algorithms.extract_arguments(self.hess)) == 0
 
@@ -96,7 +96,7 @@ class UFLConstraint(Constraint):
         asm = firedrake.assemble(
             dp * ufl.replace(self.dform, {self.trial: self.test})
         )
-        if isinstance(result, firedrake.Function):
+        if isinstance(result, firedrake.Cofunction):
             result.assign(asm)
         else:
             raise NotImplementedError("Do I need to untangle all controls?")

@@ -1,20 +1,39 @@
+import pytest
+from collections import Counter
 from os import listdir
 from os.path import isfile, join
-from collections import Counter
-import pytest
-from functools import partial
+
 from firedrake import *
 
 
-@pytest.fixture(params=["interval", "square[tri]", "square[quad]",
-                        "tet", "sphere[tri]", "sphere[quad]"])
+@pytest.fixture(params=[
+    "interval",
+    "square[tri]",
+    "square[quad]",
+    "box[tet]",
+    "box[quad x interval]",
+    "box[hex]",
+    "sphere[tri]",
+    "sphere[quad]"
+])
 def mesh(request):
-    return {"interval": partial(UnitIntervalMesh, 10),
-            "square[tri]": partial(UnitSquareMesh, 10, 10),
-            "square[quad]": partial(UnitSquareMesh, 10, 1, quadrilateral=True),
-            "tet": partial(UnitCubeMesh, 3, 3, 3),
-            "sphere[tri]": UnitIcosahedralSphereMesh,
-            "sphere[quad]": partial(UnitCubedSphereMesh, 1)}[request.param]()
+    if request.param == "interval":
+        return UnitIntervalMesh(10)
+    elif request.param == "square[tri]":
+        return UnitSquareMesh(10, 10)
+    elif request.param == "square[quad]":
+        return UnitSquareMesh(10, 10, quadrilateral=True)
+    elif request.param == "box[tet]":
+        return UnitCubeMesh(3, 3, 3)
+    elif request.param == "box[hex]":
+        return UnitCubeMesh(3, 3, 3, hexahedral=True)
+    elif request.param == "box[quad x interval]":
+        return ExtrudedMesh(UnitSquareMesh(3, 3, quadrilateral=True), 3)
+    elif request.param == "sphere[tri]":
+        return UnitIcosahedralSphereMesh()
+    else:
+        assert request.param == "sphere[quad]"
+        return UnitCubedSphereMesh(1)
 
 
 @pytest.fixture

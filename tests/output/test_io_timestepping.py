@@ -4,6 +4,7 @@ from pyop2.mpi import COMM_WORLD
 import ufl
 import finat.ufl
 import os
+import numpy as np
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 
@@ -74,3 +75,43 @@ def test_io_timestepping(element, tmpdir):
                 g = Function(V)
                 _project(g, _get_expr(V, i), method)
                 assert assemble(inner(g - f, g - f) * dx) < 1.e-16
+
+
+def test_io_timestepping_setting_time(tmpdir):
+    filename = os.path.join(
+        str(tmpdir), "test_io_timestepping_setting_time_dump.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    mesh = UnitSquareMesh(5, 5)
+    RT2_space = VectorFunctionSpace(mesh, "RT", 2)
+    cg1_space = FunctionSpace(mesh, "CG", 1)
+    mixed_space = MixedFunctionSpace([RT2_space, cg1_space])
+    z = Function(mixed_space, name="z")
+    u, v = z.subfunctions
+    u.rename("u")
+    v.rename("v")
+
+    indices = range(0, 10, 2)
+    ts = np.linspace(0, 1.0, len(indices))*2*np.pi
+    timesteps = np.linspace(0, 1.0, len(indices))
+
+    with CheckpointFile(filename, mode="w") as f:
+        f.save_mesh(mesh)
+        for idx, t, timestep in zip(indices, ts, timesteps):
+            u.assign(t)
+            v.interpolate((cos(Constant(t)/pi)))
+            f.save_function(z, idx=idx, timestepping_info={"time": t, "timestep": timestep})
+
+    with CheckpointFile(filename, mode="r") as f:
+        mesh = f.load_mesh(name="firedrake_default")
+        timestepping_history = f.get_timestepping_history(mesh, name="u")
+        timestepping_history_z = f.get_timestepping_history(mesh, name="z")
+        loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("index")[-2])
+
+    for timesteppng_hist in [timestepping_history, timestepping_history_z]:
+        assert (indices == timestepping_history.get("index")).all()
+        assert (ts == timestepping_history.get("time")).all()
+        assert (timesteps == timestepping_history.get("timestep")).all()
+
+        # checking if the function is exactly what we think
+        v_answer = Function(loaded_v.function_space()).interpolate(cos(Constant(timestepping_history.get("time")[-2])/pi))
+        assert assemble((loaded_v - v_answer)**2 * dx) < 1.0e-16

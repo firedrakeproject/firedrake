@@ -258,8 +258,9 @@ def test_nullspace_mixed_multiple_components():
             'ksp_type': 'fgmres',
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-7',
             'ksp_monitor': None,
         }
@@ -362,8 +363,9 @@ def test_near_nullspace_mixed(aux_pc):
             'ksp_converged_reason': None,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-5',
             'ksp_monitor': None,
         }

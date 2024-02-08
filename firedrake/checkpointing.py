@@ -47,6 +47,11 @@ r"""The prefix attached to the attributes associated with immersed meshes."""
 PREFIX_EMBEDDED = "_".join([PREFIX, "embedded"])
 r"""The prefix attached to the DG function resulting from projecting the original function to the embedding DG space."""
 
+PREFIX_TIMESTEPPING = "_".join([PREFIX, "timestepping"])
+r"""The prefix attached to the attributes associated with timestepping."""
+
+PREFIX_TIMESTEPPING_HISTORY = "_".join([PREFIX_TIMESTEPPING, "history"])
+r"""The prefix attached to the attributes associated with timestepping history."""
 
 # This is the distribution_parameters and reorder that one must use when
 # distribution and permutation are loaded.
@@ -707,6 +712,82 @@ class CheckpointFile(object):
             perm_is.setName(None)
             self.viewer.popGroup()
 
+    @PETSc.Log.EventDecorator("GetTimesteps")
+    def get_timestepping_history(self, mesh, name):
+        """
+        Retrieve the timestepping history and indices for a specified function within a mesh.
+
+        This method is primarily used in checkpointing scenarios during timestepping simulations.
+        It returns the indices associated with each function stored in the timestepping mode,
+        along with any additional timestepping-related information (like time or timestep values) if available.
+        If the specified function has not been stored in timestepping mode, it returns an empty dictionary.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshGeometry
+            The mesh containing the function to be queried.
+        name : str
+            The name of the function whose timestepping history is to be retrieved.
+
+        Returns
+        -------
+        dict
+            - Returns an empty dictionary if the function `name` has not been stored in timestepping mode.
+            - If the function `name` is stored in timestepping mode, returns a dictionary with the following contents:
+                - 'indices': A list of all stored indices for the function.
+                - Additional key-value pairs representing timestepping information, if available.
+
+        Raises
+        ------
+        RuntimeError
+            If the function `name` is not found within the given `mesh` in the current file.
+
+        See Also
+        --------
+        CheckpointFile.save_function : Describes how timestepping information should be provided.
+
+        Notes
+        -----
+        The function internally checks whether the specified function is mixed or exists in the file.
+        It then retrieves the appropriate data paths and extracts the timestepping information
+        as specified in the checkpoint file.
+        """
+
+        # check if the function is mixed, or even exists in file
+        if name in self._get_mixed_function_name_mixed_function_space_name_map(mesh.name):
+            V_name = self._get_mixed_function_name_mixed_function_space_name_map(mesh.name)[name]
+            base_path = self._path_to_mixed_function(mesh.name, V_name, name)
+            path = os.path.join(base_path, str(0))  # path to subfunction 0
+            fsub_name = self.get_attr(path, PREFIX + "_function")
+            return self.get_timestepping_history(mesh, fsub_name)
+        elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
+            tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
+            V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
+            V = self._load_function_space(mesh, V_name)
+            tV = V.topological
+            path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
+            if PREFIX_EMBEDDED in self.h5pyfile[path]:
+                path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
+                _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
+                return self.get_timestepping_history(mesh, _name)
+            else:
+                tf_name = self.get_attr(path, PREFIX + "_vec")
+                dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
+                timestepping_info = {}
+                tpath = self._path_to_vec_timestepping(tV.mesh().name, dm_name, tf_name)
+                path = self._path_to_function_timestepping(tmesh_name, mesh.name, V_name, name)
+                if tpath in self.h5pyfile:
+                    assert path in self.h5pyfile
+                    timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
+                    for key in self.h5pyfile[path].attrs.keys():
+                        if key.startswith(PREFIX_TIMESTEPPING_HISTORY):
+                            key_ = key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                            timestepping_info[key_] = self.get_attr(path, key)
+                return timestepping_info
+        else:
+            raise RuntimeError(
+                f"""Function ({name}) not found in {self.filename}""")
+
     @PETSc.Log.EventDecorator("SaveFunctionSpace")
     def _save_function_space(self, V):
         mesh = V.mesh()
@@ -770,7 +851,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None):
+    def save_function(self, f, idx=None, name=None, timestepping_info={}):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -780,12 +861,15 @@ class CheckpointFile(object):
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
         :kwarg name: optional alternative name to save the function under.
+        :kwarg timestepping_info: optional (requires idx) additional information
+            such as time, timestepping that can be stored along a function for
+            each index.
         """
         V = f.function_space()
         mesh = V.mesh()
         if name:
             g = Function(V, val=f.dat, name=name)
-            return self.save_function(g, idx=idx)
+            return self.save_function(g, idx=idx, timestepping_info=timestepping_info)
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
@@ -797,7 +881,7 @@ class CheckpointFile(object):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())
-                self.save_function(fsub, idx=idx)
+                self.save_function(fsub, idx=idx, timestepping_info=timestepping_info)
             self._update_mixed_function_name_mixed_function_space_name_map(mesh.name, {f.name(): V_name})
         else:
             tf = f.topological
@@ -815,7 +899,7 @@ class CheckpointFile(object):
                 _name = "_".join([PREFIX_EMBEDDED, f.name()])
                 _f = Function(_V, name=_name)
                 self._project_function_for_checkpointing(_f, f, method)
-                self.save_function(_f, idx=idx)
+                self.save_function(_f, idx=idx, timestepping_info=timestepping_info)
                 self.set_attr(path, PREFIX_EMBEDDED + "_function", _name)
             else:
                 # -- Save function topology --
@@ -823,6 +907,26 @@ class CheckpointFile(object):
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
+                # store timstepping_info only if in timestepping mode
+                if idx is not None:
+                    path = self._path_to_function_timestepping(tmesh.name, mesh.name, V_name, f.name())
+                    new = path not in self.h5pyfile
+                    self.require_group(path)
+                    # We make sure the provided timestepping_info is consistent all along timestepping.
+                    if not new:
+                        existing_keys = {key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                                         for key in self.h5pyfile[path].attrs.keys()
+                                         if key.startswith(PREFIX_TIMESTEPPING_HISTORY)}
+                        if timestepping_info.keys() != existing_keys:
+                            raise RuntimeError(
+                                r"Provided keys in timestepping_info must remain consistent")
+                    # store items in timestepping_info accordingly
+                    for ts_info_key, ts_info_value in timestepping_info.items():
+                        if not isinstance(ts_info_value, float):
+                            raise NotImplementedError(f"timestepping_info must have float values: got {type(ts_info_value)}")
+                        old_items = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}")
+                        items = np.concatenate((old_items, [ts_info_value]))
+                        self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}", items)
 
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
@@ -844,7 +948,8 @@ class CheckpointFile(object):
         else:
             topology_dm = tmesh.topology_dm
             dm = self._get_dm_for_checkpointing(tV)
-            path = self._path_to_vec(tmesh.name, dm.name, tf.name())
+            dm_name = dm.name
+            path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             if path in self.h5pyfile:
                 try:
                     timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
@@ -863,16 +968,33 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
+            path = self._path_to_vec_timestepping(tmesh.name, dm_name, tf.name())
+            new = path not in self.h5pyfile
+            self.require_group(path)
+            old_indices = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index")
+            indices = np.concatenate((old_indices, [idx]))
+            self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index", indices)
 
     @PETSc.Log.EventDecorator("LoadMesh")
-    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
+    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None, topology=None):
         r"""Load a mesh.
 
-        :arg name: the name of the mesh to load (default to :obj:`~.DEFAULT_MESH_NAME`).
-        :kwarg reorder: whether to reorder the mesh (bool); see :func:`~.Mesh`.
-        :kwarg distribution_parameters: the `distribution_parameters` used for
-            distributing the mesh; see :func:`~.Mesh`.
-        :returns: the loaded mesh.
+        Parameters
+        ----------
+        name : str
+            the name of the mesh to load (default to `firedrake.mesh.DEFAULT_MESH_NAME`).
+        reorder : bool
+            whether to reorder the mesh; see `firedrake.Mesh`.
+        distribution_parameters : dict
+            the `distribution_parameters` used for distributing the mesh; see `firedrake.Mesh`.
+        topology : firedrake.mesh.MeshTopology
+            the underlying mesh topology if already known.
+
+        Returns
+        -------
+        firedrake.mesh.MeshGeometry
+            the loaded mesh.
+
         """
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
         path = self._path_to_topology_extruded(tmesh_name)
@@ -924,11 +1046,16 @@ class CheckpointFile(object):
             # The followings are conceptually redundant, but needed.
             path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
             base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            mesh._base_mesh = self.load_mesh(base_mesh_name)
+            mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
             utils._init()
             # -- Load mesh topology --
-            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            if topology is None:
+                tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            else:
+                if topology.name != tmesh_name:
+                    raise RuntimeError(f"Got wrong mesh topology (f{topology.name}): expecting f{tmesh_name}")
+                tmesh = topology
             # -- Load coordinates --
             # tmesh.topology_dm has already been redistributed.
             path = self._path_to_mesh(tmesh_name, name)
@@ -1317,6 +1444,9 @@ class CheckpointFile(object):
     def _path_to_vec(self, tmesh_name, dm_name, tf_name):
         return os.path.join(self._path_to_vecs(tmesh_name, dm_name), tf_name)
 
+    def _path_to_vec_timestepping(self, tmesh_name, dm_name, tf_name):
+        return os.path.join(self._path_to_vec(tmesh_name, dm_name, tf_name), PREFIX_TIMESTEPPING)
+
     def _path_to_meshes(self, tmesh_name):
         return os.path.join(self._path_to_topology(tmesh_name), PREFIX + "_meshes")
 
@@ -1337,6 +1467,9 @@ class CheckpointFile(object):
 
     def _path_to_function(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_functions(tmesh_name, mesh_name, V_name), function_name)
+
+    def _path_to_function_timestepping(self, tmesh_name, mesh_name, V_name, function_name):
+        return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_TIMESTEPPING)
 
     def _path_to_function_embedded(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_EMBEDDED)
