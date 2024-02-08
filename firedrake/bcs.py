@@ -100,47 +100,16 @@ class BCBase(object):
         return tuple(reversed(indices))
 
     @utils.cached_property
-    def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
-
-        def hermite_stride(bcnodes):
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
-            else:
-                return bcnodes
-
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
-        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
-        bcnodes = []
-        for s in sub_d:
-            if isinstance(s, str):
-                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
-            else:
-                # s is of one of the following formats:
-                # facet: (i, )
-                # edge: (i, j)
-                # vertex: (i, j, k)
-                # take intersection of facet nodes, and add it to bcnodes
-                # i, j, k can also be strings.
-                bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
-                for ss in s:
-                    # intersection of facets
-                    # Edge conditions have only been tested with Lagrange elements.
-                    # Need to expand the list.
-                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
-                bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
-
-    @utils.cached_property
     def constrained_points(self):
         """Return the subset of mesh points constrained by the boundary condition."""
         # NOTE: This returns facets, whose closure is then used when applying the BC
         mesh = self._function_space.mesh().topology
         tdim = mesh.dimension
+
+        # 1D Hermite elements have strange vertex properties, we only want every
+        # other entry
+        if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
+            raise NotImplementedError("TODO, need to have inner slice with stride 2")
 
         subset_data_per_dim = {
             dim: [] for dim in range(tdim + 1)
@@ -166,7 +135,9 @@ class BCBase(object):
                 )
 
             if len(subdomain_id) > 1:
-                raise NotImplementedError("TODO pyop3")
+                raise NotImplementedError(
+                    "TODO pyop3, need to intersect (see previous `nodes` method)"
+                )
 
             subsets = mesh.subdomain_points(subdomain_id)
             for dim, subset_data in subset_data_per_dim.items():
@@ -181,17 +152,10 @@ class BCBase(object):
         for dim, data in flat_subset_data.items():
             point_label = str(dim)
             n, = data.shape
-            array = op3.HierarchicalArray(op3.Axis(n), data=data, prefix="subset")
+            array = op3.HierarchicalArray(op3.Axis(n), data=data, prefix="subset", dtype=utils.IntType)
             subset = op3.Subset(point_label, array)
             subsets.append(subset)
         return op3.Slice(mesh.points.label, subsets)
-
-    # @utils.cached_property
-    # def node_set(self):
-    #     '''The subset corresponding to the nodes at which this
-    #     boundary condition applies.'''
-    #
-    #     return self._function_space.axes[self.nodes]
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -210,12 +174,7 @@ class BCBase(object):
         # TODO raise an exception if spaces are not compatible
         # raise RuntimeError(f"{r} defined on incompatible FunctionSpace")
 
-        mesh = self._function_space.mesh().topology
-        op3.do_loop(
-            p := mesh.points[self.constrained_points].index(),
-            r.dat[p].assign(0),
-        )
-        # r.dat.zero(subset=self.node_set)
+        r.dat.eager_zero(subset=self.constrained_points)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
@@ -226,10 +185,12 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        if not np.isscalar(val):
+        if isinstance(val, firedrake.Cofunction):
             for idx in self._indices:
                 val = val.sub(idx)
-        r.assign(val, subset=self.node_set)
+        else:
+            assert np.isscalar(val)
+        r.assign(val, subset=self.constrained_points)
 
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
@@ -460,9 +421,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if u:
                 u = u.sub(idx)
         if u:
-            r.assign(u - self.function_arg, subset=self.node_set)
+            r.assign(u - self.function_arg, subset=self.constrained_points)
         else:
-            r.assign(self.function_arg, subset=self.node_set)
+            r.assign(self.function_arg, subset=self.constrained_points)
 
     def integrals(self):
         return []

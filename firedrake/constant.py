@@ -32,7 +32,7 @@ def _create_const(value, comm):
         for size in shape[1:]:
             axes = axes.add_subaxis(op3.Axis(size), *axes.leaf)
         axes = axes.set_up()
-    dat = op3.HierarchicalArray(axes, data=data)
+    dat = op3.HierarchicalArray(axes, data=data.flatten())
     return dat, rank, shape
 
 
