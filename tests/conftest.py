@@ -19,6 +19,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "broken: mark a test that is broken"
+    )
+    config.addinivalue_line(
+        "markers",
         "skipcomplex: mark as skipped in complex mode"
     )
     config.addinivalue_line(
