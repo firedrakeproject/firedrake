@@ -509,68 +509,6 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
-# TODO do we need to ensure that the cell orientation is always zero?
-# Note that the permutation is expressed numbering each entity type from zero,
-# meaning that the indices shown in the diagrams must be offset.
-_PLEX_TO_FIAT_CLOSURE_PERM = {
-    # UFCInterval:
-    #
-    #   0---2---1
-    #
-    # PETSc.DM.PolytopeType.SEGMENT:
-    #
-    #   1---0---2
-    "interval": {
-        0: np.array([1, 2]) - 1,
-        1: np.array([0]),
-    },
-
-    # UFCTriangle:
-    #
-    #   1
-    #   | \
-    #   5   3
-    #   |  6   \
-    #   0---4---2
-    #
-    # PETSc.DM.PolytopeType.TRIANGLE:
-    #
-    #  4
-    #  | \
-    #  3   1
-    #  |  0   \
-    #  6---2---5
-    "triangle": {
-        0: np.array([6, 4, 5]) - 1 - 3,
-        1: np.array([1, 2, 3]) - 1,
-        2: np.array([0]),
-    },
-
-    # UFCQuadrilateral:
-    #
-    #   1---7---3
-    #   |       |
-    #   4   8   5
-    #   |       |
-    #   0---6---2
-    #
-    # PETSc.DM.PolytopeType.QUADRILATERAL
-    #
-    #   5---4---8
-    #   |       |
-    #   1   0   3
-    #   |       |
-    #   6---2---7
-    "quadrilateral": {
-        0: np.array([6, 5, 7, 8]) - 1 - 4,
-        1: np.array([1, 3, 2, 4]) - 1,
-        2: np.array([0]),
-    }
-}
-"""
-"""
-
-
 class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -670,19 +608,6 @@ class AbstractMeshTopology(abc.ABC):
                 #     entity_dofs[-2] = 1
                 #     facet_numbering = self.create_section(entity_dofs)
                 #     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
-                # Derive a cell numbering from the Plex renumbering
-                # these can all be determined from the axes and are only required
-                # internally for things like map construction (which I also do internally)
-                # entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                # entity_dofs[-1] = 1
-                # self._cell_numbering = self.create_section(entity_dofs)
-                # entity_dofs[:] = 0
-                # entity_dofs[0] = 1
-                # self._vertex_numbering = self.create_section(entity_dofs)
-                # entity_dofs[:] = 0
-                # entity_dofs[-2] = 1
-                # facet_numbering = self.create_section(entity_dofs)
-                # self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
             points = op3.Axis(
                 {
@@ -736,6 +661,34 @@ class AbstractMeshTopology(abc.ABC):
     def _renumber_entities(self, reorder):
         """Renumber entities."""
         pass
+
+    @utils.cached_property
+    def _vertex_numbering(self):
+        assert not hasattr(self, "_callback"), "Mesh must be initialised"
+        return self._entity_numbering(self.vertex_label)
+
+    @utils.cached_property
+    def _cell_numbering(self):
+        assert not hasattr(self, "_callback"), "Mesh must be initialised"
+        return self._entity_numbering(self.cell_label)
+
+    @utils.cached_property
+    def _facet_numbering(self):
+        assert not hasattr(self, "_callback"), "Mesh must be initialised"
+        return self._entity_numbering(self.facet_label)
+
+    def _entity_numbering(self, label):
+        component_index = tuple(c.label for c in self.points.components).index(label)
+
+        section = PETSc.Section().create(self._comm)
+        section.setChart(*self.topology_dm.getChart())
+
+        renumbering = self.points._default_to_applied_numbering[component_index]
+        for old_component_num, new_component_num in enumerate(renumbering):
+            old_pt = old_component_num + self.points._component_offsets[component_index]
+            section.setOffset(old_pt, new_component_num)
+
+        return section
 
     @property
     def comm(self):
@@ -901,19 +854,6 @@ class AbstractMeshTopology(abc.ABC):
                 # closure_ordering
                 closure_data_concat = np.concatenate(closure_data, axis=1)
 
-                if self.comm.size > 1:
-                    # TODO determine the *global* vertex numbering, else ranks may disagree
-                    # on the direction of some edges/faces
-                    # TODO cache this
-                    # vertex_numbering = self._vertex_numbering.createGlobalSection(
-                    #     self.topology_dm.getPointSF()
-                    # )
-                    raise NotImplementedError
-                # ah, but the vertices have already been renumbered! Therefore don't
-                # want to use the component_numbering but instead an identity numbering
-                # vertex_numbering = self.points.component_numbering(self.vert_label)
-                vertex_numbering = None  # change this when implemented
-
                 cell = self.ufl_cell()
                 if cell.is_simplex():
                     topology = FIAT.ufc_cell(cell).get_topology()
@@ -924,12 +864,42 @@ class AbstractMeshTopology(abc.ABC):
                     reordered = dmcommon.closure_ordering(
                         self,
                         closure_data_concat,
-                        vertex_numbering,
+                        None,  # vertex numbering already applied, clean up Cython to reflect this
                         entity_per_cell
                     )
-                    # reordered is ordered in order of increasing dimension
+                    # reordered is ordered in order of increasing dimension, now
+                    # split it apart by dimension
                     closure_data = tuple(
-                        reordered[:, start:stop] for start, stop in pairwise(steps(closure_sizes))
+                        reordered[:, start:stop]
+                        for start, stop in pairwise(steps(closure_sizes))
+                    )
+
+                elif cell.cellname() == "quadrilateral":
+                    from firedrake_citations import Citations
+
+                    Citations().register("Homolya2016")
+                    Citations().register("McRae2016")
+
+                    plex = self.topology_dm
+                    cell_ranks = dmcommon.get_cell_remote_ranks(plex)
+                    facet_orientations = dmcommon.quadrilateral_facet_orientations(
+                        plex, self._global_vertex_numbering, cell_ranks
+                    )
+                    cell_orientations = dmcommon.orientations_facet2cell(
+                        plex,
+                        self._global_vertex_numbering,
+                        cell_ranks,
+                        facet_orientations,
+                        self._cell_numbering,
+                    )
+                    dmcommon.exchange_cell_orientations(
+                        plex, self._cell_numbering, cell_orientations
+                    )
+
+                    # do not return...
+                    # TODO pass closure data here, don't do inside
+                    XXX = dmcommon.quadrilateral_closure_ordering(
+                        plex, vertex_numbering, cell_numbering, cell_orientations
                     )
                 else:
                     raise NotImplementedError
@@ -1197,6 +1167,12 @@ class AbstractMeshTopology(abc.ABC):
     @utils.cached_property
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
+
+    @utils.cached_property
+    def _global_vertex_numbering(self):
+        return self._vertex_numbering.createGlobalSection(
+            self.topology_dm.getPointSF()
+        )
 
 
 class MeshTopology(AbstractMeshTopology):
@@ -2029,7 +2005,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Cell numbering and global vertex numbering
         cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(swarm.getPointSF())
+        vertex_numbering = self._global_vertex_numbering
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
