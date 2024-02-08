@@ -118,8 +118,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[2]" \
+            -m "not broken and not slow and parallel[2]" \
             -sv tests
         timeout-minutes: 30
       - name: Test Firedrake 3 ranks
@@ -133,8 +132,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[3]" \
+            -m "not broken and not slow and parallel[3]" \
             -sv tests
         timeout-minutes: 30
       - name: Test Firedrake 4 ranks
@@ -148,8 +146,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[4]" \
+            -m "not broken and not slow and parallel[4]" \
             -sv tests
         timeout-minutes: 30
       - name: Test Firedrake 6 ranks
@@ -163,8 +160,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[6]" \
+            -m "not broken and not slow and parallel[6]" \
             -sv tests
         timeout-minutes: 30
       - name: Test Firedrake 7 ranks
@@ -178,8 +174,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[7]" \
+            -m "not broken and not slow and parallel[7]" \
             -sv tests
         timeout-minutes: 30
       - name: Test Firedrake 8 ranks
@@ -193,8 +188,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            -m "not slow" \
-            -m "parallel[8]" \
+            -m "not broken and not slow and parallel[8]" \
             -sv tests
         timeout-minutes: 30
       - name: Test pyadjoint
