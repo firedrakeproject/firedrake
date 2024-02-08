@@ -274,12 +274,12 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
-            if (
-                get_working_tape()._reverse_computation
-                or get_working_tape()._recomputation
-                or get_working_tape()._evaluate_tlm
-            ):
-                return checkpoint.restore()
+            tape = get_working_tape()
+            if tape.checkpoint_manager:
+                if tape.checkpoint_manager.mode.name == 'RECORD':
+                    return checkpoint
+                else:
+                    return checkpoint.restore()
             else:
                 return checkpoint
         else:
