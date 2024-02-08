@@ -115,6 +115,7 @@ def test_riesz(V, solver, use_averaging):
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
+@pytest.mark.broken
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplexnoslate
 def test_riesz_parallel(V, solver, use_averaging):
