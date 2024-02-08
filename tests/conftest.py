@@ -20,6 +20,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "broken: mark a test that is broken"
+    )
+    config.addinivalue_line(
+        "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
     )
     config.addinivalue_line(
