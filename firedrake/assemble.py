@@ -1508,7 +1508,7 @@ class _GlobalKernelBuilder:
         # TODO Make singledispatchmethod with Python 3.8
         return _as_global_kernel_arg(tsfc_arg, self)
 
-    def _get_map_arg(self, finat_element):
+    def _get_map_arg(self, finat_element, boundary_set):
         """Get the appropriate map argument for the given FInAT element.
 
         :arg finat_element: A FInAT element.
@@ -1516,7 +1516,7 @@ class _GlobalKernelBuilder:
             the given FInAT element. This function uses a cache to ensure
             that PyOP2 knows when it can reuse maps.
         """
-        key = self._get_map_id(finat_element)
+        key = self._get_map_id(finat_element), boundary_set
 
         try:
             return self._map_arg_cache[key]
@@ -1556,20 +1556,20 @@ class _GlobalKernelBuilder:
         else:
             return (1,)
 
-    def _make_dat_global_kernel_arg(self, finat_element, index=None):
+    def _make_dat_global_kernel_arg(self, finat_element, boundary_set, index=None):
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
-            subargs = tuple(self._make_dat_global_kernel_arg(subelem.element)
+            subargs = tuple(self._make_dat_global_kernel_arg(subelem.element, boundary_set)
                             for subelem in finat_element.elements)
             return op2.MixedDatKernelArg(subargs)
         else:
             dim = self._get_dim(finat_element)
-            map_arg = self._get_map_arg(finat_element)
+            map_arg = self._get_map_arg(finat_element, boundary_set)
             return op2.DatKernelArg(dim, map_arg, index)
 
-    def _make_mat_global_kernel_arg(self, relem, celem):
+    def _make_mat_global_kernel_arg(self, relem, celem, rbset, cbset):
         if any(isinstance(e, finat.EnrichedElement) and e.is_mixed for e in {relem, celem}):
-            subargs = tuple(self._make_mat_global_kernel_arg(rel.element, cel.element)
+            subargs = tuple(self._make_mat_global_kernel_arg(rel.element, cel.element, rbset, cbset)
                             for rel, cel in product(relem.elements, celem.elements))
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
@@ -1577,7 +1577,7 @@ class _GlobalKernelBuilder:
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
-            map_args = self._get_map_arg(relem), self._get_map_arg(celem)
+            map_args = self._get_map_arg(relem, rbset), self._get_map_arg(celem, cbset)
             return op2.MatKernelArg((((rdim, cdim),),), map_args, unroll=self._unroll)
 
     @staticmethod
@@ -1614,17 +1614,18 @@ def _as_global_kernel_arg_output(_, self):
         if V.ufl_element().family() == "Real":
             return op2.GlobalKernelArg((1,))
         else:
-            return self._make_dat_global_kernel_arg(create_element(V.ufl_element()))
+            return self._make_dat_global_kernel_arg(create_element(V.ufl_element()), V.boundary_set)
     elif rank == 2:
         if all(V.ufl_element().family() == "Real" for V in Vs):
             return op2.GlobalKernelArg((1,))
         elif any(V.ufl_element().family() == "Real" for V in Vs):
             el, = (create_element(V.ufl_element()) for V in Vs
                    if V.ufl_element().family() != "Real")
-            return self._make_dat_global_kernel_arg(el)
+            return self._make_dat_global_kernel_arg(el, V.boundary_set)
         else:
             rel, cel = (create_element(V.ufl_element()) for V in Vs)
-            return self._make_mat_global_kernel_arg(rel, cel)
+            rbset, cbset = (V.boundary_set for V in Vs)
+            return self._make_mat_global_kernel_arg(rel, cel, rbset, cbset)
     else:
         raise AssertionError
 
@@ -1632,7 +1633,7 @@ def _as_global_kernel_arg_output(_, self):
 @_as_global_kernel_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_global_kernel_arg_coordinates(_, self):
     finat_element = create_element(self._mesh.ufl_coordinate_element())
-    return self._make_dat_global_kernel_arg(finat_element)
+    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
 
 
 @_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
@@ -1650,7 +1651,7 @@ def _as_global_kernel_arg_coefficient(_, self):
         return op2.GlobalKernelArg((ufl_element.value_size,))
     else:
         finat_element = create_element(ufl_element)
-        return self._make_dat_global_kernel_arg(finat_element, index)
+        return self._make_dat_global_kernel_arg(finat_element, V.boundary_set, index)
 
 
 @_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
@@ -1665,7 +1666,7 @@ def _as_global_kernel_arg_cell_sizes(_, self):
     # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
     ufl_element = finat.ufl.FiniteElement("P", self._mesh.ufl_cell(), 1)
     finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element)
+    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -1692,7 +1693,7 @@ def _as_global_kernel_arg_cell_orientations(_, self):
     # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
     ufl_element = finat.ufl.FiniteElement("DG", cell=self._mesh.ufl_cell(), degree=0)
     finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element)
+    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
 
 
 @_as_global_kernel_arg.register(LayerCountKernelArg)

@@ -466,6 +466,9 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
+
+    boundary_set = frozenset()
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
