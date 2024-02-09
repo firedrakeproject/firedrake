@@ -162,12 +162,9 @@ class ASMStarPC(ASMPatchPC):
         depths = [mesh_dm.getDepthStratum(k) for k in range(tdim+1)]
 
         def sort_points(pt_array):
-            fstart, fend = depths[tdim-1]
-            istart, iend = depths[tdim]
-            ii = [i for i, pt in enumerate(pt_array) if (istart <= pt < iend) or (fstart <= pt < fend)]
-            pt_array[ii] = order_points(mesh_dm, pt_array[ii], ordering, self.prefix)
-            ii = numpy.setdiff1d(range(len(pt_array)), ii)
-            pt_array[ii] = order_points(mesh_dm, pt_array[ii], ordering, self.prefix)
+            for k in reversed(range(depth, tdim)):
+                ii = [i for i, pt in enumerate(pt_array) if any((d[0] <= pt < d[1]) for d in depths[k:])]
+                pt_array[ii] = order_points(mesh_dm, pt_array[ii], ordering, self.prefix)
             return pt_array
 
         # Build index sets for the patches
