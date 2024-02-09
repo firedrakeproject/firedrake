@@ -904,7 +904,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
-        argfs_map = argfs.cell_node_map()
+        argfs_map = source_mesh.topology.closure
         vom_onto_other_vom = (
             isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
@@ -917,27 +917,33 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            if argfs_map:
+            if argfs.ufl_element().family() != "Real":
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
                 # function space nodes on the source mesh. NOTE: argfs_map is
                 # allowed to be None when interpolating from a Real space, even
                 # in the trans-mesh case.
                 if source_mesh.extruded:
+                    raise NotImplementedError("TODO, pyop3")
                     # ExtrudedSet cannot be a map target so we need to build
                     # this ourselves
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
-                    argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+                    def argfs_map(pt):
+                        return source_mesh.topology.closure(target_mesh.cell_parent_cell_map(pt))
         if vom_onto_other_vom:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            sparsity = NotImplemented
-            petsc_mat = op3.PetscMat(
-                V.axes, argfs.axes, sparsity, comm=V._comm, 
+            def adjacency(pt):
+                return argfs_map(target_mesh.topology.star(pt))
+
+            tensor = op3.PetscMat(
+                target_mesh.topology.points,
+                adjacency,
+                V.axes,
+                argfs.axes,
             )
-            tensor = op3.Mat(petsc_mat, name=petsc_mat.name)
             # sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
             #                         ((V.cell_node_map(), argfs_map),),
             #                         name="%s_%s_sparsity" % (V.name, argfs.name),
@@ -1120,12 +1126,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         parloop_args.append(tensor[V.cell_closure_map(loop_index)])
     else:
         assert len(expr_arguments) == 1
-        raise NotImplementedError
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
-        rows_map = V.cell_closure_map()
+        rows_map = V.mesh().topology.closure
         Vcol = arguments[0].function_space()
-        columns_map = Vcol.cell_closure_map()
+        columns_map = Vcol.mesh().topology.closure
         if target_mesh is not source_mesh:
+            raise NotImplementedError
             # Since the par_loop is over the target mesh cells we need to
             # compose a map that takes us from target mesh cells to the
             # function space nodes on the source mesh.
@@ -1138,10 +1144,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                                                     columns_map)
         lgmaps = None
         if bcs:
+            raise NotImplementedError
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(op3.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
+        parloop_args.append(tensor[rows_map(loop_index), columns_map(loop_index)])
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
@@ -1185,7 +1192,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in parloop_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*parloop_args))
     if len(expr_arguments) == 1:
-        raise NotImplementedError
         return parloop, tensor.assemble
     else:
         return copyin + (parloop,) + copyout

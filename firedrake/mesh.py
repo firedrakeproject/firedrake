@@ -855,7 +855,7 @@ class AbstractMeshTopology(abc.ABC):
                     closure_data = self._reorder_closure_fiat_simplex(
                         closure_data, closure_sizes
                     )
-                elif self.ufl_cell().cellname == "quadrilateral":
+                elif self.ufl_cell().cellname() == "quadrilateral":
                     closure_data = self._reorder_closure_fiat_quad(
                         closure_data, closure_sizes
                     )
@@ -895,32 +895,25 @@ class AbstractMeshTopology(abc.ABC):
         return dmcommon.closure_ordering(self, closure_data, closure_sizes)
 
     def _reorder_closure_fiat_quad(self, closure_data, closure_sizes):
-        raise NotImplementedError
         from firedrake_citations import Citations
 
         Citations().register("Homolya2016")
         Citations().register("McRae2016")
 
-        plex = self.topology_dm
-        cell_ranks = dmcommon.get_cell_remote_ranks(plex)
+        cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
         facet_orientations = dmcommon.quadrilateral_facet_orientations(
-            plex, self._global_vertex_numbering, cell_ranks
+            self, cell_ranks
         )
         cell_orientations = dmcommon.orientations_facet2cell(
-            plex,
-            self._global_vertex_numbering,
-            cell_ranks,
-            facet_orientations,
-            self._cell_numbering,
+            self, cell_ranks, facet_orientations,
         )
         dmcommon.exchange_cell_orientations(
-            plex, self._cell_numbering, cell_orientations
+            self, cell_orientations
         )
 
-        # do not return...
         # TODO pass closure data here, don't do inside
-        XXX = dmcommon.quadrilateral_closure_ordering(
-            plex, vertex_numbering, cell_numbering, cell_orientations
+        return dmcommon.quadrilateral_closure_ordering(
+            self, cell_orientations
         )
 
     @cached_property
@@ -1163,6 +1156,10 @@ class AbstractMeshTopology(abc.ABC):
         return self.cell_set._extruded_periodic
 
     @utils.cached_property
+    def _default_global_numbering(self):
+        return self.topology_dm.createPointNumbering().indices
+
+    @utils.cached_property
     def _global_numbering(self):
         numbering = [None] * (self.dimension+1)
         for stratum in self.points.components:
@@ -1170,9 +1167,7 @@ class AbstractMeshTopology(abc.ABC):
             numbering[stratum_dim] = np.full(stratum.count, -1, dtype=IntType)
         numbering = tuple(numbering)
 
-        for local_pt, global_pt in enumerate(
-            self.topology_dm.createPointNumbering().indices
-        ):
+        for local_pt, global_pt in enumerate(self._default_global_numbering):
             stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
             stratum_dim = int(stratum.label)
             stratum_index = self.points.component_index(stratum)
@@ -2060,7 +2055,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
-        raise NotImplementedError
+        assert False, "use mesh.points instead?"
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
@@ -2078,8 +2073,20 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
-        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
-                       self.cell_parent_cell_list, "cell_parent_cell")
+        src_path = self.points.as_tree().path(self.points)
+        dest_axis = self._parent_mesh.name
+        dest_stratum = self._parent_mesh.cell_label
+
+        axes = op3.AxisTree.from_iterable((self.points, 1))
+        dat = op3.HierarchicalArray(axes, data=self.cell_parent_cell_list)
+
+        return op3.Map({
+            src_path: [
+                op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
+            ]
+        })
+        # return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
+        #                self.cell_parent_cell_list, "cell_parent_cell")
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_list(self):

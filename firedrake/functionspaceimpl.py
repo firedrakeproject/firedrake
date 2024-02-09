@@ -950,10 +950,6 @@ class MixedFunctionSpace:
     parent = None
     rank = 1
 
-    @property
-    def comm(self):
-        return self.axes.comm
-
     def mesh(self):
         return self._mesh
 
