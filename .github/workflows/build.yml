@@ -115,8 +115,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 2 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
@@ -130,8 +128,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 3 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
@@ -145,8 +141,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 4 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
@@ -160,8 +154,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 6 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
@@ -175,8 +167,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 7 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
@@ -190,8 +180,6 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpiexec -n 8 python -m pytest \
-            --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
