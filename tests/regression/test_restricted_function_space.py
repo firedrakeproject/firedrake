@@ -48,7 +48,7 @@ def test_restricted_function_space_1_1_square(j):
 @pytest.mark.parametrize("j", [1, 2, 5])
 def test_restricted_function_space_j_j_square(j):
     mesh = UnitSquareMesh(j, j)
-    V = FunctionSpace(mesh, "CG", 2)  # this fails for CG1
+    V = FunctionSpace(mesh, "CG", 1)
     bc = DirichletBC(V, 0, 2)
     V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc])
 
@@ -57,7 +57,7 @@ def test_restricted_function_space_j_j_square(j):
 
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "CG", 2)   # fails for CG1
+    V = FunctionSpace(mesh, "CG", 2)
     f = Function(V)
     x, y = SpatialCoordinate(mesh)
 
@@ -95,13 +95,32 @@ def test_poisson_homogeneous_bcs():
     assert (np.all(np.isclose(u_data_remove_zeros, u2_data_remove_zeros, 1e-16)))
 
 
+def test_poisson_inhomogeneous_bcs():
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 2) 
+    x, y = SpatialCoordinate(mesh)
+
+    bc = DirichletBC(V, 0, 1)
+    bc2 = DirichletBC(V, 1, 2)
+    V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc, bc2])
+
+    u2 = TrialFunction(V_res)
+    v2 = TestFunction(V_res)
+    restricted_form = inner(grad(u2), grad(v2)) * dx
+    u = Function(V_res)
+    rhs = Constant(0) * v2 * dx
+    solve(restricted_form == rhs, u, bcs=[bc, bc2])
+    return u
+    #assert errornorm(SpatialCoordinate(mesh)[0], u) < 1.e-12
+
+
 @pytest.mark.parametrize("j", [1, 2, 5])
 def test_restricted_function_space_coord_change(j):
     mesh = UnitSquareMesh(1, 2)
     x, y = SpatialCoordinate(mesh)
     V = VectorFunctionSpace(mesh, "CG", 2)
     new_mesh = Mesh(Function(V).interpolate(as_vector([x, y])))
-    new_V = FunctionSpace(new_mesh, "CG", j)  # fails for 2
+    new_V = FunctionSpace(new_mesh, "CG", j)
     bc = DirichletBC(new_V, 0, 1)
     new_V_restricted = RestrictedFunctionSpace(new_V, name="Restricted", bcs=[bc])
 
