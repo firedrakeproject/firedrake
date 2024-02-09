@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def hierarchy():
     N = 10
     distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
@@ -115,7 +115,6 @@ def test_riesz(V, solver, use_averaging):
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
-@pytest.mark.broken
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplexnoslate
 def test_riesz_parallel(V, solver, use_averaging):
