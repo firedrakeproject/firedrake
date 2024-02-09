@@ -24,10 +24,11 @@ from pyop2 import op2
 import pyop2.types
 import pyop2.parloop
 from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.mpi import COMM_SELF
+from pyop2.utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -743,10 +744,10 @@ class PlaneSmoother(object):
                 if not patch:
                     continue
                 else:
-                    iset = PETSc.IS().createGeneral(patch, comm=op2.mpi.COMM_SELF)
+                    iset = PETSc.IS().createGeneral(patch, comm=COMM_SELF)
                     patches.append(iset)
 
-        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=op2.mpi.COMM_SELF)
+        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=COMM_SELF)
         return (patches, iterationSet)
 
 
