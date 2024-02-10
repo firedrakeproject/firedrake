@@ -3,7 +3,7 @@ import numpy as np
 from firedrake import *
 
 
-def compare_function_space_assembly(mesh, function_space, restricted_function_space, bcs):
+def compare_function_space_assembly(mesh, function_space, restricted_function_space, bcs, res_bcs):
     x, y = SpatialCoordinate(mesh)
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
@@ -12,8 +12,9 @@ def compare_function_space_assembly(mesh, function_space, restricted_function_sp
     u2 = TrialFunction(restricted_function_space)
     v2 = TestFunction(restricted_function_space)
     restricted_form = u2 * v2 * dx
-    restricted_fs_matrix = assemble(restricted_form)
+
     normal_fs_matrix = assemble(original_form, bcs=bcs)
+    restricted_fs_matrix = assemble(restricted_form)
 
     identity = np.identity(normal_fs_matrix.M.nrows)
     delete_rows = []
@@ -31,6 +32,8 @@ def compare_function_space_assembly(mesh, function_space, restricted_function_sp
 
     assert (restricted_fs_matrix.M.nrows == np.shape(normal_fs_matrix_reduced)[0])
     assert (restricted_fs_matrix.M.ncols == np.shape(normal_fs_matrix_reduced)[1])
+    print(normal_fs_matrix_reduced)
+    print(restricted_fs_matrix.M.values)
     assert (np.array_equal(normal_fs_matrix_reduced, restricted_fs_matrix.M.values))
 
 
@@ -38,11 +41,11 @@ def compare_function_space_assembly(mesh, function_space, restricted_function_sp
 def test_restricted_function_space_1_1_square(j):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", j)
-
     bc = DirichletBC(V, 0, 2)
-    V_res = RestrictedFunctionSpace(V, name="Restricted", bcs=[bc])
+    V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
+    res_bc = DirichletBC(V_res, 0, 2)
 
-    compare_function_space_assembly(mesh, V, V_res, [bc])
+    compare_function_space_assembly(mesh, V, V_res, [bc], [res_bc])
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])
