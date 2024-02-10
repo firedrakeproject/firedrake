@@ -690,7 +690,7 @@ class FunctionSpace(object):
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.dof_dset.layout_vec.getSize()
-
+    
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
@@ -1161,12 +1161,8 @@ class RealFunctionSpace(FunctionSpace):
 
 
 class RestrictedFunctionSpace(FunctionSpace):
-    def __init__(self, function_space, name=None, bcs=[]):
-        boundary_set = set()
-        self.bcs = bcs
+    def __init__(self, function_space, name=None, boundary_set=frozenset()):
         label = ""
-        for bc in bcs:
-            boundary_set = boundary_set.union(set(bc.sub_domain))
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
         self.boundary_set = frozenset(boundary_set)
@@ -1215,8 +1211,8 @@ class RestrictedFunctionSpace(FunctionSpace):
                      self.function_space.ufl_element(), self.boundary_set))
 
     def __repr__(self):
-        return self.__class__.__name__ + "(%r, name=%r, bcs=%r)" % (
-            str(self.function_space), self.name, self.bcs)
+        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
 
     def __str__(self):
         return self.__repr__()
@@ -1224,21 +1220,21 @@ class RestrictedFunctionSpace(FunctionSpace):
     @utils.cached_property
     def dof_count(self):
         node_count = self.node_count
-        for bc in self.bcs:
-            node_count -= len(bc.nodes)
+        for sub_domain in self.boundary_set:
+            node_count -= len(self._shared_data.boundary_nodes(self, sub_domain))
         return node_count*self.value_size
 
-    def local_to_global_map(self, lgmap=None):
-        if self.bcs is None or len(self.bcs) == 0:
+    def local_to_global_map(self, bcs, lgmap=None):
+        if bcs is None or len(bcs) == 0:
             return lgmap or self.dof_dset.lgmap
-        for bc in self.bcs:
+        for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
                 fs = fs.parent
-            if fs.topological != self.function_space.topological:
+            if fs.topological != self.topological:
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
         unblocked = any(bc.function_space().component is not None
-                        for bc in self.bcs)
+                        for bc in bcs)
         if lgmap is None:
             lgmap = self.dof_dset.lgmap
             if unblocked:
@@ -1254,7 +1250,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             bsize = lgmap.getBlockSize()
             unblocked = True
         nodes = []
-        for bc in self.bcs:
+        for bc in bcs:
             if bc.function_space().component is not None:
                 nodes.append(bc.nodes * self.value_size
                              + bc.function_space().component)
