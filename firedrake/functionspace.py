@@ -307,7 +307,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     return new
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, name=None, bcs=[]):
+def RestrictedFunctionSpace(function_space, name=None, boundary_set=[]):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters
@@ -320,4 +320,4 @@ def RestrictedFunctionSpace(function_space, name=None, bcs=[]):
         Set of boundary conditions
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name, bcs=bcs), function_space.mesh())
+    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name, boundary_set=boundary_set), function_space.mesh())
