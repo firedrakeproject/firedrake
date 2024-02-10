@@ -1,12 +1,12 @@
-from firedrake.preconditioners.base import PCBase
-from firedrake.petsc import PETSc
+from firedrake.preconditioners.assembled import AssembledPC
+from firedrake import inner, dx
 
 __all__ = ("MassInvPC", )
 
 
-class MassInvPC(PCBase):
+class MassInvPC(AssembledPC):
 
-    needs_python_pmat = True
+    _prefix = "Mp_"
 
     """A matrix free operator that inverts the mass matrix in the provided space.
 
@@ -19,65 +19,10 @@ class MassInvPC(PCBase):
     providing a field defining the viscosity in the application
     context, keyed on ``"mu"``.
     """
-    def initialize(self, pc):
-        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
-        prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + "Mp_"
-        # we assume P has things stuffed inside of it
-        _, P = pc.getOperators()
-        context = P.getPythonContext()
+    def form(self, pc, test, trial):
+        _, bcs = super(MassInvPC, self).form(pc, test, trial)
 
-        test, trial = context.a.arguments()
-
-        if test.function_space() != trial.function_space():
-            raise ValueError("MassInvPC only makes sense if test and trial space are the same")
-
-        V = test.function_space()
-
-        mu = context.appctx.get("mu", 1.0)
-
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        # Handle vector and tensor-valued spaces.
-
-        # 1/mu goes into the inner product in case it varies spatially.
-        a = inner(1/mu * u, v)*dx
-
-        opts = PETSc.Options()
-        mat_type = opts.getString(options_prefix + "mat_type",
-                                  parameters["default_matrix_type"])
-
-        A = assemble(a, form_compiler_parameters=context.fc_params,
-                     mat_type=mat_type, options_prefix=options_prefix)
-
-        Pmat = A.petscmat
-        Pmat.setNullSpace(P.getNullSpace())
-        tnullsp = P.getTransposeNullSpace()
-        if tnullsp.handle != 0:
-            Pmat.setTransposeNullSpace(tnullsp)
-
-        ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.incrementTabLevel(1, parent=pc)
-        ksp.setOperators(Pmat)
-        ksp.setOptionsPrefix(options_prefix)
-        ksp.setFromOptions()
-        ksp.setUp()
-        self.ksp = ksp
-
-    def update(self, pc):
-        pass
-
-    def apply(self, pc, X, Y):
-        self.ksp.solve(X, Y)
-
-    # Mass matrix is symmetric
-    applyTranspose = apply
-
-    def view(self, pc, viewer=None):
-        super(MassInvPC, self).view(pc, viewer)
-        viewer.printfASCII("KSP solver for M^-1\n")
-        self.ksp.view(viewer)
-
-    def destroy(self, pc):
-        if hasattr(self, "ksp"):
-            self.ksp.destroy()
+        appctx = self.get_appctx(pc)
+        mu = appctx.get("mu", 1.0)
+        a = inner((1/mu) * trial, test) * dx
+        return a, bcs
