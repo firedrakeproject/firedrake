@@ -160,25 +160,27 @@ class HiptmairPC(TwoLevelPC):
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
-        degree = max(as_tuple(element.degree()))
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
-            dminus = ufl.grad
-            G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             celement = div_to_curl(element)
-            dminus = ufl.curl
-            if V.shape:
-                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
-                                                  for k in range(u.ufl_shape[0])])
-            G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+
+        if element.sobolev_space == ufl.HDiv:
+            G_callback = appctx.get("get_curl", None)
+            dminus = ufl.curl
+            if V.shape:
+                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
+                                                  for k in range(u.ufl_shape[0])])
+        else:
+            G_callback = appctx.get("get_gradient", None)
+            dminus = ufl.grad
 
         # Get only the zero-th order term of the form
         replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
@@ -220,6 +222,8 @@ def curl_to_grad(ele):
         if family.startswith("Sminus"):
             family = "S"
         else:
+            if family in ["Nedelec 2nd kind H(curl)", "Brezzi-Douglas-Marini"]:
+                degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
                 cells = ele.cell.sub_cells()
@@ -254,11 +258,13 @@ def div_to_curl(ele):
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
             family = "DG" if ele.cell.is_simplex() else "DQ"
-            degree = degree-1
+            degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"
-            degree = degree+1
+            degree = degree + 1
         else:
+            if family == "Brezzi-Douglas-Marini":
+                degree = degree + 1
             replace_dict = {
                 "Raviart-Thomas": "N1curl",
                 "Brezzi-Douglas-Marini": "N2curl",
