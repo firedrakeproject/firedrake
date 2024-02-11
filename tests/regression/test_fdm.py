@@ -222,6 +222,7 @@ def fs(request, mesh):
 
 @pytest.mark.skipcomplex
 def test_ipdg_direct_solver(fs):
+    from pyop2.utils import as_tuple
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
@@ -240,11 +241,7 @@ def test_ipdg_direct_solver(fs):
             u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
         u_bc = u_exact
 
-    degree = fs.ufl_element().degree()
-    try:
-        degree = max(degree)
-    except TypeError:
-        pass
+    degree = max(as_tuple(fs.ufl_element().degree()))
     quad_degree = 2*(degree+1)-1
 
     # problem coefficients

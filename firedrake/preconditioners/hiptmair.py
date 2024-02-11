@@ -1,5 +1,6 @@
 import abc
 
+from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
@@ -23,9 +24,6 @@ class TwoLevelPC(PCBase):
     should implement:
     - :meth:`coarsen`
     """
-
-    needs_python_pmat = False
-
     @abc.abstractmethod
     def coarsen(self, pc):
         """Return a tuple with coarse bilinear form, coarse
@@ -162,11 +160,7 @@ class HiptmairPC(TwoLevelPC):
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(element.degree()))
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
@@ -192,12 +186,14 @@ class HiptmairPC(TwoLevelPC):
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
-        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+        coarse_operator = beta(dminus(test), dminus(trial))
 
-        if formdegree > 1 and degree > 1:
+        cdegree = max(as_tuple(celement.degree()))
+        if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                coarse_operator += beta(test, shift*trial, coefficients={})
+                b = beta(test, shift * trial)
+                coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
