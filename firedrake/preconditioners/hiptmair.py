@@ -1,5 +1,6 @@
 import abc
 
+from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
@@ -21,9 +22,6 @@ class TwoLevelPC(PCBase):
     should implement:
     - :meth:`coarsen`
     """
-
-    needs_python_pmat = False
-
     @abc.abstractmethod
     def coarsen(self, pc):
         """Return a tuple with coarse bilinear form, coarse
@@ -190,11 +188,12 @@ class HiptmairPC(TwoLevelPC):
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial))
 
-        if formdegree > 1 and celement.embedded_superdegree > 1:
+        cdegree = max(as_tuple(celement.degree()))
+        if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                shift = beta(test, shift * trial)
-                coarse_operator += ufl.Form(shift.integrals_by_type("cell"))
+                b = beta(test, shift * trial)
+                coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
         if G_callback is None:
             interp_petscmat = tabulate_exterior_derivative(coarse_space, V, coarse_space_bcs, bcs)

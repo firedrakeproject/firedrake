@@ -13,6 +13,7 @@ from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import cached
+from pyop2.utils import as_tuple
 
 import firedrake
 import finat
@@ -386,22 +387,7 @@ class PMGBase(PCSNESBase):
     @staticmethod
     def max_degree(ele):
         """Return the maximum degree of a :class:`finat.ufl.finiteelement.FiniteElement`"""
-        if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            return PMGBase.max_degree(ele._sub_element)
-        elif isinstance(ele, (finat.ufl.MixedElement, finat.ufl.TensorProductElement)):
-            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements)
-        elif isinstance(ele, finat.ufl.EnrichedElement):
-            return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, finat.ufl.WithMapping):
-            return PMGBase.max_degree(ele.wrapee)
-        elif isinstance(ele, (finat.ufl.HDivElement, finat.ufl.HCurlElement, finat.ufl.BrokenElement, finat.ufl.RestrictedElement)):
-            return PMGBase.max_degree(ele._element)
-        else:
-            degree = ele.degree()
-            try:
-                return max(degree)
-            except TypeError:
-                return degree
+        return max(as_tuple(ele.degree()))
 
     @staticmethod
     def reconstruct_degree(ele, degree):
