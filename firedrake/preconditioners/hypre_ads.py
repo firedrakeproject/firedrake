@@ -6,6 +6,7 @@ from firedrake.interpolation import Interpolator, Interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
+from pyop2.utils import as_tuple
 
 __all__ = ("HypreADS",)
 
@@ -20,11 +21,7 @@ class HypreADS(PCBase):
 
         family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
