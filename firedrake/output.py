@@ -561,7 +561,7 @@ class File(object):
             # Running offset for appended data
             offset = 0
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="UnstructuredGrid" version="0.1" '
+            f.write(b'<VTKFile type="UnstructuredGrid" version="2.2" '
                     b'byte_order="LittleEndian" '
                     b'header_type="UInt32">\n')
             f.write(b'<UnstructuredGrid>\n')
@@ -609,7 +609,7 @@ class File(object):
         fname = get_pvtu_name(basename)
         with open(fname, "wb") as f:
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="PUnstructuredGrid" version="0.1" '
+            f.write(b'<VTKFile type="PUnstructuredGrid" version="2.2" '
                     b'byte_order="LittleEndian">\n')
             f.write(b'<PUnstructuredGrid>\n')
 

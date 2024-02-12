@@ -7,19 +7,15 @@ from vtkmodules.vtkCommonDataModel import (
     vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge
 )
 
-paraviewUsesVTK8 = True
-
 
 def firedrake_local_to_cart(element):
     r"""Gets the list of nodes for an element (provided they exist.)
     :arg element: a ufl element.
     :returns: a list of arrays of floats where each array is a node.
     """
-    # TODO: Revise this when FInAT gets dual evaluation
-    fiat_element = create_base_element(element).fiat_equivalent
-    # TODO: Surely there is an easier way that I've forgotten?
-    return [np.array(list(phi.get_point_dict().keys())[0])
-            for phi in fiat_element.dual_basis()]
+    finat_element = create_base_element(element)
+    _, point_set = finat_element.dual_basis
+    return point_set.points
 
 
 def invert(list1, list2):
@@ -162,20 +158,6 @@ def vtk_wedge_local_to_cart(ordersp):
     return loc_to_cart
 
 
-def vtk_hex8_to_hex9(orders):
-    r"""Produce a list where element i is the vtk9 node number
-    of node i in vtk8. For hexes only.
-    :arg orders: the orders of the hex (the same integer 3 times)
-    :return a list of integers
-    """
-    sizes = tuple([o + 1 for o in orders])
-    size = np.prod(sizes)
-    nodeNums = range(size)
-    hexa = vtkLagrangeHexahedron()
-    return [hexa.NodeNumberingMappingFromVTK8To9(orders, x)
-            for x in nodeNums]
-
-
 """
 The following functions take a given ufl_element, (indicated by the function name), and
 produce a permutation of the element's basis that turns it into the basis that VTK/Paraview
@@ -219,16 +201,15 @@ def vtk_lagrange_wedge_reorder(ufl_element):
 
 
 def vtk_lagrange_hex_reorder(ufl_element):
-    degree = max(ufl_element.degree())
-    if any([d != degree for d in ufl_element.degree()]):
-        raise ValueError("Degrees on hex tensor products must be uniform because VTK can't understand otherwise.")
+    # tensor product elements have a degree tuple whereas
+    # normal hexes use an integer
+    degrees = as_tuple(ufl_element.degree())
+    degree = max(degrees)
+    if any(d != degree for d in degrees):
+        raise ValueError(
+            "Degrees on hex tensor products must be uniform because VTK "
+            "can't understand otherwise."
+        )
     vtk_local = vtk_hex_local_to_cart((degree, degree, degree))
     firedrake_local = firedrake_local_to_cart(ufl_element)
-    inv = invert(vtk_local, firedrake_local)
-    if not paraviewUsesVTK8:
-        return inv
-    vtk8_to_vtk9 = vtk_hex8_to_hex9([degree, degree, degree])
-    vtk9_to_vtk8 = [vtk8_to_vtk9.index(x)
-                    for x in range(len(vtk8_to_vtk9))]
-    composed = [inv[x] for x in vtk9_to_vtk8]
-    return composed
+    return invert(vtk_local, firedrake_local)

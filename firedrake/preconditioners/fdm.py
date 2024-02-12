@@ -19,7 +19,7 @@ from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
 from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir
+from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
@@ -1972,11 +1972,7 @@ class PoissonFDMPC(FDMPC):
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
 
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         quad_deg = fcp.get("degree", 2*degree+1)
         dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
