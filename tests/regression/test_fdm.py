@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from pyop2.utils import as_tuple
 
 ksp = {
     "mat_type": "matfree",
@@ -222,7 +223,6 @@ def fs(request, mesh):
 
 @pytest.mark.skipcomplex
 def test_ipdg_direct_solver(fs):
-    from pyop2.utils import as_tuple
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
