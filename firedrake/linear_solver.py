@@ -163,8 +163,20 @@ class LinearSolver(OptionsManager):
         else:
             acc = x.dat.vec_wo
 
-        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
-            self.ksp.solve(rhs, solution)
+        if "cuda" in self.A.petscmat.type:
+            with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
+                b_cu = PETSc.Vec()
+                b_cu.createCUDAWithArrays(rhs)  
+                u = PETSc.Vec()
+                u.createCUDAWithArrays(solution)
+                self.ksp.solve(b_cu, u)
+                u.getArray()
+                
+        else:
+
+            with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
+                self.ksp.solve(rhs, solution)
+            #    print(solution.view())
 
         r = self.ksp.getConvergedReason()
         if r < 0:
