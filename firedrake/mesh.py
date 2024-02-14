@@ -592,22 +592,12 @@ class AbstractMeshTopology(abc.ABC):
                     self._dm_renumbering = perm_is
                 else:
                     self._dm_renumbering = self._renumber_entities(reorder)
+                # Is this actually used anywhere?
                 self._did_reordering = bool(reorder)
                 # Derive a cell numbering from the Plex renumbering
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
-                # self._cell_numbering = self.create_section(entity_dofs)
-                # if tdim == 0:
-                #     self._vertex_numbering = self._cell_numbering
-                # else:
-                #     entity_dofs[:] = 0
-                #     entity_dofs[0] = 1
-                #     self._vertex_numbering = self.create_section(entity_dofs)
-                #     entity_dofs[:] = 0
-                #     entity_dofs[-2] = 1
-                #     facet_numbering = self.create_section(entity_dofs)
-                #     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
 
             points = op3.Axis(
                 {
@@ -641,6 +631,11 @@ class AbstractMeshTopology(abc.ABC):
 
     variable_layers = False
     """No variable layers on unstructured mesh"""
+
+    @property
+    @abc.abstractmethod
+    def dimension(self):
+        pass
 
     @abc.abstractmethod
     def _distribute(self):
@@ -993,7 +988,8 @@ class AbstractMeshTopology(abc.ABC):
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
 
-    @cached_property
+    @property
+    @abc.abstractmethod
     def depth_strata_order(self):
         """Return depth strata in default numbering order.
 
@@ -1005,12 +1001,6 @@ class AbstractMeshTopology(abc.ABC):
                 (cells)       verts
 
         """
-        return tuple(
-            sorted(
-                range(self.dimension+1),
-                key=lambda i: self.topology_dm.getDepthStratum(i)
-            )
-        )
 
     @abc.abstractmethod
     def num_cells(self):
@@ -1542,6 +1532,15 @@ class MeshTopology(AbstractMeshTopology):
         eStart, eEnd = self.topology_dm.getDepthStratum(depth)
         return eEnd - eStart
 
+    @property
+    def depth_strata_order(self):
+        return tuple(
+            sorted(
+                range(self.dimension+1),
+                key=lambda i: self.topology_dm.getDepthStratum(i)
+            )
+        )
+
     def npoints_per_dim(self, dim):
         start, stop = self.topology_dm.getDepthStratum(dim)
         return stop - start
@@ -1937,6 +1936,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._parent_mesh = parentmesh
 
+    @property
+    def dimension(self):
+        return 0
+
+    @property
+    def depth_strata_order(self):
+        return (0,)
+
     def _distribute(self):
         pass
 
@@ -2035,12 +2042,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def num_cells(self):
         return self.num_vertices()
 
+    # TODO I reckon that these should error instead
     def num_facets(self):
         return 0
 
+    # TODO I reckon that these should error instead
     def num_faces(self):
         return 0
 
+    # TODO I reckon that these should error instead
     def num_edges(self):
         return 0
 
@@ -2053,11 +2063,34 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return self.num_vertices()
 
+    @cached_property
+    def cells(self):
+        return self.points[self.cell_label]
+
+    # old, use cells instead
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
-        assert False, "use mesh.points instead?"
-        size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self.comm)
+        return self.cells
+
+    @property
+    def cell_label(self):
+        return str(self.dimension)
+
+    # should error
+    @property
+    def facet_label(self):
+        return str(self.dimension - 1)
+
+    # should error
+    @property
+    def edge_label(self):
+        return "1"
+
+    # TODO I prefer "vertex_label"
+    @property
+    def vert_label(self):
+        return "0"
+
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
@@ -2316,17 +2349,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # pure PETSc routines are not sufficient because PETSc does not account for
             # only permuting a base mesh.
             gdim = self.ufl_coordinate_element().cell.geometric_dimension()
-            plex_coords_sec = self.topology.topology_dm.getCoordinateSection()
             plex_coords = self.topology.topology_dm.getCoordinatesLocal().array
             new_coords = np.empty_like(plex_coords)
 
-            # coordinates_fs.axes.offset(pmap({self.topology.name: "0"}), pmap({self.topology.name: 0}), insert_zeros=True)
-            # breakpoint()
-
             # build the section (badly)
-            vstart, vend = self.topology.topology_dm.getDepthStratum(0)
-            for i, v in enumerate(range(vstart, vend)):
-                # offset = coordinates_fs.axes.offset([("0", i), 0, 0])
+            for i, v in enumerate(range(self.topology.num_vertices())):
                 i_renum = coordinates_fs.axes.root.default_to_applied_component_number(self.topology.vert_label, i)
                 offset = coordinates_fs.axes.offset({self.topology.name: i_renum}, {self.topology.name: self.topology.vert_label})
                 # breakpoint()
@@ -3630,9 +3657,9 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local, -1
-        ]
+        plex_parent_cell_nums = np.empty_like(parent_cell_nums_local)
+        for i, pt in enumerate(parent_cell_nums_local):
+            plex_parent_cell_nums[i] = parent_mesh.topology.points.applied_to_default_component_number("0", pt)
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
@@ -3711,7 +3738,7 @@ def _pic_swarm_in_mesh(
         input_ranks_local,  # This is just an array of 0s for redundant, and comm.rank otherwise. But I need to pass it in to get the correct ordering
         input_coords_idxs_local,
         parent_mesh.extruded,
-        parent_mesh.layers,
+        parent_mesh.topology.layers,
     )
 
     # no halos here
@@ -4159,7 +4186,7 @@ def _parent_mesh_embedding(
         visible_ranks = interpolation.Interpolate(
             constant.Constant(parent_mesh.comm.rank), P0DG
         )
-        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
+        visible_ranks = assemble(visible_ranks).dat.buffer._data.real
 
     locally_visible = np.full(ncoords_global, False)
     # See below for why np.inf is used here.

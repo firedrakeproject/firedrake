@@ -1,14 +1,16 @@
 from os import path
 import numpy
+import textwrap
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp
 
+import pyop3 as op3
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, RealType
 
 import ufl
 import finat.ufl
@@ -28,22 +30,46 @@ def make_args(function):
 
 
 def make_wrapper(function, **kwargs):
+    placeholder = op3.Function(
+        lp.make_kernel(
+            "{ [i]: 0 <= i < 1 }",
+            "",
+            name="to_reference_coords_kernel",
+        ),
+        [op3.READ],
+    )
+    loop = op3.loop(
+        op3.Axis(1).index(),
+        placeholder(cell)
+    )
     args = make_args(function)
     return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
 
 
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
-    src.append(compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance))
-    src.append(make_wrapper(mesh.coordinates,
-                            forward_args=["void*", "double*", RealType_c+"*"],
-                            kernel_name="to_reference_coords_kernel",
-                            wrapper_name="wrap_to_reference_coords"))
+    to_reference_coords_kernel, more_src = compile_coordinate_element(
+        mesh.ufl_coordinate_element(), tolerance
+    )
+    src.append(more_src)
+
+    # generate packing code for a single cell
+    plex = mesh.topology
+    expr = to_reference_coords_kernel(
+        op3.DummyKernelArgument(),  # result_
+        op3.DummyKernelArgument(),  # x
+        op3.DummyKernelArgument(),  # cell_dist_l1
+        mesh.coordinates.dat[plex.closure(plex.cells.index())],  # C
+    )
+    # NOTE: we can name the arguments whatever we like, only the order matters
+    pack_ir = op3.ir.lower.compile(expr, name="wrap_to_reference_coords")
+    pack_src = lp.generate_code_v2(pack_ir.ir).device_code()
+
+    src.append(pack_src)
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
-    src = "\n".join(src)
-    return src
+    return "\n".join(src)
 
 
 def dX_norm_square(topological_dimension):
@@ -228,6 +254,48 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         "tolerance": contains_eps,
     }
 
+    to_reference_coords_kernel_src = textwrap.dedent(
+        """
+        struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
+
+        /* Mapping coordinates from physical to reference space */
+
+        %(ScalarType)s *X = result->X;
+        %(init_X)s
+
+        int converged = 0;
+        for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
+            %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
+            to_reference_coords_newton_step(C, x0, X, dX);
+
+            if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
+                converged = 1;
+            }
+
+        %(X_isub_dX)s
+        }
+
+        *cell_dist_l1 = %(celldist_l1_c_expr)s;
+        """ % code
+    )
+
+    to_reference_coords_kernel = op3.Function(
+        lp.make_kernel(
+            "{ [i]: 0 <= i < 1 }",
+            [lp.CInstruction((), to_reference_coords_kernel_src, frozenset({"result_", "x0", "cell_dist_l1", "C"}))],
+            [
+                lp.ValueArg("result_", dtype=lp.types.OpaqueType("void *")),
+                lp.ValueArg("x0", dtype=lp.types.OpaqueType("double *")),
+                lp.ValueArg("cell_dist_l1", dtype=lp.types.OpaqueType(f"{RealType_c} *")),
+                lp.GlobalArg("C", dtype=ScalarType),
+            ],
+            name="to_reference_coords_kernel",
+            target=op3.ir.LOOPY_TARGET,
+            lang_version=op3.ir.LOOPY_LANG_VERSION,
+        ),
+        [op3.NA, op3.NA, op3.NA, op3.READ],
+    )
+
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
     %(ScalarType)s X[%(geometric_dimension)d];
@@ -237,40 +305,11 @@ static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
-{
-    struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
-
-    /*
-     * Mapping coordinates from physical to reference space
-     */
-
-    %(ScalarType)s *X = result->X;
-    %(init_X)s
-
-    int converged = 0;
-    for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
-        to_reference_coords_newton_step(C, x0, X, dX);
-
-        if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
-            converged = 1;
-        }
-
-%(X_isub_dX)s
-    }
-
-    *cell_dist_l1 = %(celldist_l1_c_expr)s;
-}
-
-static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
-    %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
-
 %(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
-    %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+    //%(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+    %(extr_comment_out)swrap_to_reference_coords(&cell, f->coords, f->section, f->closure, NULL, NULL, result_, x, &cell_dist_l1);
     return cell_dist_l1;
 }
 
@@ -284,4 +323,4 @@ static inline void wrap_to_reference_coords(
 
 """
 
-    return evaluate_template_c % code
+    return to_reference_coords_kernel, evaluate_template_c % code

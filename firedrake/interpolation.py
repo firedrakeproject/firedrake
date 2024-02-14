@@ -1063,7 +1063,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
-    cell_set = target_mesh.topology.cell_set
+    cell_set = target_mesh.topology.cells
     if subset is not None:
         raise NotImplementedError
         assert subset.superset == cell_set
@@ -1111,7 +1111,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = op3.Dat(tensor.dataset)
+        tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
         if access != op3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
