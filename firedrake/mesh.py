@@ -810,9 +810,9 @@ class AbstractMeshTopology(abc.ABC):
         if ordering == ClosureOrdering.PLEX:
             return self._plex_closure(index)
         elif ordering == ClosureOrdering.FIAT:
-            target_paths = tuple(index.iterset.target_paths.values())
-            if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
-                raise ValueError("FIAT closure ordering is only valid for cell closures")
+            # target_paths = tuple(index.iterset.target_paths.values())
+            # if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
+            #     raise ValueError("FIAT closure ordering is only valid for cell closures")
             return self._fiat_closure(index)
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
@@ -1988,31 +1988,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-        swarm = self.topology_dm
-        tdim = 0
-
-        # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._global_vertex_numbering
-
-        cell = self.ufl_cell()
-        assert tdim == cell.topological_dimension()
-        assert cell.is_simplex()
-
-        import FIAT
-        topology = FIAT.ufc_cell(cell).get_topology()
-        entity_per_cell = np.zeros(len(topology), dtype=IntType)
-        for d, ents in topology.items():
-            entity_per_cell[d] = len(ents)
-
-        return dmcommon.closure_ordering(swarm, vertex_numbering,
-                                         cell_numbering, entity_per_cell)
+    def _memoize_closures(self, dim):
+        assert dim == 0
+        return (np.arange(self.num_cells(), dtype=IntType),), (1,)
 
     entity_orientations = None
 
@@ -2099,14 +2077,18 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
         self.topology_dm.restoreField("parentcellnum")
-        return cell_parent_cell_list[self.cell_closure[:, -1]]
+        plex_parent_cell_nums = np.empty(self.num_cells(), dtype=IntType)
+        for i, pt in enumerate(range(self.num_cells())):
+            plex_parent_cell_nums[i] = self._parent_mesh.topology.points.applied_to_default_component_number("0", pt)
+        # return cell_parent_cell_list[self.cell_closure[:, -1]]
+        return cell_parent_cell_list[plex_parent_cell_nums]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
-        src_path = self.points.as_tree().path(self.points)
+        src_path = self.points.as_tree().path(*self.points.as_tree().leaf)
         dest_axis = self._parent_mesh.name
         dest_stratum = self._parent_mesh.cell_label
 

@@ -1164,8 +1164,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             # a Real space
             coeff_index = coefficient.function_space().cell_closure_map(loop_index)
         elif coeff_mesh is source_mesh:
-            raise NotImplementedError
-            if coefficient.cell_closure_map():
+            if coefficient.ufl_element().family() != "Real":
                 # Since the par_loop is over the target mesh cells we need to
                 # compose a map that takes us from target mesh cells to the
                 # function space nodes on the source mesh.
@@ -1175,8 +1174,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                     # this ourselves
                     m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
                 else:
-                    raise NotImplementedError
-                    coeff_index = coefficient.cell_node_map(target_mesh.cell_parent_cell_map())
+                    coeff_index = coefficient.ufl_domain().topology.closure(target_mesh.topology.cell_parent_cell_map(loop_index), "fiat")
             else:
                 # m_ is allowed to be None when interpolating from a Real space,
                 # even in the trans-mesh case.
