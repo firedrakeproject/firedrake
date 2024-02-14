@@ -232,29 +232,31 @@ The following example illustrates how to define a new external operator, *MyExte
     @assemble_method((0, 0), (0,))
     # or @assemble_method(0, (0,))
     def N(self, *args, *kwargs):
-      """Evaluate my external operator N"""
+      """Evaluate the external operator N"""
       ...
 
     @assemble_method((1, 0), (0, 1))
     def dNdu(self, *args, **kwargs):
-      """Evaluate dNdu"""
+      """Evaluate the Jacobian dNdu"""
       ...
 
     @assemble_method((1, 0), (0, None))
     def dNdu_action(self, *args, **kwargs):
-      """Evaluate the Jacobian-vector product of `N` with respect to `u`"""
+      """Evaluate the action of the Jacobian dNdu"""
       ...
 
     @assemble_method((0, 1), (1, 0))
     def dNdm_adjoint(self, *args, **kwargs):
-      """Evaluate dNdm*"""
+      """Evaluate the Hermitian transpose of the Jacobian dNdm"""
       ...
 
     @assemble_method((0, 1), (None, 0))
     def dNdm_adjoint_action(self, *args, **kwargs):
-      """Evaluate the a"""
+      """Evaluate the action of the Hermitian transpose of the Jacobian dNdm"""
       ...
 
+    ...
+  
 A simple example: the translation operator
 ------------------------------------------
 
@@ -264,6 +266,10 @@ In this section, we will build a simple external operator, namely the translatio
 .. math::
 
   N(u, f) = u - f
+
+This simple example will help us illustrate how the external operator interface can be used. However, 
+in practice, building an external operator for the above operation would not be judicious as this 
+operation can already be readily implemented using Firedrake's built-in functionality.
 
 `N` takes in two operands `f, u \in V` and one argument `v^{*} \in V^{*}`. When assembled, 
 this external operator returns a :class:`~.Function` in `V` since the linear form `N` can also 
@@ -285,6 +291,7 @@ the translation operator subclass can be defined as:
 
       @assemble_method(0, (0,))
       def assemble_N(self, *args, **kwargs):
+          """Evaluate the translation operator N"""
           u, f = self.ufl_operands
           N = assemble(u - f)
           return N
@@ -340,12 +347,14 @@ of `N` can be assembled:
 
     @assemble_method(0, (0,))
     def assemble_N(self, *args, **kwargs):
+        """Evaluate N"""
         u, f = self.ufl_operands
         N = assemble(u - f)
         return N
 
     @assemble_method((1, 0), (0, 1))
     def assemble_Jacobian(self, *args, **kwargs):
+        """Evaluate the Jacobian of N"""
         dNdu = Function(self.function_space()).assign(1)
 
         # Construct the Jacobian matrix
@@ -390,12 +399,14 @@ compute `\frac{\partial N(u, f; w, v^{*})}{\partial u}`.
 
     @assemble_method(0, (0,))
     def assemble_N(self, *args, **kwargs):
+        """Evaluate N"""
         u, f = self.ufl_operands
         N = assemble(u - f)
         return N
 
     @assemble_method((1, 0), (0, None))
     def assemble_Jacobian_action(self, *args, **kwargs):
+        """Evaluate the action of the Jacobian"""
         w = self.argument_slots()[-1]
         return w
 
@@ -403,9 +414,7 @@ The arguments of an external operator can be obtained via the *argument_slots* m
 all the arguments of the external operator, independently of whether they are 
 :class:`~.Argument`/ :class:`~.Coargument` or :class:`~.Function`/ :class:`~.Cofunction`. If you only want 
 the unknown arguments, for example to determine the arity of the external operator, 
-you can use the *arguments* method.
-
-We can now solve the variational problem using any matrix-free method:
+you can use the *arguments* method. We can now solve the variational problem using any matrix-free method:
 
 .. code-block:: python3
 
@@ -414,8 +423,8 @@ We can now solve the variational problem using any matrix-free method:
   F = (inner(grad(u), grad(v)) + inner(N, v)) * dx
 
   solve(F == 0, u, bcs=bcs, solver_parameters={"mat_type": "matfree",
-                                              "ksp_type": "cg",
-                                              "pc_type": "none"})
+                                               "ksp_type": "cg",
+                                               "pc_type": "none"})
 
 Inverse problems
 ~~~~~~~~~~~~~~~~
@@ -472,13 +481,15 @@ We now need to add the method for `\frac{\partial \mathcal{R}(f, f_{0}; y, \hat{
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, **kwargs)
 
     @assemble_method(0, (0,))
-    def assemble_N(self, *args, **kwargs):
+    def assemble_R(self, *args, **kwargs):
+        """Evaluate the regulariser R"""
         f, f0 = self.ufl_operands
         N = assemble(f - f0)
         return N
 
     @assemble_method((1, 0), (None, 0))
     def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
+        """Evaluate the action of the Hermitian transpose of the Jacobian of R"""
         y, _ = self.argument_slots()
         return y
 
