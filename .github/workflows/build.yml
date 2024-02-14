@@ -58,6 +58,7 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+<<<<<<< HEAD
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
@@ -72,6 +73,7 @@ jobs:
             --disable-ssh \
             --documentation-dependencies \
             --tinyasm \
+            --with-exodus \
             --torch \
             --netgen \
             --slepc \
