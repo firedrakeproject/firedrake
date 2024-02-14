@@ -19,8 +19,10 @@ provides the syntax, this document introduces the external operator abstraction 
 explains what you need to do if you want to define your own external operator.
 
 
-Mathematical background
------------------------
+.. _math_background:
+
+Background
+----------
 
 An external operator is an operator that maps operands defined on finite element spaces to an output 
 in another finite element space. Let's consider the case of an external operator :math:`N` with a single operand, 
@@ -67,6 +69,7 @@ with respect to `u`, as a consequence of the chain rule. More specifically, the 
 be written as:
 
 .. math::
+  :label: Jacobian_F
 
   \frac{dF(u, N; \hat{u}, v)}{du} = \frac{\partial F(u, N; \hat{u}, v)}{\partial u} + \operatorname{action}\left(\frac{\partial F(u, N; \hat{u}, v)}{\partial N}, \frac{dN(u; \hat{u}, v^{*})}{du}\right) \quad \forall v\in V.
 
@@ -112,27 +115,33 @@ which is still a 2-form as it is linear with respect to two unknown arguments, n
 and `\hat{u} \in V`.
 
 Hence, the action of an external operator consumes the last argument, while the adjoint of an 
-external operator with 2 arguments swap them.
+external operator with 2 arguments swap them. Since linear form's arguments are numbered in Firedrake, 
+the action consumes the highest-numbered argument, while the adjoint swaps the arguments' numbers.
 
 
 Assembly
 ~~~~~~~~
 
-The last ingredient needed for external operators to work is assembly. The external operator 
+The last ingredient needed for external operators to work is the assembly. The external operator 
 interface composes seamlessly with the Firedrake assembly system, and one can assemble external 
 operators as well as variational forms and expressions containing external operators. Firedrake 
 assembles expressions or variational forms containing external operators by representing the assembled 
-object as a directed acyclic graph (DAG). The assembly works by traversing this DAG and evaluating 
-each node on the fly. In this DAG representation, external operators are considered as distinct nodes.
+object as a directed acyclic graph (DAG). For example, assembling the Jacobian of `F` defined in 
+equation :eq:`Jacobian_F` would result in the following DAG:
 
-.. |Jacobian_DAG| image:: images/external_operators_DAG_Jacobian.png
-  :width: 69 %
+.. figure:: images/external_operators_DAG_Jacobian.png
+   :figwidth: 70%
+   :alt: Assembly DAG associated with the Jacobian of the residual form F
+   :align: center
 
-|Jacobian_DAG|
+   Assembly DAG associated with the Jacobian of the residual form F
 
-External operators are, by definition, operators whose implementation is left to be specified by the 
-user. Consequently, in order to evaluate the expression or variational form of interest, the assembly 
-of the external operator nodes in the DAG must call the implementation specified by the user.
+
+The assembly is achieved by traversing this DAG and evaluating each node on the fly. 
+In this DAG representation, external operators are considered as distinct nodes, whose 
+implementation is, by definition, left to be specified by the user. Consequently, 
+in order to evaluate the expression of interest, the assembly of the external operator nodes 
+in the DAG must call the implementation specified by the user.
 
 The :class:`~.AbstractExternalOperator` base class orchestrates the *external operator assembly*, 
 which bridges the evaluation of the DAG nodes associated with external operators and the user-defined 
@@ -147,19 +156,353 @@ might also be further equipped with the implementation of the action of the Jaco
 optimisation problem, where the cost function derivative is computed using the adjoint method.
 
 The main task of the external operator assembly is to call the implementation corresponding to 
-the external operator being assembled, e.g. `N` or `\frac{dN(u; w^{*}, \hat{u})}{du}`. The key idea is 
-that the assembly of external operators is fully determined by: 
+the external operator being assembled, e.g. `N` or `\frac{dN(u; w^{*}, \hat{u})}{du}`. This is 
+facilitated by the fact that external operators are fully determined by: 
 `(i)` the derivative multi-index of the external operator, and `(ii)` the arguments of the 
 external operator, which indicates if the action and/or adjoint of the external operator have 
-been applied, see :ref:`previous section <action_adjoint>`.
+been applied, see :ref:`previous section <action_adjoint>`. More specifically, the derivatives multi-index 
+of an external operator indicates the derivatives taken with respect to the operand(s). On the other 
+hand, the arguments indicates whether the highest-numbered argument was replaced, i.e. if the action 
+was taken, or if the arguments' numbers were swapped, i.e. if the adjoint was taken.
 
-TODO
+Finally, the number of arguments of an external operator also determines the type resulting from 
+the assembly of that operator. For instance, an external operator with one argument would result in a 
+:class:`~.Function` or a :class:`~.Cofunction`, since it is a 1-form. Similarly, an external operator 
+with 2 arguments would produce a :class:`~.MatrixBase` object as it is a 2-form. The following table 
+illustrates different types of external operators arising from different symbolic operations, such as 
+differentiation or action/adjoint, along with their derivative multi-index, argument slots, and assembly 
+type.
+
+
+.. figure:: images/table_external_operators.png
+   :figwidth: 90%
+   :alt: External operators table
+   :align: center
+
+   Example of different types of external operator arising from different symbolic operations
+   with their argument slots, derivative multi-index, and their corresponding assembly type.
+
 
 Build your own external operator
 --------------------------------
 
+External operators can be used to incorporate arbitray operations within Firedrake. Some external 
+operators are already implemented, such as the :class:`~.MLOperator`, see for embedding machine learning 
+models within Firedrake. However, you may want to build your own external operator for your specific 
+problem. In this section, we discuss how new external operators can be defined.
+
+To define a new external operator, one needs to subclass the :class:`~.AbstractExternalOperator` class 
+matter as long as your external operator subclass is equipped with the necessary evaluation methods 
+for your problem of interest. You only need to specify the evaluation methods required for your 
+problem of interest.
+
+We have previously seen that symbolic operations such as differentiation, action or adjoint, can 
 While :class:`~.AbstractExternalOperator` objects are symbolical can be differentiated and 
 evaluated, the actual implementation to evaluate them needs to be specified by the external operator 
 specified by the user...
 
-TODO
+The following example illustrates how to define a new external operator, *MyExternalOperator*:
+
+.. code-block:: python3
+
+  class MyExternalOperator(AbstractExternalOperator):
+    def __init__(self, *args, **kwargs):
+      ...
+
+    @assemble_method((0, 0), (0,))
+    # or @assemble_method(0, (0,))
+    def N(self, *args, *kwargs):
+      """Evaluate my external operator N"""
+      ...
+
+    @assemble_method((1, 0), (0, 1))
+    def dNdu(self, *args, **kwargs):
+      """Evaluate dNdu"""
+      ...
+
+    @assemble_method((1, 0), (0, None))
+    def dNdu_action(self, *args, **kwargs):
+      """Evaluate the Jacobian-vector product of `N` with respect to `u`"""
+      ...
+
+    @assemble_method((0, 1), (1, 0))
+    def dNdm_adjoint(self, *args, **kwargs):
+      """Evaluate dNdm*"""
+      ...
+
+    @assemble_method((0, 1), (None, 0))
+    def dNdm_adjoint_action(self, *args, **kwargs):
+      """Evaluate the a"""
+      ...
+
+A simple example: the translation operator
+------------------------------------------
+
+In this section, we will build a simple external operator, namely the translation operator 
+`N \colon V \times V \times V^{*} \rightarrow \mathbb{R}` defined as:
+
+.. math::
+
+  N(u, f) = u - f
+
+`N` takes in two operands `f, u \in V` and one argument `v^{*} \in V^{*}`. When assembled, 
+this external operator returns a :class:`~.Function` in `V` since the linear form `N` can also 
+be seen as an operator `N \colon V \times V \rightarrow V`, as :ref:`previously discussed <math_background>`.
+
+To construct `N`, we need to subclass the :class:`~.AbstractExternalOperator` class and specify how 
+`N` can be assembled. Given that `N` has `(0,)` as derivative multi-index and that it only has one argument, 
+the translation operator subclass can be defined as:
+
+.. code-block:: python3
+
+  class TranslationOperator(AbstractExternalOperator):
+
+      def __init__(self, *operands, function_space, operator_data, **kwargs):
+          AbstractExternalOperator.__init__(self, *operands,
+                                            function_space=function_space,
+                                            operator_data=operator_data,
+                                            **kwargs)
+
+      @assemble_method(0, (0,))
+      def assemble_N(self, *args, **kwargs):
+          u, f = self.ufl_operands
+          N = assemble(u - f)
+          return N
+
+  N = TranslationOperator(u, f, function_space=V)
+
+Note that the external operator takes in a *operator_data* argument. This keyword argument allows 
+user to attach data specfic to their operator. This is needed as UFL procees with different symbolic 
+reconstruction. *operator_data* can also be used (stash save).
+
+Now that we have specified the implementation for evaluating `N`, we can assemble it:
+
+.. code-block:: python3
+
+  assembled_N = assemble(N)
+  assert np.allclose(assembled_N.dat.data_ro, u.dat.data_ro[:] - f.dat.data_ro[:])
+
+Assembling an external operator is often not enough, in particular as the external operator of interest 
+can be used in a variational form, which may require providing an implementation for its Jacobian as well. 
+For example, let's consider the following variational problem
+
+.. math::
+
+  \begin{equation}
+  \begin{aligned}
+    - \Delta u + u &= f &\textrm{in}\ \Omega\\
+    u &= 0  &\textrm{on}\ \partial \Omega\\
+  \end{aligned}
+  \end{equation}
+
+Using `N`, we can derive the following variational form
+
+.. math::
+
+  \begin{equation}
+  \begin{aligned}
+    \int_{\Omega} \nabla u \cdot \nabla v + N v &= 0 &\textrm{in}\ \Omega \quad \forall v \in H^{1}_{0}(\Omega)
+  \end{aligned}
+  \end{equation}
+
+Solving this variational problem necessitates calculating the Jacobian of the above residual form, which in 
+turn requires computing the Jacobian `\frac{\partial N(u, f; \hat{u}, v^{*})}{\partial u}`, which in this 
+case is the identity matrix. Hence, we now need to add an implementation specifying how the Jacobian 
+of `N` can be assembled:
+
+
+.. code-block:: python3
+
+  class TranslationOperator(AbstractExternalOperator):
+
+    def __init__(self, *operands, function_space, **kwargs):
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, **kwargs)
+
+    @assemble_method(0, (0,))
+    def assemble_N(self, *args, **kwargs):
+        u, f = self.ufl_operands
+        N = assemble(u - f)
+        return N
+
+    @assemble_method((1, 0), (0, 1))
+    def assemble_Jacobian(self, *args, **kwargs):
+        dNdu = Function(self.function_space()).assign(1)
+
+        # Construct the Jacobian matrix
+        integral_types = set(['cell'])
+        assembly_opts = kwargs.get('assembly_opts')
+        J = self._matrix_builder((), assembly_opts, integral_types)
+        with dNdu.dat.vec as vec:
+            J.petscmat.setDiagonal(vec)
+        return J
+
+Note that the above implementation first constructs the Jacobian matrix `J` before populating its diagonal. 
+This can be achieved using the *_matrix_builder* external operator's helper function. The variational 
+problem can now be solved
+
+.. code-block:: python3
+
+  u = Function(V)
+  v = TestFunction(V)
+
+  bcs = DirichletBC(V, 0, 'on_boundary')
+
+  N = TranslationOperator(u, f, function_space=V)
+  F = (inner(grad(u), grad(v)) + inner(N, v)) * dx
+  solve(F == 0, u, bcs=bcs)
+
+Matrix-free
+~~~~~~~~~~~
+
+In many cases, computing the Jacobian of the residual form is not appropriate, or even not possible. 
+Instead, one may want to use matrix-free methods to solve the PDE problem of interest. In that case, 
+the Jacobian of `F` won't be assembled. Instead, only the action of the Jacobian will be used. As a 
+consequence, our external operator subclass will need to be equipped with an implementation stating how 
+the action of the Jacobian of `N` on a given :class:`~.Function` `w` can be assembled, i.e. how to 
+compute `\frac{\partial N(u, f; w, v^{*})}{\partial u}`.
+
+.. code-block:: python3
+
+  class TranslationOperator(AbstractExternalOperator):
+
+    def __init__(self, *operands, function_space, **kwargs):
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, **kwargs)
+
+    @assemble_method(0, (0,))
+    def assemble_N(self, *args, **kwargs):
+        u, f = self.ufl_operands
+        N = assemble(u - f)
+        return N
+
+    @assemble_method((1, 0), (0, None))
+    def assemble_Jacobian_action(self, *args, **kwargs):
+        w = self.argument_slots()[-1]
+        return w
+
+The arguments of an external operator can be obtained via the *argument_slots* method. This will return 
+all the arguments of the external operator, independently of whether they are 
+:class:`~.Argument`/ :class:`~.Coargument` or :class:`~.Function`/ :class:`~.Cofunction`. If you only want 
+the unknown arguments, for example to determine the arity of the external operator, 
+you can use the *arguments* method.
+
+We can now solve the variational problem using any matrix-free method:
+
+.. code-block:: python3
+
+  u = Function(V)
+  N = TranslationOperator(u, f, function_space=V)
+  F = (inner(grad(u), grad(v)) + inner(N, v)) * dx
+
+  solve(F == 0, u, bcs=bcs, solver_parameters={"mat_type": "matfree",
+                                              "ksp_type": "cg",
+                                              "pc_type": "none"})
+
+Inverse problems
+~~~~~~~~~~~~~~~~
+
+External operators can also be embedded in PDE-constrained optimisation problems. For instance, let's 
+consider the following inverse problem driven by the elliptic PDE previously introduced:
+
+.. math::
+
+  \begin{equation}
+  \min_{f \in V}\ \ \frac{1}{2}\|{u(f) - u^{obs}}\|_{L^{2}}^{2} + 
+  \frac{1}{2}\|\mathcal{R}\left(f, f_{0}\right)\|_{L^{2}}^{2}
+  \end{equation}
+
+subject to
+
+.. math::
+
+  \begin{equation}
+  \label{regularizer_wave_Example}
+  \begin{aligned}
+    - \Delta u + u &= f &\textrm{in}\ \Omega\\
+    u &= 0  &\textrm{on}\ \partial \Omega\\
+  \end{aligned}
+  \end{equation}
+
+
+where `u^{obs}` refers to some observables, and `\mathcal{R}` is a regularisation term, and 
+`f_{0}` is a guess. In our case, we consider a general Tikhonov regularization, that is:
+
+
+.. math::
+
+  \mathcal{R}(f, f_{0}) = f - f_{0}
+
+The above regulariser can be used to incorporate prior knowledge into the problem via some guess `f_{0}`. 
+The regulariser `\mathcal{R}` can also be defined with the *TranslationOperator* we introduced in the 
+previous section, but this time with the operands `f` and `f_{0}`.
+
+We use the *firedrake.adjoint* package to automatically compute the gradient of the cost function `J` 
+for the optimisation. Evaluating the functional `J` requires evaluating the external operator 
+`\mathcal{R}(f, f_{0}; v^{*})`. On the other hand, computing the gradient of `J` using the adjoint 
+method involves evaluating the action of the Jacobian adjoint of `N`, i.e. 
+`\frac{\partial \mathcal{R}(f, f_{0}; y, \hat{f})}{\partial f}` for a given `y \in V^{*}` and 
+`\forall \hat{f} \in V`. We already implemented the evaluation method for the *TranslationOperator*. 
+We now need to add the method for `\frac{\partial \mathcal{R}(f, f_{0}; y, \hat{f})}{\partial f}`.
+
+
+.. code-block:: python3
+
+  class TranslationOperator(AbstractExternalOperator):
+
+    def __init__(self, *operands, function_space, **kwargs):
+        AbstractExternalOperator.__init__(self, *operands, function_space=function_space, **kwargs)
+
+    @assemble_method(0, (0,))
+    def assemble_N(self, *args, **kwargs):
+        f, f0 = self.ufl_operands
+        N = assemble(f - f0)
+        return N
+
+    @assemble_method((1, 0), (None, 0))
+    def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
+        y, _ = self.argument_slots()
+        return y
+
+We define the observables by adding noise to the exact solution of the PDE associated with a given rhs 
+`f_{exact}`:
+
+
+.. figure:: images/figure_uexact_uobs.png
+   :figwidth: 90%
+   :alt: u_exact vs u_obs
+   :align: center
+
+
+We can now solve the PDE-constrained optimisation problem using the *firedrake.adjoint* package. 
+For this, we employ the *BFGS* algorithm:
+
+
+.. code-block:: python3
+
+  R = partial(TranslationOperator, function_space=V)
+
+  def J(f):
+    F = (inner(grad(u), grad(v)) + inner(u, v) - inner(f, v)) * dx
+    solve(F == 0, u, bcs=bcs)
+    return assemble(0.5 * (u - u_obs) ** 2 * dx + 0.5 * alpha * R(f, f_0) ** 2 * dx)
+
+  c = Control(f)
+  Jhat = ReducedFunctional(J(f), c)
+
+  f_opt = minimize(Jhat, method= "BFGS")
+
+The above code will execute the optimisation and call the external operator subclass every time 
+the functional `J` or its gradient is evaluated.
+
+.. figure:: images/figure_fexact_fopt.png
+   :figwidth: 90%
+   :alt: f_exact vs f_opt
+   :align: center
+
+PDE systems implemented in Firedrake can be specified with one or more external operators. 
+External operators can also be embedded with each other as long as the function spaces match. 
+In the above example, we only used the *TranslationOperator* to define the regulariser. However, we 
+could also have used it inside the PDE as we did it in the previous section. In that case, we would 
+end up with two *TranslationOperator* s, one in the cost function with operands `f` and `f_{0}`, and 
+one in the PDE with operands `u` and `f`. The external operator subclass would then to be equipped with 
+the methods to evaluate `J`, which implies solving the PDE, and deriving its gradient, which involves 
+solving the adjoint equation.
