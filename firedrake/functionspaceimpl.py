@@ -20,6 +20,56 @@ from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
 
+def check_element(element, top=True):
+    """Run some checks on the provided element.
+
+    The :class:`finat.ufl.mixedelement.VectorElement` and
+    :class:`finat.ufl.mixedelement.TensorElement` modifiers must be "outermost"
+    for function space construction to work, excepting that they
+    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
+    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
+    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
+    they satisfy the other rules). This function checks that.
+
+    Parameters
+    ----------
+    element :
+        The :class:`UFL element
+        <finat.ufl.finiteelementbase.FiniteElementBase>` to check.
+    top : bool
+        Are we at the top element (in which case the modifier is legal).
+
+    Returns
+    -------
+
+    ``None`` if the element is legal.
+
+    Raises
+    ------
+    ValueError
+        If the element is illegal.
+    """
+    if element.cell.cellname() == "hexahedron" and \
+       element.family() not in ["Q", "DQ"]:
+        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
+    if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
+                         finat.ufl.HDivElement, finat.ufl.HCurlElement):
+        inner = (element._element, )
+    elif type(element) is finat.ufl.EnrichedElement:
+        inner = element._elements
+    elif type(element) is finat.ufl.TensorProductElement:
+        inner = element.sub_elements
+    elif isinstance(element, finat.ufl.MixedElement):
+        if not top:
+            raise ValueError(f"{type(element).__name__} modifier must be outermost")
+        else:
+            inner = element.sub_elements
+    else:
+        inner = ()
+    for e in inner:
+        check_element(e, top=False)
+
+
 class WithGeometryBase(object):
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
@@ -49,11 +99,7 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -118,7 +164,7 @@ class WithGeometryBase(object):
 
     def ufl_cell(self):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
-        return self.ufl_domain().ufl_cell()
+        return self.mesh().ufl_cell()
 
     @PETSc.Log.EventDecorator()
     def split(self):
@@ -309,6 +355,64 @@ class WithGeometryBase(object):
     def collapse(self):
         return type(self).create(self.topological.collapse(), self.mesh())
 
+    @classmethod
+    def make_function_space(cls, mesh, element, name=None):
+        r"""Factory method for :class:`.WithGeometryBase`."""
+        mesh.init()
+        topology = mesh.topology
+        # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
+        if type(element) is finat.ufl.MixedElement:
+            spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
+            new = MixedFunctionSpace(spaces, name=name)
+        else:
+            # Check that any Vector/Tensor/Mixed modifiers are outermost.
+            check_element(element)
+            if element.family() == "Real":
+                new = RealFunctionSpace(topology, element, name=name)
+            else:
+                new = FunctionSpace(topology, element, name=name)
+        # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
+        if mesh is not topology:
+            # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
+            new = cls.create(new, mesh)
+        return new
+
+    def reconstruct(self, mesh=None, name=None, **kwargs):
+        r"""Reconstruct this :class:`.WithGeometryBase` .
+
+        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
+        :kwarg name: the new name (defaults to None)
+        :returns: the new function space of the same class as ``self``.
+
+        Any extra kwargs are used to reconstruct the finite element.
+        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        """
+        V_parent = self
+        # Deal with ProxyFunctionSpace
+        indices = []
+        while True:
+            if V_parent.index is not None:
+                indices.append(V_parent.index)
+            if V_parent.component is not None:
+                indices.append(V_parent.component)
+            if V_parent.parent is not None:
+                V_parent = V_parent.parent
+            else:
+                break
+
+        if mesh is None:
+            mesh = V_parent.mesh()
+
+        element = V_parent.ufl_element()
+        cell = mesh.topology.ufl_cell()
+        if len(kwargs) > 0 or element.cell != cell:
+            element = element.reconstruct(cell=cell, **kwargs)
+
+        V = type(self).make_function_space(mesh, element, name=name)
+        for i in reversed(indices):
+            V = V.sub(i)
+        return V
+
 
 class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
 
@@ -368,7 +472,6 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        sdata = get_shared_data(mesh, element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -389,7 +492,6 @@ class FunctionSpace(object):
         else:
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._shared_data = sdata
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -405,32 +507,38 @@ class FunctionSpace(object):
         space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-
         # User comm
         self.comm = mesh.comm
         # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
+        self._comm = mpi.internal_comm(self.comm, self)
+
+        self.set_shared_data()
+        self.dof_dset = self.make_dof_dset()
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        self.node_set = self.dof_dset.set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+
+    def set_shared_data(self):
+        element = self.ufl_element()
+        sdata = get_shared_data(self._mesh, element)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
+        self._shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+    def make_dof_dset(self):
+        return op2.DataSet(self._shared_data.node_set, self.shape or 1,
+                           name=f"{self.name}_nodes_dset")
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -477,7 +585,7 @@ class FunctionSpace(object):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self._shared_data.global_numbering)
+                             section=self.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -710,7 +818,8 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self.comm = self.node_set.comm
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -994,17 +1103,7 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    rank = 0
-    shape = ()
-    value_size = 1
-
-    def __init__(self, mesh, element, name):
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self.name = name
-        self.comm = mesh.comm
-        self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
-        self.node_set = self.dof_dset.set
+    global_numbering = None
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
@@ -1019,21 +1118,16 @@ class RealFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=None)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+    def set_shared_data(self):
+        pass
+
+    def make_dof_dset(self):
+        return op2.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self.comm)
+        return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
@@ -1054,9 +1148,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
-
-    def dim(self):
-        return 1
 
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0

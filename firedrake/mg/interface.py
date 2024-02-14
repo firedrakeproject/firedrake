@@ -69,7 +69,7 @@ def prolong(coarse, fine):
             Vf = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Function(Vf)
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse)
@@ -136,7 +136,7 @@ def restrict(fine_dual, coarse_dual):
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
@@ -210,7 +210,7 @@ def inject(fine, coarse):
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
-            fine_coords = Vf.ufl_domain().coordinates
+            fine_coords = Vf.mesh().coordinates
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 

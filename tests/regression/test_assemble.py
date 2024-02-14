@@ -282,3 +282,12 @@ def test_3125():
     F = inner(z, tst)*dx + inner(u, v)/(d+p)*dx(2, degree=10)
     # should run without error
     solve(F == 0, z)
+
+
+@pytest.mark.xfail(reason="Arguments on vector-valued R spaces are not supported")
+def test_assemble_vector_rspace_one_form(mesh):
+    V = VectorFunctionSpace(mesh, "Real", 0, dim=2)
+    u = Function(V)
+    U = inner(u, u)*dx
+    L = derivative(U, u)
+    assemble(L)

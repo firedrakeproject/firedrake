@@ -48,7 +48,6 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
     the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
     :meth:`.MeshGeometry.init`) as appropriate.
     """
-    mesh.init()
     topology = mesh.topology
     cell = topology.ufl_cell()
     if isinstance(family, finat.ufl.FiniteElementBase):
@@ -67,53 +66,6 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
         return finat.ufl.TensorProductElement(la, lb)
     else:
         return finat.ufl.FiniteElement(family, cell=cell, degree=degree)
-
-
-def check_element(element, top=True):
-    """Run some checks on the provided element.
-
-    The :class:`finat.ufl.mixedelement.VectorElement` and
-    :class:`finat.ufl..mixedelement.TensorElement` modifiers must be "outermost"
-    for function space construction to work, excepting that they
-    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
-    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
-    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
-    they satisfy the other rules). This function checks that.
-
-    Parameters
-    ----------
-    element :
-        The :class:`UFL element
-        <finat.ufl.finiteelementbase.FiniteElementBase>` to check.
-    top : bool
-        Are we at the top element (in which case the modifier is legal).
-
-    Returns
-    -------
-
-    ``None`` if the element is legal.
-
-    Raises
-    ------
-    ValueError
-        If the element is illegal.
-    """
-    if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
-                         finat.ufl.HDivElement, finat.ufl.HCurlElement):
-        inner = (element._element, )
-    elif type(element) is finat.ufl.EnrichedElement:
-        inner = element._elements
-    elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
-    elif isinstance(element, finat.ufl.MixedElement):
-        if not top:
-            raise ValueError("%s modifier must be outermost" % type(element))
-        else:
-            inner = element.sub_elements
-    else:
-        return
-    for e in inner:
-        check_element(e, top=False)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
@@ -146,26 +98,7 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-
-    # Support FunctionSpace(mesh, MixedElement)
-    if type(element) is finat.ufl.MixedElement:
-        return MixedFunctionSpace(element, mesh=mesh, name=name)
-    if mesh.ufl_cell().cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ"]:
-        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes")
-    # Check that any Vector/Tensor/Mixed modifiers are outermost.
-    check_element(element)
-
-    # Otherwise, build the FunctionSpace.
-    topology = mesh.topology
-    if element.family() == "Real":
-        new = impl.RealFunctionSpace(topology, element, name=name)
-    else:
-        new = impl.FunctionSpace(topology, element, name=name)
-    if mesh is not topology:
-        return impl.WithGeometry.create(new, mesh)
-    else:
-        return new
+    return impl.WithGeometry.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
@@ -198,24 +131,7 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
     returned.
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-
-    # Support FunctionSpace(mesh, MixedElement)
-    if type(element) is finat.ufl.MixedElement:
-        return MixedFunctionSpace(element, mesh=mesh, name=name)
-
-    # Check that any Vector/Tensor/Mixed modifiers are outermost.
-    check_element(element)
-
-    # Otherwise, build the FunctionSpace.
-    topology = mesh.topology
-    if element.family() == "Real":
-        new = impl.RealFunctionSpace(topology, element, name=name)
-    else:
-        new = impl.FunctionSpace(topology, element, name=name)
-    if mesh is not topology:
-        return impl.FiredrakeDualSpace.create(new, mesh)
-    else:
-        return new
+    return impl.FiredrakeDualSpace.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
@@ -353,6 +269,13 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         if meshes[i] is not meshes[0]:
             raise ValueError("All function spaces must be defined on the same mesh!")
 
+    try:
+        cls, = set(type(s) for s in spaces)
+    except ValueError:
+        # Neither primal nor dual
+        # We had not implemented something in between, so let's make it primal
+        cls = impl.WithGeometry
+
     # Select mesh
     mesh = meshes[0]
     # Get topological spaces
@@ -370,5 +293,5 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     new = impl.MixedFunctionSpace(spaces, name=name)
     if mesh is not mesh.topology:
-        return impl.WithGeometry.create(new, mesh)
+        new = cls.create(new, mesh)
     return new

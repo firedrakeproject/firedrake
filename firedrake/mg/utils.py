@@ -14,8 +14,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -52,8 +52,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -90,8 +90,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -148,7 +148,7 @@ def physical_node_locations(V):
     except KeyError:
         Vc = firedrake.FunctionSpace(mesh, finat.ufl.VectorElement(element))
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)
 
 

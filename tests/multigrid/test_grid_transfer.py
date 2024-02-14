@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 
@@ -96,36 +97,36 @@ def exact_primal(mesh, vector, degree):
     return expr
 
 
-def run_injection(hierarchy, vector, space, degrees):
+def run_injection(hierarchy, vector, space, degrees, exact=exact_primal):
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
 
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact_primal(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact(mesh, vector, degree), V))
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact(mesh, vector, degree), V))
             tmp = Function(V)
             inject(actual, tmp)
             actual = tmp
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_prolongation(hierarchy, vector, space, degrees):
+def run_prolongation(hierarchy, vector, space, degrees, exact=exact_primal):
     for degree in degrees:
         Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
 
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact_primal(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact(mesh, vector, degree), V))
 
         for mesh in hierarchy[1:]:
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact_primal(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact(mesh, vector, degree), V))
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp
@@ -266,3 +267,60 @@ def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
         run_restriction(deformed_hierarchy, vector, space, degrees)
     elif deformed_transfer_type == "prolongation":
         run_prolongation(deformed_hierarchy, vector, space, degrees)
+
+
+@pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"], scope="module")
+def periodic_cell(request):
+    return request.param
+
+
+@pytest.fixture(scope="module")
+def periodic_hierarchy(periodic_cell):
+    if periodic_cell == "interval":
+        mesh = PeriodicUnitIntervalMesh(17)
+    elif periodic_cell == "triangle":
+        mesh = PeriodicUnitSquareMesh(13, 11, quadrilateral=False)
+    elif periodic_cell == "quadrilateral":
+        mesh = PeriodicUnitSquareMesh(11, 13, quadrilateral=True)
+    elif periodic_cell == "tetrahedron":
+        mesh = PeriodicUnitCubeMesh(3, 5, 7)
+    else:
+        raise NotImplementedError(f"NotImplemented: periodic_cell = {periodic_cell}")
+    return MeshHierarchy(mesh, 2)
+
+
+@pytest.fixture(params=["CG", "DG"])
+def periodic_space(request, periodic_cell):
+    if periodic_cell == "quadrilateral" and request.param == "DG":
+        return "DQ"
+    else:
+        return request.param
+
+
+def exact_primal_periodic(mesh, vector, degree):
+    x = SpatialCoordinate(mesh)
+    if len(x) == 1:
+        expr = (1 - x[0]) * x[0]
+    elif len(x) == 2:
+        expr = (1 - x[0]) * x[0] + \
+               (1 - x[1]) * x[1] * x[1]
+    elif len(x) == 3:
+        expr = (1 - x[0]) * x[0] + \
+               (1 - x[1]) * x[1] * x[1] + \
+               (1 - x[2]) * x[2] * x[2] * x[2]
+    if vector:
+        expr = as_vector([(-1)**i * expr for i in range(len(x))])
+    return expr
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
+    degrees = [4]
+    vector = False
+    if periodic_space in {"DG", "DQ"} and complex_mode:
+        with pytest.raises(NotImplementedError):
+            run_injection(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
+    else:
+        run_injection(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
+    run_prolongation(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
+    run_restriction(periodic_hierarchy, vector, periodic_space, degrees)

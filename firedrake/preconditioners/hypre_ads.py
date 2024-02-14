@@ -2,10 +2,11 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
+from firedrake.interpolation import Interpolator, Interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from ufl import grad, curl, SpatialCoordinate
+from pyop2.utils import as_tuple
 
 __all__ = ("HypreADS",)
 
@@ -20,11 +21,7 @@ class HypreADS(PCBase):
 
         family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
@@ -50,11 +47,13 @@ class HypreADS(PCBase):
         pc.setHYPREType('ads')
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
+
+        from firedrake.assemble import assemble
         V = VectorFunctionSpace(mesh, "Lagrange", 1)
-        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
+        linear_coordinates = assemble(Interpolate(SpatialCoordinate(mesh), V)).dat.data_ro.copy()
         pc.setCoordinates(linear_coordinates)
 
-        pc.setUp()
+        pc.setFromOptions()
         self.pc = pc
 
     def apply(self, pc, x, y):

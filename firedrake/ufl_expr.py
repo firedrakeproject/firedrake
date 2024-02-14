@@ -1,8 +1,10 @@
 import ufl
 import ufl.argument
 from ufl.duals import is_dual
+from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.domain import as_domain
 
 import firedrake
 from firedrake import utils, function, cofunction
@@ -37,6 +39,8 @@ class Argument(ufl.argument.Argument):
         return super().__new__(cls, *args, **kwargs)
 
     def __init__(self, function_space, number, part=None):
+        if function_space.ufl_element().family() == "Real" and function_space.shape != ():
+            raise NotImplementedError(f"{type(self).__name__} on a vector-valued Real space is not supported.")
         super(Argument, self).__init__(function_space.ufl_function_space(),
                                        number, part=part)
         self._function_space = function_space
@@ -87,6 +91,8 @@ class Coargument(ufl.argument.Coargument):
     """
 
     def __init__(self, function_space, number, part=None):
+        if function_space.ufl_element().family() == "Real" and function_space.shape != ():
+            raise NotImplementedError(f"{type(self).__name__} on a vector-valued Real space is not supported.")
         super(Coargument, self).__init__(function_space.ufl_function_space(),
                                          number, part=part)
         self._function_space = function_space
@@ -222,7 +228,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
             f"Cannot take the derivative of a {type(form).__name__}"
         )
     u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if u_is_x or isinstance(u, Constant):
+    if u_is_x or isinstance(u, (Constant, BaseFormOperator)):
         uc = u
     else:
         uc, = extract_coefficients(u)
@@ -230,7 +236,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 
-    mesh = form.ufl_domain()
+    mesh = as_domain(form)
     if not mesh:
         raise ValueError("Expression to be differentiated has no ufl domain."
                          "\nDo you need to add a domain to your Constant?")
@@ -247,7 +253,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         coords = mesh.coordinates
         u = ufl.SpatialCoordinate(mesh)
         V = coords.function_space()
-    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
+    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction, BaseFormOperator)):
         V = uc.function_space()
     elif isinstance(uc, firedrake.Constant):
         if uc.ufl_shape != ():
@@ -281,7 +287,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
 
 @PETSc.Log.EventDecorator()
-def action(form, coefficient):
+def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
     :arg form: A UFL form, or a Slate tensor.
@@ -293,11 +299,11 @@ def action(form, coefficient):
             raise ValueError("Can't take action of rank-0 tensor")
         return form * firedrake.AssembledVector(coefficient)
     else:
-        return ufl.action(form, coefficient)
+        return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()
-def adjoint(form, reordered_arguments=None):
+def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
     """Compute the adjoint of a form.
 
     :arg form: A UFL form, or a Slate tensor.
@@ -333,7 +339,7 @@ def adjoint(form, reordered_arguments=None):
                                    Argument(v.function_space(),
                                             number=u.number(),
                                             part=u.part()))
-        return ufl.adjoint(form, reordered_arguments)
+        return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()

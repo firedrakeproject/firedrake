@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
@@ -417,14 +418,14 @@ def test_bcs_nodes(domain, expected):
 
     x, = SpatialCoordinate(mesh)
 
-    selector = interpolate(
+    selector = assemble(interpolate(
         conditional(
             real(x) < 0.2,
             as_vector([0, 3]),
             conditional(real(x) > 0.8,
                         as_vector([1, 2]),
                         as_vector([1, 1]))),
-        V)
+        V))
 
     layers = numpy.empty((5, 2), dtype=IntType)
 
@@ -467,7 +468,7 @@ def test_layer_extents_parallel():
     V = FunctionSpace(mesh, "DG", 0)
 
     x, _ = SpatialCoordinate(mesh)
-    selector = interpolate(x - 0.5, V)
+    selector = assemble(interpolate(x - 0.5, V))
 
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
 
@@ -619,7 +620,7 @@ def test_layer_extents_parallel_vertex_owners():
     V = FunctionSpace(mesh, "DG", 0)
 
     x, _ = SpatialCoordinate(mesh)
-    selector = interpolate(x, V)
+    selector = assemble(interpolate(x, V))
 
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
 
