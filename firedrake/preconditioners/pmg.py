@@ -592,6 +592,20 @@ def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
     on the (derivative of the) basis functions of the source element.
 
+    Parameters
+    ----------
+    source :
+        A :class:`FIAT.CiarletElement` to interpolate.
+    target :
+        A :class:`FIAT.CiarletElement` defining the interpolation space.
+    derivative : ``str`` or ``None``
+        An optional differential operator to apply on the source expression,
+        (currently only "grad" is supported).
+
+    Returns
+    -------
+    A read-only :class:`numpy.ndarray` with the evaluation of the target
+    dual basis on the (derivative of the) source primal basis.
     """
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
@@ -604,6 +618,10 @@ def evaluate_dual(source, target, derivative=None):
         for i in range(len(alpha)):
             for j in range(alpha[i]):
                 B = numpy.dot(dmats[i], B)
+    elif derivative in ("curl", "div"):
+        raise NotImplementedError(f"Dual evaluation of {derivative} is not yet implemented.")
+    elif derivative is not None:
+        raise ValueError(f"Invalid derivaitve type {derivative}.")
     return get_readonly_view(numpy.dot(A, B))
 
 
