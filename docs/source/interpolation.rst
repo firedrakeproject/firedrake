@@ -151,7 +151,14 @@ function space:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 11-23, 31-40
+   :start-after: [test_line_integral 1]
+   :end-before: [test_line_integral 2]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_line_integral 3]
+   :end-before: [test_line_integral 4]
 
 For more on forms, see :ref:`this section of the manual <more_complicated_forms>`.
 
@@ -170,7 +177,14 @@ interpolation will raise a :py:class:`~.DofNotDefinedError`.
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 46-58, 64-65
+   :start-after: [test_cross_mesh 1]
+   :end-before: [test_cross_mesh 2]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 3]
+   :end-before: [test_cross_mesh 4]
 
 This can be overriden with the optional ``allow_missing_dofs`` keyword
 argument:
@@ -178,7 +192,14 @@ argument:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 72-73, 80
+   :start-after: [test_cross_mesh 5]
+   :end-before: [test_cross_mesh 6]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 7]
+   :end-before: [test_cross_mesh 8]
 
 In this case, the missing degrees of freedom (DoFs, the global basis function
 coefficients which could not be set) are, by default, set to zero:
@@ -186,7 +207,8 @@ coefficients which could not be set) are, by default, set to zero:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 85
+   :start-after: [test_cross_mesh 9]
+   :end-before: [test_cross_mesh 10]
 
 If we specify an output :py:class:`~.Function` then the missing DoFs are
 unmodified.
@@ -197,7 +219,8 @@ we set them to be ``nan`` ('not a number') for easy identification:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 90-93
+   :start-after: [test_cross_mesh 11]
+   :end-before: [test_cross_mesh 12]
 
 If we specify an output :py:class:`~.Function`, this overwrites the missing
 DoFs.
@@ -208,7 +231,8 @@ argument is set at construction:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 100
+   :start-after: [test_cross_mesh 13]
+   :end-before: [test_cross_mesh 14]
 
 The ``default_missing_val`` keyword argument is then set whenever we call
 :py:meth:`~.Interpolator.interpolate`:
@@ -216,7 +240,8 @@ The ``default_missing_val`` keyword argument is then set whenever we call
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 103
+   :start-after: [test_cross_mesh 15]
+   :end-before: [test_cross_mesh 16]
 
 If we supply an output :py:class:`~.Function` and don't set
 ``default_missing_val`` then any missing DoFs are left as they were prior to
@@ -225,7 +250,20 @@ interpolation:
 .. literalinclude:: ../../tests/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
-   :lines: 107-110, 113-115, 124-126
+   :start-after: [test_cross_mesh 17]
+   :end-before: [test_cross_mesh 18]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 19]
+   :end-before: [test_cross_mesh 20]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 21]
+   :end-before: [test_cross_mesh 22]
 
 
 Interpolation from external data
