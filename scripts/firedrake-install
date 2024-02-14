@@ -276,7 +276,7 @@ honoured.""",
     group.add_argument("--with-parmetis", action="store_true",
                        help="Install PETSc with ParMETIS? (Non-free license, see http://glaros.dtc.umn.edu/gkhome/metis/parmetis/download)")
     parser.add_argument("--with-exodusii", action="store_true",
-                       help="Install Exodus mesh format? (Modified BSD license, see https://github.com/sandialabs/seacas/blob/master/LICENSE)")
+                        help="Install Exodus mesh format? (Modified BSD license, see https://github.com/sandialabs/seacas/blob/master/LICENSE)")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--petsc-int-type", choices=["int32", "int64"],
@@ -407,7 +407,7 @@ else:
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--with-exodusii", action="store_true",
-                       help="Install Exodus mesh format.")
+                        help="Install Exodus mesh format.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
