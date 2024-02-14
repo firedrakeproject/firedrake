@@ -191,15 +191,35 @@ operators are already implemented, such as the :class:`~.MLOperator`, see for em
 models within Firedrake. However, you may want to build your own external operator for your specific 
 problem. In this section, we discuss how new external operators can be defined.
 
-To define a new external operator, one needs to subclass the :class:`~.AbstractExternalOperator` class 
-matter as long as your external operator subclass is equipped with the necessary evaluation methods 
-for your problem of interest. You only need to specify the evaluation methods required for your 
+To define a new external operator, one first needs to subclass the :class:`~.AbstractExternalOperator` 
+class. Then, the external operator subclass needs to be equipped with methods specifying how the 
+different types of external operator arising in the PDE system considered can be evaluated, such as the 
+Jacobian of the operator. Note that you only need to specify the evaluation methods required for your 
 problem of interest.
 
-We have previously seen that symbolic operations such as differentiation, action or adjoint, can 
-While :class:`~.AbstractExternalOperator` objects are symbolical can be differentiated and 
-evaluated, the actual implementation to evaluate them needs to be specified by the external operator 
-specified by the user...
+We have previously seen the different external operators you can get as a result of symbolic operations 
+such as differentiation, action or adjoint, can all be understood as changes in the derivative multi-index 
+and/or the arguments of the external operator. The external operator interface uses this logic to allow 
+users specifying which external operator implementation each method correspond to. More specifically, 
+each evaluation method of the subclass needs to be decorated with the *assemble_method* decorator. This 
+decorator takes in two arguments: `(i)` the derivative multi-index, and `(ii)` and a tuple containing the 
+arguments' numbers, wherein arguments that are not of type :class:`~.Argument` or :class:`~.Coargument` 
+are denoted with `None`.
+
+For instance, the Jacobian `\frac{\partial N(u; \hat{u}, v^{*})}{\partial u}` has two 
+arguments: `v^{*}` and `\hat{u}`. Linear form's arguments are numbered incrementally, starting 
+from 0, as new arguments are added to the linear form as a result of differentiation. Hence, the second 
+entry of the *assemble_method* for this Jacobian would be *(0, 1)*. As for the derivative multi-index, it 
+is `(1, 0)` as we differentiated with respect to the first operand, i.e. `u`. Therefore, the decorator 
+for the evaluation of the Jacobian would be: *@assemble_method((1, 0), (0, 1))*.
+
+If we now take the adjoint of that Jacobian, i.e. its Hermitian transpose, we would still have the same 
+derivative multi-index, but the arguments would be swapped. Hence, the specified decorated should be: 
+*@assemble_method((1, 0), (1, 0))*. Likewise, if we take the action of the Hermitian transpose of the 
+Jacobian matrix on a given cofunction, the highest-numbered argument will be replaced by this function, 
+and the highest number in the second entry will be replace by *None* as cofunctions are not 
+:class:`~.Argument` or :class:`~.Coargument`, which results in: *@assemble_method((1, 0), (None, 0))*.
+
 
 The following example illustrates how to define a new external operator, *MyExternalOperator*:
 
