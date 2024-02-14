@@ -712,7 +712,7 @@ PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
             addv = PETSc.InsertMode.INSERT
-        indices = ("rindices", "cindices")[:2-on_diag]
+        indices = ("rindices",) if on_diag else ("rindices", "cindices")
         code = ""
         if "MatSetValuesArray" in self.code:
             code = """
