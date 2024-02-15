@@ -309,3 +309,18 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     postassemble_action = assemble(action(assembled_matrix, f))
 
     assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)
+
+
+def test_assemble_baseform_return_tensor_if_given():
+    mesh = UnitIntervalMesh(1)
+    space = FunctionSpace(mesh, "Discontinuous Lagrange", 0)
+    test = TestFunction(space)
+
+    form = ufl.conj(test) * dx
+    tensor = Cofunction(space.dual())
+
+    b0 = assemble(form)
+    b1 = assemble(b0, tensor=tensor)
+
+    assert b0 is not b1
+    assert b1 is tensor
