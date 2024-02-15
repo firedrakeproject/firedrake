@@ -10,29 +10,59 @@ from firedrake.matrix import MatrixBase
 from firedrake import functionspaceimpl
 
 
-class RegisteringAssemblyMethods(UFLType):
-    # Subclass UFLType to avoid metaclass conflict for AbstractExternalOperator
+class AssemblyRegisterMetaClass(UFLType):
+    """Metaclass registering assembly methods specified by external operator subclasses.
+
+    This metaclass is used to register assembly methods specified by subclasses of :class:`~.AbstractExternalOperator`.
+    For any new external operator subclass, :class:`AssemblyRegisterMetaClass` will collect all assembly methods specified by the
+    subclass and construct a registry to map from assembly identifiers, specified via the `assemble_method` decorator
+    to the corresponding assembly methods, and attach that registry to the subclass.
+
+    Notes
+    -----
+    This metaclass subclasses `UFLType` to avoid metaclass conflict for :class:`~.AbstractExternalOperator`.
+    """
     def __init__(cls, name, bases, attrs):
         cls._assembly_registry = {}
-        # Populate assembly registry with registries from the base classes
+        # Collect assembly registries from parent classes
         for base in bases:
             cls._assembly_registry.update(getattr(base, '_assembly_registry', {}))
-        for _, val in attrs.items():
-            registry = getattr(val, '_registry', ())
-            for e in registry:
-                cls._assembly_registry.update({e: val})
+        # Update assembly registry with assembly methods from `cls`.
+        for assembly_method in attrs.values():
+            registry = getattr(assembly_method, '_registry', ())
+            for assembly_id in registry:
+                cls._assembly_registry.update({assembly_id: assembly_method})
 
 
-class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMethods):
-    r"""Abstract base class from which stem all the Firedrake practical implementations of the
-    ExternalOperator, i.e. all the ExternalOperator subclasses that have mechanisms to be
-    assembled.
-
-    TODO !!
-    """
+class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaClass):
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data=None):
+        """External operator base class providing the interface to build new external operators.
 
+        The :class:`~.AbstractExternalOperator` encapsulates the external operator abstraction and is compatible
+        with UFL symbolic operations, the Firedrake assembly, and the AD capabilities provided by `~.firedrake.adjoint`.
+        The :class:`~.AbstractExternalOperator` class orchestrates the external operator assembly by linking the
+        finite element assembly to the assembly implementations specified by the external operator subclasses.
+
+        Parameters
+        ----------
+        *operands : ufl.core.expr.Expr or ufl.BaseForm
+                    Operands of the external operator.
+        function_space : firedrake.functionspaceimpl.WithGeometryBase
+                         The function space the external operator is mapping to.
+        derivatives : tuple
+                      Tuple specifiying the derivative multiindex.
+        *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
+                          Tuple containing the arguments of the linear form associated with the external operator,
+                          i.e. the arguments with respect to which the external operator is linear. Those arguments
+                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
+                          as a result of taking the action on a given function.
+        operator_data : dict
+                        Dictionary containing the data of the external operator, i.e. the external data
+                        specific to the external operator subclass considered. This dictionary will be passed on
+                        over the UFL symbolic reconstructions making the operator data accessible to the external operators
+                        arising from symbolic operations on the original operator, such as the Jacobian of the external operator.
+        """
         # Check function space
         if not isinstance(function_space, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Function defined on a " + str(type(function_space)))
@@ -56,71 +86,28 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
     def function_space(self):
         return self._function_space
 
-    def assemble_method(derivs, args=None):
-        r"""
-        TODO! The below doc might be out-of-date + lift the doc to the base class init.
+    def assemble_method(derivs, args):
+        """Decorator helper function to specify the type of external operator type associated with each assembly methods.
 
-        Decorator helper function for the user to specify his assemble functions.
+        The `assemble_method` decorator is used to specify the type of external operator associated with the assembly methods
+        of the external operator subclass. Each assembly method must be decorated with `assemble_method`.
+        The role of this decorator is to record the assembly methods of the subclass.
+        The type of external operator is fully specified via the derivative multi-index and a tuple
+        representing the argument slots of the external operator.
 
-            `derivs`: derivative multi-index or number of derivatives taken.
-            `args`: tuple of argument numbers representing `self.argument_slots` in which `None` stands for a slot
-            without arguments.
+        Parameters
+        ----------
+        derivs: tuple
+                Derivative multi-index of the external operator associated with the assembly method decorated.
+        args: tuple
+              Tuple representing the argument slots of the external operator, i.e. `self.argument_slots()`,
+              in which integers stand for the numbers of the arguments of type :class:`~.firedrake.ufl_expr.Argument` or
+              :class:`~.firedrake.ufl_expr.Coargument`, and `None` stands for arguments of type
+              :class:`~.firedrake.function.Function` or :class:`~.firedrake.cofunction.Cofunction`.
 
-        More specifically, an ExternalOperator subclass needs to be equipped with methods specifying how to assemble the operator, its Jacobian, etc. (depending on what is needed). The external operator assembly procedure is fully determined by the argument slots and the derivative multi-index of the external operator. The assemble methods need to be decorated with `assemble_method`.
-
-        The derivative multi-index `derivs` and the argument slots `args` will enable to map the assemble functions to the associated external operator objects (operator, Jacobian, Jacobian action, ...):
-
-            -> derivs: tells us if we assemble the operator, its Jacobian or its hessian
-            -> args: tells us if adjoint or action has been taken
-
-            Example: Let N(u, m; v*) be an external operator, (uhat, mhat) arguments, and (uu, mm, vv) coefficients, we have:
-
-             UFL expression                    | External operators               | derivs |  args
-       ---------------------------------------------------------------------------|--------|------------
-        N                                      | N(u, m; v*)                      | (0, 0) | (0,)
-                                               |                                  |        |
-        dNdu = derivative(N, u, uhat)          |                                  |        |
-        dNdm = derivative(N, m, mhat)          |                                  |        |
-                                               |                                  |        |
-        dNdu                                   | dN/du(u, m; uhat, v*)            | (1, 0) | (0, 1)
-        dNdm                                   | dN/dm(u, m; mhat, v*)            | (0, 1) | (0, 1)
-        action(dNdu, uu)                       | dN/du(u, m; uu, v*)              | (1, 0) | (0, None)
-        action(dNdm, mm)                       | dN/dm(u, m; mm, v*)              | (0, 1) | (0, None)
-                                                                                  |        |
-        adjoint(dNdu)                          | dN/du^{*}(u, m; v*, uhat)        | (1, 0) | (1, 0)
-        adjoint(dNdm)                          | dN/dm^{*}(u, m; v*, mhat)        | (0, 1) | (1, 0)
-        action(adjoint(dNdu))                  | dN/du^{*}(u, m; vv, uhat)        | (1, 0) | (1, None)
-        action(adjoint(dNdm))                  | dN/dm^{*}(u, m; vv, mhat)        | (0, 1) | (1, None)
-                                               |                                  |        |
-        d2Ndu = derivative(dNdu, u, uhat)      |                                  |        |
-                                               |                                  |        |
-        action(d2Ndu, uu)                      | d2N/dudu(u, m; uu, uhat, v*)     | (2, 0) | (0, 1, None)
-        adjoint(action(d2Ndu, uu))             | d2N/dudu^{*}(u, m; v*, uhat, uu) | (2, 0) | (None, 1, 0)
-        action(adjoint(action(d2Ndu, uu)), vv) | d2N/dudu^{*}(u, m; vv, uhat, uu) | (2, 0) | (None, 1, None)
-
-        Here are examples on how to specify the implementation of:
-
-        - N:
-            ```
-            @assemble_method((0, 0), (0,))
-            # or @assemble_method(0, (0,))
-            def N(self, *args, *kwargs):
-                ...
-            ```
-
-        - dN/du:
-            ```
-            @assemble_method((1, 0), (0, 1))
-            def dNdu(self, *args, **kwargs):
-                ...
-            ```
-
-        - Action of dN/du:
-            ```
-            @assemble_method((1, 0), (0, None))
-            def dNdu_action(self, *args, **kwargs):
-                ...
-            ```
+        Notes
+        -----
+        More information can be found at `www.firedrakeproject.org/external_operators.html#build-your-own-external-operator`.
         """
         # Checks
         if not isinstance(derivs, (tuple, int)) or not isinstance(args, tuple):
@@ -145,10 +132,27 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
             return assemble
         return decorator
 
-    def assemble(self, *args, assembly_opts=None, **kwargs):
-        """Assembly procedure"""
+    def assemble(self, assembly_opts=None):
+        """External operator assembly
 
-        # Checks
+        Parameters
+        ----------
+        assembly_opts: dict
+                       Dictionary containing assembly options of the finite element assembly, which may
+                       be of interest for the assembly methods of the external operator subclass.
+                       These options are passed on to the assembly methods of the external operator subclass.
+
+        Returns
+        -------
+        firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
+            The result of assembling the external operator.
+
+        Notes
+        -----
+        More information can be found at `www.firedrakeproject.org/external_operators.html#assembly`.
+        """
+
+        # -- Checks -- #
         number_arguments = len(self.arguments())
         if number_arguments > 2:
             if sum(self.derivatives) > 2:
@@ -157,12 +161,13 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
                 err_msg = "Cannot assemble external operators with more than 2 arguments! You need to take the action!"
             raise ValueError(err_msg)
 
-        # Make key for assembly dict
+        # -- Construct assembly identifier of the external operator `self` -- #
+
         derivs = self.derivatives
         arguments = tuple(arg.number() if isinstance(arg, BaseArgument) else None for arg in self.argument_slots())
         key = (derivs, arguments)
 
-        # --- Get assemble function ---
+        # -- Get assembly methods -- #
 
         assembly_registry = self._assembly_registry
         try:
@@ -170,16 +175,16 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
         except KeyError:
             try:
                 # User can provide the sum of derivatives instead of the multi-index
-                #  => This is useful for arbitrary operators (where the number of operators is unknwon a priori)
+                #  => This is useful for arbitrary operators where the number of operators is unknwon a priori.
                 assemble = assembly_registry[(sum(key[0]), key[1])]
             except KeyError:
                 raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
                                            + ' has an implementation for %s !') % (type(self).__name__, str(key)))
 
-        # --- Assemble ---
-        result = assemble(self, *args, assembly_opts=assembly_opts, **kwargs)
+        # -- Assemble -- #
+        result = assemble(self, assembly_opts=assembly_opts)
 
-        # Compatibility check
+        # -- Compatibility check -- #
         if len(self.arguments()) == 1:
             # Will also catch the case where wrong fct space
             if not isinstance(result, (Function, Cofunction)):
@@ -189,12 +194,28 @@ class AbstractExternalOperator(ExternalOperator, metaclass=RegisteringAssemblyMe
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
         return result
 
-    # TODO: Do we want to cache this ?
     def _matrix_builder(self, bcs, opts, integral_types):
-        r"""Helper function for allocating a :class:`firedrake.matrix.MatrixBase` object
-            that can then be populated in the assemble methods provided by the external operator subclass.
-            This function relies on the :func:`firedrake.assemble.allocate_matrix` function.
+        """Helper function for allocating a :class:`firedrake.matrix.MatrixBase` object.
+
+        This helper function provides a way to allocate matrices that can then be populated
+        in the assembly method(s) of the external operator subclass.
+        This function relies on the :func:`firedrake.assemble.allocate_matrix` function.
+
+        Parameters
+        ----------
+        bcs: Tuple
+             Tuple of boundary conditions.
+        opts: dict
+              Dictionary containing options for the matrix allocation.
+        integral_types: set
+                        Set of integral types.
+
+        Returns
+        -------
+        firedrake.matrix.MatrixBase
+            The allocated matrix.
         """
+
         # Remove `diagonal` keyword argument
         opts.pop('diagonal', None)
         # Allocate the matrix associated with `self`
