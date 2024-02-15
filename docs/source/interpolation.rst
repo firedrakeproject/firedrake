@@ -86,7 +86,7 @@ Alternatively, one can use the interpolator to set the value of an existing :py:
    f = Function(V)
    interpolator.interpolate(output=f)
 
-If `expression` does not contain a :py:func:`~ufl.TestFunction` then
+If `expression` contains a :py:func:`~ufl.TestFunction` then
 the interpolator acts to interpolate :py:class:`~.Function`\s in the
 test space to those in the target space. For example:
 
@@ -98,14 +98,172 @@ test space to those in the target space. For example:
 Here, `interpolator` acts as the interpolation matrix from the
 :py:func:`~.FunctionSpace` W into the
 :py:func:`~.FunctionSpace` V. Such that if `f` is a
-:py:class:`~.Function` in `W` then `interpolator(f)` is its
-interpolation into `g`. As before, the `output` parameter can be used
-to write into an existing :py:class:`~.Function`. Passing the
+:py:class:`~.Function` in `W` then `g = interpolator.interpolate(f)` is its
+interpolation into a function `g` in `V`. As before, the `output` parameter can
+be used to write into an existing :py:class:`~.Function`. Passing the
 `transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
 cause the transpose interpolation to occur. This is equivalent to the
 multigrid restriction operation which interpolates assembled 1-forms
 in the dual space to `V` to assembled 1-forms in the dual space to
 `W`.
+
+
+Interpolation across meshes
+---------------------------
+
+The interpolation API supports interpolation between meshes where the target
+function space has finite elements (as given in the list of
+:ref:`supported elements <supported_elements>`)
+
+* **Lagrange/CG** (also known a Continuous Galerkin or P elements),
+* **Q** (i.e. Lagrange/CG on lines, quadrilaterals and hexahedra),
+* **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements) and
+* **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra).
+
+Vector, tensor and mixed function spaces can also be interpolated into from
+other meshes as long as they are constructed from these spaces.
+
+.. note::
+
+   The list of supported elements above is only for *target* function spaces.
+   Function spaces on the *source* mesh can be built from most of the supported
+   elements.
+
+There are few constraints on the meshes involved: the target mesh can have a
+different cell shape, topological dimension, or resolution to the source mesh.
+There are many use cases for this: For example, two solutions to the same
+problem calculated on meshes with different resolutions or cell shapes can be
+interpolated onto one another, or onto a third, finer mesh, and be directly
+compared.
+
+
+Interpolating onto sub-domain meshes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The target mesh for a cross-mesh interpolation need not cover the full domain
+of the source mesh. Volume, surface and line integrals can therefore be
+calculated by interpolating onto the mesh or
+:ref:`immersed manifold <immersed_manifolds>` which defines the volume,
+surface or line of interest in the domain. The integral itself is calculated
+by calling :py:func:`~.assemble` on an approriate form over the target mesh
+function space:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_line_integral 1]
+   :end-before: [test_line_integral 2]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_line_integral 3]
+   :end-before: [test_line_integral 4]
+
+For more on forms, see :ref:`this section of the manual <more_complicated_forms>`.
+
+
+Interpolating onto other meshes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+
+   Interpolation *from* :ref:`high-order meshes <changing_coordinate_fs>` is
+   currently not supported.
+
+If the target mesh extends outside the source mesh domain, then cross-mesh
+interpolation will raise a :py:class:`~.DofNotDefinedError`.
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 1]
+   :end-before: [test_cross_mesh 2]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 3]
+   :end-before: [test_cross_mesh 4]
+
+This can be overriden with the optional ``allow_missing_dofs`` keyword
+argument:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 5]
+   :end-before: [test_cross_mesh 6]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 7]
+   :end-before: [test_cross_mesh 8]
+
+In this case, the missing degrees of freedom (DoFs, the global basis function
+coefficients which could not be set) are, by default, set to zero:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 9]
+   :end-before: [test_cross_mesh 10]
+
+If we specify an output :py:class:`~.Function` then the missing DoFs are
+unmodified.
+
+We can optionally specify a value to use for our missing DoFs. Here
+we set them to be ``nan`` ('not a number') for easy identification:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 11]
+   :end-before: [test_cross_mesh 12]
+
+If we specify an output :py:class:`~.Function`, this overwrites the missing
+DoFs.
+
+When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
+argument is set at construction:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 13]
+   :end-before: [test_cross_mesh 14]
+
+The ``default_missing_val`` keyword argument is then set whenever we call
+:py:meth:`~.Interpolator.interpolate`:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 15]
+   :end-before: [test_cross_mesh 16]
+
+If we supply an output :py:class:`~.Function` and don't set
+``default_missing_val`` then any missing DoFs are left as they were prior to
+interpolation:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 17]
+   :end-before: [test_cross_mesh 18]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 19]
+   :end-before: [test_cross_mesh 20]
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_cross_mesh 21]
+   :end-before: [test_cross_mesh 22]
 
 
 Interpolation from external data
@@ -131,7 +289,7 @@ proceeds as follows:
 .. code-block:: python3
 
    # First, grab the mesh.
-   m = V.ufl_domain()
+   m = V.mesh()
 
    # Now make the VectorFunctionSpace corresponding to V.
    W = VectorFunctionSpace(m, V.ufl_element())

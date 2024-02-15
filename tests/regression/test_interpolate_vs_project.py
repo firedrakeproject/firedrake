@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(params=["square", "cube"], scope="module")
@@ -29,14 +30,14 @@ def V(request, mesh):
 
 
 def test_interpolate_vs_project(V):
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     dim = mesh.geometric_dimension()
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
 
-    shape = V.ufl_element().value_shape()
+    shape = V.ufl_element().value_shape
     if dim == 2:
         if len(shape) == 0:
             expression = x + y
@@ -52,6 +53,6 @@ def test_interpolate_vs_project(V):
         elif len(shape) == 2:
             expression = as_tensor(([x, y, z], [x, y, z], [x, y, z]))
 
-    f = interpolate(expression, V)
+    f = assemble(interpolate(expression, V))
     expect = project(expression, V)
     assert np.allclose(f.dat.data, expect.dat.data, atol=1e-06)

@@ -3,9 +3,10 @@ import itertools
 import numpy
 import os
 import ufl
+import finat.ufl
 from ufl.domain import extract_unique_domain
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, internal_comm, decref
+from pyop2.mpi import COMM_WORLD, internal_comm
 from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
@@ -72,7 +73,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -95,7 +96,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices()
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -107,7 +108,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     :returns: A ufl element containing all elements.
     """
     try:
-        cell, = set(e.cell() for e in elements)
+        cell, = set(e.cell for e in elements)
     except ValueError:
         raise ValueError("All cells must be identical")
     degree = max(chain(*(as_tuple(e.degree()) for e in elements)))
@@ -118,10 +119,9 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
             family = "DG"
         else:
             family = "DQ"
-    return ufl.FiniteElement(family,
-                             cell=cell,
-                             degree=degree if max_degree is None else max_degree,
-                             variant="equispaced")
+    return finat.ufl.FiniteElement(
+        family, cell=cell, degree=degree if max_degree is None else max_degree,
+        variant="equispaced")
 
 
 @PETSc.Log.EventDecorator()
@@ -135,7 +135,7 @@ def get_topology(coordinates):
     V = coordinates.function_space()
 
     nonLinear = not is_linear(V)
-    mesh = V.ufl_domain().topology
+    mesh = V.mesh().topology
     cell = mesh.ufl_cell()
     values = V.cell_node_map().values
     value_shape = values.shape
@@ -400,12 +400,11 @@ class File(object):
             mode = "w"
 
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
 
         if self._comm.rank == 0 and mode == "w":
-            outdir = os.path.dirname(os.path.abspath(filename))
-            if not os.path.exists(outdir):
-                os.makedirs(outdir)
+            if not os.path.exists(basename):
+                os.makedirs(basename)
         elif self._comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
@@ -413,6 +412,16 @@ class File(object):
 
         self.filename = filename
         self.basename = basename
+        # The vtu files will be in the subdirectory named same with the pvd file.
+        # Assuming the absolute path of the pvd file is "/path/to/foo.pvd", the vtu
+        # files will be in the subdirectory "foo" like this:
+        #
+        #     /path/to/foo/foo_0.vtu
+        #     /path/to/foo/foo_1.vtu
+        #
+        # The basename for this example is `/path/to/foo`, and the vtu_basename
+        # is `/path/to/foo/foo`.
+        self.vtu_basename = os.path.join(basename, os.path.basename(basename))
         self.project = project_output
         self.target_degree = target_degree
         self.target_continuity = target_continuity
@@ -446,10 +455,6 @@ class File(object):
         self._fnames = None
         self._topology = None
         self._adaptive = adaptive
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @no_annotations
     def _prepare_output(self, function, max_elem):
@@ -536,7 +541,7 @@ class File(object):
         if self._topology is None or self._adaptive:
             self._topology = get_topology(coordinates.function)
 
-        basename = "%s_%s" % (self.basename, next(self.counter))
+        basename = f"{self.vtu_basename}_{next(self.counter)}"
 
         vtu = self._write_single_vtu(basename, coordinates, *functions)
 
@@ -556,7 +561,7 @@ class File(object):
             # Running offset for appended data
             offset = 0
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="UnstructuredGrid" version="0.1" '
+            f.write(b'<VTKFile type="UnstructuredGrid" version="2.2" '
                     b'byte_order="LittleEndian" '
                     b'header_type="UInt32">\n')
             f.write(b'<UnstructuredGrid>\n')
@@ -604,7 +609,7 @@ class File(object):
         fname = get_pvtu_name(basename)
         with open(fname, "wb") as f:
             f.write(b'<?xml version="1.0" ?>\n')
-            f.write(b'<VTKFile type="PUnstructuredGrid" version="0.1" '
+            f.write(b'<VTKFile type="PUnstructuredGrid" version="2.2" '
                     b'byte_order="LittleEndian">\n')
             f.write(b'<PUnstructuredGrid>\n')
 
@@ -628,7 +633,7 @@ class File(object):
             for rank in range(size):
                 # need a relative path so files can be moved around:
                 vtu_name = os.path.relpath(get_vtu_name(basename, rank, size),
-                                           os.path.dirname(self.basename))
+                                           os.path.dirname(self.vtu_basename))
                 f.write(('<Piece Source="%s" />\n' % vtu_name).encode('ascii'))
 
             f.write(b'</PUnstructuredGrid>\n')

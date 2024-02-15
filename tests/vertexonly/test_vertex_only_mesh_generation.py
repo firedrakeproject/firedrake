@@ -42,7 +42,8 @@ def cell_midpoints(m):
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.xfail(reason="immersed parent meshes not supported")),
+                        "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -61,7 +62,14 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh(name="immersedsphere")
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial", name="immersedsphereextruded")
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -310,8 +318,7 @@ def test_redistribution():
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
-    assert m.tolerance == 1.0
-    assert m.tolerance == m.topology.tolerance
+    assert m.tolerance == 0.5
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
@@ -319,11 +326,9 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
-    assert m.topology.tolerance == 0.1
     vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
-    assert m.topology.tolerance == 0.0
     # See if changing the tolerance on the parent mesh changes the tolerance
     # on the VertexOnlyMesh
     m.tolerance = 0.1
@@ -345,14 +350,25 @@ def test_missing_points_behaviour(parentmesh):
     vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     # Error by default
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord)
     # Error or warning if specified
-    with pytest.raises(ValueError):
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='error')
     with pytest.warns(UserWarning):
         vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='warn')
         assert vm.cell_set.size == 0
+    with pytest.raises(ValueError) as e:
+        vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour='hello')
+    assert "\'hello\'" in str(e.value)
+
+
+def negative_coord_furthest_from_origin(parentmesh):
+    coords = parentmesh.coordinates.dat.data_ro
+    where_all_negative = [np.all(pt <= 0) for pt in coords]
+    negative_coords = coords[where_all_negative]
+    square_dists = [np.inner(pt, pt) for pt in negative_coords]
+    return negative_coords[np.argmax(square_dists)]
 
 
 def test_outside_boundary_behaviour(parentmesh):
@@ -361,9 +377,11 @@ def test_outside_boundary_behaviour(parentmesh):
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just outside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
@@ -420,9 +438,11 @@ def test_inside_boundary_behaviour(parentmesh):
     check we get the expected behaviour. This is similar to the tolerance
     test but covers more meshes.
     """
-    # This is just inside the boundary of the utility meshes in all supported
-    # cases
+    # This is just outside the boundary of the utility meshes in most cases
     edge_point = parentmesh.coordinates.dat.data_ro.min(axis=0, initial=np.inf)
+    if parentmesh.name == "immersedsphereextruded" or parentmesh.name == "immersedsphere":
+        # except here!
+        edge_point = negative_coord_furthest_from_origin(parentmesh)
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
     assert len(inputcoord) == 1
     # Tolerance is large enough to pick up point

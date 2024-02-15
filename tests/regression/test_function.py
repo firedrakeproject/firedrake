@@ -24,6 +24,12 @@ def W_nonstandard_shape():
     return W_nonstandard_shape
 
 
+@pytest.fixture
+def Rvector():
+    mesh = UnitSquareMesh(5, 5)
+    return VectorFunctionSpace(mesh, "R", 0, dim=4)
+
+
 def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Constant(1))
@@ -91,7 +97,7 @@ def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant([1] * (VV.ufl_element().value_shape()[0] + 1)))
+        f.interpolate(Constant([1] * (VV.ufl_element().value_shape[0] + 1)))
 
 
 def test_function_val(V):
@@ -163,15 +169,16 @@ def test_scalar_function_zero(V):
 
 def test_scalar_function_zero_with_subset(V):
     f = Function(V)
-    # create an arbitrary subset consisting of the first three nodes
-    subset = op2.Subset(V.node_set, [0, 1, 2])
+    # create an arbitrary subset consisting of the first two nodes
+    assert V.node_set.size > 2
+    subset = op2.Subset(V.node_set, [0, 1])
 
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
     f.zero(subset=subset)
-    assert np.allclose(f.dat.data_ro[:3], 0.0)
-    assert np.allclose(f.dat.data_ro[3:], 1.0)
+    assert np.allclose(f.dat.data_ro[:2], 0.0)
+    assert np.allclose(f.dat.data_ro[2:], 1.0)
 
 
 def test_tensor_function_zero(W):
@@ -188,6 +195,7 @@ def test_tensor_function_zero(W):
 def test_tensor_function_zero_with_subset(W):
     f = Function(W)
     # create an arbitrary subset consisting of the first three nodes
+    assert W.node_set.size > 3
     subset = op2.Subset(W.node_set, [0, 1, 2])
 
     f.assign(1)
@@ -196,3 +204,38 @@ def test_tensor_function_zero_with_subset(W):
     f.zero(subset=subset)
     assert np.allclose(f.dat.data_ro[:3], 0.0)
     assert np.allclose(f.dat.data_ro[3:], 1.0)
+
+
+@pytest.mark.parametrize("value", [
+    1,
+    1.0,
+    (1, 2, 3, 4),
+    [1, 2, 3, 4],
+    np.array([5, 6, 7, 8]),
+    range(4)], ids=type)
+def test_vector_real_space_assign(Rvector, value):
+    f = Function(Rvector)
+    f.assign(value)
+    assert np.allclose(f.dat.data_ro, value)
+
+
+def test_vector_real_space_assign_function(Rvector):
+    value = [9, 10, 11, 12]
+    fvalue = Function(Rvector, val=value)
+    f = Function(Rvector)
+    f.assign(fvalue)
+    assert np.allclose(f.dat.data_ro, value)
+
+
+def test_vector_real_space_assign_constant(Rvector):
+    value = [9, 10, 11, 12]
+    fvalue = Constant(value)
+    f = Function(Rvector)
+    f.assign(fvalue)
+    assert np.allclose(f.dat.data_ro, value)
+
+
+def test_vector_real_space_assign_zero(Rvector):
+    f = Function(Rvector, val=[9, 10, 11, 12])
+    f.assign(zero())
+    assert np.allclose(f.dat.data_ro, 0)

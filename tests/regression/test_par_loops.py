@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 
 
 @pytest.fixture(scope="module")
@@ -222,7 +223,7 @@ def test_cell_subdomain(subdomain):
                      "meshes", "cell-sets.msh"))
 
     V = FunctionSpace(mesh, "DG", 0)
-    expect = interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain))
+    expect = assemble(interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain)))
 
     f = Function(V)
 
@@ -273,3 +274,24 @@ def test_par_loop_respects_shape():
 
     par_loop((domain, instructions), dx, {'A': (f_scalar, WRITE)})
     assert np.allclose(f_scalar.dat.data, 1.0)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_mixed_dat_performs_halo_exchange():
+    # TODO This is actualy a PyOP2 test but PyOP2 does not (!!!) have either
+    # parallel tests or a halo implementation. When pyop3 lands this test should
+    # be moved there.
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    iterset = mesh.cell_set
+    mdat = Function(W).dat
+    mmap = W.cell_node_map()
+
+    mdat[0].data_wo[...] = 1
+    assert not mdat.halo_valid
+
+    kernel = """static void k(double *x) { }"""
+    op2.par_loop(op2.Kernel(kernel, "k"), iterset, mdat(op2.READ, mmap))
+    assert mdat.halo_valid

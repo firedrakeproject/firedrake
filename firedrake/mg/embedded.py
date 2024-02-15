@@ -1,5 +1,7 @@
 import firedrake
 import ufl
+import finat.ufl
+import weakref
 from functools import reduce
 from enum import IntEnum
 from operator import and_
@@ -26,6 +28,7 @@ class TransferManager(object):
         :arg element: The element to use for the caching."""
         def __init__(self, element):
             self.embedding_element = get_embedding_dg_element(element)
+            self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
             self._V_approx_inv_mass = {}
@@ -53,8 +56,8 @@ class TransferManager(object):
     def is_native(self, element):
         if element in self.native_transfers.keys():
             return True
-        if isinstance(element.cell(), ufl.TensorProductCell) and len(element.sub_elements()) > 0:
-            return reduce(and_, map(self.is_native, element.sub_elements()))
+        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
+            return reduce(and_, map(self.is_native, element.sub_elements))
         return element.family() in native
 
     def _native_transfer(self, element, op):
@@ -173,11 +176,16 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A Function in the embedding DG space.
         """
+        needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V.ufl_element())
-        key = V.dim()
+        key = (V.dim(), needs_dual)
         try:
             return cache._DG_work[key]
         except KeyError:
+            if needs_dual:
+                primal = self.DG_work(V.dual())
+                dual = primal.riesz_representation(riesz_map="l2")
+                return cache._DG_work.setdefault(key, dual)
             DG = firedrake.FunctionSpace(V.mesh(), cache.embedding_element)
             return cache._DG_work.setdefault(key, firedrake.Function(DG))
 
@@ -193,53 +201,72 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
+    def requires_transfer(self, element, transfer_op, source, target):
+        """Determine whether either the source or target have been modified since
+        the last time a grid transfer was executed with them."""
+        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
+        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        try:
+            return self.cache(element)._dat_versions[key] != dat_versions
+        except KeyError:
+            return True
+
+    def cache_dat_versions(self, element, transfer_op, source, target):
+        """Record the returned dat_versions of the source and target."""
+        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
+        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        self.cache(element)._dat_versions[key] = dat_versions
+
     @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
-        :arg source: The source function.
-        :arg target: The target function.
+        :arg source: The source :class:`.Function`.
+        :arg target: The target :class:`.Function`.
         :arg transfer_op: The transfer operation for the DG space.
         """
         Vs = source.function_space()
         Vt = target.function_space()
-
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
+        if not self.requires_transfer(source_element, transfer_op, source, target):
+            return
+
         if self.is_native(source_element) and self.is_native(target_element):
-            return self._native_transfer(source_element, transfer_op)(source, target)
-        if type(source_element) is ufl.MixedElement:
-            assert type(target_element) is ufl.MixedElement
+            self._native_transfer(source_element, transfer_op)(source, target)
+        elif type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
-            return target
-        # Get some work vectors
-        dgsource = self.DG_work(Vs)
-        dgtarget = self.DG_work(Vt)
-        VDGs = dgsource.function_space()
-        VDGt = dgtarget.function_space()
-        dgwork = self.work_vec(VDGs)
+        else:
+            # Get some work vectors
+            dgsource = self.DG_work(Vs)
+            dgtarget = self.DG_work(Vt)
+            VDGs = dgsource.function_space()
+            VDGt = dgtarget.function_space()
+            dgwork = self.work_vec(VDGs)
 
-        # Project into DG space
-        # u \in Vs -> u \in VDGs
-        with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
-            self.V_DG_mass(Vs, VDGs).mult(sv, dgwork)
-            self.DG_inv_mass(VDGs).mult(dgwork, dgv)
+            # Project into DG space
+            # u \in Vs -> u \in VDGs
+            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+                self.V_DG_mass(Vs, VDGs).mult(sv, dgwork)
+                self.DG_inv_mass(VDGs).mult(dgwork, dgv)
 
-        # Transfer
-        # u \in VDGs -> u \in VDGt
-        self.op(dgsource, dgtarget, transfer_op)
+            # Transfer
+            # u \in VDGs -> u \in VDGt
+            self.op(dgsource, dgtarget, transfer_op)
 
-        # Project back
-        # u \in VDGt -> u \in Vt
-        with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
-            if self.use_averaging:
-                self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
-                t.pointwiseDivide(t, self.V_dof_weights(Vt))
-            else:
-                work = self.work_vec(Vt)
-                self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
-                self.V_inv_mass_ksp(Vt).solve(work, t)
+            # Project back
+            # u \in VDGt -> u \in Vt
+            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+                if self.use_averaging:
+                    self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
+                    t.pointwiseDivide(t, self.V_dof_weights(Vt))
+                else:
+                    work = self.work_vec(Vt)
+                    self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
+                    self.V_inv_mass_ksp(Vt).solve(work, t)
+        self.cache_dat_versions(source_element, transfer_op, source, target)
 
     def prolong(self, uc, uf):
         """Prolong a function.
@@ -252,50 +279,55 @@ class TransferManager(object):
     def inject(self, uf, uc):
         """Inject a function (primal restriction)
 
-        :arg uc: The source (fine grid) function.
-        :arg uf: The target (coarse grid) function.
+        :arg uf: The source (fine grid) function.
+        :arg uc: The target (coarse grid) function.
         """
         self.op(uf, uc, transfer_op=Op.INJECT)
 
-    def restrict(self, gf, gc):
+    def restrict(self, source, target):
         """Restrict a dual function.
 
-        :arg gf: The source (fine grid) dual function.
-        :arg gc: The target (coarse grid) dual function.
+        :arg source: The source (fine grid) :class:`.Cofunction`.
+        :arg target: The target (coarse grid) :class:`.Cofunction`.
         """
-        Vc = gc.function_space()
-        Vf = gf.function_space()
+        Vs_star = source.function_space()
+        Vt_star = target.function_space()
+        source_element = Vs_star.ufl_element()
+        target_element = Vt_star.ufl_element()
+        if not self.requires_transfer(source_element, Op.RESTRICT, source, target):
+            return
 
-        source_element = Vf.ufl_element()
-        target_element = Vc.ufl_element()
         if self.is_native(source_element) and self.is_native(target_element):
-            return self._native_transfer(source_element, Op.RESTRICT)(gf, gc)
-        if type(source_element) is ufl.MixedElement:
-            assert type(target_element) is ufl.MixedElement
-            for source_, target_ in zip(gf.subfunctions, gc.subfunctions):
+            self._native_transfer(source_element, Op.RESTRICT)(source, target)
+        elif type(source_element) is finat.ufl.MixedElement:
+            assert type(target_element) is finat.ufl.MixedElement
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
-            return gc
-        dgf = self.DG_work(Vf)
-        dgc = self.DG_work(Vc)
-        VDGf = dgf.function_space()
-        VDGc = dgc.function_space()
-        work = self.work_vec(Vf)
-        dgwork = self.work_vec(VDGc)
+        else:
+            Vs = Vs_star.dual()
+            Vt = Vt_star.dual()
+            # Get some work vectors
+            dgsource = self.DG_work(Vs_star)
+            dgtarget = self.DG_work(Vt_star)
+            VDGs = dgsource.function_space().dual()
+            VDGt = dgtarget.function_space().dual()
+            work = self.work_vec(Vs)
+            dgwork = self.work_vec(VDGt)
 
-        # g \in Vf^* -> g \in VDGf^*
-        with gf.dat.vec_ro as gfv, dgf.dat.vec_wo as dgscratch:
-            if self.use_averaging:
-                work.pointwiseDivide(gfv, self.V_dof_weights(Vf))
-                self.V_approx_inv_mass(Vf, VDGf).multTranspose(work, dgscratch)
-            else:
-                self.V_inv_mass_ksp(Vf).solve(gfv, work)
-                self.V_DG_mass(Vf, VDGf).mult(work, dgscratch)
+            # g \in Vs^* -> g \in VDGs^*
+            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+                if self.use_averaging:
+                    work.pointwiseDivide(sv, self.V_dof_weights(Vs))
+                    self.V_approx_inv_mass(Vs, VDGs).multTranspose(work, dgv)
+                else:
+                    self.V_inv_mass_ksp(Vs).solve(sv, work)
+                    self.V_DG_mass(Vs, VDGs).mult(work, dgv)
 
-        # g \in VDGf^* -> g \in VDGc^*
-        self.restrict(dgf, dgc)
+            # g \in VDGs^* -> g \in VDGt^*
+            self.restrict(dgsource, dgtarget)
 
-        # g \in VDGc^* -> g \in Vc^*
-        with dgc.dat.vec_ro as dgscratch, gc.dat.vec_wo as gcv:
-            self.DG_inv_mass(VDGc).mult(dgscratch, dgwork)
-            self.V_DG_mass(Vc, VDGc).multTranspose(dgwork, gcv)
-        return gc
+            # g \in VDGt^* -> g \in Vt^*
+            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+                self.DG_inv_mass(VDGt).mult(dgv, dgwork)
+                self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
+        self.cache_dat_versions(source_element, Op.RESTRICT, source, target)

@@ -38,7 +38,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         R = TensorFunctionSpace(mesh, "CG", 1)
         V = P*Q*R
 
-    shape = V.ufl_element().value_shape()
+    shape = V.ufl_element().value_shape
     rhs = numpy.full(shape, 1, dtype=float)
 
     u = TrialFunction(V)
@@ -48,16 +48,16 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         # We also test patch pc with kernel argument compression.
         i = 1  # only active index
         f = Function(V)
-        fval = numpy.full(V.sub(i).ufl_element().value_shape(), 1.0, dtype=float)
+        fval = numpy.full(V.sub(i).ufl_element().value_shape, 1.0, dtype=float)
         f.sub(i).interpolate(Constant(fval))
         a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
         L = inner(Constant(rhs), v)*dx
-        bcs = [DirichletBC(Q, zero(Q.ufl_element().value_shape()), "on_boundary")
+        bcs = [DirichletBC(Q, zero(Q.ufl_element().value_shape), "on_boundary")
                for Q in V.subfunctions]
     else:
         a = inner(grad(u), grad(v))*dx
         L = inner(Constant(rhs), v)*dx
-        bcs = DirichletBC(V, zero(V.ufl_element().value_shape()), "on_boundary")
+        bcs = DirichletBC(V, zero(V.ufl_element().value_shape), "on_boundary")
 
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)

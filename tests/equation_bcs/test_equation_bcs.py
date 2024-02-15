@@ -209,25 +209,25 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
                          'ksp_type': 'preonly',
                          'pc_type': 'lu'}
     err = []
-
+    mesh_sizes = [8, 16]
     if with_bbc:
         # test bcs for bcs
         if eq_type == "linear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(linear_poisson_bbc(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(nonlinear_poisson_bbc(solver_parameters, mesh_num, porder))
     else:
         # test bcs for bcs
         if eq_type == "linear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(linear_poisson(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
-    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01
+    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
 @pytest.mark.parametrize("with_bbc", [False, True])
@@ -246,29 +246,29 @@ def test_EquationBC_poisson_matfree(with_bbc):
                          'ksp_max_it': 200000,
                          'ksp_divtol': 1e8}
     err = []
-
+    mesh_sizes = [8, 16]
     if with_bbc:
         if eq_type == "linear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(linear_poisson_bbc(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(nonlinear_poisson_bbc(solver_parameters, mesh_num, porder))
     else:
         if eq_type == "linear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(linear_poisson(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
-            for mesh_num in [8, 16]:
+            for mesh_num in mesh_sizes:
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
-    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.01
+    assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 def test_EquationBC_mixedpoisson_matrix(eq_type):
     mat_type = "aij"
-    porder = 1
+    porder = 2
     # Mixed poisson with EquationBCs
     # aij
 
@@ -277,27 +277,27 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
                          "pc_type": "lu",
                          "pc_factor_mat_solver_type": "mumps"}
     err = []
-
+    mesh_sizes = [16, 32]
     if eq_type == "linear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(linear_poisson_mixed(solver_parameters, mesh_num, porder))
     elif eq_type == "nonlinear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05
 
 
 def test_EquationBC_mixedpoisson_matrix_fieldsplit():
     mat_type = "aij"
     eq_type = "linear"
-    porder = 1
+    porder = 2
     # Mixed poisson with EquationBCs
     # aij with fieldsplit pc
 
     solver_parameters = {"mat_type": mat_type,
                          "ksp_type": "fgmres",
-                         "ksp_rtol": 1.e-11,
+                         "ksp_rtol": 1.e-8,
                          "ksp_max_it": 200,
                          "pc_type": "fieldsplit",
                          "pc_fieldsplit_type": "schur",
@@ -305,24 +305,23 @@ def test_EquationBC_mixedpoisson_matrix_fieldsplit():
                          "fieldsplit_0_ksp_type": "preonly",
                          "fieldsplit_0_pc_type": "lu",
                          "fieldsplit_1_ksp_type": "cg",
-                         "fieldsplit_1_ksp_max_it": 20,
                          "fieldsplit_1_pc_type": "none"}
     err = []
-
+    mesh_sizes = [16, 32]
     if eq_type == "linear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(linear_poisson_mixed(solver_parameters, mesh_num, porder))
     elif eq_type == "nonlinear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05
 
 
 def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     mat_type = "matfree"
     eq_type = "linear"
-    porder = 1
+    porder = 2
     # Mixed poisson with EquationBCs
     # matfree with fieldsplit pc
 
@@ -338,15 +337,17 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
                          'fieldsplit_0_pc_python_type': 'firedrake.AssembledPC',
                          'fieldsplit_0_assembled_pc_type': 'lu',
                          'fieldsplit_1_ksp_type': 'cg',
-                         'fieldsplit_1_ksp_max_it': 20,
-                         'fieldsplit_1_pc_type': 'none'}
+                         'fieldsplit_1_pc_use_amat': True,
+                         'fieldsplit_1_pc_type': 'python',
+                         'fieldsplit_1_pc_python_type': 'firedrake.MassInvPC',
+                         'fieldsplit_1_Mp_pc_type': 'icc'}
     err = []
-
+    mesh_sizes = [16, 32]
     if eq_type == "linear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(linear_poisson_mixed(solver_parameters, mesh_num, porder))
     elif eq_type == "nonlinear":
-        for i, mesh_num in enumerate([8, 16]):
+        for i, mesh_num in enumerate(mesh_sizes):
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
-    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.03
+    assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05

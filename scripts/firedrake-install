@@ -25,7 +25,7 @@ osname = platform.uname().system
 arch = platform.uname().machine
 
 # Packages which we wish to ensure are always recompiled
-wheel_blacklist = ["mpi4py", "randomgen", "islpy", "numpy"]
+wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
 parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
 
@@ -41,6 +41,10 @@ firedrake_apps = {
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
     "femlium": ("""Interactive visualization of finite element simulations on geographic maps with folium. https://femlium.github.io/""",
                 "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
+    "fascd": ("""Full approximation scheme constraint decomposition solver for variational inequalities. https://bitbucket.org/pefarrell/fascd""",
+              "git+ssh://bitbucket.org/pefarrell/fascd.git@master#egg=fascd"),
+    "defcon": ("""Deflated continuation algorithm for bifurcation analysis. https://bitbucket.org/pefarrell/defcon""",
+               "git+ssh://bitbucket.org/pefarrell/defcon.git@master#egg=defcon"),
 }
 
 
@@ -157,20 +161,18 @@ def resolve_doi_branches(doi):
     import requests
     import hashlib
     log.info("Installing Firedrake components specified by {}".format(doi))
-    response = requests.get("https://zenodo.org/api/records",
-                            params={"q": "doi:{}".format(doi.replace("/", r"\/"))})
-    if response.status_code >= 400:
+    # Zenodo updated their API to use elastic search so simply querying with
+    # ?q=doi:10.5281/zenodo.<id> now returns multiple results (not ideal)
+    # Instead use
+    # /<id>
+    # as documented here https://developers.zenodo.org/#retrieve
+    id_ = doi.split('.')[-1]
+    response = requests.get("https://zenodo.org/api/records/{}".format(id_))
+    if not response.ok:
         log.error("Unable to obtain Zenodo record for doi {}".format(doi))
         log.error("Response was {}".format(response.json()))
         sys.exit(1)
-    response = response.json()
-    try:
-        record, = response["hits"]["hits"]
-    except ValueError:
-        log.error("Was expecting one record for doi '{doi}', found {num}".format(
-            doi=doi, num=response["hits"]["total"]))
-        log.error("Response was {}".format(response))
-        sys.exit(1)
+    record = response.json()
     files = record["files"]
     try:
         componentjson, = (f for f in files if f["key"] == "components.json")
@@ -326,10 +328,10 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
+    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
-                        help="Install Netgen.")
+                        help="Install NGSolve/Netgen and ngsPETSc.")
 
     args = parser.parse_args()
 
@@ -434,7 +436,7 @@ else:
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=None,
+    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
@@ -716,6 +718,7 @@ def get_minimal_petsc_packages():
 
 
 def get_petsc_options(minimal=False):
+    # The logic in this function is getting out of hand...
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -726,6 +729,10 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+        # These three lines are used to inspect the MacOS Command Line Tools (CLT) version
+        cmd = ["pkgutil", "--pkg-info=com.apple.pkg.CLTools_Executables"]
+        output = subprocess.run(cmd, stdout=subprocess.PIPE, encoding="UTF-8")
+        clt = {k.strip(): v.strip() for k, v in [line.split(':') for line in output.stdout.split('\n') if line]}
     elif osname == "Linux":
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
@@ -748,15 +755,10 @@ def get_petsc_options(minimal=False):
             # Non-free license.
             petsc_options.add("--download-parmetis")
 
-    if options["petsc_int_type"] == "int32":
-        if not options["minimal_petsc"]:
-            # AMG
-            petsc_options.add("--download-ml")
-    else:
+    if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
 
     if options.get("mpiexec") is not None:
@@ -776,18 +778,28 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
     elif osname == "Darwin":
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        if Version(clt["version"]) >= Version("15"):
+            # CLT >= 15 requires legacy linking behaviour
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        else:
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
     if not minimal:
         for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
@@ -1149,8 +1161,8 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
-        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
+        # Choosing 12.0 as the oldest MacOS version supported as of 2024-02-08
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "12.0")
         with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1244,7 +1256,7 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_libsupermesh():
+def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
     log.info("Installing libsupermesh")
     url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
@@ -1258,18 +1270,15 @@ def build_and_install_libsupermesh():
             check_call(["git", "clean", "-f", "-x", "-d"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
-                cmd = ["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                       "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                       "-DMPI_C_COMPILER=" + cc,
-                       "-DMPI_CXX_COMPILER=" + cxx,
-                       "-DMPI_Fortran_COMPILER=" + f90,
-                       "-DCMAKE_Fortran_COMPILER=" + f90,
-                       "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
-                fortran, version = sniff_compiler(f90)
-                if fortran == "GNU" and version >= Version("10"):
-                    # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
-                    # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
-                    cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
+                cmd = [
+                    "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                    "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                    "-DMPI_C_COMPILER=" + cc,
+                    "-DMPI_CXX_COMPILER=" + cxx,
+                    "-DMPI_Fortran_COMPILER=" + f90,
+                    "-DCMAKE_Fortran_COMPILER=" + f90,
+                    "-DMPIEXEC_EXECUTABLE=" + mpiexec,
+                ]
                 check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
@@ -1336,39 +1345,6 @@ def build_and_install_torch():
     run_pip_install(["torch"] + extra_index_url)
 
 
-def build_and_install_libspatialindex():
-    log.info("Installing libspatialindex")
-    if os.path.exists("libspatialindex"):
-        log.info("Updating the git repository for libspatialindex")
-        with directory("libspatialindex"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            libspatialindex_changed = git_sha != git_sha_new
-            if libspatialindex_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
-        libspatialindex_changed = True
-
-    if libspatialindex_changed:
-        with directory("libspatialindex"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            # Patch Makefile.am to skip building test
-            check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
-            # Build and install
-            check_call(["./autogen.sh"])
-            check_call(["./configure", "--prefix=" + firedrake_env,
-                        "--enable-shared", "--disable-static"])
-            check_call(["make"])
-            check_call(["make", "install"])
-    else:
-        log.info("No need to rebuild libspatialindex")
-
-
 def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
     slepc_dir, slepc_arch = get_slepc_dir()
@@ -1417,7 +1393,19 @@ def build_and_install_slepc():
 
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "ngsolve", "--pre"])
+    run_pip(["install", "netgen-mesher"])
+    log.info("Installing ngsPETSc.")
+    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
+    ngsPETSc_changed = False
+    if os.path.exists("ngsPETSc"):
+        ngsPETSc_changed |= git_update("ngsPETSc")
+    else:
+        git_clone(url)
+        ngsPETSc_changed = True
+    if ngsPETSc_changed:
+        with directory("ngsPETSc"):
+            with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
+                check_call([python, "-m", "pip", "install", "-e", "."])
 
 
 def install_documentation_dependencies():
@@ -1739,6 +1727,12 @@ run_pip(["install", "-U", "wheel==0.37.0"])
 # Pin Cython because it's causing multiple packages to fail to build
 run_pip(["install", "-U", "Cython==0.29.36"])
 
+# Loopy has additional build dependencies
+run_pip(["install", "-U", "scikit-build"])
+run_pip(["install", "-U", "nanobind"])
+run_pip(["install", "-U", "make"])
+run_pip(["install", "-U", "pcpp"])
+
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
     slepc_dir, _ = get_slepc_dir()
@@ -1769,6 +1763,7 @@ if mode == "install":
 cc = options["mpicc"]
 cxx = options["mpicxx"]
 f90 = options["mpif90"]
+mpiexec = options["mpiexec"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
@@ -1820,9 +1815,6 @@ if mode == "install":
 
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
-    # See build failure caused by pybind11==2.10.0 at https://github.com/firedrakeproject/firedrake/runs/7370283417?check_suite_focus=true.
-    log.info("We use pybind11==2.9.2 until the issue with pybind11==2.10.0 is resolved.\n")
-    run_pip_install(["pybind11==2.9.2"])
 
     # Pre-install requested packages
     if args.pip_packages is not None:
@@ -1880,6 +1872,7 @@ if mode == "install":
         cc = os.path.join(compilerbin, "mpicc")
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
+        mpiexec = os.path.join(compilerbin, "mpiexec")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
@@ -1906,11 +1899,11 @@ if mode == "install":
     for p in packages:
         pip_requirements(p, compiler_env)
 
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+
     with environment(**compiler_env):
         build_and_install_h5py()
-        build_and_install_libsupermesh()
-
-    build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -1918,6 +1911,12 @@ if mode == "install":
         packages.remove("loopy")
 
     with pipargs("--no-deps"):
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+
         for p in packages:
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
@@ -1926,13 +1925,19 @@ if mode == "install":
                 install(p+"/")
             sys.path.append(os.getcwd() + "/" + p)
 
+    with environment(**compiler_env):
+        build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
+
+    with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+        for p in ("PyOP2", "firedrake"):
+            install(p+"/")
+
     # Work around easy-install.pth bug.
     try:
         packages.remove("petsc")
     except ValueError:
         pass
     packages.remove("petsc4py")
-    packages.remove("firedrake")
 
 else:
     # Update mode
@@ -2057,8 +2062,6 @@ Please consider updating your PETSc manually.
         # Always rebuild h5py.
         with environment(**compiler_env):
             build_and_install_h5py()
-            build_and_install_libsupermesh()
-        build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -2078,13 +2081,20 @@ Please consider updating your PETSc manually.
             packages.remove("firedrake")
         except ValueError:
             pass
-        packages += ("PyOP2", "firedrake")
+
         for p in packages:
             clean(p)
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
                     install(p+"/")
             else:
+                install(p+"/")
+
+        with environment(**compiler_env):
+            build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
+
+        with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+            for p in ("PyOP2", "firedrake"):
                 install(p+"/")
 
         # Ensure pytest is at the latest version

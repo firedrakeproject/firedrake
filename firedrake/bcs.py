@@ -5,7 +5,8 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor
+from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
@@ -151,8 +152,8 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, finat.Lagrange):
-                    raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
+                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
@@ -324,21 +325,30 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
+        try:
+            # Clear any previously set update function
+            del self._function_arg_update
+        except AttributeError:
+            pass
         if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
             if g.function_space() != self.function_space():
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(self.function_space())
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg).interpolate
+                # Use `Interpolator` instead of assembling an `Interpolate` form
+                # as the expression compilation needs to happen at this stage to
+                # determine if we should use interpolation or projection
+                #  -> e.g. interpolation may not be supported for the element.
+                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(self.function_space()).project(g)

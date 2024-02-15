@@ -1,12 +1,25 @@
+import os
 try:
     import torch
 except ImportError:
-    raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
+    if "FIREDRAKE_BUILDING_DOCS" in os.environ:
+        # If building docs and pytorch is not installed, produce a mock
+        # torch.autograd.Function class with the correct `__module__`
+        # attribute. This is sufficient for the intersphinx reference to
+        # resolve.
+        from types import SimpleNamespace, new_class
+        torch = SimpleNamespace()
+        torch.autograd = SimpleNamespace()
+        torch.autograd.Function = new_class("Function")
+        torch.autograd.Function.__module__ = "torch.autograd"
+    else:
+        raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 import collections
 from functools import partial
 
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
 from firedrake.constant import Constant
 from firedrake_citations import Citations
@@ -74,9 +87,11 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         F = ctx.metadata['F']
         V = ctx.metadata['V_output']
         # Convert PyTorch gradient to Firedrake
-        adj_input = from_torch(grad_output, V)
-        if isinstance(adj_input, Function):
-            adj_input = adj_input.vector()
+        V_adj = V.dual() if V else V
+        adj_input = from_torch(grad_output, V_adj)
+        if isinstance(adj_input, Constant) and adj_input.ufl_shape == ():
+            # This will later on result in an `AdjFloat` adjoint input instead of a Constant
+            adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
         adj_output = F.derivative(adj_input=adj_input)
@@ -128,7 +143,7 @@ def _extract_function_space(x):
     firedrake.functionspaceimpl.WithGeometry or None
         Extracted function space.
     """
-    if isinstance(x, Function):
+    if isinstance(x, (Function, Cofunction)):
         return x.function_space()
     elif isinstance(x, Vector):
         return _extract_function_space(x.function)
@@ -160,7 +175,7 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     torch.Tensor
         PyTorch tensor representing the Firedrake object `x`.
     """
-    if isinstance(x, (Function, Vector)):
+    if isinstance(x, (Function, Cofunction, Vector)):
         if gather:
             # Gather data from all processes
             x_P = torch.tensor(x.vector().gather(), **kwargs)

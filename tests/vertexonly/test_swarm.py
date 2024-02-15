@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
@@ -54,7 +55,7 @@ def cell_ownership(m):
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
     P0DG = FunctionSpace(m, "DG", 0)
-    return interpolate(Constant(m.comm.rank), P0DG).dat.data_ro_with_halos
+    return assemble(interpolate(Constant(m.comm.rank), P0DG)).dat.data_ro_with_halos
 
 
 def point_ownership(m, points, localpoints):
@@ -95,7 +96,8 @@ def point_ownership(m, points, localpoints):
                         pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
-                        pytest.param("immersedsphere", marks=pytest.mark.skip(reason="immersed parent meshes not supported and will segfault PETSc when creating the DMSwarm")),
+                        "immersedsphere",
+                        "immersedsphereextruded",
                         "periodicrectangle",
                         "shiftedmesh"])
 def parentmesh(request):
@@ -114,7 +116,14 @@ def parentmesh(request):
     elif request.param == "tetrahedron":
         return UnitTetrahedronMesh()
     elif request.param == "immersedsphere":
-        return UnitIcosahedralSphereMesh()
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        return m
+    elif request.param == "immersedsphereextruded":
+        m = UnitIcosahedralSphereMesh()
+        m.init_cell_orientations(SpatialCoordinate(m))
+        m = ExtrudedMesh(m, 3, extrusion_type="radial")
+        return m
     elif request.param == "periodicrectangle":
         return PeriodicRectangleMesh(3, 3, 1, 1)
     elif request.param == "shiftedmesh":
@@ -354,9 +363,16 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         if redundant:
             assert np.array_equal(np.unique(input_indices), np.sort(globalindices))
 
+    # check we have unique parent cell numbers, which we should since we have
+    # points at cell midpoints
+    parentcellnums = np.copy(swarm.getField("parentcellnum"))
+    swarm.restoreField("parentcellnum")
+    assert len(np.unique(parentcellnums)) == len(parentcellnums)
+
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
+        and parentmesh.geometric_dimension() == parentmesh.topological_dimension()
         and not parentmesh.extruded
         and not parentmesh.coordinates.dat.dat_version > 0  # shifted mesh
     ):

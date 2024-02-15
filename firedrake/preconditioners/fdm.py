@@ -9,6 +9,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
@@ -18,10 +19,11 @@ from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
 from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir
+from pyop2.utils import get_petsc_dir, as_tuple
 
 import firedrake.dmhooks as dmhooks
 import ufl
+import finat.ufl
 import FIAT
 import finat
 import numpy
@@ -371,10 +373,10 @@ class FDMPC(PCBase):
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
         tdim = mesh.topological_dimension()
-        if isinstance(e, (ufl.VectorElement, ufl.TensorElement)):
+        if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
-        sobolev = e.sobolev_space()
+        sobolev = e.sobolev_space
 
         # Replacement rule for the exterior derivative = grad(arg) * eps
         map_grad = None
@@ -413,11 +415,11 @@ class FDMPC(PCBase):
 
         qvariant = "fdm_quadrature"
         elements = [e.reconstruct(variant=qvariant),
-                    ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
-        elements = list(map(ufl.BrokenElement, elements))
+                    finat.ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
+        elements = list(map(finat.ufl.BrokenElement, elements))
         if V.shape:
-            elements = [ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-        Z = FunctionSpace(mesh, ufl.MixedElement(elements))
+            elements = [finat.ufl.TensorElement(ele, shape=V.shape) for ele in elements]
+        Z = FunctionSpace(mesh, finat.ufl.MixedElement(elements))
 
         # Transform the exterior derivative and the original arguments of J to arguments in Z
         args = (TestFunctions(Z), TrialFunctions(Z))
@@ -437,7 +439,7 @@ class FDMPC(PCBase):
                 assembly_callables.append(ctx._assemble_block_diagonal)
         else:
             from firedrake.assemble import OneFormAssembler
-            tensor = Function(Z)
+            tensor = Function(Z.dual())
             coefficients["beta"] = tensor.subfunctions[0]
             coefficients["alpha"] = tensor.subfunctions[1]
             assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
@@ -1216,7 +1218,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     A11.destroy()
 
     if any(is_restricted(ec)) or any(is_restricted(ef)):
-        scalar_element = lambda e: e._sub_element if isinstance(e, (ufl.TensorElement, ufl.VectorElement)) else e
+        scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
         fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
         cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
         temp = Dhat
@@ -1261,12 +1263,12 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 
 def restrict_element(ele, restriction_domain):
     """Get an element that is not restricted and return the restricted element."""
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
+    if isinstance(ele, finat.ufl.VectorElement):
+        return type(ele)(restrict_element(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
+    elif isinstance(ele, finat.ufl.TensorElement):
         return type(ele)(restrict_element(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements()))
+    elif isinstance(ele, finat.ufl.MixedElement):
+        return type(ele)(*(restrict_element(e, restriction_domain) for e in ele.sub_elements))
     else:
         return ele[restriction_domain]
 
@@ -1274,13 +1276,13 @@ def restrict_element(ele, restriction_domain):
 def unrestrict_element(ele):
     """Get an element that might or might not be restricted and
        return the parent unrestricted element."""
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
+    if isinstance(ele, finat.ufl.VectorElement):
+        return type(ele)(unrestrict_element(ele._sub_element), dim=ele.num_sub_elements)
+    elif isinstance(ele, finat.ufl.TensorElement):
         return type(ele)(unrestrict_element(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.RestrictedElement):
+    elif isinstance(ele, finat.ufl.MixedElement):
+        return type(ele)(*(unrestrict_element(e) for e in ele.sub_elements))
+    elif isinstance(ele, finat.ufl.RestrictedElement):
         return unrestrict_element(ele._element)
     else:
         return ele
@@ -1389,7 +1391,7 @@ class PoissonFDMPC(FDMPC):
 
         V = Vrow
         bsize = V.value_size
-        ncomp = V.ufl_element().reference_value_size()
+        ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()
         shift = axes_shifts * bsize
@@ -1593,15 +1595,11 @@ class PoissonFDMPC(FDMPC):
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
 
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         quad_deg = fcp.get("degree", 2*degree+1)
         dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
-        DG = ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
+        DG = finat.ufl.FiniteElement(family, mesh.ufl_cell(), degree=0)
 
         # extract coefficients directly from the bilinear form
         integrals_J = J.integrals_by_type("cell")
@@ -1626,15 +1624,15 @@ class PoissonFDMPC(FDMPC):
 
         # assemble second order coefficient
         if not isinstance(alpha, ufl.constantvalue.Zero):
-            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=alpha.ufl_shape))
-            tensor = coefficients.setdefault("alpha", Function(Q))
+            Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=alpha.ufl_shape))
+            tensor = coefficients.setdefault("alpha", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
         if Piola:
-            dummy_element = ufl.TensorElement(family, cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
+            dummy_element = finat.ufl.TensorElement(family, cell=mesh.ufl_cell(), degree=1, shape=Piola.ufl_shape)
             dummy_Piola = ufl.Coefficient(ufl.FunctionSpace(mesh, dummy_element))
             replace_val = {t: ufl.dot(dummy_Piola, s) for t, s in zip(args_J, ref_val)}
         else:
@@ -1648,14 +1646,14 @@ class PoissonFDMPC(FDMPC):
             if Piola:
                 # keep diagonal
                 beta = ufl.diag_vector(beta)
-            Q = FunctionSpace(mesh, ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
-            tensor = coefficients.setdefault("beta", Function(Q))
+            Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
+            tensor = coefficients.setdefault("beta", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         family = "CG" if tdim == 1 else "DGT"
         degree = 1 if tdim == 1 else 0
-        DGT = ufl.BrokenElement(ufl.FiniteElement(family, cell=mesh.ufl_cell(), degree=degree))
+        DGT = finat.ufl.BrokenElement(finat.ufl.FiniteElement(family, cell=mesh.ufl_cell(), degree=degree))
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
@@ -1671,19 +1669,19 @@ class PoissonFDMPC(FDMPC):
             G = ufl.as_tensor([[[G[i, k, j, k] for i in range(G.ufl_shape[0])] for j in range(G.ufl_shape[2])] for k in range(G.ufl_shape[3])])
             G = G * abs(ufl.JacobianDeterminant(mesh))
 
-            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=G.ufl_shape))
-            tensor = coefficients.setdefault("Gq_facet", Function(Q))
+            Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=G.ufl_shape))
+            tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
             PT = Piola.T
-            Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=PT.ufl_shape))
-            tensor = coefficients.setdefault("PT_facet", Function(Q))
+            Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=PT.ufl_shape))
+            tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
             assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
                                                        form_compiler_parameters=fcp).assemble)
 
         # make DGT functions with BC flags
-        shape = V.ufl_element().reference_value_shape()
-        Q = FunctionSpace(mesh, ufl.TensorElement(DGT, shape=shape) if shape else DGT)
+        shape = V.ufl_element().reference_value_shape
+        Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=shape) if shape else DGT)
         test = TestFunction(Q)
 
         ref_args = [ufl.variable(t) for t in args_J]
@@ -1701,7 +1699,7 @@ class PoissonFDMPC(FDMPC):
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
                 forms.append(ufl.inner(test, beta)*ds_ext)
 
-        tensor = coefficients.setdefault("bcflags", Function(Q))
+        tensor = coefficients.setdefault("bcflags", Function(Q.dual()))
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
@@ -1819,7 +1817,7 @@ def extrude_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
-    if isinstance(V, Function):
+    if isinstance(V, (Function, Cofunction)):
         V = V.function_space()
     mesh = V.mesh()
     intfacets = mesh.interior_facets

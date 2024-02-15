@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.petsc import PETSc
 import pytest
 import numpy as np
@@ -171,7 +172,7 @@ def test_near_nullspace(tmpdir):
     n1 = Constant((0, 1))
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
-    n_interp = [interpolate(n, V) for n in ns]
+    n_interp = [assemble(interpolate(n, V)) for n in ns]
     nsp = VectorSpaceBasis(vecs=n_interp)
     nsp.orthonormalize()
 
@@ -257,8 +258,9 @@ def test_nullspace_mixed_multiple_components():
             'ksp_type': 'fgmres',
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-7',
             'ksp_monitor': None,
         }
@@ -287,7 +289,8 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-def test_near_nullspace_mixed():
+@pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
+def test_near_nullspace_mixed(aux_pc):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     PETSc.Sys.popErrorHandler()
@@ -304,8 +307,17 @@ def test_near_nullspace_mixed():
     inside_box = And(abs(x-0.5) < 0.2, abs(y-0.75) < 0.2)
     mu = conditional(inside_box, 1e8, 1)
 
-    a = inner(mu*2*sym(grad(u)), grad(v))*dx
+    # mu might vary within cells lying on the box boundary
+    # we need a higher quadrature degree
+    a = inner(mu*2*sym(grad(u)), grad(v))*dx(degree=6)
     a += -inner(p, div(v))*dx + inner(div(u), q)*dx
+    aP = None
+    mu0 = mu
+    if aux_pc:
+        DG0 = FunctionSpace(mesh, "DG", 0)
+        mu0 = Function(DG0).interpolate(mu)
+        aP = inner(mu0*2*sym(grad(u)), grad(v))*dx(degree=2)
+        aP += -inner(p, div(v))*dx + inner(div(u), q)*dx
 
     f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
     L = inner(f, v)*dx
@@ -351,16 +363,17 @@ def test_near_nullspace_mixed():
             'ksp_converged_reason': None,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-5',
             'ksp_monitor': None,
         }
     }
 
-    problem = LinearVariationalProblem(a, L, w, bcs=bcs)
+    problem = LinearVariationalProblem(a, L, w, bcs=bcs, aP=aP)
     solver = LinearVariationalSolver(
-        problem, appctx={'mu': mu},
+        problem, appctx={'mu': mu0},
         nullspace=pressure_nullspace,
         transpose_nullspace=pressure_nullspace,
         near_nullspace=near_nullmodes_W,
@@ -372,5 +385,5 @@ def test_near_nullspace_mixed():
     assert ksp_inner.getConvergedReason() > 0
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
-    # currently ~64 vs. >110-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 75
+    # currently ~22 vs. >45-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 25

@@ -2,6 +2,7 @@ import numbers
 
 import numpy as np
 import ufl
+import finat.ufl
 
 import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -37,7 +38,7 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
@@ -59,15 +60,15 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape() for Vi in V):
+        if all(Vi.ufl_element().value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space().name == "HDiv":
+            if Vi.ufl_element().sobolev_space.name == "HDiv":
                 self.vidx = i
             else:
-                assert Vi.ufl_element().sobolev_space().name == "L2"
+                assert Vi.ufl_element().sobolev_space.name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.
@@ -87,15 +88,15 @@ class HybridizationPC(SCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
+        broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Function(V_d)
+        self.broken_solution = Cofunction(V_d.dual())
         self.broken_residual = Function(V_d)
         self.trace_solution = Function(TraceSpace)
-        self.unbroken_solution = Function(V)
+        self.unbroken_solution = Cofunction(V.dual())
         self.unbroken_residual = Function(V)
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
@@ -203,7 +204,7 @@ class HybridizationPC(SCBase):
         schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
 
         # Assemble the Schur complement operator and right-hand side
-        self.schur_rhs = Function(TraceSpace)
+        self.schur_rhs = Cofunction(TraceSpace.dual())
         self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
                                                form_compiler_parameters=self.ctx.fc_params).assemble
 

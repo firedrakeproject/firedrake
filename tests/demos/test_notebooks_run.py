@@ -4,6 +4,12 @@ import subprocess
 import glob
 
 
+try:
+    import matplotlib.pyplot as plt  # noqa: 401
+except ImportError:
+    pytest.skip("Matplotlib not installed", allow_module_level=True)
+
+
 cwd = os.path.abspath(os.path.dirname(__file__))
 nb_dir = os.path.join(cwd, "..", "..", "docs", "notebooks")
 
@@ -12,6 +18,7 @@ nb_dir = os.path.join(cwd, "..", "..", "docs", "notebooks")
 @pytest.fixture(params=glob.glob(os.path.join(nb_dir, "*.ipynb")),
                 ids=lambda x: os.path.basename(x))
 def ipynb_file(request):
+    # Notebook 08-composable-solvers.ipynb still has an issue, the cell is commented out
     return os.path.abspath(request.param)
 
 
