@@ -276,7 +276,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     :arg entity_dofs: The flattened entity dofs.
     :returnsL: A numpy array of the (unique) boundary nodes.
     """
-    _, sub_domain = key
+    _, sub_domain, boundary_set = key
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
@@ -308,7 +308,7 @@ def get_facet_closure_nodes(mesh, key, V):
     :arg V: function space.
     :returns: numpy array of unique nodes in the closure of facets
        with provided markers (both interior and exterior)."""
-    _, sub_domain = key
+    _, sub_domain, boundary_set = key
     if sub_domain not in {"on_boundary", "top", "bottom"}:
         valid = set(mesh.interior_facets.unique_markers)
         valid |= set(mesh.exterior_facets.unique_markers)
@@ -477,14 +477,14 @@ class FunctionSpaceData(object):
                 raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
                                  sub_domain)
             entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-            key = (entity_dofs_key(entity_dofs), sub_domain)
+            key = (entity_dofs_key(entity_dofs), sub_domain, V.boundary_set)
             return get_top_bottom_boundary_nodes(V.mesh(), key, V)
         else:
             if sub_domain == "on_boundary":
                 sdkey = sub_domain
             else:
                 sdkey = as_tuple(sub_domain)
-            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, V.boundary_set)
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
