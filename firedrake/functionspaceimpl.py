@@ -1173,7 +1173,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name + "_"
+        self.name = name or (function_space.name or "Restricted" + "_"
                              + "_".join(sorted(
                                         [str(i) for i in self.boundary_set])))
 
@@ -1225,51 +1225,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return node_count*self.value_size
 
     def local_to_global_map(self, bcs, lgmap=None):
-        if bcs is None or len(bcs) == 0:
-            return lgmap or self.dof_dset.lgmap
-        for bc in bcs:
-            fs = bc.function_space()
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != self.topological:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-        unblocked = any(bc.function_space().component is not None
-                        for bc in bcs)
-        if lgmap is None:
-            lgmap = self.dof_dset.lgmap
-            if unblocked:
-                indices = lgmap.indices.copy()
-                bsize = 1
-            else:
-                indices = lgmap.block_indices.copy()
-                bsize = lgmap.getBlockSize()
-                assert bsize == self.value_size
-        else:
-            # MatBlock case, LGMap is already unrolled.
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-            unblocked = True
-        nodes = []
-        for bc in bcs:
-            if bc.function_space().component is not None:
-                nodes.append(bc.nodes * self.value_size
-                             + bc.function_space().component)
-            elif unblocked:
-                tmp = bc.nodes * self.value_size
-                for i in range(self.value_size):
-                    nodes.append(tmp + i)
-            else:
-                nodes.append(bc.nodes)
-        nodes = numpy.unique(numpy.concatenate(nodes))
-        indices[nodes] = -1
-        bc_node_count = 0
-        for node in range(len(indices)):
-            if indices[node] == -1:
-                bc_node_count += 1
-            else:
-                indices[node] -= bc_node_count
-        indices = indices[indices >= 0]
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
+        return lgmap or self.dof_dset.lgmap
 
 
 @dataclass
