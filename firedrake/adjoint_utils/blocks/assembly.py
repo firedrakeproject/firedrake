@@ -14,7 +14,7 @@ class AssembleBlock(Block):
             mesh = ufl.domain.as_domain(form)
         except AttributeError:
             mesh = None
-    
+
         if mesh and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
             self.add_dependency(mesh)
