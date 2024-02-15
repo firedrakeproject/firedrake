@@ -10,14 +10,11 @@ class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        if hasattr(self.form, 'ufl_domain'):
-            if isinstance(self.form, ufl.Interpolate):
-                mesh = ufl.domain.extract_unique_domain(self.form)
-            else:
-                mesh = self.form.ufl_domain()
-        else:
+        try:
+            mesh = ufl.domain.as_domain(form)
+        except AttributeError:
             mesh = None
-
+    
         if mesh and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
             self.add_dependency(mesh)
