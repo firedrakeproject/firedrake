@@ -376,12 +376,12 @@ class FDMPC(PCBase):
 
         Parameters
         ----------
-        A :
-            The :class:`PETSc.Mat` to statically condense.
-        J :
-            The bilinear :class:`ufl.Form` to statically condense.
+        A : PETSc.Mat
+            The matrix to statically condense.
+        J : ufl.Form
+            The bilinear form to statically condense.
         bcs :
-            An iteratable of boundary conditions.
+            An iterable of boundary conditions.
         fcp :
             A dict with the form compiler parameters.
         pc_type :
@@ -1157,13 +1157,13 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
 
     Parameters
     ----------
-    a : :class:`ufl.Form`
+    a : ufl.Form
         The bilinear form.
-    prefix : `str`
+    prefix : str
         The kernel prefix.
-    fcp : `dict`
+    fcp : dict
         The form compiler parameters.
-    matshell : `bool`
+    matshell : bool
         A flag to wrap the kernel with a :class:`PETSc.Mat` of type shell.
         This is used for the local matrix-free KSP for the interior solve.
 
@@ -1222,7 +1222,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
 
 class InteriorSolveKernel(ElementKernel):
     """Kernel builder that solves the interior block using a local KSP
-    accross cells owned by an MPI rank."""
+    across cells owned by an MPI rank."""
     code = dedent("""
         %(A_struct)s
         PetscErrorCode %(name)s(const KSP ksp,
@@ -1366,7 +1366,7 @@ class ImplicitSchurComplementKernel(ElementKernel):
         fdofs.destroy()
 
 
-class ParloopMatrixContext(object):
+class ParloopMatrixContext:
 
     def __init__(self, parloop, x, y, bcs=None):
         self._mult_parloop = parloop
@@ -1670,7 +1670,7 @@ def get_base_elements(e):
     return [e]
 
 
-class SparseAssembler(object):
+class SparseAssembler:
 
     _cache = {}
 
