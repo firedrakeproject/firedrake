@@ -13,9 +13,13 @@ from ufl.domain import extract_unique_domain
 import enum
 import numbers
 import abc
+import rtree
+from textwrap import dedent
+from pathlib import Path
+
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, decref, is_pyop2_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple, tuplify
 
@@ -537,10 +541,13 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
+
+        # User comm
         self.user_comm = comm
-        r"The user comm."
-        self._comm = internal_comm(self.user_comm)
-        r"The internal comm."
+        # Internal comm
+        self._comm = internal_comm(self.user_comm, self)
+
+        dmcommon.label_facets(self.topology_dm)
         self._distribute()
         self._grown_halos = False
 
@@ -603,10 +610,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     layers = None
     """No layers on unstructured mesh"""
@@ -990,10 +993,6 @@ class MeshTopology(AbstractMeshTopology):
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
@@ -1363,7 +1362,7 @@ class ExtrudedMeshTopology(MeshTopology):
         mesh.init()
         self._base_mesh = mesh
         self.user_comm = mesh.comm
-        self._comm = internal_comm(mesh._comm)
+        self._comm = internal_comm(mesh._comm, self)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
@@ -2287,38 +2286,47 @@ values from f.)"""
             return cache[tolerance]
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
-            src += """
-    int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
-    {
-        size_t j = 0;  /* index into x and X */
-        for(size_t i=0; i<npoints; i++) {
-            /* i is the index into cells and ref_cell_dists_l1 */
+            src += dedent(f"""
+                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
+                {{
+                    size_t j = 0;  /* index into x and X */
+                    for(size_t i=0; i<npoints; i++) {{
+                        /* i is the index into cells and ref_cell_dists_l1 */
 
-            /* The type definitions and arguments used here are defined as
-            statics in pointquery_utils.py */
-            struct ReferenceCoords temp_reference_coords, found_reference_coords;
+                        /* The type definitions and arguments used here are defined as
+                        statics in pointquery_utils.py */
+                        struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
-            /* to_reference_coords and to_reference_coords_xtr are defined in
-            pointquery_utils.py. If they contain python calls, this loop will
-            not run at c-loop speed. */
-            cells[i] = locate_cell(f, &x[j], %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+                        /* to_reference_coords and to_reference_coords_xtr are defined in
+                        pointquery_utils.py. If they contain python calls, this loop will
+                        not run at c-loop speed. */
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
 
-            for (int k = 0; k < %(geometric_dimension)d; k++) {
-                X[j] = found_reference_coords.X[k];
-                j++;
-            }
-        }
-        return 0;
-    }
-    """ % dict(geometric_dimension=self.geometric_dimension())
+                        for (int k = 0; k < {self.geometric_dimension()}; k++) {{
+                            X[j] = found_reference_coords.X[k];
+                            j++;
+                        }}
+                    }}
+                    return 0;
+                }}
+            """)
 
-            locator = compilation.load(src, "c", "locator",
-                                       cppargs=["-I%s" % os.path.dirname(__file__),
-                                                "-I%s/include" % sys.prefix]
-                                       + ["-I%s/include" % d for d in get_petsc_dir()],
-                                       ldargs=["-L%s/lib" % sys.prefix,
-                                               "-lspatialindex_c",
-                                               "-Wl,-rpath,%s/lib" % sys.prefix])
+            libspatialindex_so = Path(rtree.core.rt._name).absolute()
+            lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
+            locator = compilation.load(
+                src, "c", "locator",
+                cppargs=[
+                    f"-I{os.path.dirname(__file__)}",
+                    f"-I{sys.prefix}/include",
+                    f"-I{rtree.finder.get_include()}"
+                ] + [f"-I{d}/include" for d in get_petsc_dir()],
+                ldargs=[
+                    f"-L{sys.prefix}/lib",
+                    str(libspatialindex_so),
+                    f"-Wl,-rpath,{sys.prefix}/lib",
+                    lsi_runpath
+                ]
+            )
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
@@ -3697,6 +3705,7 @@ def _parent_mesh_embedding(
     import firedrake.functionspace as functionspace
     import firedrake.constant as constant
     import firedrake.interpolation as interpolation
+    import firedrake.assemble as assemble
 
     # In parallel, we need to make sure we know which point is which and save
     # it.
@@ -3758,9 +3767,10 @@ def _parent_mesh_embedding(
     # nessesary, to other processes.
     P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
     with stop_annotating():
-        visible_ranks = interpolation.interpolate(
+        visible_ranks = interpolation.Interpolate(
             constant.Constant(parent_mesh.comm.rank), P0DG
-        ).dat.data_ro_with_halos.real
+        )
+        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
 
     locally_visible = np.full(ncoords_global, False)
     # See below for why np.inf is used here.

@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 
@@ -103,11 +104,11 @@ def run_injection(hierarchy, vector, space, degrees, exact=exact_primal):
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact(mesh, vector, degree), V))
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact(mesh, vector, degree), V))
             tmp = Function(V)
             inject(actual, tmp)
             actual = tmp
@@ -121,11 +122,11 @@ def run_prolongation(hierarchy, vector, space, degrees, exact=exact_primal):
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
 
-        actual = interpolate(exact(mesh, vector, degree), V)
+        actual = assemble(interpolate(exact(mesh, vector, degree), V))
 
         for mesh in hierarchy[1:]:
             V = FunctionSpace(mesh, Ve)
-            expect = interpolate(exact(mesh, vector, degree), V)
+            expect = assemble(interpolate(exact(mesh, vector, degree), V))
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp
