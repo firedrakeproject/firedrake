@@ -3,24 +3,33 @@ from firedrake.matrix import AssembledMatrix
 
 
 class MLOperator(AbstractExternalOperator):
-    r"""A :class:`MLOperator`: is an implementation of ExternalOperator that is defined through
-    a given machine learning model N and whose value correspond to the output of the neural network it represents.
-
-    TODO !!!
-     """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
-        r"""
-        :param operands: operands on which act the :class:`MLOperator`.
-        :param function_space: the :class:`.FunctionSpace`,
-        or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
-        Alternatively, another :class:`Function` may be passed here and its function space
-        will be used to build this :class:`Function`.  In this case, the function values are copied.
-        :param derivatives: tuple specifiying the derivative multiindex.
-        :param operator_data: dictionary containing the:
-                - model: the machine learning model
-        """
+        """External operator class representing machine learning models implemented in a given
+           machine learning framework.
 
+        Parameters
+        ----------
+        *operands : ufl.core.expr.Expr or ufl.BaseForm
+                    Operands of the ML operator.
+        function_space : firedrake.functionspaceimpl.WithGeometryBase
+                         The function space the ML operator is mapping to.
+        derivatives : tuple
+                      Tuple specifiying the derivative multiindex.
+        *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
+                          Tuple containing the arguments of the linear form associated with the ML operator,
+                          i.e. the arguments with respect to which the ML operator is linear. Those arguments
+                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
+                          as a result of taking the action on a given function.
+        operator_data : dict
+                        Dictionary to stash external data specific to the ML operator. This dictionary must
+                        at least contain the following:
+                        - 'model': The machine learning model implemented in the ML framework considered.
+                        - 'inputs_format': The format of the inputs to the ML model: `0` when for models acting
+                                           globally on the inputs, `1` when acting locally/pointwise on the inputs.
+                                           Other strategies can also be considered by subclassing the :class:`.MLOperator`
+                                           class.
+        """
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           argument_slots=argument_slots, operator_data=operator_data)
 
@@ -30,31 +39,26 @@ class MLOperator(AbstractExternalOperator):
 
     @property
     def inputs_format(self):
-        r"""Caracterise the the inputs format:
-        Let x be the model inputs, y the model outputs and N the neural network operator
-                        - 0: global (operates globally on the inputs) -> y = N(x)
-                        - 1: local (operates pointwise on the inputs, i.e. vectorized pass) -> y_i = N(x_i)
-        -> Other specific strategies can also be tackled by subclassing the ExternalOperator!
-         """
         return self.operator_data['inputs_format']
 
     # -- Assembly methods -- #
 
     @assemble_method(0, (0,))
     def assemble_model(self, *args, **kwargs):
+        # Run forward pass of the ML model
         return self._forward()
 
     @assemble_method(1, (0, 1))
-    def assemble_jacobian(self, *args, assembly_opts, **kwargs):
-        # Get Jacobian using PyTorch AD
+    def assemble_jacobian(self, *args, **kwargs):
+        # Get Jacobian using the AD engine of the ML framework.
         J = self._jac()
         # Set bcs
         bcs = ()
         return AssembledMatrix(self, bcs, J)
 
     @assemble_method(1, (1, 0))
-    def assemble_jacobian_adjoint(self, *args, assembly_opts, **kwargs):
-        # Get Jacobian using PyTorch AD
+    def assemble_jacobian_adjoint(self, *args, **kwargs):
+        # Get Jacobian using the AD engine of the ML framework.
         J = self._jac()
         # Set bcs
         bcs = ()
@@ -68,7 +72,7 @@ class MLOperator(AbstractExternalOperator):
         return self._jvp(w)
 
     @assemble_method(1, (None, 0))
-    def assemble_jacobian_adjoint_action(self, *args, assembly_opts, **kwargs):
+    def assemble_jacobian_adjoint_action(self, *args, **kwargs):
         w = self.argument_slots()[0]
         return self._vjp(w)
 
