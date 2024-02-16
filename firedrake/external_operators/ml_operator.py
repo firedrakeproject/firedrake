@@ -5,8 +5,12 @@ from firedrake.matrix import AssembledMatrix
 class MLOperator(AbstractExternalOperator):
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
-        """External operator class representing machine learning models implemented in a given
+        """External operator base class representing machine learning models implemented in a given
            machine learning framework.
+
+        The :class:`.MLOperator` allows users to embed machine learning models implemented in a given
+        machine learning framework into PDE systems implemented in Firedrake. The actual evaluation of
+        the :class:`.MLOperator` subclass is delegated to the specified ML model using the ML framework considered.
 
         Parameters
         ----------

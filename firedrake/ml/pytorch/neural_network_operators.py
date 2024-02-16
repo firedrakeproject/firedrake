@@ -26,33 +26,38 @@ from firedrake.petsc import PETSc
 
 
 class PytorchOperator(MLOperator):
-    r"""A :class:`PytorchOperator`: is an implementation of ExternalOperator that is defined through
-    a given PyTorch model N and whose values correspond to the output of the neural network represented by N.
-    The inputs of N are obtained by interpolating `self.ufl_operands[0]` into `self.function_space`.
-
-    +   The evaluation of the PytorchOperator is done by performing a forward pass through the network N
-        The first argument is considered as the input of the network, if one want to correlate different
-        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
-        to either:
-                    - subclass this method to specify how this correlation should be done
-                    or
-                    - construct another pointwise operator that will do this job and pass it in as argument
-     +  The gradient of the PytorchOperator is done by taking the gradient of the outputs of N with respect to
-        its inputs.
-     """
 
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
-        r"""
-        :param operands: operands on which act the :class:`PytorchOperator`.
-        :param function_space: the :class:`.FunctionSpace`,
-        or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
-        Alternatively, another :class:`Function` may be passed here and its function space
-        will be used to build this :class:`Function`.  In this case, the function values are copied.
-        :param derivatives: tuple specifiying the derivative multiindex.
-        :param operator_data: dictionary containing the:
-                - model: the Pytorch model
-        """
+        """External operator class representing machine learning models implemented in PyTorch.
 
+        The :class:`.PytorchOperator` allows users to embed machine learning models implemented in PyTorch
+        into PDE systems implemented in Firedrake. The actual evaluation of the :class:`.PytorchOperator` is
+        delegated to the specified PyTorch model. Similarly, differentiation through the :class:`.PytorchOperator`
+        class is achieved via the `torch.autograd` module, which provides automatic differentiation capabilities
+        that can be applied on the PyTorch model associated with the :class:`.PytorchOperator` object.
+
+        Parameters
+        ----------
+        *operands : ufl.core.expr.Expr or ufl.BaseForm
+                    Operands of the :class:`.PytorchOperator`.
+        function_space : firedrake.functionspaceimpl.WithGeometryBase
+                         The function space the ML operator is mapping to.
+        derivatives : tuple
+                      Tuple specifiying the derivative multiindex.
+        *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
+                          Tuple containing the arguments of the linear form associated with the ML operator,
+                          i.e. the arguments with respect to which the ML operator is linear. Those arguments
+                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
+                          as a result of taking the action on a given function.
+        operator_data : dict
+                        Dictionary to stash external data specific to the ML operator. This dictionary must
+                        at least contain the following:
+                        - 'model': The machine learning model implemented in PyTorch.
+                        - 'inputs_format': The format of the inputs to the ML model: `0` when for models acting
+                                           globally on the inputs, `1` when acting locally/pointwise on the inputs.
+                                           Other strategies can also be considered by subclassing the :class:`.PytorchOperator`
+                                           class.
+        """
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                             argument_slots=argument_slots, operator_data=operator_data)
 
