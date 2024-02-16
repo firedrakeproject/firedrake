@@ -39,9 +39,8 @@ G-Adopt Firedrake workshop April 28-29 2022
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The `G-ADOPT <https://g-adopt.github.io/index.html>`__ programme held a
-`workshop on automating finite element methods for geodynamics via firedrake
-<https://g-adopt.github.io/workshop.html>`__ at the Australian National
-University in Canberra.
+workshop on automating finite element methods for geodynamics via firedrake
+at the Australian National University in Canberra.
 
 Firedrake '21
 ~~~~~~~~~~~~~
