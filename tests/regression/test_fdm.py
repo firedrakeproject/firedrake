@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from pyop2.utils import as_tuple
 
 ksp = {
     "mat_type": "matfree",
