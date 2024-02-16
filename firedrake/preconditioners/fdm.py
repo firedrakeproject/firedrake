@@ -720,7 +720,7 @@ class FDMPC(PCBase):
         assembler()
 
 
-class ElementKernel(object):
+class ElementKernel:
     """Base class for sparse element kernel builders.
     By default, it inserts the same matrix on each cell."""
     code = dedent("""
@@ -1193,8 +1193,9 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         kernel = kernels[-1].kinfo.kernel
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
-        ctx_struct = "".join("const PetscScalar *restrict c%d, " % i for i in range(nargs))
-        ctx_pack = "const PetscScalar *appctx[%d] = {%s};" % (nargs, ", ".join("c%d" % i for i in range(nargs)))
+        ctx_struct = "".join(f"const PetscScalar *restrict c{i}, " for i in range(nargs))
+        ctx_pointers = ", ".join(f"c{i}" for i in range(nargs))
+        ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {ctx_pointers} }};"
         ctx_coefficients = "".join("appctx[%d], " % i for i in range(ncoef))
         ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
         matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
@@ -1691,9 +1692,9 @@ class SparseAssembler:
     @staticmethod
     def load_c_code(code, name, **kwargs):
         petsc_dir = get_petsc_dir()
-        cppargs = ["-I%s/include" % d for d in petsc_dir]
-        ldargs = (["-L%s/lib" % d for d in petsc_dir]
-                  + ["-Wl,-rpath,%s/lib" % d for d in petsc_dir]
+        cppargs = [f"-I{d}/include" for d in petsc_dir]
+        ldargs = ([f"-L{d}/lib" for d in petsc_dir]
+                  + [f"-Wl,-rpath,{d}/lib" for d in petsc_dir]
                   + ["-lpetsc", "-lm"])
         return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
 
