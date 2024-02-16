@@ -1901,6 +1901,8 @@ if mode == "install":
 
     # FIAT requires recursivenodes, but does not include a requirements.txt
     run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with environment(**compiler_env):
         build_and_install_h5py()
@@ -2041,6 +2043,11 @@ else:
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
+
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with pipargs("--no-deps"):
         if args.rebuild or update_petsc or update_petsc4py:
