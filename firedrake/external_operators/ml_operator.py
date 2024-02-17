@@ -14,7 +14,7 @@ class MLOperator(AbstractExternalOperator):
 
         Parameters
         ----------
-        *operands : ufl.core.expr.Expr or ufl.BaseForm
+        *operands : ufl.core.expr.Expr or ufl.form.BaseForm
                     Operands of the ML operator.
         function_space : firedrake.functionspaceimpl.WithGeometryBase
                          The function space the ML operator is mapping to.
@@ -28,9 +28,9 @@ class MLOperator(AbstractExternalOperator):
         operator_data : dict
                         Dictionary to stash external data specific to the ML operator. This dictionary must
                         at least contain the following:
-                        (i) model: the machine learning model implemented in the ML framework considered.
-                        (ii) inputs_format: the format of the inputs to the ML model.
-                        `0` for models acting globally on the inputs,  `1` for models acting locally/pointwise on the inputs. Other strategies can also be considered by subclassing the :class:`.MLOperator` class.
+                        (i) 'model': The machine learning model implemented in the ML framework considered.
+                        (ii) 'inputs_format': The format of the inputs to the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
+                        Other strategies can also be considered by subclassing the :class:`.MLOperator` class.
         """
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           argument_slots=argument_slots, operator_data=operator_data)

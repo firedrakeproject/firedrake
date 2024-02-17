@@ -46,7 +46,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         Parameters
         ----------
-        *operands : ufl.core.expr.Expr or ufl.BaseForm
+        *operands : ufl.core.expr.Expr or ufl.form.BaseForm
                     Operands of the external operator.
         function_space : firedrake.functionspaceimpl.WithGeometryBase
                          The function space the external operator is mapping to.
@@ -63,6 +63,9 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
                         over the UFL symbolic reconstructions making the operator data accessible to the external operators
                         arising from symbolic operations on the original operator, such as the Jacobian of the external operator.
         """
+        from firedrake_citations import Citations
+        Citations().register("Bouziani2021")
+
         # Check function space
         if not isinstance(function_space, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Function defined on a " + str(type(function_space)))

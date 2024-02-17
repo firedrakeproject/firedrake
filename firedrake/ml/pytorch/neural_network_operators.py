@@ -38,7 +38,7 @@ class PytorchOperator(MLOperator):
 
         Parameters
         ----------
-        *operands : ufl.core.expr.Expr or ufl.BaseForm
+        *operands : ufl.core.expr.Expr or ufl.form.BaseForm
                     Operands of the :class:`.PytorchOperator`.
         function_space : firedrake.functionspaceimpl.WithGeometryBase
                          The function space the ML operator is mapping to.
@@ -52,11 +52,9 @@ class PytorchOperator(MLOperator):
         operator_data : dict
                         Dictionary to stash external data specific to the ML operator. This dictionary must
                         at least contain the following:
-                        - 'model': The machine learning model implemented in PyTorch.
-                        - 'inputs_format': The format of the inputs to the ML model: `0` when for models acting
-                                           globally on the inputs, `1` when acting locally/pointwise on the inputs.
-                                           Other strategies can also be considered by subclassing the :class:`.PytorchOperator`
-                                           class.
+                        (i) 'model': The machine learning model implemented in PyTorch.
+                        (ii) 'inputs_format': The format of the inputs to the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
+                        Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
         """
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                             argument_slots=argument_slots, operator_data=operator_data)
@@ -102,23 +100,26 @@ class PytorchOperator(MLOperator):
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
 
-    def _vjp(self, δy):
+    def _vjp(self, y):
+        """Implement the vector-Jacobian product (VJP) for a given vector `y`."""
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
-        δy_P = self._pre_forward_callback(δy)
-        _, vjp = torch_func.vjp(lambda x: model(x), x, δy_P)
+        y_P = self._pre_forward_callback(y)
+        _, vjp = torch_func.vjp(lambda x: model(x), x, y_P)
         vjp_F = self._post_forward_callback(vjp)
         return vjp_F
 
-    def _jvp(self, δx):
+    def _jvp(self, z):
+        """Implement the Jacobian-vector product (JVP) for a given vector `z`."""
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
-        δx_P = self._pre_forward_callback(δx)
-        _, jvp = torch_func.jvp(lambda x: model(x), x, δx_P)
+        z_P = self._pre_forward_callback(z)
+        _, jvp = torch_func.jvp(lambda x: model(x), x, z_P)
         jvp_F = self._post_forward_callback(jvp)
         return jvp_F
 
     def _jac(self):
+        """Compute the Jacobian of the PyTorch model."""
         # Should we special case when the model acts locally on the inputs and therefore yields a diagonal
         # matrix ?
         #  -> Atm, PyTorch would produce that diagonal matrix but it might be possible to compute the local jacobian
@@ -142,7 +143,7 @@ class PytorchOperator(MLOperator):
         return J
 
     def _forward(self):
-        """TODO !!"""
+        """Perform the forward pass through the PyTorch model."""
         model = self.model
 
         # Get the input operands
@@ -167,6 +168,39 @@ class PytorchOperator(MLOperator):
 
 # Helper functions #
 def ml_operator(model, function_space, inputs_format=0):
+    """Helper function for instantiating the :class:`~.PytorchOperator` class.
+
+    This function facilitates having a two-stage instantiation which dissociates between class arguments
+    that are fixed, such as the function space or the ML model, and the operands of the operator,
+    which may change, e.g. when the operator is used in a time-loop.
+
+    Example
+    -------
+    ```
+    # Stage 1: Partially initialise the operator.
+    N = ml_operator(model, function_space=V)
+    # Stage 2: Define the operands and use the operator in a UFL expression.
+    F = (inner(grad(u), grad(v)) + inner(N(u), v) - inner(f, v)) * dx
+    ```
+
+    Parameters
+    ----------
+    model: collections.abc.Callable
+           The PyTorch model to embed in Firedrake.
+    function_space: firedrake.functionspaceimpl.WithGeometryBase
+                    The function space into which the machine learning model is mapping.
+    inputs_format: int
+                   The format of the input data of the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
+                   Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
+
+    Returns
+    -------
+    collections.abc.Callable
+        The partially initialised :class:`~.PytorchOperator` class.
+    """
+    from firedrake_citations import Citations
+    Citations().register("Bouziani2021")
+
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')
 
@@ -178,3 +212,6 @@ def neuralnet(model, function_space, inputs_format=0):
     import warnings
     warnings.warn('`neuralnet` is deprecated, use `ml_operator` instead', FutureWarning)
     return ml_operator(model, function_space, inputs_format=inputs_format)
+
+
+neuralnet.__doc__ = ml_operator.__doc__
