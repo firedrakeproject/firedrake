@@ -210,15 +210,28 @@ For instance, the Jacobian `\frac{\partial N(u; \hat{u}, v^{*})}{\partial u}` ha
 arguments: `v^{*}` and `\hat{u}`. Linear form's arguments are numbered incrementally, starting 
 from 0, as new arguments are added to the linear form as a result of differentiation. Hence, the second 
 entry of the *assemble_method* for this Jacobian would be *(0, 1)*. As for the derivative multi-index, it 
-is `(1, 0)` as we differentiated with respect to the first operand, i.e. `u`. Therefore, the decorator 
-for the evaluation of the Jacobian would be: *@assemble_method((1, 0), (0, 1))*.
+is *(1, 0)* as we differentiated with respect to the first operand, i.e. `u`. Therefore, the decorator 
+for the evaluation of the Jacobian would be:
+
+.. code-block:: python3
+
+  @assemble_method((1, 0), (0, 1))
 
 If we now take the adjoint of that Jacobian, i.e. its Hermitian transpose, we would still have the same 
-derivative multi-index, but the arguments would be swapped. Hence, the specified decorated should be: 
-*@assemble_method((1, 0), (1, 0))*. Likewise, if we take the action of the Hermitian transpose of the 
-Jacobian matrix on a given cofunction, the highest-numbered argument will be replaced by this function, 
-and the highest number in the second entry will be replace by *None* as cofunctions are not 
-:class:`~.Argument` or :class:`~.Coargument`, which results in: *@assemble_method((1, 0), (None, 0))*.
+derivative multi-index, but the arguments would be swapped. Hence, the specified decorated should be
+
+.. code-block:: python3
+
+  @assemble_method((1, 0), (1, 0))
+
+Likewise, if we take the action of the Hermitian transpose of the Jacobian matrix on a given 
+cofunction, the highest-numbered argument will be replaced by this function, and the highest number 
+in the second entry will be replace by *None* as cofunctions are not :class:`~.Argument` or 
+:class:`~.Coargument`, which results in
+
+.. code-block:: python3
+
+  @assemble_method((1, 0), (None, 0))
 
 
 The following example illustrates how to define a new external operator, *MyExternalOperator*:
