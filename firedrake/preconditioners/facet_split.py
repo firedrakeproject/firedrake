@@ -112,7 +112,9 @@ class FacetSplitPC(PCBase):
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         elif self.perm:
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
+            global_indices = V.dof_dset.lgmap.apply(self.iperm.indices)
+            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
+            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P
@@ -253,7 +255,7 @@ def get_permutation_map(V, W):
 
     kernel_code = f"""
     void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
-        memcpy(v, w, {size}*sizeof(*w));
+        for (PetscInt i=0; i < {size}; i++) v[i] = w[i];
     }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, V.mesh().cell_set,
