@@ -51,6 +51,8 @@ Note that while `N` is linear with respect to `v^{*}`, its *argument*, it can be
 to `u`, its *operand*. In Firedrake, `u` would be a :class:`~.Function` object, and `v^{*}` would be a 
 :class:`~.Coargument` object.
 
+.. _differentiation:
+
 Differentiation
 ~~~~~~~~~~~~~~~
 
@@ -69,7 +71,6 @@ with respect to `u`, as a consequence of the chain rule. More specifically, the 
 be written as:
 
 .. math::
-  :label: Jacobian_F
 
   \frac{dF(u, N; \hat{u}, v)}{du} = \frac{\partial F(u, N; \hat{u}, v)}{\partial u} + \operatorname{action}\left(\frac{\partial F(u, N; \hat{u}, v)}{\partial N}, \frac{dN(u; \hat{u}, v^{*})}{du}\right) \quad \forall v\in V.
 
@@ -126,8 +127,8 @@ The last ingredient needed for external operators to work is the assembly. The e
 interface composes seamlessly with the Firedrake assembly system, and one can assemble external 
 operators as well as variational forms and expressions containing external operators. Firedrake 
 assembles expressions or variational forms containing external operators by representing the assembled 
-object as a directed acyclic graph (DAG). For example, assembling the Jacobian of `F` defined in 
-equation :eq:`Jacobian_F` would result in the following DAG:
+object as a directed acyclic graph (DAG). For example, assembling the Jacobian of `F`, see 
+:ref:`differentiation section <differentiation>`, would result in the following DAG:
 
 .. figure:: images/external_operators_DAG_Jacobian.png
    :figwidth: 70%
