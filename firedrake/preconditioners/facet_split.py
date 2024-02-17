@@ -255,7 +255,7 @@ def get_permutation_map(V, W):
 
     kernel_code = f"""
     void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
-        for (PetscInt i=0; i < {size}; i++) v[i] = w[i];
+        for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
     }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, V.mesh().cell_set,
