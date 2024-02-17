@@ -64,7 +64,7 @@ def u(mesh, V):
 @pytest.fixture
 def nn(model, V):
     # What should we do for inputs_format?
-    return neuralnet(model, function_space=V)
+    return ml_operator(model, function_space=V)
 
 
 @pytest.fixture(params=['linear', 'encoder_decoder'])
@@ -214,7 +214,7 @@ def test_solve(mesh, V):
     model.bias.data = torch.zeros(n)
 
     u2 = Function(V)
-    p = neuralnet(model, function_space=V, inputs_format=1)
+    p = ml_operator(model, function_space=V, inputs_format=1)
     tau2 = p(u2)
 
     F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx

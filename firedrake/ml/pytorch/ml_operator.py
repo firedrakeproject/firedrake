@@ -81,6 +81,14 @@ class PytorchOperator(MLOperator):
     # --- Callbacks --- #
 
     def _pre_forward_callback(self, *args, **kwargs):
+        """+   The evaluation of the PytorchOperator is done by performing a forward pass through the network N
+        The first argument is considered as the input of the network, if one want to correlate different
+        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
+        to either:
+                    - subclass this method to specify how this correlation should be done
+                    or
+                    - construct another pointwise operator that will do this job and pass it in as argument
+        """
         # Concatenate the operands to form the model inputs
         # -> For more complex cases, the user needs to overwrite this function
         #    to state how the operands can be used to form the inputs.
