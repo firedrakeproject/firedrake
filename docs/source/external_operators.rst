@@ -43,7 +43,7 @@ where `V^{*}` is the dual space of `V`, and where the following equivalence hold
 
 .. math::
 
-  L_{N}(u; v^{*}) = N(u) \quad \forall v^{*} \in V^{*}
+  L_{N}(u; v^{*}) = v^{*}(N(u)) \quad \forall v^{*} \in V^{*}
 
 for `u \in V`. For sake of simplicity, we will denote the linear form `L_{N}` as `N` in the following. 
 Expressing external operators as linear forms facilitates their composition with variational forms of PDEs. 
@@ -330,22 +330,18 @@ For example, let's consider the following variational problem
 
 .. math::
 
-  \begin{equation}
   \begin{aligned}
     - \Delta u + u &= f &\textrm{in}\ \Omega\\
     u &= 0  &\textrm{on}\ \partial \Omega\\
   \end{aligned}
-  \end{equation}
 
 Using `N`, we can derive the following variational form
 
 .. math::
 
-  \begin{equation}
   \begin{aligned}
     \int_{\Omega} \nabla u \cdot \nabla v + N v &= 0 &\textrm{in}\ \Omega \quad \forall v \in H^{1}_{0}(\Omega)
   \end{aligned}
-  \end{equation}
 
 Solving this variational problem necessitates calculating the Jacobian of the above residual form, which in 
 turn requires computing the Jacobian `\frac{\partial N(u, f; \hat{u}, v^{*})}{\partial u}`, which in this 
@@ -449,22 +445,17 @@ consider the following inverse problem driven by the elliptic PDE previously int
 
 .. math::
 
-  \begin{equation}
   \min_{f \in V}\ \ \frac{1}{2}\|{u(f) - u^{obs}}\|_{L^{2}}^{2} + 
   \frac{1}{2}\|\mathcal{R}\left(f, f_{0}\right)\|_{L^{2}}^{2}
-  \end{equation}
 
 subject to
 
 .. math::
 
-  \begin{equation}
-  \label{regularizer_wave_Example}
   \begin{aligned}
     - \Delta u + u &= f &\textrm{in}\ \Omega\\
     u &= 0  &\textrm{on}\ \partial \Omega\\
   \end{aligned}
-  \end{equation}
 
 
 where `u^{obs}` refers to some observables, and `\mathcal{R}` is a regularisation term, and 
