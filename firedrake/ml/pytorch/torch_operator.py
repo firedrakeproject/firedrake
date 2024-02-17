@@ -27,17 +27,6 @@ from firedrake_citations import Citations
 from pyadjoint.reduced_functional import ReducedFunctional
 
 
-Citations().add("Bouziani2023", """
-@inproceedings{Bouziani2023,
- title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
- author = {Bouziani, Nacime and Ham, David A.},
- booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
- year = {2023},
- doi = {10.48550/arXiv.2303.06871}
-}
-""")
-
-
 __all__ = ['FiredrakeTorchOperator', 'torch_operator', 'to_torch', 'from_torch']
 
 

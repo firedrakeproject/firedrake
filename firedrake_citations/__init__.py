@@ -325,3 +325,24 @@ Baylor University and University of Washington},
   year          = {2023}
 }
 """)
+
+Citations().add("Bouziani2021", """
+@article{Bouziani2021,
+  title={Escaping the abstraction: a foreign function interface for the {Unified} {Form} {Language} {[UFL]}},
+  author={Bouziani, Nacime and Ham, David A},
+  journal = {{Differentiable} {Programming} {Workshop} at {NeurIPS} 2021},
+  url = {http://arxiv.org/abs/2111.00945},
+  note = {arXiv: 2111.00945},
+  year={2021}
+}
+""")
+
+Citations().add("Bouziani2023", """
+@inproceedings{Bouziani2023,
+ title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
+ author = {Bouziani, Nacime and Ham, David A.},
+ booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
+ year = {2023},
+ doi = {10.48550/arXiv.2303.06871}
+}
+""")
