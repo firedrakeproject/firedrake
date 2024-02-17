@@ -28,11 +28,9 @@ class MLOperator(AbstractExternalOperator):
         operator_data : dict
                         Dictionary to stash external data specific to the ML operator. This dictionary must
                         at least contain the following:
-                        - 'model': The machine learning model implemented in the ML framework considered.
-                        - 'inputs_format': The format of the inputs to the ML model: `0` when for models acting
-                                           globally on the inputs, `1` when acting locally/pointwise on the inputs.
-                                           Other strategies can also be considered by subclassing the :class:`.MLOperator`
-                                           class.
+                        (i) model: the machine learning model implemented in the ML framework considered.
+                        (ii) inputs_format: the format of the inputs to the ML model.
+                        `0` for models acting globally on the inputs,  `1` for models acting locally/pointwise on the inputs. Other strategies can also be considered by subclassing the :class:`.MLOperator` class.
         """
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                                           argument_slots=argument_slots, operator_data=operator_data)
@@ -49,12 +47,13 @@ class MLOperator(AbstractExternalOperator):
 
     @assemble_method(0, (0,))
     def assemble_model(self, *args, **kwargs):
-        # Run forward pass of the ML model
+        """Assemble the operator via a forward pass through the ML model."""
         return self._forward()
 
     @assemble_method(1, (0, 1))
     def assemble_jacobian(self, *args, **kwargs):
-        # Get Jacobian using the AD engine of the ML framework.
+        """Assemble the Jacobian using the AD engine of the ML framework."""
+        # Delegate computation to the ML framework.
         J = self._jac()
         # Set bcs
         bcs = ()
@@ -62,7 +61,8 @@ class MLOperator(AbstractExternalOperator):
 
     @assemble_method(1, (1, 0))
     def assemble_jacobian_adjoint(self, *args, **kwargs):
-        # Get Jacobian using the AD engine of the ML framework.
+        """Assemble the Jacobian Hermitian transpose using the AD engine of the ML framework."""
+        # Delegate computation to the ML framework.
         J = self._jac()
         # Set bcs
         bcs = ()
@@ -72,11 +72,13 @@ class MLOperator(AbstractExternalOperator):
 
     @assemble_method(1, (0, None))
     def assemble_jacobian_action(self, *args, **kwargs):
+        """Assemble the Jacobian action using the AD engine of the ML framework."""
         w = self.argument_slots()[-1]
         return self._jvp(w)
 
     @assemble_method(1, (None, 0))
     def assemble_jacobian_adjoint_action(self, *args, **kwargs):
+        """Assemble the action of the Jacobian adjoint using the AD engine of the ML framework."""
         w = self.argument_slots()[0]
         return self._vjp(w)
 
