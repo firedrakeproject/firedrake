@@ -559,12 +559,6 @@ def expand_element(ele):
         return ele
 
 
-def get_readonly_view(arr):
-    result = arr.view()
-    result.flags.writeable = False
-    return result
-
-
 def hash_fiat_element(element):
     """FIAT elements are not hashable,
        this is not the best way to create a hash"""
@@ -585,6 +579,12 @@ def hash_fiat_element(element):
 
 def generate_key_evaluate_dual(source, target, derivative=None):
     return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
+
+
+def get_readonly_view(arr):
+    result = arr.view()
+    result.flags.writeable = False
+    return result
 
 
 @cached({}, key=generate_key_evaluate_dual)
