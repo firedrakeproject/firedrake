@@ -1,4 +1,5 @@
 import os
+import numpy as np
 try:
     import torch
     import torch.autograd.functional as torch_func
@@ -59,8 +60,13 @@ class PytorchOperator(MLOperator):
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                             argument_slots=argument_slots, operator_data=operator_data)
 
-        # Set datatype to double (torch.float64) as the firedrake.Function default data type is float64
-        self.model.double()
+        # Convert default Firedrake data type (numpy type) to PyTorch data type
+        # -> Use in-built torch's type conversion capabilities
+        default_type = torch.tensor(np.empty(0, dtype=utils.ScalarType)).dtype
+        # If no data type is specified -> default to Firedrake data type (float64 or complex64 in complex mode)
+        dtype = operator_data.get("dtype", default_type)
+        # Cast model to `dtype`
+        self.model.type(dtype)
 
     # Stash the output of the neural network for conserving the PyTorch tape
     # -> This enables to only traverse the graph once instead of running multiple
