@@ -6,7 +6,8 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
-                                           get_permutation_to_line_elements)
+                                           get_permutation_to_line_elements,
+                                           cache_generate_code)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
@@ -24,7 +25,6 @@ from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
-from firedrake.preconditioners.pmg import cache_generate_code
 
 import firedrake.dmhooks as dmhooks
 import ufl
@@ -380,21 +380,21 @@ class FDMPC(PCBase):
             The matrix to statically condense.
         J : ufl.Form
             The bilinear form to statically condense.
-        bcs :
-            An iterable of boundary conditions.
-        fcp :
-            A dict with the form compiler parameters.
-        pc_type :
+        bcs : .BCBase[]
+            An iterable of boundary conditions to apply on ``A``.
+        fcp : dict
+            The form compiler parameters.
+        pc_type : PETSc.PC.Type
             The preconditioner type for the interior solver.
 
         Returns
         -------
-        Smat :
-            A :class:`PETSc.Mat` with the original blocks of A, except that
+        Smat : PETSc.Mat
+            A matrix with the original blocks of ``A``, except that
             the matrix-free Schur complement replaces the interface-interface block.
-        Pmat :
-            A `dict` mapping pairs of function spaces to the preconditioner blocks
-            [[inv(A00), A01], [A10, inv(S)]].
+        Pmat : dict
+            A dict mapping pairs of function spaces to the preconditioner blocks
+            ``[[inv(A00), A01], [A10, inv(S)]]``.
         """
         Smats = {}
         V = J.arguments()[0].function_space()
@@ -437,7 +437,7 @@ class FDMPC(PCBase):
                                   *args_acc,
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
-            ctx = ParloopMatrixContext(parloop, x, y, bcs=bcs)
+            ctx = PythonMatrixContext(parloop, x, y, bcs=bcs)
             Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
             if Vsub == V0:
                 Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
@@ -668,15 +668,22 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
-        """
-        Assemble the auxiliary operator in the FDM basis using sparse reference
-        tensors and diagonal mass matrices.
+        """Assemble the auxiliary operator in the FDM basis using sparse
+        reference tensors and diagonal mass matrices.
 
-        :arg A: the :class:`PETSc.Mat` to assemble
-        :arg Vrow: the :class:`.FunctionSpace` test space
-        :arg Vcol: the :class:`.FunctionSpace` trial space
-        :arg addv: a `PETSc.Mat.InsertMode`
-        :arg mat_type: the `PETSc.Mat.Type` of the auxiliary operator
+        Parameters
+        ----------
+        A : PETSc.Mat
+            The (initialized) matrix to assemble.
+        Vrow : FunctionSpace
+            The test space.
+        Vcol : FunctionSpace
+            The trial space.
+        addv : PETSc.Mat.InsertMode
+            Flag indicating if we want to insert or add matrix values.
+        mat_type : PETSc.Mat.Type
+            The matrix type of auxiliary operator. This only used when ``A`` is a preallocator
+            to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
@@ -795,7 +802,7 @@ class ElementKernel:
 
 
 class TripleProductKernel(ElementKernel):
-    """Kernel builder that inserts a triple product of the form L * C * R,
+    """Kernel builder to assemble a triple product of the form L * C * R for each cell,
     where L, C, R are sparse matrices and the entries of C are updated on each cell."""
     code = dedent("""
         PetscErrorCode %(name)s(const Mat A, const Mat B,
@@ -810,8 +817,8 @@ class TripleProductKernel(ElementKernel):
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
 
-    def __init__(self, A, B, C, name=None):
-        self.product = partial(A.matMatMult, B, C)
+    def __init__(self, L, C, R, name=None):
+        self.product = partial(L.matMatMult, C, R)
         super().__init__(self.product(), name=name)
 
 
@@ -1169,15 +1176,15 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
 
     Returns
     -------
-    A 4-tuple of C code strings/string generators,
-    matmult_struct :
+    matmult_struct : str
         The C code to compute the matrix-vector product.
-    matmult_call :
-        A lambda to call the matrix-vector product on the first argument,
-        writing the output on the second argument.
-    ctx_struct :
+    matmult_call : callable
+        - ``x``: the pointer name of the input vector (`str`).
+        - ``y``: the pointer name of the output vector (`str`).
+        A lambda to generate the C code calling the matrix-vector product.
+    ctx_struct : str
         The signature of the kernel.
-    ctx_pack :
+    ctx_pack : str
         Code to update the coefficient array pointers to be called before
         applying the matshell.
     """
@@ -1193,14 +1200,18 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         kernel = kernels[-1].kinfo.kernel
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
+
+        matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
+
+        ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))
+        ctx_const = "".join(f", appctx[{i}]" for i in range(ncoef, nargs))
+        matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coeff}{x}{ctx_const});"
+
         ctx_struct = "".join(f"const PetscScalar *restrict c{i}, " for i in range(nargs))
         ctx_pointers = ", ".join(f"c{i}" for i in range(nargs))
         ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {ctx_pointers} }};"
-        ctx_coefficients = "".join("appctx[%d], " % i for i in range(ncoef))
-        ctx_constants = "".join(", appctx[%d]" % i for i in range(ncoef, nargs))
-        matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coefficients}{x}{ctx_constants});"
-        matmult_struct = cache_generate_code(kernel, V._comm)
-        matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
+
         cache[key] = (matmult_struct, matmult_call, ctx_struct, ctx_pack)
 
     if matshell:
@@ -1262,24 +1273,20 @@ class InteriorSolveKernel(ElementKernel):
         A.setSizes(B.getSizes())
         A.setUp()
 
-        use_cg = False
-        if use_cg:
-            ksp_type = PETSc.KSP.Type.CG
-            norm_type = PETSc.KSP.NormType.NATURAL
-        else:
-            ksp_type = PETSc.KSP.Type.MINRES
-            norm_type = PETSc.KSP.NormType.PRECONDITIONED
-        knoll = False
-        knoll = True
+        # Set up the local KSP for the cell interiors
         ksp = PETSc.KSP().create(comm=comm)
         ksp.setOptionsPrefix(prefix)
         ksp.setOperators(A, B)
+
+        # Default solver options, these can be overriden via -interior_ksp_type, etc.
+        rtol = 1E-8
+        atol = 1E-14
+        ksp_type = PETSc.KSP.Type.MINRES
+        norm_type = PETSc.KSP.NormType.PRECONDITIONED
         ksp.pc.setType(pc_type)
         ksp.setType(ksp_type)
         ksp.setNormType(norm_type)
-        ksp.setTolerances(rtol=1E-8, atol=0)
-        ksp.setInitialGuessNonzero(knoll)
-        ksp.setInitialGuessKnoll(knoll)
+        ksp.setTolerances(rtol=rtol, atol=atol)
         ksp.setFromOptions()
         ksp.setUp()
         super().__init__(ksp, name=name)
@@ -1352,12 +1359,18 @@ class ImplicitSchurComplementKernel(ElementKernel):
         fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
         size = idofs.size + fdofs.size
         assert size == V.finat_element.space_dimension() * V.value_size
+        # Bilinear form on the space with interior and interface
         a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
-        a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
+        # Generate code to apply the action of A within the Schur complement action
         A_struct, A_call, ctx_struct, ctx_pack = matmult_kernel_code(a, prefix="A", fcp=fcp)
+
+        # Bilinear form on the interior
+        a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
+        # Generate code to apply A00 as a PETSc.Mat of type shell within the interior KSP
         A00_struct, *_ = matmult_kernel_code(a00, prefix="A_interior", fcp=fcp, matshell=True)
         A00_struct = A00_struct.replace("#include <stdint.h>", "")
 
+        # Replacement rules to use idofs, fdofs, A, and A00 on self.code
         rules = dict(A_struct=A_struct, A_call=A_call("x", "y"), ctx_struct=ctx_struct, ctx_pack=ctx_pack,
                      A00_struct=A00_struct, size=size, isize=idofs.size, fsize=fdofs.size,
                      idofs=", ".join(map(str, idofs.indices)),
@@ -1367,10 +1380,23 @@ class ImplicitSchurComplementKernel(ElementKernel):
         fdofs.destroy()
 
 
-class ParloopMatrixContext:
+class PythonMatrixContext:
+    """Python matrix context that handles boundary conditions."""
 
-    def __init__(self, parloop, x, y, bcs=None):
-        self._mult_parloop = parloop
+    def __init__(self, mult_callable, x, y, bcs=None):
+        """
+        Parameters
+        ----------
+        mult_callable : callable
+            The callable performing the matrix-vector product.
+        x : Function
+            The tensor holding the input to the matrix-vector product.
+        y : Function
+            The tensor holding the output to the matrix-vector product.
+        bcs : .BCBase[] or None
+            An iterable of boundary conditions to apply on ``x`` and ``y``.
+        """
+        self._mult_callable = mult_callable
         self._x = x
         self._y = y
         Vrow = y.function_space()
@@ -1408,11 +1434,11 @@ class ParloopMatrixContext:
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
-        self._op(self._mult_parloop, X, Y)
+        self._op(self._mult_callable, X, Y)
 
     @PETSc.Log.EventDecorator()
     def multAdd(self, mat, X, Y, W):
-        self._op(self._mult_parloop, X, Y, W)
+        self._op(self._mult_callable, X, Y, W)
 
 
 def is_restricted(finat_element):
@@ -1672,7 +1698,8 @@ def get_base_elements(e):
 
 
 class SparseAssembler:
-
+    """Class to generate and cache python wrappers to insert sparse element
+    matrices directly with PETSc C code."""
     _cache = {}
 
     @staticmethod
@@ -1807,14 +1834,22 @@ class PoissonFDMPC(FDMPC):
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
-        """
-        Assemble the stiffness matrix in the FDM basis using Kronecker products of interval matrices
+        """Assemble the stiffness matrix in the FDM basis using Kronecker
+        products of interval matrices.
 
-        :arg A: the :class:`PETSc.Mat` to assemble
-        :arg Vrow: the :class:`.FunctionSpace` test space
-        :arg Vcol: the :class:`.FunctionSpace` trial space
-        :arg addv: a `PETSc.Mat.InsertMode`
-        :arg mat_type: a `PETSc.Mat.Type`
+        Parameters
+        ----------
+        A : PETSc.Mat
+            The (initialized) matrix to assemble.
+        Vrow : FunctionSpace
+            The test space.
+        Vcol : FunctionSpace
+            The trial space.
+        addv : PETSc.Mat.InsertMode
+            Flag indicating if we want to insert or add matrix values.
+        mat_type : PETSc.Mat.Type
+            The matrix type of auxiliary operator. This only used when ``A`` is a preallocator
+            to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
         triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
         set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
