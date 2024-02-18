@@ -151,7 +151,7 @@ def test_assemble(V, f):
     # Assemble the action of the adjoint model
     action_adj_value = assemble(action(action(adjoint(dNdu), delta_N), delta_u))
     # Check type
-    assert isinstance(action_tlm_value, float) and isinstance(action_adj_value, float)
+    assert isinstance(action_tlm_value, (float, complex)) and isinstance(action_adj_value, (float, complex))
 
     assert np.allclose(action_tlm_value, action_adj_value)
 

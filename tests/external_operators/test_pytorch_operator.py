@@ -78,6 +78,7 @@ def model(request, V):
         return f
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_forward(u, nn):
     # Set PytorchOperator
@@ -99,6 +100,7 @@ def test_forward(u, nn):
     assert np.allclose(y_F.dat.data_ro, assembled_N.dat.data_ro)
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_jvp(u, nn):
     # Set PytorchOperator
@@ -125,6 +127,7 @@ def test_jvp(u, nn):
     assert np.allclose(dN.dat.data_ro, jvp_exact.numpy())
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_vjp(u, nn):
     # Set PytorchOperator
@@ -153,6 +156,7 @@ def test_vjp(u, nn):
     assert np.allclose(dN_adj.dat.data_ro, vjp_exact.numpy())
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_jacobian(u, nn):
     # Set PytorchOperator
@@ -172,6 +176,7 @@ def test_jacobian(u, nn):
     assert np.allclose(dN.petscmat[:, :], J.numpy())
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_jacobian_adjoint(u, nn):
     # Set PytorchOperator
@@ -195,6 +200,7 @@ def test_jacobian_adjoint(u, nn):
     assert np.allclose(dN_adj.petscmat[:, :], J_adj.numpy())
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_solve(mesh, V):
 
@@ -217,7 +223,7 @@ def test_solve(mesh, V):
     p = ml_operator(model, function_space=V, inputs_format=1)
     tau2 = p(u2)
 
-    F2 = inner(grad(w), grad(u2))*dx + inner(tau2, w)*dx - inner(f, w)*dx
+    F2 = inner(grad(u2), grad(w))*dx + inner(tau2, w)*dx - inner(f, w)*dx
     solve(F2 == 0, u2)
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
