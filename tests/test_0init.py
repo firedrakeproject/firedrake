@@ -34,3 +34,11 @@ def test_int_type():
     actual = {4: "int32", 8: "int64"}[IntType.itemsize]
 
     assert expected == actual
+
+
+def test_pyop2_cache_dir_set_correctly():
+    from firedrake_configuration import get_config
+
+    config = get_config()
+    cache_dir = os.path.join(config["options"]["cache_dir"], "pyop2")
+    assert op2.configuration["cache_dir"] == cache_dir

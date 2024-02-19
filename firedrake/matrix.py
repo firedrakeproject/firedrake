@@ -2,7 +2,7 @@ import itertools
 import ufl
 
 from pyop2 import op2
-from pyop2.mpi import internal_comm, decref
+from pyop2.mpi import internal_comm
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from types import SimpleNamespace
@@ -39,7 +39,7 @@ class MatrixBase(ufl.Matrix):
         self._arguments = arguments
         self.bcs = bcs
         self.comm = test.function_space().comm
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
@@ -53,10 +53,6 @@ class MatrixBase(ufl.Matrix):
             return self.a.arguments()
         else:
             return self._arguments
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     @property
     def has_bcs(self):
