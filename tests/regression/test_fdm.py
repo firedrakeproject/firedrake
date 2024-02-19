@@ -137,8 +137,7 @@ def test_p_independence_hgrad(mesh, variant):
     expected = [16, 12] if mesh.topological_dimension() == 3 else [9, 7]
     solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant=variant)
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
@@ -150,8 +149,7 @@ def test_p_independence_hcurl(mesh):
     expected = [13, 10] if mesh.topological_dimension() == 3 else [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant="fdm")
         problem = build_riesz_map(V, curl)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
@@ -163,8 +161,7 @@ def test_p_independence_hdiv(mesh):
     expected = [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant="fdm")
         problem = build_riesz_map(V, div)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
@@ -207,18 +204,17 @@ def test_variable_coefficient(mesh):
 def fs(request, mesh):
     degree = 3
     tdim = mesh.topological_dimension()
-    cell = mesh.ufl_cell()
     element = request.param
     variant = "fdm_ipdg"
     if element == "rt":
         family = "RTCF" if tdim == 2 else "NCF"
-        return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
+        return FunctionSpace(mesh, family, degree, variant=variant)
     else:
         if tdim == 1:
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-tdim)
+        return VectorFunctionSpace(mesh, family, degree, dim=5-tdim, variant=variant)
 
 
 @pytest.mark.skipcomplex

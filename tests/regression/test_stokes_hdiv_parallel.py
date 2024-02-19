@@ -78,7 +78,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
 
         UP = Function(W)
 
-        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis([Function(Q).interpolate(Constant(1))])])
 
         parameters = {
             "mat_type": mat_type,
@@ -100,10 +100,10 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "assembled_redundant_pc_type": "lu",
             },
             "fieldsplit_1": {
-                "mat_type": "matfree",
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.MassInvPC",
+                "Mp_mat_type": "matfree",
                 "Mp_pc_type": "jacobi",
             }
         }
