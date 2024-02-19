@@ -40,7 +40,6 @@ def run_riesz_map(V, mat_type):
         "mg_coarse": coarse,
         "mg_levels": {
             "ksp_type": "chebyshev",
-            "ksp_maxit": 1,
             "ksp_chebyshev_esteig": "0.75,0.25,0,1",
             "pc_type": "python",
             "pc_python_type": "firedrake.HiptmairPC",
@@ -68,7 +67,7 @@ def run_riesz_map(V, mat_type):
         from firedrake.preconditioners.fdm import tabulate_exterior_derivative
         appctx = {"get_gradient": tabulate_exterior_derivative,
                   "get_curl": tabulate_exterior_derivative}
-    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs, form_compiler_parameters={"mode": "vanilla"})
     solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx=appctx)
     solver.solve()
     its = solver.snes.ksp.getIterationNumber()
