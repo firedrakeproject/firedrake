@@ -8,6 +8,13 @@
 Firedrake events
 ----------------
 
+Firedrake '24
+~~~~~~~~~~~~~
+
+The eighth Firedrake user and developer workshop will be held
+between 16-18 September 2024 at the University of Oxford. For more
+information see :doc:`the workshop page <firedrake_24>`.
+
 Firedrake '23
 ~~~~~~~~~~~~~
 
@@ -19,7 +26,7 @@ PETSc4py documentation sprint
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Firedrakers and collaborators will be meeting to finally document PETSc4py in
-Faversham, Kent from 27-31 March 2023. Stay tuned for updates.
+Faversham, Kent from 27-31 March 2023.
 
 Firedrake '22
 ~~~~~~~~~~~~~
