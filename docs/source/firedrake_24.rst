@@ -22,8 +22,8 @@ will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
 
-More details about accommodation and the conference dinner will be
-posted in due course.
+More details about registration, submissions, accommodation and the 
+conference dinner will be posted in due course.
 
 ..
     Programme
