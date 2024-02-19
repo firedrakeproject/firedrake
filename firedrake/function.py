@@ -1,4 +1,5 @@
 import numpy as np
+from functools import cached_property
 import rtree
 import sys
 import ufl
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
+import pyop3 as op3
 
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
@@ -71,14 +73,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
         self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or f"function_{self.uid}"
         self._label = "a function"
 
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+        if isinstance(val, op3.HierarchicalArray):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -108,13 +109,25 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
-                     for i, (fs, dat) in
-                     enumerate(zip(self.function_space(), self.dat)))
+
+        # NOTE: In parallel, for mixed functions, the halo data is not contiguous
+        # with the owned data so modifying things can be expensive as it is not
+        # a simple view.
+        # TODO: raise a warning when this happens
+
+        nspaces = len(self.function_space())
+        if nspaces > 1:
+            return tuple(
+                CoordinatelessFunction(V, self.dat[str(i)], name=f"{self.name()}[{i}]")
+                for i, V in enumerate(self.function_space())
+            )
+        else:
+            assert nspaces == 1
+            return (self,)
 
     @PETSc.Log.EventDecorator()
     def split(self):
@@ -168,9 +181,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         this :class:`Function`."""
         return self.function_space().dof_dset
 
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
-    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
+    # def cell_node_map(self):
+    #     return self.function_space().cell_node_map()
+    # cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
 
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map()
@@ -311,7 +324,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -325,7 +338,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().value_size == 1:
             return (self, )

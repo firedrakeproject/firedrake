@@ -431,11 +431,17 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         3   1
         #                         |  0   \
         #                         6---2---5
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        fiat_closure[0] = plex_closure[2 * 6]
+        fiat_closure[1] = plex_closure[2 * 4]
+        fiat_closure[2] = plex_closure[2 * 5]
+        fiat_closure[3] = plex_closure[2 * 1]
+        fiat_closure[4] = plex_closure[2 * 2]
+        fiat_closure[5] = plex_closure[2 * 3]
+        fiat_closure[6] = plex_closure[2 * 0]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         # UFCTetrahedron:         0---9---1---9---0
         #                          \ 12  / \ 13  /
-        # cell = 15                 7   5   6   8
+        # cell = 14                 7   5   6   8
         #                            \ / 10  \ /
         #                             3---4---2
         #                              \ 11  /
@@ -526,12 +532,10 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_cell_closure(PETSc.DM dm,
-                        PETSc.Section cell_numbering,
                         _closureSize):
     """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
 
     :arg dm: The DM object encapsulating the mesh topology
-    :arg cell_numbering: Section describing the global cell numbering
     :arg _closureSize: Number of entities in the cell
     """
     cdef:
@@ -552,215 +556,199 @@ def create_cell_closure(PETSc.DM dm,
     cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
     CHKERR(PetscMalloc1(closureSize, &fiat_closure))
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
         _reorder_plex_closure(dm, c, closure, fiat_closure)
         restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
         for i in range(closureSize):
-            cell_closure[cell, i] = fiat_closure[i]
+            cell_closure[c, i] = fiat_closure[i]
     CHKERR(PetscFree(fiat_closure))
     return cell_closure
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def closure_ordering(PETSc.DM dm,
-                     PETSc.Section vertex_numbering,
-                     PETSc.Section cell_numbering,
-                     np.ndarray[PetscInt, ndim=1, mode="c"] entity_per_cell):
-    """Apply Fenics local numbering to a cell closure.
+def closure_ordering(mesh, closure_data, closure_sizes):
+    """Apply FEniCS local numbering to a cell closure.
 
-    :arg dm: The DM object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
-    :arg cell_numbering: Section describing the global cell numbering
-    :arg entity_per_cell: List of the number of entity points in each dimension
+    The reordering is achieved by ordering vertices according to their global
+    number and by ordering edges and facets according to a lexicographical
+    order of the non-incident vertices.
 
-    Vertices    := Ordered according to global/universal
-                   vertex numbering
-    Edges/faces := Ordered according to lexicographical
-                   ordering of non-incident vertices
+    Parameters
+    ----------
+    mesh : MeshTopology
+        The mesh providing the closures.
+    closure_data : tuple
+        Tuple of arrays storing cell closure information per dimension.
+    closure_sizes : tuple
+        The number of points in the cell closure per dimension.                 
+
     """
     cdef:
-        PetscInt c, cStart, cEnd, v, vStart, vEnd
-        PetscInt f, fStart, fEnd, e, eStart, eEnd
-        PetscInt dim, vi, ci, fi, v_per_cell, f_per_cell, cell
-        PetscInt offset, cell_offset, nfaces, nfacets
-        PetscInt nclosure, nfacet_closure, nface_vertices
-        PetscInt *vertices = NULL
-        PetscInt *v_global = NULL
-        PetscInt *closure = NULL
-        PetscInt *facets = NULL
-        PetscInt *faces = NULL
-        PetscInt *face_indices = NULL
-        const PetscInt *face_vertices = NULL
-        PetscInt *facet_vertices = NULL
-        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+        PETSc.DM dm
+        PetscInt tdim, cell
+        PetscInt nverts_per_cell, nedges_per_cell, nfacets_per_cell
+        PetscInt *verts=NULL, *edges=NULL, *facets=NULL, *global_verts=NULL
+        PetscInt *edge_cone=NULL, *edge_verts=NULL, *edge_incident_verts=NULL
+        PetscInt nfacet_closure, *facet_closure=NULL, *facet_verts=NULL
 
-    dim = get_topological_dimension(dm)
-    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    get_height_stratum(dm.dm, 1, &fStart, &fEnd)
-    get_depth_stratum(dm.dm, 1, &eStart, &eEnd)
-    get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
+    dm = mesh.topology_dm
+    tdim = mesh.dimension
+    assert tdim <= 3
 
-    v_per_cell = entity_per_cell[0]
-    if len(entity_per_cell) > 1:
-        f_per_cell = entity_per_cell[1]
-    else:
-        f_per_cell = 0
+    nverts_per_cell = closure_sizes[0]
+    nedges_per_cell = closure_sizes[1] if tdim >= 1 else 0
+    nfacets_per_cell = closure_sizes[tdim-1] if tdim >= 1 else 0
 
-    cell_offset = sum(entity_per_cell) - 1
+    CHKERR(PetscMalloc1(nverts_per_cell, &verts))
+    CHKERR(PetscMalloc1(nedges_per_cell, &edges))
+    CHKERR(PetscMalloc1(nfacets_per_cell, &facets))
+    CHKERR(PetscMalloc1(nverts_per_cell, &global_verts))
 
-    CHKERR(PetscMalloc1(v_per_cell, &vertices))
-    CHKERR(PetscMalloc1(v_per_cell, &v_global))
-    CHKERR(PetscMalloc1(v_per_cell, &facets))
-    if v_per_cell > 0:
-        CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
-    if len(entity_per_cell) > 1:
-        CHKERR(PetscMalloc1(f_per_cell, &faces))
-        CHKERR(PetscMalloc1(f_per_cell, &face_indices))
-    cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
+    CHKERR(PetscMalloc1(2, &edge_verts))
+    CHKERR(PetscMalloc1(nedges_per_cell, &edge_incident_verts))
 
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
+    # upper bound
+    CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
-        # Find vertices and translate universal numbers
-        vi = 0
-        for ci in range(nclosure):
-            if vStart <= closure[2*ci] < vEnd:
-                vertices[vi] = closure[2*ci]
-                CHKERR(PetscSectionGetOffset(vertex_numbering.sec,
-                                             closure[2*ci], &v))
-                # Correct -ve offsets for non-owned entities
-                if v >= 0:
-                    v_global[vi] = v
-                else:
-                    v_global[vi] = -(v+1)
-                vi += 1
+    closure_data_reord = tuple(np.empty_like(d) for d in closure_data)
+    for cell in range(mesh.num_cells()):
+        # 1. Order vertices
+        for vi, vert in enumerate(closure_data[0][cell]):
+            verts[vi] = vert
+            global_verts[vi] = mesh._global_vertex_numbering[vert]
+            
+        # Sort vertices by their global number
+        CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
 
-        # Sort vertices by universal number
-        CHKERR(PetscSortIntWithArray(v_per_cell,v_global,vertices))
-        for vi in range(v_per_cell):
-            if dim == 1:
-                # Correct 1D edge numbering
-                cell_closure[cell, vi] = vertices[v_per_cell-vi-1]
-            else:
-                cell_closure[cell, vi] = vertices[vi]
-        offset = v_per_cell
+        # Insert into the closure
+        for vi in range(nverts_per_cell):
+            # Correct 1D edge numbering
+            vert = verts[vi] if tdim != 1 else verts[nverts_per_cell-vi-1]
+            closure_data_reord[0][cell, vi] = vert
 
-        # Find all edges (dim=1) (only relevant for `DMPlex`)
-        if dim > 2:
-            assert isinstance(dm, PETSc.DMPlex)
-            nfaces = 0
-            for ci in range(nclosure):
-                if eStart <= closure[2*ci] < eEnd:
-                    faces[nfaces] = closure[2*ci]
+        # 2. Order edges (3D only, in 2D facets and edges are equivalent)
+        if tdim > 2:
+            # Edges are tricky because we need a lexicographical sort with two
+            # keys (the local numbers of the two non-incident vertices)
+            for ei, edge in enumerate(closure_data[1][cell]):
+                edges[ei] = edge
 
-                    CHKERR(DMPlexGetConeSize(dm.dm, closure[2*ci],
-                                             &nface_vertices))
-                    CHKERR(DMPlexGetCone(dm.dm, closure[2*ci],
-                                         &face_vertices))
+                # Convert the edge, which is in stratum-local, renumbered form
+                # back to what plex expects
+                edge_unrenum = mesh.points.applied_to_default_component_number(
+                    mesh.edge_label, edge
+                )
+                edge_pt = mesh.points.component_to_axis_number(
+                    mesh.edge_label, edge_unrenum
+                )
 
-                    # Edges in 3D are tricky because we need a
-                    # lexicographical sort with two keys (the local
-                    # numbers of the two non-incident vertices).
+                # Collect incident vertices
+                CHKERR(DMPlexGetCone(dm.dm, edge_pt, &edge_cone))
+                for i in range(2):
+                    pt = edge_cone[i]
+                    stratum, stratum_pt = mesh.points.axis_to_component_number(pt)
+                    stratum_pt_renum = mesh.points.default_to_applied_component_number(
+                        stratum, stratum_pt
+                    )
+                    edge_verts[i] = stratum_pt_renum
 
-                    # Find non-incident vertices
-                    fi = 0
-                    face_indices[nfaces] = 0
-                    for v in range(v_per_cell):
-                        incident = 0
-                        for vi in range(nface_vertices):
-                            if cell_closure[cell,v] == face_vertices[vi]:
-                                incident = 1
-                                break
-                        if incident == 0:
-                            face_indices[nfaces] += v * 10**(1-fi)
-                            fi += 1
-                    nfaces += 1
+                # Find non-incident vertices and store lexicographically
+                edge_incident_verts[ei] = 0
+                ptr = 0
+                for vi in range(nverts_per_cell):
+                    incident = False
+                    for vj in range(2):
+                        if edge_verts[vj] == closure_data[0][cell, vi]:
+                            incident = True
+                            break
+                    if not incident:
+                        edge_incident_verts[ei] += vi * 10**(1-ptr)
+                        ptr += 1
 
             # Sort by local numbers of non-incident vertices
-            CHKERR(PetscSortIntWithArray(f_per_cell,
-                                         face_indices, faces))
-            for fi in range(nfaces):
-                cell_closure[cell, offset+fi] = faces[fi]
-            offset += nfaces
+            CHKERR(PetscSortIntWithArray(nedges_per_cell, edge_incident_verts, edges))
 
-        # Calling get_transitive_closure() again invalidates the
-        # current work array, so we need to get the facets and cell
-        # out before getting the facet closures.
+            # Insert into the closure
+            for ei in range(nedges_per_cell):
+                closure_data_reord[1][cell, ei] = edges[ei]
 
-        # Find all facets (co-dim=1)
-        nfacets = 0
-        for ci in range(nclosure):
-            if fStart <= closure[2*ci] < fEnd:
-                facets[nfacets] = closure[2*ci]
-                nfacets += 1
+        # 3. Order facets
+        if tdim > 1:
+            for fi, facet in enumerate(closure_data[tdim-1][cell]):
+                # Convert the facet, which is in stratum-local, renumbered form
+                # back to what plex expects
+                facet_unrenum = mesh.points.applied_to_default_component_number(
+                    mesh.facet_label, facet
+                )
+                facet_pt = mesh.points.component_to_axis_number(
+                    mesh.facet_label, facet_unrenum
+                )
 
-        # The cell itself is always the first entry in the Plex closure
-        cell_closure[cell, cell_offset] = closure[0]
+                # Collect vertices that are in the closure of the facet
+                get_transitive_closure(
+                    dm.dm, facet_pt, PETSC_TRUE, &nfacet_closure, &facet_closure
+                )
+                ptr = 0
+                for i in range(nfacet_closure):
+                    pt = facet_closure[2*i]
+                    stratum, stratum_pt = mesh.points.axis_to_component_number(pt)
+                    stratum_pt_renum = mesh.points.default_to_applied_component_number(
+                        stratum, stratum_pt
+                    )
+                    if stratum.label == mesh.vert_label:
+                        facet_verts[ptr] = stratum_pt_renum
+                        ptr += 1
 
-        # Now we can deal with facets (only relevant for `DMPlex`)
-        if dim > 1:
-            for f in range(nfacets):
-                # Derive facet vertices from facet_closure
-                get_transitive_closure(dm.dm, facets[f],
-                                       PETSC_TRUE,
-                                       &nfacet_closure,
-                                       &closure)
-                vi = 0
-                for fi in range(nfacet_closure):
-                    if vStart <= closure[2*fi] < vEnd:
-                        facet_vertices[vi] = closure[2*fi]
-                        vi += 1
-
-                # Find non-incident vertices
-                for v in range(v_per_cell):
-                    incident = 0
-                    for vi in range(v_per_cell-1):
-                        if cell_closure[cell,v] == facet_vertices[vi]:
-                            incident = 1
+                # Find the non-incident vertex
+                for vi in range(nverts_per_cell):
+                    incident = False
+                    for vj in range(nverts_per_cell-1):
+                        if facet_verts[vj] == closure_data[0][cell, vi]:
+                            incident = True
                             break
-                    # Only one non-incident vertex per facet, so
-                    # local facet no. = non-incident vertex no.
-                    if incident == 0:
-                        cell_closure[cell,offset+v] = facets[f]
+                    # Only one non-incident vertex per facet, so the local facet
+                    # number is the same as the non-incident vertex number
+                    if not incident:
+                        closure_data_reord[tdim-1][cell, vi] = facet
                         break
 
-            offset += nfacets
+        # 4. And finally the cell
+        assert closure_sizes[tdim] == 1
+        closure_data_reord[tdim][cell] = closure_data[tdim][cell]
 
-    if closure != NULL:
-        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
-
-    CHKERR(PetscFree(vertices))
-    CHKERR(PetscFree(v_global))
+    # Cleanup
+    CHKERR(PetscFree(verts))
+    CHKERR(PetscFree(edges))
     CHKERR(PetscFree(facets))
-    CHKERR(PetscFree(facet_vertices))
-    CHKERR(PetscFree(faces))
-    CHKERR(PetscFree(face_indices))
+    CHKERR(PetscFree(global_verts))
+    CHKERR(PetscFree(edge_verts))
+    CHKERR(PetscFree(edge_incident_verts))
+    CHKERR(PetscFree(facet_verts))
+    if facet_closure != NULL:
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nfacet_closure, &facet_closure)
 
-    return cell_closure
+    return closure_data_reord
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def quadrilateral_closure_ordering(PETSc.DM plex,
-                                   PETSc.Section vertex_numbering,
-                                   PETSc.Section cell_numbering,
+def quadrilateral_closure_ordering(mesh,
                                    np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations):
     """Cellwise orders mesh entities according to the given cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_numbering: Section describing the cell numbering
     :arg cell_orientations: Specifies the starting vertex for each cell,
                             and the order of traversal (CCW or CW).
     """
     cdef:
+        PETSc.DM plex
+        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering
         PetscInt c, cStart, cEnd, cell
         PetscInt fStart, fEnd, vStart, vEnd
-        PetscInt entity_per_cell, ncells
+        PetscInt ncells
         PetscInt nclosure, p, vi, v, fi, i
         PetscInt start_v, off
         PetscInt *closure = NULL
@@ -771,18 +759,20 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt facets[4]
         const PetscInt *cell_cone = NULL
         int reverse
-        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+
+    plex = mesh.topology_dm
+    vertex_numbering = mesh._global_vertex_numbering
 
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
 
     ncells = cEnd - cStart
-    entity_per_cell = 4 + 4 + 1
 
-    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
+    cell_closure = tuple(
+        np.empty((ncells, n), dtype=IntType) for n in [4, 4, 1]
+    )
     for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # First extract the facets (edges) and the vertices
@@ -802,17 +792,17 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         vi = 0
         fi = 0
         for p in range(nclosure):
-            if vStart <= closure[2*p] < vEnd:
-                CHKERR(PetscSectionGetOffset(vertex_numbering.sec, closure[2*p], &v))
-                c_vertices[vi] = closure[2*p]
-                g_vertices[vi] = cabs(v)
+            pt = closure[2*p]
+            if vStart <= pt < vEnd:
+                c_vertices[vi] = pt
+                g_vertices[vi] = mesh._default_global_numbering[pt]
                 vi += 1
-            elif fStart <= closure[2*p] < fEnd:
-                c_facets[fi] = closure[2*p]
+            elif fStart <= pt < fEnd:
+                c_facets[fi] = pt
                 fi += 1
 
         # The first vertex is given by the entry in cell_orientations.
-        start_v = cell_orientations[cell]
+        start_v = cell_orientations[c]
 
         # Based on the cell orientation, we reorder the vertices and facets
         # (edges) from 'c_vertices' and 'c_facets' into 'vertices' and 'facets'.
@@ -889,15 +879,21 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         #   o--2--o
         #
         # So let us permute.
-        cell_closure[cell, 0] = vertices[0]
-        cell_closure[cell, 1] = vertices[1]
-        cell_closure[cell, 2] = vertices[3]
-        cell_closure[cell, 3] = vertices[2]
-        cell_closure[cell, 4 + 0] = facets[0]
-        cell_closure[cell, 4 + 1] = facets[2]
-        cell_closure[cell, 4 + 2] = facets[3]
-        cell_closure[cell, 4 + 3] = facets[1]
-        cell_closure[cell, 8] = c
+        cell = mesh.points.default_to_applied_component_number(mesh.cell_label, c)
+
+        def renum(pt):
+            stratum, stratum_pt = mesh.points.axis_to_component_number(pt)
+            return mesh.points.default_to_applied_component_number(stratum, stratum_pt)
+
+        cell_closure[0][cell, 0] = renum(vertices[0])
+        cell_closure[0][cell, 1] = renum(vertices[1])
+        cell_closure[0][cell, 2] = renum(vertices[3])
+        cell_closure[0][cell, 3] = renum(vertices[2])
+        cell_closure[1][cell, 0] = renum(facets[0])
+        cell_closure[1][cell, 1] = renum(facets[2])
+        cell_closure[1][cell, 2] = renum(facets[3])
+        cell_closure[1][cell, 3] = renum(facets[1])
+        cell_closure[2][cell] = cell  # already renumbered
 
     if closure != NULL:
         restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -2389,13 +2385,13 @@ cdef inline PetscInt cabs(PetscInt i):
         return cneg(i)
 
 cdef inline void get_edge_global_vertices(PETSc.DM plex,
-                                          PETSc.Section vertex_numbering,
+                                          np.ndarray vertex_numbering,
                                           PetscInt facet,
                                           PetscInt *global_v):
     """Returns the global numbers of the vertices of an edge.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
+    :arg vertex_numbering: Array describing the global vertex numbering
     :arg facet: The edge
     :arg global_v: Return buffer, must have capacity for 2 values
     """
@@ -2408,25 +2404,20 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
 
     CHKERR(DMPlexGetCone(plex.dm, facet, &vs))
 
-    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[0], &ndofs))
-    assert cabs(ndofs) == 1
-    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[1], &ndofs))
-    assert cabs(ndofs) == 1
+    global_v[0] = vertex_numbering[vs[0]]
+    global_v[1] = vertex_numbering[vs[1]]
 
-    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[0], &global_v[0]))
-    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[1], &global_v[1]))
-
-    global_v[0] = cabs(global_v[0])
-    global_v[1] = cabs(global_v[1])
+    # global_v[0] = cabs(global_v[0])
+    # global_v[1] = cabs(global_v[1])
 
 cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
-                                                  PETSc.Section vertex_numbering,
+                                                  np.ndarray vertex_numbering,
                                                   PetscInt facet):
     """Returns the local plex direction (ordering in plex cone) relative to
     the global edge direction (from smaller to greater global vertex number).
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
+    :arg vertex_numbering: Array describing the global vertex numbering
     :arg facet: The edge
     """
     cdef PetscInt v[2]
@@ -2464,16 +2455,16 @@ cdef int CommFacet_cmp(void *x_, void *y_) nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void get_communication_lists(
-    PETSc.DM plex, PETSc.Section vertex_numbering,
+    PETSc.DM plex, np.ndarray vertex_numbering,
     np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks,
     # Output parameters:
     PetscInt *nranks, PetscInt **ranks, PetscInt **offsets,
     PetscInt **facets, PetscInt **facet2index):
 
-    """Creates communication lists for shared facet information exchange.
+    """Create communication lists for shared facet information exchange.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
+    :arg vertex_numbering: Array describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
 
@@ -2739,7 +2730,7 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
-                                       PETSc.Section vertex_numbering,
+                                       np.ndarray vertex_numbering,
                                        PetscInt *cell_ranks,
                                        PetscInt *facet2index,
                                        PetscInt nfacets_shared,
@@ -2748,7 +2739,7 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
     derive the dependency information of shared facets.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
+    :arg vertex_numbering: Array describing the global vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
     :arg facet2index: Maps plex facet numbers to their index in the buffer
@@ -2891,25 +2882,27 @@ cdef inline void exchange_edge_orientation_data(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def quadrilateral_facet_orientations(
-    PETSc.DM plex, PETSc.Section vertex_numbering,
-    np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks):
-
-    """Returns globally synchronised facet orientations (edge directions)
+    mesh, np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks,
+):
+    # FIXME
+    """Return globally synchronised facet orientations (edge directions)
     incident to locally owned quadrilateral cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
     """
     cdef:
+        PETSc.DM plex
+        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering
+
         PetscInt nranks
         PetscInt *ranks = NULL
         PetscInt *offsets = NULL
         PetscInt *facets = NULL
         PetscInt *facet2index = NULL
 
-        MPI.Comm comm = plex.comm.tompi4py()
+        MPI.Comm comm
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
         np.ndarray[PetscInt, ndim=1, mode="c"] affects
@@ -2920,6 +2913,10 @@ def quadrilateral_facet_orientations(
         PetscInt cells[2]
 
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
+
+    plex = mesh.topology_dm
+    vertex_numbering = mesh._default_global_numbering
+    comm = plex.comm.tompi4py()
 
     # Get communication lists
     get_communication_lists(plex, vertex_numbering, cell_ranks,
@@ -3036,23 +3033,25 @@ def quadrilateral_facet_orientations(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def orientations_facet2cell(
-    PETSc.DM plex, PETSc.Section vertex_numbering,
+    mesh,
     np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks,
     np.ndarray[np.int8_t, ndim=1, mode="c"] facet_orientations,
-    PETSc.Section cell_numbering):
+):
 
     """Converts local quadrilateral facet orientations into
     global quadrilateral cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg facet_orientations: Facet orientations (edge directions) relative
                              to the local DMPlex ordering.
     :arg cell_numbering: Section describing the cell numbering
     """
     cdef:
+        PETSc.DM plex,
+        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering,
+
         PetscInt c, cStart, cEnd, ncells, cell
-        PetscInt fStart, fEnd
+        PetscInt fStart, fEnd, vStart, vEnd
         const PetscInt *cone = NULL
         const PetscInt *cone_orient = NULL
         np.int8_t dst_orient[4]
@@ -3060,15 +3059,19 @@ def orientations_facet2cell(
         PetscInt facet, v, V
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations
 
+    plex = mesh.topology_dm
+    vertex_numbering = mesh._default_global_numbering
+
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
+    get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
     ncells = cEnd - cStart
 
     cell_orientations = np.zeros(ncells, dtype=IntType)
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
-            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+            cell = c
 
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
@@ -3125,7 +3128,8 @@ def orientations_facet2cell(
             else:
                 v = cone[1]
 
-            CHKERR(PetscSectionGetOffset(vertex_numbering.sec, v, &V))
+            V = vertex_numbering[v]
+            # TODO I think cabs isn't required since we don't have negatives
             cell_orientations[cell] = cabs(V)
 
     return cell_orientations
@@ -3133,10 +3137,9 @@ def orientations_facet2cell(
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def exchange_cell_orientations(
-    PETSc.DM plex, PETSc.Section section,
-    np.ndarray[PetscInt, ndim=1, mode="c"] orientations):
+def exchange_cell_orientations(mesh, np.ndarray[PetscInt, ndim=1, mode="c"] orientations):
 
+    # FIXME
     """Halo exchange of cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -3145,6 +3148,7 @@ def exchange_cell_orientations(
                        values in the halo will be overwritten.
     """
     cdef:
+        PETSc.DM plex
         PETSc.SF sf
         PetscInt nroots, nleaves
         const PetscInt *ilocal = NULL
@@ -3153,6 +3157,8 @@ def exchange_cell_orientations(
         PETSc.Section new_section
         PetscInt *new_values = NULL
         PetscInt i, c, cStart, cEnd, l, r
+
+    plex = mesh.topology_dm
 
     try:
         try:
@@ -3164,6 +3170,7 @@ def exchange_cell_orientations(
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
     if plex.comm.size > 1 and plex.isDistributed():
+        raise NotImplementedError("Think I just have to do a broadcast using orientations as a buffer")
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 

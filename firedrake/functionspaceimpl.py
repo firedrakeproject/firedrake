@@ -9,15 +9,19 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy
+from pyrsistent import freeze
 
 import ufl
 import finat.ufl
 
 from pyop2 import op2, mpi
+import pyop3 as op3
+from pyop3.utils import single_valued
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 
 def check_element(element, top=True):
@@ -435,7 +439,7 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
         return WithGeometry.create(self.topological, self.mesh())
 
 
-class FunctionSpace(object):
+class FunctionSpace:
     r"""A representation of a function space.
 
     A :class:`FunctionSpace` associates degrees of freedom with
@@ -471,6 +475,7 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
+
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -506,38 +511,42 @@ class FunctionSpace(object):
         space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
+
         # User comm
         self.comm = mesh.comm
         # Internal comm
         self._comm = mpi.internal_comm(self.comm, self)
 
-        self.set_shared_data()
-        self.dof_dset = self.make_dof_dset()
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-        self.node_set = self.dof_dset.set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-
-    def set_shared_data(self):
-        element = self.ufl_element()
-        sdata = get_shared_data(self._mesh, element)
-        # Need to create finat element again as sdata does not
-        # want to carry finat_element.
         self.finat_element = create_element(element)
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self._shared_data = sdata
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-        self.global_numbering = sdata.global_numbering
 
-    def make_dof_dset(self):
-        return op2.DataSet(self._shared_data.node_set, self.shape or 1,
-                           name=f"{self.name}_nodes_dset")
+        axes = op3.PartialAxisTree(mesh.points)
+        for tdim, edofs in self.finat_element.entity_dofs().items():
+            ndofs = single_valued(len(d) for d in edofs.values())
+            subaxes = op3.PartialAxisTree(op3.Axis(ndofs, "dof"))
+            for dim in self.shape:
+                subaxes = subaxes.add_subaxis(op3.Axis(dim), *subaxes.leaf)
+            axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+        self.axes = axes.set_up()
+
+    # def set_shared_data(self):
+    #     element = self.ufl_element()
+    #     sdata = get_shared_data(self._mesh, element)
+    #     # Need to create finat element again as sdata does not
+    #     # want to carry finat_element.
+    #     # Used for reconstruction of mixed/component spaces.
+    #     # sdata carries real_tensorproduct.
+    #     self._shared_data = sdata
+    #     self.real_tensorproduct = sdata.real_tensorproduct
+    #     self.extruded = sdata.extruded
+    #     self.offset = sdata.offset
+    #     self.offset_quotient = sdata.offset_quotient
+    #     self.cell_boundary_masks = sdata.cell_boundary_masks
+    #     self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+    #     self.global_numbering = sdata.global_numbering
+
+    # def make_dof_dset(self):
+    #     return op2.DataSet(self._shared_data.node_set, self.shape or 1,
+    #                        name=f"{self.name}_nodes_dset")
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -556,8 +565,9 @@ class FunctionSpace(object):
         if not isinstance(other, FunctionSpace):
             return False
         # FIXME: Think harder about equality
+            # don't think I need to include this. This comes from the UFL element
+            # self.dof_dset is other.dof_dset and \
         return self.mesh() is other.mesh() and \
-            self.dof_dset is other.dof_dset and \
             self.ufl_element() == other.ufl_element() and \
             self.component == other.component
 
@@ -565,7 +575,7 @@ class FunctionSpace(object):
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
+        return hash((self.mesh(), self.axes, self.ufl_element()))
 
     @utils.cached_property
     def _ad_parent_space(self):
@@ -580,18 +590,90 @@ class FunctionSpace(object):
 
     def _dm(self):
         from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setLocalSection(self.local_section)
+        dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self.global_numbering)
+                             section=dm.getGlobalSection())
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
 
     @utils.cached_property
+    def template_vec(self):
+        """Dummy PETSc Vec of the right size for this set of axes."""
+        vec = PETSc.Vec().create(comm=self.comm)
+        # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
+        # because cdim is not really something pyop3 considers.
+        # size = (self.size * self.cdim, None)
+        # "size" is a 2-tuple of (local size, global size), setting global size
+        # to None means PETSc will determine it for us.
+        size = (self.axes.size, None)
+        # vec.setSizes(size, bsize=self.cdim)
+        vec.setSizes(size)
+        vec.setUp()
+        return vec
+
+    @utils.cached_property
     def _ises(self):
-        return self.dof_dset.field_ises
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        ises = []
+        nlocal_rows = 0
+        # FIXME will not work for mixed
+        if len(self) > 1:
+            raise NotImplementedError
+        # for dset in self:
+            # nlocal_rows += dset.size * dset.cdim
+        nlocal_rows += self.axes.size
+        offset = self.comm.scan(nlocal_rows)
+        offset -= nlocal_rows
+
+        # for dset in self:
+        #     nrows = dset.size * dset.cdim
+        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+        #                                    comm=self.comm)
+        #     iset.setBlockSize(dset.cdim)
+        #     ises.append(iset)
+        #     offset += nrows
+        nrows = self.axes.size
+        iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+                                       comm=self.comm)
+        iset.setBlockSize(self._cdim)
+        ises.append(iset)
+        offset += nrows
+        return tuple(ises)
+
+    @utils.cached_property
+    def local_section(self):
+        section = PETSc.Section().create(comm=self.comm)
+        points = self.mesh().topology.points
+        section.setChart(0, points.size)
+        for p in points.iter():
+            clabel = op3.utils.just_one(p.source_path.values())
+            # p_renum = points.default_to_applied_component_number(
+            #     clabel,
+            #     op3.utils.just_one(p.target_exprs.values())
+            # )
+            p_renum = op3.utils.just_one(p.target_exprs.values())
+            p_ = points.component_to_axis_number(clabel, p_renum)
+            offset = self.axes.offset(p.target_exprs, p.target_path)
+            section.setOffset(p_, offset)
+        # could also try setting a permutation?
+        perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
+        section.setPermutation(perm)
+        return section
+
+    @property
+    def _cdim(self):
+        if self.shape:
+            return numpy.prod(self.shape, dtype=int)
+        else:
+            return 1
 
     @utils.cached_property
     def cell_node_list(self):
@@ -682,23 +764,22 @@ class FunctionSpace(object):
         r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
-        return self.dof_dset.layout_vec.getSize()
+        return self.template_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
-        :attr:`dof_dset` of this :class:`.Function`."""
-        return op2.Dat(self.dof_dset, val, valuetype, name)
+        """Return a new Dat storing DoFs for the function space."""
+        return op3.HierarchicalArray(
+            self.axes,
+            data=val.flatten() if val is not None else None,
+            dtype=valuetype,
+            name=name
+        )
 
-    def cell_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from cels to
-        function space nodes."""
-        sdata = self._shared_data
-        return sdata.get_map(self,
-                             self.mesh().cell_set,
-                             self.finat_element.space_dimension(),
-                             "cell_node",
-                             self.offset,
-                             self.offset_quotient)
+    # this is badly named, loop_index must currently only be cells
+    def cell_closure_map(self, loop_index):
+        """Return a map from cells to cell closures."""
+        # TODO Is this property even needed?
+        return self.mesh().closure(loop_index, "fiat")
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to
@@ -740,7 +821,7 @@ class FunctionSpace(object):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs=()):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -748,8 +829,9 @@ class FunctionSpace(object):
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
-        if bcs is None or len(bcs) == 0:
-            return lgmap or self.dof_dset.lgmap
+        if not bcs:
+            return self._lgmap
+
         for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
@@ -787,12 +869,45 @@ class FunctionSpace(object):
         indices[nodes] = -1
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
+    @utils.cached_property
+    def _lgmap(self):
+        """Return the mapping from process-local indices to global indices."""
+        # TODO remove circular import
+        from firedrake.cython.dmcommon import make_global_numbering
+
+        lsec = self.dm.getDefaultSection()
+        gsec = self.dm.getDefaultGlobalSection()
+        return make_global_numbering(lsec, gsec)
+        # lgmap = PETSc.LGMap()
+        # if self.comm.size == 1:
+        #     lgmap.create(indices=numpy.arange(self.size, dtype=IntType),
+        #                  bsize=self.cdim, comm=self.comm)
+        # else:
+        #     lgmap.create(indices=self.halo.local_to_global_numbering,
+        #                  bsize=self.cdim, comm=self.comm)
+        # return lgmap
+
+    @utils.cached_property
+    def _unblocked_lgmap(self):
+        """Return the local-to-global mapping with a block size of 1."""
+        raise NotImplementedError
+        if self.cdim == 1:
+            return self._lgmap
+        else:
+            indices = self._lgmap.indices
+            lgmap = PETSc.LGMap().create(
+                indices=indices,
+                bsize=1,
+                comm=self._lgmap.comm,
+            )
+            return lgmap
+
     def collapse(self):
         from firedrake import FunctionSpace
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
-class MixedFunctionSpace(object):
+class MixedFunctionSpace:
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -808,7 +923,6 @@ class MixedFunctionSpace(object):
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None):
-        super(MixedFunctionSpace, self).__init__()
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
@@ -817,8 +931,18 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
+
+        # TODO I think .layout may be a better name
+        # TODO it would be nice for function spaces to have default names so they could
+        # be used to distinguish bits here
+        root = op3.Axis({str(i): 1 for i, _ in enumerate(spaces)})
+        axes = op3.PartialAxisTree(root)
+        for i, space in enumerate(spaces):
+            axes = axes.add_subtree(space.axes, root, str(i), uniquify=True)
+        self.axes = axes.set_up()
+
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(self.node_set.comm, self)
+        self._comm = mpi.internal_comm(mesh.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -965,15 +1089,21 @@ class MixedFunctionSpace(object):
         If BCs is provided, mask out those dofs which match the BC nodes."""
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
+    # NOTE: This function is exactly the same as make_dat for a non-mixed space
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
-            assert len(val) == len(self)
-        else:
-            val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
-                            for i, (s, v) in enumerate(zip(self._spaces, val)))
+            raise NotImplementedError("TODO")
+        if val is not None and val.size != self.axes.size:
+            raise ValueError("Provided array has the wrong number of entries")
+
+        return op3.HierarchicalArray(
+            self.axes,
+            data=val,
+            dtype=valuetype,
+            name=name,
+        )
 
     @utils.cached_property
     def dm(self):
@@ -1126,6 +1256,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
+        raise NotImplementedError
         return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
     def cell_node_map(self, bcs=None):

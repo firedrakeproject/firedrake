@@ -89,6 +89,7 @@ def compile_expression(slate_expr, compiler_parameters=None):
 
     Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
+    raise NotImplementedError("TODO Slate")
     if complex_mode:
         raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):

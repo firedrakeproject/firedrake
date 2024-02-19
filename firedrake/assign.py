@@ -195,23 +195,24 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
 
-        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
+        func_halos_valid = all(f.dat.leaves_valid for f in self._functions)
         assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
+            func_halos_valid and (not self._subset or self._assignee.dat.leaves_valid))
 
         if assign_to_halos:
             subset_indices = self._subset.indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro_with_halos")
+            # FIXME This isn't quite right as we need to do a transfer
+            data_ro = operator.attrgetter("_data")
         else:
             subset_indices = self._subset.owned_indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro")
 
         # If mixed, loop over individual components
-        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
-                                       *(f.dat.split for f in self._functions)):
-            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
+        for lhs, *funcs in zip(self._assignee.subfunctions,
+                               *(f.subfunctions for f in self._functions)):
+            func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
             rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
+            self._assign_single_dat(lhs.dat, subset_indices, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:
@@ -235,7 +236,8 @@ class Assigner:
 
     def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
         if assign_to_halos:
-            lhs_dat.data_wo_with_halos[indices] = rvalue
+            # TODO set modified
+            lhs_dat.buffer._data[indices] = rvalue
         else:
             lhs_dat.data_wo[indices] = rvalue
 
