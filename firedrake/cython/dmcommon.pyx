@@ -659,7 +659,7 @@ def closure_ordering(mesh, closure_data, closure_sizes):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(2):
-                        if edge_verts[vj] == closure_data[0][cell, vi]:
+                        if edge_verts[vj] == closure_data_reord[0][cell, vi]:
                             incident = True
                             break
                     if not incident:
@@ -704,7 +704,7 @@ def closure_ordering(mesh, closure_data, closure_sizes):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(nverts_per_cell-1):
-                        if facet_verts[vj] == closure_data[0][cell, vi]:
+                        if facet_verts[vj] == closure_data_reord[0][cell, vi]:
                             incident = True
                             break
                     # Only one non-incident vertex per facet, so the local facet

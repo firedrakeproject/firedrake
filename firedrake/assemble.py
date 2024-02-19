@@ -908,7 +908,7 @@ def _zero_tensor(tensor, form, diagonal):
     rank = len(form.arguments())
     assert rank != 0
     if rank == 1 or (rank == 2 and diagonal):
-        tensor.dat.zero()
+        tensor.dat.eager_zero()
     elif rank == 2:
         if not isinstance(tensor, matrix.ImplicitMatrix):
             tensor.M.zero()
@@ -996,7 +996,7 @@ class FormAssembler(abc.ABC):
             )
 
         if self._needs_zeroing:
-            self._as_pyop3_type(self._tensor).zero()
+            self._as_pyop3_type(self._tensor).eager_zero()
 
         for parloop in self.parloops:
             parloop(**{self._tensor_name: self._as_pyop3_type(self._tensor)})
@@ -1294,7 +1294,7 @@ class ExplicitMatrixAssembler(FormAssembler):
         dat = op2tensor[i, j].handle.getPythonContext().dat
         if component is not None:
             dat = op2.DatView(dat, component)
-        dat.zero(subset=node_set)
+        dat.eager_zero(subset=node_set)
 
 
 class MatrixFreeAssembler:

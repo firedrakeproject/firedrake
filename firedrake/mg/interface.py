@@ -125,7 +125,7 @@ def restrict(fine_dual, coarse_dual):
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse_dual.dat.zero()
+            coarse_dual.dat.eager_zero()
             next = coarse_dual
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
@@ -201,7 +201,7 @@ def inject(fine, coarse):
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse.dat.zero()
+            coarse.dat.eager_zero()
             next = coarse
             Vc = next.function_space()
         else:

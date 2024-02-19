@@ -1189,6 +1189,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in parloop_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*parloop_args))
+    # breakpoint()
     if len(expr_arguments) == 1:
         return parloop, tensor.assemble
     else:

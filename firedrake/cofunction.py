@@ -194,7 +194,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
+            self.dat.eager_zero(subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):

@@ -473,7 +473,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             except (DataTypeError, DataValueError) as e:
                 raise ValueError(e)
         elif expr == 0:
-            self.dat.zero(subset=subset)
+            self.dat.eager_zero(subset=subset)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()

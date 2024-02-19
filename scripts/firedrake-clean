@@ -13,13 +13,13 @@ if __name__ == '__main__':
     tsfc_cache = os.environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
                                 os.path.join(tempfile.gettempdir(),
                                              'firedrake-tsfc-kernel-cache-uid%d' % os.getuid()))
-    pyop2_cache = os.environ.get('PYOP2_CACHE_DIR',
+    pyop3_cache = os.environ.get('PYOP3_CACHE_DIR',
                                  os.path.join(tempfile.gettempdir(),
-                                              'pyop2-cache-uid%d' % os.getuid()))
+                                              'pyop3-cache-uid%d' % os.getuid()))
     pytools_cache = appdirs.user_cache_dir("pytools", "pytools")
     print('Removing cached TSFC kernels from %s' % tsfc_cache)
-    print('Removing cached PyOP2 code from %s' % pyop2_cache)
+    print('Removing cached pyop3 code from %s' % pyop3_cache)
     print('Removing cached pytools files from %s' % pytools_cache)
-    for cache in [tsfc_cache, pyop2_cache, pytools_cache]:
+    for cache in [tsfc_cache, pyop3_cache, pytools_cache]:
         if os.path.exists(cache):
             shutil.rmtree(cache, ignore_errors=True)

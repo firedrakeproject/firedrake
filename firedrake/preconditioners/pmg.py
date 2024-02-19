@@ -1047,7 +1047,7 @@ def get_piola_tensor(mapping, domain, inverse=False):
 
 
 def cache_generate_code(kernel, comm):
-    _cachedir = os.environ.get('PYOP2_CACHE_DIR',
+    _cachedir = os.environ.get('PYOP3_CACHE_DIR',
                                os.path.join(tempfile.gettempdir(),
                                             'pyop2-cache-uid%d' % os.getuid()))
 

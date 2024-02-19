@@ -26,7 +26,7 @@ from pyop2.mpi import (
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, checked_zip
+from pyop3.utils import pairwise, steps, checked_zip, debug_assert
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -744,16 +744,6 @@ class AbstractMeshTopology(abc.ABC):
         """
         return self._ufl_mesh
 
-    # No longer a necessary property, will currently break VOM
-    # @property
-    # @abc.abstractmethod
-    # def cell_closure(self):
-    #     """2D array of ordered cell closures
-    #
-    #     Each row contains ordered cell entities for a cell, one row per cell.
-    #     """
-    #     pass
-
     @property
     @abc.abstractmethod
     def entity_orientations(self):
@@ -1147,7 +1137,24 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def _default_global_numbering(self):
-        return self.topology_dm.createPointNumbering().indices
+        # ghost points are stored "involuted" -(pt+1), see
+        # https://petsc.org/release/manualpages/DMPlex/DMPlexCreatePointNumbering/
+        numbering_with_negative_ghosts = self.topology_dm.createPointNumbering().indices
+        numbering = np.empty_like(numbering_with_negative_ghosts)
+        for i, global_pt in enumerate(numbering_with_negative_ghosts):
+            if global_pt < 0:
+                global_pt = -global_pt - 1
+            numbering[i] = global_pt
+
+        from pyop3.extras.debug import print_if_rank
+
+        # numbering2 = PETSc.LGMap().createSF(self.topology_dm.getPointSF(), 0)
+
+        # print_if_rank(0, numbering)
+        # print_if_rank(0, numbering2.indices)
+
+        # raise NotImplementedError
+        return numbering
 
     @utils.cached_property
     def _global_numbering(self):
@@ -1166,7 +1173,7 @@ class AbstractMeshTopology(abc.ABC):
             global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
             numbering[stratum_dim][stratum_pt_renum] = global_stratum_pt
 
-        assert all(np.all(n >= 0) for n in numbering)
+        debug_assert(lambda: all(np.all(n >= 0) for n in numbering))
         return numbering
 
     @property
@@ -1381,9 +1388,6 @@ class MeshTopology(AbstractMeshTopology):
             stratum, stratum_pt = self.points.axis_to_component_number(pt)
             stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
 
-            # DMPlex queries return points in *decreasing* order of dimension (i.e.
-            # cells -> faces -> ...). This is the opposite to Firedrake's convention
-            # so we have to be careful how we parse the points returned from map_func.
             map_pts = iter(map_func(pt))
             for map_dim in reversed(range(self.dimension+1)):
                 for i in range(sizes[map_dim]):
@@ -1419,10 +1423,6 @@ class MeshTopology(AbstractMeshTopology):
 
             ptrs = [0] * (self.dimension + 1)
 
-            # DMPlex queries return points in *decreasing* order of dimension (i.e.
-            # cells -> faces -> ...). This is the opposite to Firedrake's convention
-            # so we have to be careful how we parse the points returned from map_func.
-            # !!! Actually I don't think this is true, depends on traversal order
             for map_pt in map_func(pt):
                 # determine whether map_pt is a cell, edge, etc
                 map_cpt, map_cpt_pt = self.points.axis_to_component_number(map_pt)

@@ -114,7 +114,7 @@ class CoefficientCollector(MultiFunction):
         are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
         in both cases ``c.dat.dim`` must have shape ``(1,)``.
         """
-        return all(_isconstant(c) and c.dat.dim == (1,) for (c, _) in weighted_coefficients)
+        return all(_isconstant(c) and c.dat.size == 1 for (c, _) in weighted_coefficients)
 
     def _as_scalar(self, weighted_coefficients):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
@@ -195,13 +195,17 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
 
-        func_halos_valid = all(f.dat.leaves_valid for f in self._functions)
+        # TODO Does pyop3 know this already? Could it?
+
+        func_halos_valid = all(f.dat.buffer.leaves_valid for f in self._functions)
         assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.leaves_valid))
+            func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
+
+        if self._subset:
+            raise NotImplementedError
 
         if assign_to_halos:
             subset_indices = self._subset.indices if self._subset else ...
-            # FIXME This isn't quite right as we need to do a transfer
             data_ro = operator.attrgetter("_data")
         else:
             subset_indices = self._subset.owned_indices if self._subset else ...
@@ -210,7 +214,7 @@ class Assigner:
         # If mixed, loop over individual components
         for lhs, *funcs in zip(self._assignee.subfunctions,
                                *(f.subfunctions for f in self._functions)):
-            func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+            func_data = np.array([data_ro(f.dat.buffer)[subset_indices] for f in funcs])
             rvalue = self._compute_rvalue(func_data)
             self._assign_single_dat(lhs.dat, subset_indices, rvalue, assign_to_halos)
 
@@ -237,6 +241,7 @@ class Assigner:
     def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
         if assign_to_halos:
             # TODO set modified
+            # FIXME this does not respect mixed functions
             lhs_dat.buffer._data[indices] = rvalue
         else:
             lhs_dat.data_wo[indices] = rvalue
@@ -263,9 +268,10 @@ class IAddAssigner(Assigner):
 
     def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
         if assign_to_halos:
-            lhs.data_with_halos[indices] += rvalue
+            # TODO set modified
+            lhs.buffer._data[indices] += rvalue
         else:
-            lhs.data[indices] += rvalue
+            lhs.data_wo[indices] += rvalue
 
 
 class ISubAssigner(Assigner):
@@ -274,9 +280,10 @@ class ISubAssigner(Assigner):
 
     def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
         if assign_to_halos:
-            lhs.data_with_halos[indices] -= rvalue
+            # TODO set modified
+            lhs.buffer._data[indices] -= rvalue
         else:
-            lhs.data[indices] -= rvalue
+            lhs.data_wo[indices] -= rvalue
 
 
 class IMulAssigner(Assigner):
@@ -288,9 +295,10 @@ class IMulAssigner(Assigner):
             raise ValueError("Only multiplication by scalars is supported")
 
         if assign_to_halos:
-            lhs.data_with_halos[indices] *= rvalue
+            # TODO set modified
+            lhs.buffer._data[indices] *= rvalue
         else:
-            lhs.data[indices] *= rvalue
+            lhs.data_wo[indices] *= rvalue
 
 
 class IDivAssigner(Assigner):
@@ -302,6 +310,7 @@ class IDivAssigner(Assigner):
             raise ValueError("Only division by scalars is supported")
 
         if assign_to_halos:
-            lhs.data_with_halos[indices] /= rvalue
+            # TODO set modified
+            lhs.buffer._data[indices] /= rvalue
         else:
-            lhs.data[indices] /= rvalue
+            lhs.data_wo[indices] /= rvalue

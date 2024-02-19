@@ -52,7 +52,7 @@ def get_config_json():
 
 def setup_cache_dirs():
     config = get_config()
-    if "PYOP2_CACHE_DIR" not in os.environ:
-        os.environ["PYOP2_CACHE_DIR"] = os.path.join(config["options"]["cache_dir"], "pyop2")
+    if "PYOP3_CACHE_DIR" not in os.environ:
+        os.environ["PYOP3_CACHE_DIR"] = os.path.join(config["options"]["cache_dir"], "pyop3")
     if 'FIREDRAKE_TSFC_KERNEL_CACHE_DIR' not in os.environ:
         os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"] = os.path.join(config["options"]["cache_dir"], "tsfc")

@@ -157,8 +157,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     def solver(self):
         return firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
 
-    @property
-    def apply_massinv(self):
+    def apply_massinv(self, target, rhs):
         if not self.constant_jacobian:
             firedrake.assemble(self.A.a, tensor=self.A, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
@@ -166,9 +165,9 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             def solve(x, b):
                 with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
-            return solve
+            return solve(target, rhs)
         else:
-            return self.solver.solve
+            return self.solver.solve(target, rhs)
 
     @cached_property
     def residual(self):

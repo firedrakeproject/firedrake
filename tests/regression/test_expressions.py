@@ -169,41 +169,42 @@ def test_tensor_expressions(expr, tfunctions):
     assert eval(expr)
 
 
+# TODO split into different tests
 def test_mixed_expressions(mfunctions):
     f, one, two = mfunctions
 
     f.sub(0).assign(one.sub(0))
-    assert evaluate(f.dat.data, (1, 0))
+    assert evaluate(f.dat.data_ro.reshape((2, -1)), (1, 0))
     f.assign(0)
 
     f.sub(1).assign(one.sub(1))
-    assert evaluate(f.dat.data, (0, 1))
+    assert evaluate(f.dat.data_ro.reshape((2, -1)), (0, 1))
     f.assign(0)
 
     two.sub(0).assign(one.sub(0))
-    assert evaluate(two.dat.data, (1, 2))
+    assert evaluate(two.dat.data_ro.reshape((2, -1)), (1, 2))
     two.assign(2)
 
     two.sub(1).assign(one.sub(1))
-    assert evaluate(two.dat.data, (2, 1))
+    assert evaluate(two.dat.data_ro.reshape((2, -1)), (2, 1))
     two.assign(2)
 
     two.sub(0).assign(one.sub(0) + two.sub(0))
-    assert evaluate(two.dat.data, (3, 2))
+    assert evaluate(two.dat.data_ro.reshape((2, -1)), (3, 2))
     two.assign(2)
 
     two.sub(1).assign(two.sub(1) - one.sub(1))
-    assert evaluate(two.dat.data, (2, 1))
+    assert evaluate(two.dat.data_ro.reshape((2, -1)), (2, 1))
     two.assign(2)
 
     one0 = one.sub(0)
     one0 += one.sub(0)
-    assert evaluate(one.dat.data, (2, 1))
+    assert evaluate(one.dat.data_ro.reshape((2, -1)), (2, 1))
     one.assign(1)
 
     one1 = one.sub(1)
     one1 -= one.sub(1)
-    assert evaluate(one.dat.data, (1, 0))
+    assert evaluate(one.dat.data_ro.reshape((2, -1)), (1, 0))
 
 
 def test_mixed_expressions_indexed_fs(msfunctions):
