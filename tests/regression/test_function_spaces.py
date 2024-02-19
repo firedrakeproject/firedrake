@@ -84,7 +84,7 @@ def test_function_space_different_family_differ(mesh):
 
 
 def test_function_space_different_variant_differ(mesh):
-    "FunctionSpaces defined with different element families differ."
+    "FunctionSpaces defined with different element variants differ."
     assert FunctionSpace(mesh, "CG", 3, variant="equispaced") != FunctionSpace(mesh, "CG", 3)
 
 
