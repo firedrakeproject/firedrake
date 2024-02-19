@@ -1710,7 +1710,7 @@ class SparseAssembler:
         :returns: a python wrapper for the matrix insertion function
         """
         cache = SparseAssembler._cache.setdefault("setSubMatCSR", {})
-        key = triu
+        key = (id(comm), triu)
         try:
             return cache[key]
         except KeyError:
