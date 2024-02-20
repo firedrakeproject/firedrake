@@ -498,3 +498,48 @@ def test_split_comm_dm_mesh():
     bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
     with pytest.raises(ValueError):
         mesh2 = Mesh(dm, comm=bad_comm)  # noqa: F841
+
+# A test to check if the area is correct
+@pytest.mark.parametrize("x0, x1, area", [(np.array([0,0]), np.array([90,90]), pi/2),
+                                    (np.array([-25,30]), np.array([60,45]), 0.0245*4*pi),
+                                    (np.array([40,10]), np.array([80,80]), 0.0415*4*pi)
+                                    ])
+def test_area(x0, x1, area):
+    m = RectangleSpherePatchMesh(5, 5, x0, x1, 1)
+    A = integrate_one(m)
+    assert abs(A - area) < 5e-2
+
+
+def run_bendy_RSPM(degree):
+    m = RectangleSpherePatchMesh(5, 5, np.array([-25,30]), np.array([60,45]), 5, degree = degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+def run_bendy_RSPM_unit(degree):
+    m = RectangleSpherePatchMesh(5, 5, np.array([-25,30]), np.array([60,45]), 1, degree = degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+def test_bendy_RSPM(degree):
+    return run_bendy_RSPM(degree)
+
+def test_bendy_RSPM_unit(degree):
+    return run_bendy_RSPM_unit(degree)
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_RSPM_parallel(degree):
+    return run_bendy_RSPM(degree)
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_RSPM_unit_parallel(degree):
+    return run_bendy_RSPM_unit(degree)
+
+@pytest.mark.parametrize("kind, x0, x1", [("first",np.array([0,0]),  np.array([90,90])),
+                                          ])
+def test_RSPM(kind,x0,x1):
+    expected_bbox = {"first": np.asarray([[0, 0, 0],
+                                         [1, 1, 1]])}[kind]
+    mesh = RectangleSpherePatchMesh(5, 5, x0, x1, 1)
+    coords = mesh.coordinates.dat.data_ro
+    bbox = np.asarray([np.min(coords, axis=0), np.max(coords, axis=0)])
+    assert np.allclose(bbox, expected_bbox)
