@@ -394,7 +394,7 @@ from firedrake.__future__ import interpolate
 assemble(interpolate(expr, V))
 ```
 
-Alternatively, you can also perform other symbolic operations on `interp`, such as taking
+Alternatively, you can also perform other symbolic operations on the interpolation operator, such as taking
 the derivative, and then assemble the resulting form.
 """, FutureWarning)
 
