@@ -1094,56 +1094,21 @@ class FormAssembler(abc.ABC):
         )
 
     @cached_property
-    def global_kernels(self):
-        return tuple(
-            _make_global_kernel(
-                self._form, tsfc_knl, subdomain_id, self.all_integer_subdomain_ids,
-                diagonal=self.diagonal, unroll=self.needs_unrolling(tsfc_knl, self._bcs)
-            )
-            for tsfc_knl, subdomain_id in self.local_kernels
-        )
-
-    @cached_property
     def parloops(self):
         loops = []
-        for (local_kernel, subdomain_id), global_kernel in zip(
-            self.local_kernels, self.global_kernels
-        ):
+        for local_kernel, subdomain_id in self.local_kernels:
             loops.append(
                 ParloopBuilder(
                     self._form,
+                    self._bcs,
                     local_kernel,
-                    global_kernel,
                     self._tensor,
                     subdomain_id,
                     self.all_integer_subdomain_ids,
                     diagonal=self.diagonal,
-                    lgmaps=self.collect_lgmaps(local_kernel, self._bcs)
                 ).build()
             )
         return tuple(loops)
-
-    def needs_unrolling(self, local_knl, bcs):
-        """Do we need to address matrix elements directly rather than in
-        a blocked fashion?
-
-        This is slower but required for the application of some boundary conditions
-        to 2-forms.
-
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
-        """
-        return False
-
-    def collect_lgmaps(self, local_knl, bcs):
-        """Return any local-to-global maps that need to be swapped out.
-
-        This is only needed when applying boundary conditions to 2-forms.
-
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
-        """
-        return None
 
     @staticmethod
     def _as_pyop2_type(tensor):
@@ -1241,61 +1206,9 @@ class ExplicitMatrixAssembler(FormAssembler):
     """Diagonal assembly not possible for two forms."""
 
     @property
-    def test_function_space(self):
-        test, _ = self._form.arguments()
-        return test.function_space()
-
-    @property
-    def trial_function_space(self):
-        _, trial = self._form.arguments()
-        return trial.function_space()
-
-    def get_indicess(self, knl):
-        if all(i is None for i in knl.indices):
-            return numpy.ndindex(self._tensor.block_shape)
-        else:
-            assert all(i is not None for i in knl.indices)
-            return knl.indices,
-
-    @property
     def result(self):
         self._tensor.M.assemble()
         return self._tensor
-
-    def needs_unrolling(self, knl, bcs):
-        for i, j in self.get_indicess(knl):
-            for bc in itertools.chain(*self._filter_bcs(bcs, i, j)):
-                if bc.function_space().component is not None:
-                    return True
-        return False
-
-    def collect_lgmaps(self, knl, bcs):
-        if not bcs:
-            return None
-
-        lgmaps = []
-        for i, j in self.get_indicess(knl):
-            row_bcs, col_bcs = self._filter_bcs(bcs, i, j)
-            rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
-            rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-            clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
-            lgmaps.append((rlgmap, clgmap))
-        return tuple(lgmaps)
-
-    def _filter_bcs(self, bcs, row, col):
-        if len(self.test_function_space) > 1:
-            bcrow = tuple(bc for bc in bcs
-                          if bc.function_space_index() == row)
-        else:
-            bcrow = bcs
-
-        if len(self.trial_function_space) > 1:
-            bccol = tuple(bc for bc in bcs
-                          if bc.function_space_index() == col
-                          and isinstance(bc, DirichletBC))
-        else:
-            bccol = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
-        return bcrow, bccol
 
     def _apply_bc(self, bc):
         op2tensor = self._tensor.M
@@ -1712,16 +1625,15 @@ class ParloopBuilder:
         boundary conditions to 2-forms.
     """
 
-    def __init__(self, form, local_knl, global_knl, tensor, subdomain_id,
-                 all_integer_subdomain_ids, diagonal=False, lgmaps=None):
+    def __init__(self, form, bcs, local_knl, tensor, subdomain_id,
+                 all_integer_subdomain_ids, diagonal=False):
         self._form = form
         self._local_knl = local_knl
-        self._global_knl = global_knl
         self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._tensor = tensor
         self._diagonal = diagonal
-        self._lgmaps = lgmaps
+        self._bcs = bcs
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
@@ -1730,11 +1642,96 @@ class ParloopBuilder:
         """Construct the parloop."""
         parloop_args = [self._as_parloop_arg(tsfc_arg)
                         for tsfc_arg in self._kinfo.arguments]
+        _global_knl = _make_global_kernel(
+            self._form,
+            self._local_knl,
+            self._subdomain_id,
+            self._all_integer_subdomain_ids,
+            diagonal=self._diagonal,
+            unroll=self.needs_unrolling()
+        )
         try:
-            return op2.Parloop(self._global_knl, self._iterset, parloop_args)
+            return op2.Parloop(_global_knl, self._iterset, parloop_args)
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all "
                                "coefficients/arguments")
+
+    @property
+    def test_function_space(self):
+        assert len(self._form.arguments()) == 2 and not self._diagonal
+        test, _ = self._form.arguments()
+        return test.function_space()
+
+    @property
+    def trial_function_space(self):
+        assert len(self._form.arguments()) == 2 and not self._diagonal
+        _, trial = self._form.arguments()
+        return trial.function_space()
+
+    def get_indicess(self):
+        assert len(self._form.arguments()) == 2 and not self._diagonal
+        if all(i is None for i in self._local_knl.indices):
+            test, trial = self._form.arguments()
+            return numpy.ndindex((len(test.function_space()),
+                                  len(trial.function_space())))
+        else:
+            assert all(i is not None for i in self._local_knl.indices)
+            return self._local_knl.indices,
+
+    def _filter_bcs(self, row, col):
+        assert len(self._form.arguments()) == 2 and not self._diagonal
+        if len(self.test_function_space) > 1:
+            bcrow = tuple(bc for bc in self._bcs
+                          if bc.function_space_index() == row)
+        else:
+            bcrow = self._bcs
+
+        if len(self.trial_function_space) > 1:
+            bccol = tuple(bc for bc in self._bcs
+                          if bc.function_space_index() == col
+                          and isinstance(bc, DirichletBC))
+        else:
+            bccol = tuple(bc for bc in self._bcs if isinstance(bc, DirichletBC))
+        return bcrow, bccol
+
+    def needs_unrolling(self):
+        """Do we need to address matrix elements directly rather than in
+        a blocked fashion?
+
+        This is slower but required for the application of some boundary conditions
+        to 2-forms.
+
+        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
+        :param bcs: Iterable of boundary conditions.
+        """
+        if len(self._form.arguments()) == 2 and not self._diagonal:
+            for i, j in self.get_indicess():
+                for bc in itertools.chain(*self._filter_bcs(i, j)):
+                    if bc.function_space().component is not None:
+                        return True
+        return False
+
+    def collect_lgmaps(self):
+        """Return any local-to-global maps that need to be swapped out.
+
+        This is only needed when applying boundary conditions to 2-forms.
+
+        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
+        :param bcs: Iterable of boundary conditions.
+        """
+        if len(self._form.arguments()) == 2 and not self._diagonal:
+            if not self._bcs:
+                return None
+            lgmaps = []
+            for i, j in self.get_indicess():
+                row_bcs, col_bcs = self._filter_bcs(i, j)
+                rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                lgmaps.append((rlgmap, clgmap))
+            return tuple(lgmaps)
+        else:
+            return None
 
     @property
     def _indices(self):
@@ -1833,7 +1830,7 @@ def _as_parloop_arg_output(_, self):
             m = rmap or cmap
             return op2.DatParloopArg(tensor.handle.getPythonContext().dat, m)
         else:
-            return op2.MatParloopArg(tensor, (rmap, cmap), lgmaps=self._lgmaps)
+            return op2.MatParloopArg(tensor, (rmap, cmap), lgmaps=self.collect_lgmaps())
     else:
         raise AssertionError
 
