@@ -18,6 +18,12 @@ from firedrake import (
     FiniteElement,
     interval,
     tetrahedron,
+    SpatialCoordinate,
+    pi,
+    cos,
+    sin,
+    as_vector,
+    Mesh,
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -61,6 +67,7 @@ __all__ = [
     "AnnulusMesh",
     "SolidTorusMesh",
     "CylinderMesh",
+    "RectangleSpherePatchMesh",
 ]
 
 
@@ -3148,3 +3155,53 @@ def PartiallyPeriodicRectangleMesh(
                                       name,
                                       distribution_name,
                                       permutation_name)
+
+@PETSc.Log.EventDecorator()
+def RectangleSpherePatchMesh(nx, ny, x0, x1, r, refinement_level = 0, degree = 1, quadrilateral=False):
+    """
+    Generate a mesh of a rectangular patch immersed on a sphere。
+    
+    nx: The number of cells in the x direction
+    ny: The number of cells in the y direction
+    x0: The spherical coordinate of a vertex of the rectangle. 
+        1D array with x0[0] denotes longitude and x0[1] denotes latitude.
+        The unit of longitude and latitude should by in degree.
+        The range of longitude should be (-180, 180) and the range of latitude should be (-90,90)
+    x1: The spherical coordinate of the diagonal vertex of x0
+    r: The radius of the sphere
+    refinement_level: The level of refinement. The default value is 0.
+    degree: degree of curveness
+    quadrilateral: (optional), creates quadrilateral mesh.
+
+    The boundary edges in this mesh are numbered as follows:
+    * 1: plane longitude == x0[0]
+    * 2: plane longitude == x1[0]
+    * 3: plane latitude == x0[1]
+    * 4: plane latitude == x1[1]
+
+    """
+    
+    m = UnitSquareMesh(nx*2**refinement_level, ny*2**refinement_level, quadrilateral=quadrilateral)
+
+    coord_family = "DQ" if quadrilateral else "DG"
+
+    cell = "quadrilateral" if quadrilateral else "triangle"
+
+    coord_fs = VectorFunctionSpace(m, FiniteElement(coord_family, cell, degree, variant="equispaced"), dim=3)
+
+    x_old, y_old = SpatialCoordinate(m)
+
+    # change the unit from degree to radian
+    x0 = x0 * pi/180
+    x1 = x1 * pi/180
+
+    longitude = x0[0] + x_old*(x1[0] - x0[0])
+    latitude = x0[1] + y_old*(x1[1] - x0[1])
+
+    x = r*cos(latitude)*cos(longitude)
+    y = r*cos(latitude)*sin(longitude)    
+    z = r*sin(latitude)
+
+    new_coordinates = Function(coord_fs).interpolate(as_vector([x,y,z]))
+
+    return Mesh(new_coordinates)
