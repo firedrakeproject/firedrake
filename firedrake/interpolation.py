@@ -347,7 +347,8 @@ class Interpolator(abc.ABC):
         return interp
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
+    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None,
+                    ad_block_tag=None):
         """Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
         Parameters
@@ -368,6 +369,8 @@ class Interpolator(abc.ABC):
                              :meth:`interpolate` method or (b) set to zero. This does not affect
                              transpose interpolation. Ignored if interpolating within the same
                              mesh or onto a :func:`.VertexOnlyMesh`.
+        ad_block_tag: str
+                      An optional string for tagging the resulting assemble block on the Pyadjoint tape.
 
         Returns
         -------
@@ -410,7 +413,7 @@ the derivative, and then assemble the resulting form.
         # to perform the interpolation. Having this structure ensures consistency between
         # `Interpolator` and `Interp`. This mechanism handles annotation since performing interpolation will drop an
         # `AssembleBlock` on the tape.
-        return assemble(interp, tensor=output)
+        return assemble(interp, tensor=output, ad_block_tag=ad_block_tag)
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
