@@ -292,9 +292,9 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
+        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace, impl.RestrictedFunctionSpace):
             continue
-        elif type(space) is impl.ProxyFunctionSpace:
+        elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
             if space.component is not None:
                 raise ValueError("Can't make mixed space with %s" % space)
             continue
@@ -305,6 +305,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     if mesh is not mesh.topology:
         new = cls.create(new, mesh)
     return new
+
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def RestrictedFunctionSpace(function_space, name=None, boundary_set=[]):
