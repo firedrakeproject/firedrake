@@ -46,22 +46,22 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         h = CellSize(mesh)
         sigma = 10.0
 
-        a = (inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx
-
-        a += (- inner(avg(grad(u)), outer(jump(conj(v)), n("+")))
-              - inner(outer(jump(conj(u)), n("+")), avg(grad(v)))
-              + (sigma/avg(h)) * inner(jump(u), jump(v))) * dS
-
-        a += (- inner(grad(u), outer(conj(v), n))
-              - inner(outer(conj(u), n), grad(v))
-              + (sigma/h) * inner(u, v)) * ds
-
         # Manually specify integration degree due to non-polynomial
         # source terms.
         qdeg = 2 * hdiv[1]
+        a = (inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx(degree=qdeg-2)
+
+        a += (- inner(avg(grad(u)), outer(jump(conj(v)), n("+")))
+              - inner(outer(jump(conj(u)), n("+")), avg(grad(v)))
+              + (sigma/avg(h)) * inner(jump(u), jump(v))) * dS(degree=qdeg)
+
+        a += (- inner(grad(u), outer(conj(v), n))
+              - inner(outer(conj(u), n), grad(v))
+              + (sigma/h) * inner(u, v)) * ds(degree=qdeg)
+
         L = (inner(source, v) * dx(degree=qdeg)
-             + (sigma/h) * inner(u_exact, v) * ds(degree=qdeg)
-             - inner(outer(conj(u_exact), n), grad(v)) * ds(degree=qdeg))
+             + ((sigma/h) * inner(u_exact, v)
+                - inner(outer(conj(u_exact), n), grad(v))) * ds(degree=qdeg))
 
         # left = 1
         # right = 2
