@@ -71,8 +71,8 @@ def test_linesmoother(mesh, S1family, expected, backend):
         u, p = TrialFunctions(W)
         v, q = TestFunctions(W)
 
-        a = (inner(u, v) - inner(p, div(v))
-             + inner(p, q) + inner(div(u), q))*dx
+        a = (-inner(u, v) * dx(degree=2*(degree+1))
+             + (inner(p, div(v)) + inner(p + div(u), q)) * dx(degree=2*degree))
         bcs = [DirichletBC(W.sub(0), 0, "on_boundary"),
                DirichletBC(W.sub(0), 0, "top"),
                DirichletBC(W.sub(0), 0, "bottom")]
@@ -84,10 +84,10 @@ def test_linesmoother(mesh, S1family, expected, backend):
             rsq = (x[0]-50)**2/20**2 + (x[1] - 50)**2/20**2 + (x[2]-0.5)**2/0.2**2
         f = exp(-rsq)
 
-        L = inner(f, q)*dx
+        L = inner(f, q)*dx(degree=2*(degree+1))
 
         w0 = Function(W)
-        problem = LinearVariationalProblem(a, L, w0, bcs=bcs)
+        problem = LinearVariationalProblem(a, L, w0, bcs=bcs, form_compiler_parameters={"mode": "vanilla"})
 
         wave_parameters = {'mat_type': 'matfree',
                            'ksp_type': 'preonly',
