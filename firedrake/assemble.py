@@ -1033,8 +1033,6 @@ class FormAssembler(abc.ABC):
         self.execute_parloops()
 
         for bc in self._bcs:
-            if isinstance(bc, EquationBC):  # can this be lifted?
-                bc = bc.extract_form("F")
             self._apply_bc(bc)
 
         return self.result
