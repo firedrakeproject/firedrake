@@ -134,7 +134,7 @@ def test_pytorch_loss_backward(V, f_exact):
     Jhat = ReducedFunctional(poisson_residual(u, f_exact, V), c)
 
     # Construct the torch operator that takes a callable representing the Firedrake operations
-    G = torch_operator(Jhat)
+    G = fem_operator(Jhat)
 
     # Compute Poisson residual in Firedrake using the torch operator: `residual_P` is a torch.Tensor
     residual_P = G(u_P)
@@ -147,7 +147,7 @@ def test_pytorch_loss_backward(V, f_exact):
 
     # Check that gradients were propagated to model parameters
     # This test doesn't check the correctness of these gradients
-    # -> This is checked in `test_taylor_torch_operator`
+    # -> This is checked in `test_taylor_fem_operator`
     assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
@@ -191,7 +191,7 @@ def test_firedrake_loss_backward(V):
     Jhat = ReducedFunctional(solve_poisson(f, V), c)
 
     # Construct the torch operator that takes a callable representing the Firedrake operations
-    G = torch_operator(Jhat)
+    G = fem_operator(Jhat)
 
     # Solve Poisson problem and compute the loss defined as the L2-norm of the solution
     # -> `loss_P` is a torch.Tensor
@@ -202,7 +202,7 @@ def test_firedrake_loss_backward(V):
 
     # Check that gradients were propagated to model parameters
     # This test doesn't check the correctness of these gradients
-    # -> This is checked in `test_taylor_torch_operator`
+    # -> This is checked in `test_taylor_fem_operator`
     assert all([pi.grad is not None for pi in model.parameters()])
 
     # -- Check forward operator -- #
@@ -215,7 +215,7 @@ def test_firedrake_loss_backward(V):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
-def test_taylor_torch_operator(firedrake_operator, V):
+def test_taylor_fem_operator(firedrake_operator, V):
     """Taylor test for the torch operator"""
 
     from firedrake.adjoint import ReducedFunctional, Control
@@ -227,7 +227,7 @@ def test_taylor_torch_operator(firedrake_operator, V):
     # Set reduced functional
     Jhat = ReducedFunctional(fd_op(w, *args), Control(w))
     # Define the torch operator
-    G = torch_operator(Jhat)
+    G = fem_operator(Jhat)
     # `gradcheck` is likely to fail if the inputs are not double precision (cf. https://pytorch.org/docs/stable/generated/torch.autograd.gradcheck.html)
     x_P = torch.rand(V.dim(), dtype=torch.double, requires_grad=True)
     # Taylor test (`eps` is the perturbation)
