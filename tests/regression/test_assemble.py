@@ -104,7 +104,7 @@ def test_assemble_with_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     L = conj(v) * dx
-    f = Function(V)
+    f = Cofunction(V.dual())
     # Assemble a form into f
     f = assemble(L, f)
     # Assemble a different form into f
@@ -193,7 +193,7 @@ def test_one_form_assembler_cache(mesh):
     assert len(L._cache[_FORM_CACHE_KEY]) == 1
 
     # changing tensor should not increase the cache size
-    tensor = Function(V)
+    tensor = Cofunction(V.dual())
     assemble(L, tensor=tensor)
     assert len(L._cache[_FORM_CACHE_KEY]) == 1
 

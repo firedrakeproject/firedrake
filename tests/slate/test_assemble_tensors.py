@@ -133,7 +133,7 @@ def test_assemble_matrix(rank_two_tensor):
 def test_assemble_vector_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
-    f = Function(V)
+    f = Cofunction(V.dual())
     # Assemble a SLATE tensor into f
     f = assemble(Tensor(v * dx), f)
     # Assemble a different tensor into f

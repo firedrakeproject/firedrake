@@ -46,7 +46,7 @@ def run_test(degree):
         nstep = 200
         dt = Constant(5e-5)
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
-        rhs = Function(V)
+        rhs = Cofunction(V.dual())
 
         # Since DG mass-matrix is diagonal, just assemble the
         # diagonal and then "solve" is an entry-wise division.
