@@ -222,4 +222,4 @@ using linear Lagrangian finite elements. ::
    # solve the variational problem
    solve(a == L, u, bcs=DirBC, solver_parameters={'ksp_type': 'cg'})
 
-A python script version of this demo can be found `here <immersed_fem.py>`__.
+A python script version of this demo can be found `here <immersed_fem_cubit.py>`__.

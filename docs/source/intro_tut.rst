@@ -16,4 +16,3 @@ Introductory Tutorials
    An extruded mesh example, using a steady-state continuity equation.<demos/extruded_continuity.py>
    A linear wave equation with optional mass lumping.<demos/linear_wave_equation.py>
    Creating Firedrake-compatible meshes in Gmsh.<demos/immersed_fem.py>
-   Creating Firedrake-compatible meshes in Cubit.<demos/immersed_fem_cubit.py>
