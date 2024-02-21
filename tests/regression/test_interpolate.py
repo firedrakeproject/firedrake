@@ -290,45 +290,12 @@ def test_interpolator_Pk(degree):
 
 
 @pytest.mark.parametrize("degree", range(1, 4))
-def test_interpolator_spectral(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+@pytest.mark.parametrize("variant", ("spectral", "equispaced"))
+@pytest.mark.parametrize("quads", (True, False), ids=("quads", "triangles"))
+def test_interpolator(quads, degree, variant):
+    mesh = UnitSquareMesh(10, 10, quadrilateral=quads)
     x = SpatialCoordinate(mesh)
-    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="spectral")
-    P1 = FunctionSpace(mesh, fe1)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_interpolator_equiquads(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
-    x = SpatialCoordinate(mesh)
-    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
-    P1 = FunctionSpace(mesh, fe1)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_interpolator_equitris(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
-    x = SpatialCoordinate(mesh)
-    fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="equispaced")
-    P1 = FunctionSpace(mesh, fe1)
+    P1 = FunctionSpace(mesh, "CG", degree, variant=variant)
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
     expr = x[0]**degree + x[1]**degree
@@ -400,8 +367,7 @@ def test_adjoint_Pk(degree):
 
 def test_adjoint_quads():
     mesh = UnitSquareMesh(10, 10)
-    fe1 = FiniteElement("CG", mesh.ufl_cell(), 1, variant="equispaced")
-    P1 = FunctionSpace(mesh, fe1)
+    P1 = FunctionSpace(mesh, "CG", 1)
     P2 = FunctionSpace(mesh, "CG", 2)
 
     v = conj(TestFunction(P2))

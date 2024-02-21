@@ -24,9 +24,7 @@ def mesh(request):
 
 @pytest.mark.parametrize('degree', [0, 2, 4])
 def test_dg_integral_orthogonality(mesh, degree):
-    element = FiniteElement("DG", cell=mesh.ufl_cell(), degree=degree, variant="integral")
-
-    V = FunctionSpace(mesh, element)
+    V = FunctionSpace(mesh, "DG", degree, variant="integral")
     x = SpatialCoordinate(mesh)
     x2 = dot(x, x)
     expr = exp(-x2)

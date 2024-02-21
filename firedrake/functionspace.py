@@ -20,7 +20,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 
 @PETSc.Log.EventDecorator()
-def make_scalar_element(mesh, family, degree, vfamily, vdegree):
+def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Parameters
@@ -31,6 +31,8 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
         The finite element family.
     degree :
         The degree of the finite element.
+    variant :
+        The variant of the finite element.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
@@ -57,20 +59,20 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
                                      cell=cell.sub_cells()[0],
-                                     degree=degree)
+                                     degree=degree, variant=variant)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
                                      cell=ufl.interval,
-                                     degree=vdegree)
+                                     degree=vdegree, variant=variant)
         # Now make the TensorProductElement
         return finat.ufl.TensorProductElement(la, lb)
     else:
-        return finat.ufl.FiniteElement(family, cell=cell, degree=degree)
+        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
-                  vdegree=None):
+def FunctionSpace(mesh, family, degree=None, name=None,
+                  vfamily=None, vdegree=None, variant=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -89,6 +91,8 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    variant :
+        The variant of the finite element.
 
     Notes
     -----
@@ -97,13 +101,13 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
 
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     return impl.WithGeometry.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
-              vdegree=None):
+def DualSpace(mesh, family, degree=None, name=None,
+              vfamily=None, vdegree=None, variant=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -122,6 +126,8 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    variant :
+        The variant of the finite element.
 
     Notes
     -----
@@ -130,13 +136,13 @@ def DualSpace(mesh, family, degree=None, name=None, vfamily=None,
     other arguments are ignored and the appropriate :class:`.FunctionSpace` is
     returned.
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     return impl.FiredrakeDualSpace.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None):
+                        name=None, vfamily=None, vdegree=None, variant=None):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -158,6 +164,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    variant :
+        The variant of the finite element.
 
     Notes
     -----
@@ -174,7 +182,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     pass it to :class:`.FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     if dim is None:
         dim = mesh.ufl_cell().geometric_dimension()
     if not isinstance(dim, numbers.Integral) and dim > 0:
@@ -186,7 +194,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 @PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
-                        vdegree=None):
+                        vdegree=None, variant=None):
     """Create a rank-2 FunctionSpace.
 
     Parameters
@@ -211,6 +219,8 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    variant :
+        The variant of the finite element.
 
     Notes
     -----
@@ -226,7 +236,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     `FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
