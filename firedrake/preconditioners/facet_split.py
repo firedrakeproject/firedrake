@@ -77,7 +77,7 @@ class FacetSplitPC(PCBase):
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
 
-        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)))
         mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in bcs)
 
         self.perm = None
@@ -112,7 +112,9 @@ class FacetSplitPC(PCBase):
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         elif self.perm:
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
+            global_indices = V.dof_dset.lgmap.apply(self.iperm.indices)
+            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
+            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P
@@ -246,25 +248,18 @@ def get_permutation_map(V, W):
         val = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
         wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
-
-    sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
+    wdat = op2.MixedDat(wdats)
+    size = sum(Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
     kernel_code = f"""
-    void permutation(PetscInt *restrict x,
-                     const PetscInt *restrict xi,
-                     const PetscInt *restrict xf){{
-        for(PetscInt i=0; i<{sizes[0]}; i++) x[i] = xi[i];
-        for(PetscInt i=0; i<{sizes[1]}; i++) x[i+{sizes[0]}] = xf[i];
-        return;
-    }}
-    """
+    void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
+        for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
+    }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, V.mesh().cell_set,
-                 vdat(op2.WRITE, pmap),
-                 wdats[0](op2.READ, W[0].cell_node_map()),
-                 wdats[1](op2.READ, W[1].cell_node_map()))
+                 vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
 
     own = V.dof_dset.layout_vec.sizes[0]
     return perm[:own]
