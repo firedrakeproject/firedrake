@@ -219,12 +219,12 @@ class BasicProjector(ProjectorBase):
     @cached_property
     def assembler(self):
         from firedrake.assemble import OneFormAssembler
-        return OneFormAssembler(self.rhs_form, tensor=self.residual,
+        return OneFormAssembler(self.rhs_form,
                                 form_compiler_parameters=self.form_compiler_parameters).assemble
 
     @property
     def rhs(self):
-        self.assembler()
+        self.assembler(tensor=self.residual)
         return self.residual
 
 

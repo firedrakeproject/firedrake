@@ -93,10 +93,8 @@ class FacetSplitPC(PCBase):
                                             form_compiler_parameters=fcp,
                                             mat_type=mat_type,
                                             options_prefix=options_prefix)
-            self._assemble_mixed_op = TwoFormAssembler(mixed_operator, tensor=self.mixed_op,
-                                                       form_compiler_parameters=fcp,
-                                                       bcs=mixed_bcs).assemble
-            self._assemble_mixed_op()
+            self._assemble_mixed_op = TwoFormAssembler(mixed_operator, bcs=mixed_bcs, form_compiler_parameters=fcp, mat_type=mat_type).assemble
+            self._assemble_mixed_op(tensor=self.mixed_op)
             mixed_opmat = self.mixed_op.petscmat
 
             def _permute_nullspace(nsp):
@@ -147,7 +145,7 @@ class FacetSplitPC(PCBase):
 
     def update(self, pc):
         if hasattr(self, "mixed_op"):
-            self._assemble_mixed_op()
+            self._assemble_mixed_op(tensor=self.mixed_op)
         elif hasattr(self, "_permute_op"):
             for mat in self.pc.getOperators():
                 mat.destroy()

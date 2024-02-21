@@ -1,3 +1,4 @@
+import functools
 import numbers
 
 import numpy as np
@@ -205,8 +206,7 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Cofunction(TraceSpace.dual())
-        self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
-                                               form_compiler_parameters=self.ctx.fc_params).assemble
+        self._assemble_Srhs = OneFormAssembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
@@ -214,11 +214,10 @@ class HybridizationPC(SCBase):
                                  mat_type=mat_type,
                                  options_prefix=prefix,
                                  appctx=self.get_appctx(pc))
-        self._assemble_S = TwoFormAssembler(schur_comp, tensor=self.S, bcs=trace_bcs,
-                                            form_compiler_parameters=self.ctx.fc_params).assemble
+        self._assemble_S = TwoFormAssembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type).assemble
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
-            self._assemble_S()
+            self._assemble_S(tensor=self.S)
 
         Smat = self.S.petscmat
 
@@ -303,20 +302,18 @@ class HybridizationPC(SCBase):
                 rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
-        self._sub_unknown = OneFormAssembler(u_rec, tensor=u,
-                                             form_compiler_parameters=self.ctx.fc_params).assemble
+        self._sub_unknown = functools.partial(OneFormAssembler(u_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=u)
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
-                                              form_compiler_parameters=self.ctx.fc_params).assemble
+        self._elim_unknown = functools.partial(OneFormAssembler(sigma_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=sigma)
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
-        self._assemble_S()
+        self._assemble_S(tensor=self.S)
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
@@ -354,7 +351,7 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
-            self._assemble_Srhs()
+            self._assemble_Srhs(tensor=self.schur_rhs)
 
     def sc_solve(self, pc):
         """Solve the condensed linear system for the

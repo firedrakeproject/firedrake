@@ -55,9 +55,8 @@ class AssembledPC(PCBase):
                                  form_compiler_parameters=fcp,
                                  mat_type=mat_type,
                                  options_prefix=options_prefix)
-        self._assemble_P = TwoFormAssembler(a, tensor=self.P, bcs=bcs,
-                                            form_compiler_parameters=fcp).assemble
-        self._assemble_P()
+        self._assemble_P = TwoFormAssembler(a, bcs=bcs, form_compiler_parameters=fcp, mat_type=mat_type).assemble
+        self._assemble_P(tensor=self.P)
 
         # Transfer nullspace over
         Pmat = self.P.petscmat
@@ -87,7 +86,7 @@ class AssembledPC(PCBase):
             pc.setFromOptions()
 
     def update(self, pc):
-        self._assemble_P()
+        self._assemble_P(tensor=self.P)
 
     def form(self, pc, test, trial):
         _, P = pc.getOperators()

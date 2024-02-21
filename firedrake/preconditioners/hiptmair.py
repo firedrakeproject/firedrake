@@ -52,10 +52,8 @@ class TwoLevelPC(PCBase):
                                          form_compiler_parameters=fcp,
                                          mat_type=coarse_mat_type,
                                          options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
-                                                    form_compiler_parameters=fcp,
-                                                    bcs=coarse_space_bcs).assemble
-        self._assemble_coarse_op()
+        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type).assemble
+        self._assemble_coarse_op(tensor=self.coarse_op)
         coarse_opmat = self.coarse_op.petscmat
 
         # We set up a PCMG object that uses the constructed interpolation
@@ -103,7 +101,7 @@ class TwoLevelPC(PCBase):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
-        self._assemble_coarse_op()
+        self._assemble_coarse_op(tensor=self.coarse_op)
         self.pc.setUp()
 
     def apply(self, pc, X, Y):

@@ -536,7 +536,8 @@ class _SNESContext(object):
     def _assemble_pjac(self):
         from firedrake.assemble import get_form_assembler
         return get_form_assembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
-                                  form_compiler_parameters=self.fcp)
+                                  form_compiler_parameters=self.fcp,
+                                  mat_type=self.pmat_type)
 
     @cached_property
     def _F(self):

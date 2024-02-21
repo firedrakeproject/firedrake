@@ -117,14 +117,14 @@ class LinearSolver(OptionsManager):
         u = function.Function(self.trial_space)
         b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
-        return u, OneFormAssembler(expr, tensor=b).assemble, b
+        return u, OneFormAssembler(expr).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
         u.dat.zero()
         for bc in self.A.bcs:
             bc.apply(u)
-        update()
+        update(tensor=blift)
         # blift contains -A u_bc
         blift += b
         if isinstance(blift, cofunction.Cofunction):
