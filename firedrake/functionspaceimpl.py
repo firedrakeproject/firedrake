@@ -778,8 +778,31 @@ class FunctionSpace:
     # this is badly named, loop_index must currently only be cells
     def cell_closure_map(self, loop_index):
         """Return a map from cells to cell closures."""
-        # TODO Is this property even needed?
-        return self.mesh().closure(loop_index, "fiat")
+        numbering = None
+        if self.ufl_element().cell.cellname() == "quadrilateral":
+            # Tensor product cells have a different entity ordering. For quads
+            # we have to renumber from:
+            #
+            #     1---7---3
+            #     |       |
+            #     4   8   5
+            #     |       |
+            #     0---6---2
+            #
+            # To:
+            #
+            #     1---7---4
+            #     |       |
+            #     2   8   5
+            #     |       |
+            #     0---6---3
+            numbering = numpy.asarray(
+                [0, 1, 4, 2, 3, 5, 6, 7, 8],
+                dtype=utils.IntType
+            )
+
+        closure = self.mesh()._fiat_closure.copy(numbering=numbering)
+        return closure(loop_index)
 
     def interior_facet_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from interior facets to

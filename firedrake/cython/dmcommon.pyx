@@ -745,7 +745,6 @@ def quadrilateral_closure_ordering(mesh,
     """
     cdef:
         PETSc.DM plex
-        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering
         PetscInt c, cStart, cEnd, cell
         PetscInt fStart, fEnd, vStart, vEnd
         PetscInt ncells
@@ -761,7 +760,6 @@ def quadrilateral_closure_ordering(mesh,
         int reverse
 
     plex = mesh.topology_dm
-    vertex_numbering = mesh._global_vertex_numbering
 
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
@@ -795,11 +793,13 @@ def quadrilateral_closure_ordering(mesh,
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
-                g_vertices[vi] = mesh._default_global_numbering[pt]
+                g_vertices[vi] = mesh.debug_global_numbering[pt]
                 vi += 1
             elif fStart <= pt < fEnd:
                 c_facets[fi] = pt
                 fi += 1
+        assert vi == 4
+        assert fi == 4
 
         # The first vertex is given by the entry in cell_orientations.
         start_v = cell_orientations[c]
@@ -810,6 +810,8 @@ def quadrilateral_closure_ordering(mesh,
         while off < 4 and g_vertices[off] != start_v:
             off += 1
         assert off < 4
+
+        print("off: ", off)
 
         # The second vertex is chosen so that the first facet appering in
         # the cone of c (cell_cone[0] in the below) would match up with
@@ -843,6 +845,9 @@ def quadrilateral_closure_ordering(mesh,
                 facets[off-1 - i] = c_facets[i]
             for i in range(3, off-1, -1):
                 facets[off + (3-i)] = c_facets[i]
+
+        print("vertices: ", vertices)
+        print("facets: ", facets)
 
         # At this point the cell "has" the right starting vertex
         # and order of traversal. If the starting vertex is one with an X,
@@ -2915,7 +2920,7 @@ def quadrilateral_facet_orientations(
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
 
     plex = mesh.topology_dm
-    vertex_numbering = mesh._default_global_numbering
+    vertex_numbering = mesh.debug_global_numbering
     comm = plex.comm.tompi4py()
 
     # Get communication lists
@@ -3048,10 +3053,9 @@ def orientations_facet2cell(
     """
     cdef:
         PETSc.DM plex,
-        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering,
 
         PetscInt c, cStart, cEnd, ncells, cell
-        PetscInt fStart, fEnd, vStart, vEnd
+        PetscInt fStart, fEnd
         const PetscInt *cone = NULL
         const PetscInt *cone_orient = NULL
         np.int8_t dst_orient[4]
@@ -3060,19 +3064,15 @@ def orientations_facet2cell(
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations
 
     plex = mesh.topology_dm
-    vertex_numbering = mesh._default_global_numbering
 
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
-    get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
     ncells = cEnd - cStart
 
     cell_orientations = np.zeros(ncells, dtype=IntType)
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
-            cell = c
-
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
 
@@ -3127,10 +3127,7 @@ def orientations_facet2cell(
                 v = cone[0]
             else:
                 v = cone[1]
-
-            V = vertex_numbering[v]
-            # TODO I think cabs isn't required since we don't have negatives
-            cell_orientations[cell] = cabs(V)
+            cell_orientations[c] = mesh.debug_global_numbering[v]
 
     return cell_orientations
 

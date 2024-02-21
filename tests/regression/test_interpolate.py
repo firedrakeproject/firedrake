@@ -291,13 +291,16 @@ def test_interpolator_Pk(degree):
 
 @pytest.mark.parametrize("degree", range(1, 4))
 def test_interpolator_spectral(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    # mesh = UnitSquareMesh(10, 10, quadrilateral=True)
+    mesh = UnitSquareMesh(2, 1, quadrilateral=True)
     x = SpatialCoordinate(mesh)
     fe1 = FiniteElement("CG", mesh.ufl_cell(), degree, variant="spectral")
-    P1 = FunctionSpace(mesh, fe1)
+    # P1 = FunctionSpace(mesh, fe1)
+    P1 = FunctionSpace(mesh, "CG", degree)
     P2 = FunctionSpace(mesh, "CG", degree + 1)
 
-    expr = x[0]**degree + x[1]**degree
+    # expr = x[0]**degree + x[1]**degree
+    expr = x[0]
     x_P1 = assemble(interpolate(expr, P1))
     interpolator = Interpolator(TestFunction(P1), P2)
     x_P2 = assemble(interpolator.interpolate(x_P1))

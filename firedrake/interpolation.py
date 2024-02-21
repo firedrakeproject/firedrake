@@ -930,7 +930,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
                     def argfs_map(pt):
-                        return source_mesh.topology.closure(target_mesh.cell_parent_cell_map(pt))
+                        return source_mesh.topology.closure(target_mesh.cell_parent_cell_map(pt), "fiat")
         if vom_onto_other_vom:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
@@ -1083,6 +1083,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                                 log=PETSc.Log.isActive())
 
     loop_index = cell_set.index()
+    # loop_index = cell_set[0].index()
+    # loop_index = cell_set[1].index()
     parloop_args = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
@@ -1148,7 +1150,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor[rows_map(loop_index), columns_map(loop_index)])
+        parloop_args.append(tensor[rows_map(loop_index, "fiat"), columns_map(loop_index, "fiat")])
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
@@ -1189,7 +1191,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in parloop_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*parloop_args))
-    # breakpoint()
     if len(expr_arguments) == 1:
         return parloop, tensor.assemble
     else:

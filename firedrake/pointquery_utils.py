@@ -59,7 +59,7 @@ def src_locate_cell(mesh, tolerance=None):
         op3.DummyKernelArgument(),  # result_
         op3.DummyKernelArgument(),  # x
         op3.DummyKernelArgument(),  # cell_dist_l1
-        mesh.coordinates.dat[plex.closure(plex.cells.index())],  # C
+        mesh.coordinates.dat[plex.closure(plex.cells.index(), "fiat")],  # C
     )
     # NOTE: we can name the arguments whatever we like, only the order matters
     pack_ir = op3.ir.lower.compile(expr, name="wrap_to_reference_coords")

@@ -605,6 +605,7 @@ class AbstractMeshTopology(abc.ABC):
                     for d in self.depth_strata_order
                 },
                 numbering=self._dm_renumbering.indices,
+                # numbering=np.arange(len(self._dm_renumbering.indices), dtype=IntType),
                 label=self.name,
             )
             if self.comm.size > 1:
@@ -896,7 +897,12 @@ class AbstractMeshTopology(abc.ABC):
             self, cell_orientations
         )
 
-        # TODO pass closure data here, don't do inside
+        # cell_orientations = np.array([2, 7], dtype=IntType)
+        # cell_orientations = np.array([3, 8], dtype=IntType)
+        # cell_orientations = np.array([4, 7], dtype=IntType)
+        # cell_orientations = np.array([5, 8], dtype=IntType)
+        # breakpoint()
+
         return dmcommon.quadrilateral_closure_ordering(
             self, cell_orientations
         )
@@ -1174,6 +1180,20 @@ class AbstractMeshTopology(abc.ABC):
             numbering[stratum_dim][stratum_pt_renum] = global_stratum_pt
 
         debug_assert(lambda: all(np.all(n >= 0) for n in numbering))
+        return numbering
+
+    @utils.cached_property
+    def debug_global_numbering(self):
+        numbering = np.empty(self.points.size, dtype=IntType)
+        for local_pt, global_pt in enumerate(self._default_global_numbering):
+            stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
+            stratum_dim = int(stratum.label)
+            stratum_index = self.points.component_index(stratum)
+
+            stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
+            global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
+            numbering[local_pt] = stratum_pt_renum
+
         return numbering
 
     @property
