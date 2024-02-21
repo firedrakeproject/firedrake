@@ -3,10 +3,6 @@ import pytest
 import numpy
 
 
-def outer_jump(v, n):
-    return outer(v('+'), n('+')) + outer(v('-'), n('-'))
-
-
 @pytest.fixture(params=["aij", "nest", "matfree"])
 def mat_type(request):
     return request.param
@@ -61,30 +57,26 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
              + inner(div(u) * gamma - p, div(v))
              - inner(div(u), q)) * dx(degree=qdeg-2)
 
-        a += (- inner(avg(grad(u)), outer_jump(conj(v), n))
-              - inner(outer_jump(conj(u), n), avg(grad(v)))
-              + avg(penalty) * inner(outer_jump(u, n), outer_jump(conj(v), n))) * dS(degree=qdeg)
+        a += (- inner(dot(avg(grad(u)), n('+')), jump(v))
+              - inner(jump(u), dot(avg(grad(v)), n('+')))
+              + avg(penalty) * inner(jump(u), jump(v))) * dS(degree=qdeg)
 
-        a += (- inner(grad(u), outer(conj(v), n))
-              - inner(outer(conj(u), n), grad(v))
-              + 2*penalty * inner(outer(u, n), outer(conj(v), n))) * ds(degree=qdeg)
+        a += (- inner(dot(grad(u), n), v)
+              - inner(u, dot(grad(v), n))
+              + 2*penalty * inner(u, v)) * ds(degree=qdeg)
 
         L = inner(source, v) * dx(degree=qdeg)
-        L += (- inner(outer(conj(u_exact), n), grad(v))
-              + 2*penalty * inner(outer(u_exact, n), outer(conj(v), n))) * ds(degree=qdeg)
+        L += (- inner(u_exact, dot(grad(v), n))
+              + 2*penalty * inner(u_exact, v)) * ds(degree=qdeg)
 
         # left = 1
         # right = 2
         # bottom = 3
         # top = 4
-        bcfunc_left = as_vector([u_exact[0], 0])
-        bcfunc_right = as_vector([u_exact[0], 0])
-        bcfunc_bottom = as_vector([0, u_exact[1]])
-        bcfunc_top = as_vector([0, u_exact[1]])
-        bcs = [DirichletBC(W.sub(0), bcfunc_left, 1),
-               DirichletBC(W.sub(0), bcfunc_right, 2),
-               DirichletBC(W.sub(0), bcfunc_bottom, 3),
-               DirichletBC(W.sub(0), bcfunc_top, 4)]
+        bcfunc_x = as_vector([u_exact[0], 0])
+        bcfunc_y = as_vector([0, u_exact[1]])
+        bcs = [DirichletBC(W.sub(0), bcfunc_x, (1, 2)),
+               DirichletBC(W.sub(0), bcfunc_y, (3, 4))]
 
         UP = Function(W)
         # Cannot set the nullspace with constant=True for non-Lagrange pressure elements
@@ -130,10 +122,10 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         u, p = UP.subfunctions
         u_error = u - u_exact
         p_error = p - p_exact
-        l2_norm = lambda z: sqrt(assemble(inner(z, z) * dx(degree=2*qdeg)))
+        l2_norm = lambda z: sqrt(abs(assemble(inner(z, z) * dx(degree=2*qdeg))))
         err_u.append(l2_norm(u_error))
         err_p.append(l2_norm(p_error))
-        err_div.append(sqrt(assemble(inner(div(u), div(u)) * dx)))
+        err_div.append(sqrt(abs(assemble(inner(div(u), div(u)) * dx))))
     err_u = numpy.asarray(err_u)
     err_p = numpy.asarray(err_p)
     err_div = numpy.asarray(err_div)
