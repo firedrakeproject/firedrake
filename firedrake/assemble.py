@@ -753,44 +753,6 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
                          options_prefix=options_prefix)
 
 
-@PETSc.Log.EventDecorator()
-def create_assembly_callable(expr, tensor=None, bcs=None, form_compiler_parameters=None,
-                             mat_type=None, sub_mat_type=None, diagonal=False):
-    r"""Create a callable object than be used to assemble expr into a tensor.
-
-    This is really only designed to be used inside residual and
-    jacobian callbacks, since it always assembles back into the
-    initially provided tensor.  See also :func:`allocate_matrix`.
-
-    .. warning::
-
-        This function is now deprecated.
-
-    .. warning::
-
-       Really do not use this function unless you know what you're doing.
-    """
-    import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("once", DeprecationWarning)
-        warnings.warn("create_assembly_callable is now deprecated. Please use assemble or FormAssembler instead.",
-                      DeprecationWarning)
-
-    if tensor is None:
-        raise ValueError("Have to provide tensor to write to")
-
-    rank = len(expr.arguments())
-    if rank == 0:
-        return ZeroFormAssembler(expr, tensor, form_compiler_parameters).assemble
-    elif rank == 1 or (rank == 2 and diagonal):
-        return OneFormAssembler(expr, tensor, bcs, diagonal=diagonal,
-                                form_compiler_parameters=form_compiler_parameters).assemble
-    elif rank == 2:
-        return TwoFormAssembler(expr, tensor, bcs, form_compiler_parameters).assemble
-    else:
-        raise AssertionError
-
-
 def _assemble_form(form, tensor=None, bcs=None, *,
                    diagonal=False,
                    mat_type=None,
