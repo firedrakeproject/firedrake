@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 
-@pytest.fixture(params=["gusto", "thetis", "irksome", "icepack", "femlium", "fascd", "defcon"])
+@pytest.fixture(params=["gusto", "thetis", "irksome", "icepack", "femlium", "fascd", "defcon", "gadopt"])
 def app(request):
     return request.param
 

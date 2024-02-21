@@ -232,7 +232,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         uc = u
     else:
         uc, = extract_coefficients(u)
-    if not u_is_x and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
+    if not (u_is_x or isinstance(u, BaseFormOperator)) and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
                          "\nYou probably meant to write split(u) when defining your form.")
 
