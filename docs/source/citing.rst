@@ -43,6 +43,10 @@ the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 please cite :cite:`Homolya2016` and :cite:`McRae2016`. If you use
 :py:func:`~.VertexOnlyMesh`, please cite :cite:`nixonhill2023consistent`.
 
+If you use the interfaces to couple Firedrake and machine learning frameworks such as PyTorch, 
+please cite :cite:`Bouziani2021` and :cite:`Bouziani2023`. If you use the :py:class:`~.AbstractExternalOperator` 
+interface, please cite :cite:`Bouziani2021`.
+
 The form compiler, TSFC, is documented in :cite:`Homolya2018` and
 :cite:`Homolya2017a`.
 

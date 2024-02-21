@@ -27,18 +27,7 @@ from firedrake_citations import Citations
 from pyadjoint.reduced_functional import ReducedFunctional
 
 
-Citations().add("Bouziani2023", """
-@inproceedings{Bouziani2023,
- title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
- author = {Bouziani, Nacime and Ham, David A.},
- booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
- year = {2023},
- doi = {10.48550/arXiv.2303.06871}
-}
-""")
-
-
-__all__ = ['FiredrakeTorchOperator', 'torch_operator', 'to_torch', 'from_torch']
+__all__ = ['FiredrakeTorchOperator', 'fem_operator', 'torch_operator', 'to_torch', 'from_torch']
 
 
 class FiredrakeTorchOperator(torch.autograd.Function):
@@ -103,7 +92,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         return None, *[to_torch(di) for di in adj_output]
 
 
-def torch_operator(F):
+def fem_operator(F):
     """Cast a Firedrake reduced functional to a PyTorch operator.
 
     The resulting :class:`~FiredrakeTorchOperator` will take PyTorch tensors as inputs and return PyTorch tensors as outputs.
@@ -128,6 +117,15 @@ def torch_operator(F):
     metadata = {'F': F, 'V_controls': V_controls, 'V_output': V_output}
     F_P = partial(FiredrakeTorchOperator.apply, metadata)
     return F_P
+
+
+def torch_operator(F):
+    import warnings
+    warnings.warn('`torch_operator` is deprecated, use `fem_operator` instead', FutureWarning)
+    return fem_operator(F)
+
+
+torch_operator.__doc__ = fem_operator.__doc__
 
 
 def _extract_function_space(x):
