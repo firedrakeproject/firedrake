@@ -108,6 +108,48 @@ def assemble(expr, *args, **kwargs):
         raise TypeError(f"Unable to assemble: {expr}")
 
 
+class AbstractFormAssembler(abc.ABC):
+    """Abstract assembler class for forms.
+
+    Parameters
+    ----------
+    form : ufl.form.BaseForm or slate.TensorBase
+        ``form`` to assemble.
+    bcs : DirichletBC or EquationBCSplit or Sequence
+        Boundary conditions.
+    form_compiler_parameters : dict
+        ``form_compiler_parameters`` to use.
+
+    """
+    def __init__(self, form, bcs=None, form_compiler_parameters=None):
+        self._form = form
+        self._bcs = solving._extract_bcs(bcs)
+        if any(isinstance(bc, EquationBC) for bc in self._bcs):
+            raise TypeError("EquationBC objects not expected here. "
+                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
+        self._form_compiler_params = form_compiler_parameters or {}
+
+    @abc.abstractmethod
+    def allocate(self):
+        """Allocate memory for the output tensor."""
+
+    @abc.abstractmethod
+    def assemble(self, tensor=None):
+        """Assemble the form.
+
+        Parameters
+        ----------
+        tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
+            Output tensor to contain the result of assembly; if `None`, a tensor of appropriate type is created.
+
+        Returns
+        -------
+        float or firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
+            Result of assembly: `float` for 0-forms, `firedrake.cofunction.Cofunction` or `firedrake.function.Function` for 1-forms, and `matrix.MatrixBase` for 2-forms.
+
+        """
+
+
 def base_form_postorder_traversal(expr, visitor, visited={}):
     if expr in visited:
         return visited[expr]
@@ -801,14 +843,13 @@ def _assemble_form(form, tensor=None, bcs=None, *,
 
     rank = len(form.arguments())
     if rank == 0:
-        assembler = ZeroFormAssembler(form, form_compiler_parameters)
+        assembler = ZeroFormAssembler(form, form_compiler_parameters=form_compiler_parameters)
     elif rank == 1 or (rank == 2 and diagonal):
-        assembler = OneFormAssembler(form, bcs, diagonal=diagonal,
-                                     form_compiler_parameters=form_compiler_parameters,
-                                     needs_zeroing=False, zero_bc_nodes=zero_bc_nodes)
+        assembler = OneFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=False,
+                                     zero_bc_nodes=zero_bc_nodes, diagonal=diagonal)
     elif rank == 2:
-        assembler = TwoFormAssembler(form, bcs, form_compiler_parameters,
-                                     needs_zeroing=False, weight=weight)
+        assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=False,
+                                     mat_type=mat_type, sub_mat_type=sub_mat_type, options_prefix=options_prefix, appctx=appctx, weight=weight)
     else:
         raise AssertionError
 
@@ -944,33 +985,41 @@ def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
         raise AssertionError
 
 
-class FormAssembler(abc.ABC):
-    """Abstract base class for assembling forms.
+class FormAssembler(AbstractFormAssembler):
+    """Form assembler.
 
-    :param form: The variational form to be assembled.
-    :param tensor: The output tensor to store the result.
-    :param bcs: Iterable of boundary conditions to apply.
-    :param form_compiler_parameters: Optional parameters to pass to the
-        TSFC and/or Slate compilers.
-    :param needs_zeroing: Should ``tensor`` be zeroed before assembling?
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBase
+        Variational form to be assembled.
+    bcs : Sequence
+        Iterable of boundary conditions to apply.
+    form_compiler_parameters : dict
+        Optional parameters to pass to the TSFC and/or Slate compilers.
+
     """
+    def __init__(self, form, bcs=None, form_compiler_parameters=None):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
 
-    def __init__(self, form, bcs=(), form_compiler_parameters=None, needs_zeroing=True):
-        bcs = solving._extract_bcs(bcs)
 
-        self._form = form
-        self._bcs = bcs
-        self._form_compiler_params = form_compiler_parameters or {}
+class ParloopFormAssembler(FormAssembler):
+    """FormAssembler that uses Parloops.
+
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBase
+        Variational form to be assembled.
+    bcs : Sequence
+        Iterable of boundary conditions to apply.
+    form_compiler_parameters : dict
+        Optional parameters to pass to the TSFC and/or Slate compilers.
+    needs_zeroing : bool
+        Should ``tensor`` be zeroed before assembling?
+
+    """
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
-
-    @abc.abstractmethod
-    def result(self, tensor):
-        """The result of the assembly operation."""
-
-    @property
-    @abc.abstractmethod
-    def diagonal(self):
-        """Are we assembling the diagonal of a 2-form?"""
 
     def assemble(self, tensor=None):
         """Assemble the form.
@@ -991,16 +1040,16 @@ class FormAssembler(abc.ABC):
                 "Taping with explicit FormAssembler objects is not supported yet. "
                 "Use assemble instead."
             )
-
         if self._needs_zeroing:
             self._as_pyop2_type(tensor).zero()
-
         self.execute_parloops(tensor)
-
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
-
         return self.result(tensor)
+
+    @abc.abstractmethod
+    def _apply_bc(self, tensor, bc):
+        """Apply boundary condition."""
 
     def execute_parloops(self, tensor):
         for parloop in self.parloops(tensor):
@@ -1042,6 +1091,7 @@ class FormAssembler(abc.ABC):
         tuple
             Collection of ``(local_kernel, subdomain_id)`` 2-tuples, one for
             each possible combination.
+
         """
         try:
             topology, = set(d.topology for d in self._form.ufl_domains())
@@ -1069,11 +1119,20 @@ class FormAssembler(abc.ABC):
             (k, subdomain_id) for k in kernels for subdomain_id in k.kinfo.subdomain_id
         )
 
+    @property
+    @abc.abstractmethod
+    def diagonal(self):
+        """Are we assembling the diagonal of a 2-form?"""
+
     @cached_property
     def all_integer_subdomain_ids(self):
         return tsfc_interface.gather_integer_subdomain_ids(
             {k for k, _ in self.local_kernels}
         )
+
+    @abc.abstractmethod
+    def result(self, tensor):
+        """The result of the assembly operation."""
 
     @staticmethod
     def _as_pyop2_type(tensor):
@@ -1087,50 +1146,58 @@ class FormAssembler(abc.ABC):
             raise AssertionError
 
 
-class ZeroFormAssembler(FormAssembler):
-    """Class for assembling a 0-form."""
+class ZeroFormAssembler(ParloopFormAssembler):
+    """Class for assembling a 0-form.
+
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBasehe
+        0-form.
+
+    Notes
+    -----
+    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+
+    """
 
     diagonal = False
     """Diagonal assembly not possible for zero forms."""
 
     def __init__(self, form, form_compiler_parameters=None):
-        super().__init__(form, (), form_compiler_parameters)
+        super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters)
+
+    def allocate(self):
+        pass
+
+    def _apply_bc(self, tensor, bc):
+        pass
 
     def result(self, tensor):
         return tensor.data[0]
 
 
-class OneFormAssembler(FormAssembler):
+class OneFormAssembler(ParloopFormAssembler):
     """Class for assembling a 1-form.
 
-    :param diagonal: Are we actually assembling the diagonal of a 2-form?
-    :param zero_bc_nodes: If ``True``, set the boundary condition nodes in the
-        output tensor to zero rather than to the values prescribed by the
-        boundary condition.
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBasehe
+        1-form.
 
-    For all other arguments see :class:`FormAssembler` for more information.
+    Notes
+    -----
+    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+
     """
 
-    def __init__(self, form, bcs=(), diagonal=False, zero_bc_nodes=False,
-                 form_compiler_parameters=None, needs_zeroing=True):
-        super().__init__(form, bcs, form_compiler_parameters, needs_zeroing)
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
+                 zero_bc_nodes=False, diagonal=False):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
 
-    @property
-    def diagonal(self):
-        return self._diagonal
-
-    def result(self, tensor):
-        return tensor
-
-    def execute_parloops(self, tensor):
-        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
-        # can be skipped.
-        with tensor.dat.frozen_halo(op2.INC):
-            for parloop in self.parloops(tensor):
-                parloop()
-
+    def allocate(self):
+        pass
     def _apply_bc(self, tensor, bc):
         # TODO Maybe this could be a singledispatchmethod?
         if isinstance(bc, DirichletBC):
@@ -1153,6 +1220,20 @@ class OneFormAssembler(FormAssembler):
         else:
             bc.zero(tensor)
 
+    def execute_parloops(self, tensor):
+        # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+        # can be skipped.
+        with tensor.dat.frozen_halo(op2.INC):
+            for parloop in self.parloops(tensor):
+                parloop()
+
+    @property
+    def diagonal(self):
+        return self._diagonal
+
+    def result(self, tensor):
+        return tensor
+
 
 def TwoFormAssembler(form, *args, **kwargs):
     assert isinstance(form, (ufl.form.Form, slate.TensorBase))
@@ -1162,7 +1243,7 @@ def TwoFormAssembler(form, *args, **kwargs):
     if mat_type == "matfree":
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
-        return MatrixFreeAssembler()
+        return MatrixFreeAssembler(form, *args, **kwargs)
     else:
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
 
@@ -1201,13 +1282,24 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
     return mat_type, sub_mat_type
 
 
-class ExplicitMatrixAssembler(FormAssembler):
-    """Class for assembling a 2-form."""
+class ExplicitMatrixAssembler(ParloopFormAssembler):
+    """Class for assembling a matrix.
+
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBasehe
+        2-form.
+
+    Notes
+    -----
+    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+
+    """
 
     diagonal = False
     """Diagonal assembly not possible for two forms."""
 
-    def __init__(self, form, bcs=(), form_compiler_parameters=None, needs_zeroing=True,
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_type = mat_type
@@ -1216,6 +1308,8 @@ class ExplicitMatrixAssembler(FormAssembler):
         self._appctx = appctx
         self.weight = weight
 
+    def allocate(self):
+        pass
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
@@ -1267,10 +1361,26 @@ class ExplicitMatrixAssembler(FormAssembler):
         return tensor
 
 
-class MatrixFreeAssembler:
-    """Stub class wrapping matrix-free assembly."""
+class MatrixFreeAssembler(FormAssembler):
+    """Stub class wrapping matrix-free assembly.
 
-    def __init__(self):
+    Parameters
+    ----------
+    form : ufl.Form or slate.TensorBasehe
+        2-form.
+
+    Notes
+    -----
+    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+
+    """
+    def __init__(self, form, bcs=None, form_compiler_parameters=None,
+                 options_prefix=None, appctx=None):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
+        self._options_prefix = options_prefix
+        self._appctx = appctx
+
+    def allocate(self):
         pass
 
     def assemble(self, tensor=None):
