@@ -1078,15 +1078,6 @@ class MixedFunctionSpace:
         are stored at each node."""
         return op2.MixedSet(s.node_set for s in self._spaces)
 
-    @utils.cached_property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.MixedDataSet` containing the degrees of freedom of
-        this :class:`MixedFunctionSpace`. This is composed of the
-        :attr:`FunctionSpace.dof_dset`\s of the underlying
-        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
-        composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
-
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
         underlying mesh to the :attr:`node_set` of this
@@ -1137,14 +1128,53 @@ class MixedFunctionSpace:
 
     def _dm(self):
         from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
+
+        dm = PETSc.DMShell().create(comm=self.comm)
+        # dm.setLocalSection(self.local_section)
+        dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
+    # this is now the same as for the non-mixed case
+    @utils.cached_property
+    def template_vec(self):
+        """Dummy PETSc Vec of the right size for this set of axes."""
+        vec = PETSc.Vec().create(comm=self.comm)
+        # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
+        # because cdim is not really something pyop3 considers.
+        # size = (self.size * self.cdim, None)
+        # "size" is a 2-tuple of (local size, global size), setting global size
+        # to None means PETSc will determine it for us.
+        size = (self.axes.size, None)
+        # vec.setSizes(size, bsize=self.cdim)
+        vec.setSizes(size)
+        vec.setUp()
+        return vec
+
+    # this is very nearly the same as for the non-mixed case
     @utils.cached_property
     def _ises(self):
-        return self.dof_dset.field_ises
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        # This is also very similar to the global numbering bits
+        nlocal_rows = self.axes.size
+        offset = self.comm.scan(nlocal_rows)
+        offset -= nlocal_rows  # or exscan?
+
+        ises = []
+        for i, subspace in enumerate(self._spaces):
+            space_label = str(i)
+            nrows = self.axes[space_label].size
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1, comm=self.comm)
+            iset.setBlockSize(subspace._cdim)
+            offset += nrows
+            ises.append(iset)
+        return tuple(ises)
+
+
 
 
 class ProxyFunctionSpace(FunctionSpace):

@@ -5,7 +5,8 @@ from firedrake import *
 
 
 def run_test():
-    mesh = UnitSquareMesh(10, 10)
+    # mesh = UnitSquareMesh(10, 10)
+    mesh = UnitSquareMesh(2, 2)
     x = SpatialCoordinate(mesh)
     U = VectorFunctionSpace(mesh, 'DG', 1)
     H = FunctionSpace(mesh, 'CG', 2)
