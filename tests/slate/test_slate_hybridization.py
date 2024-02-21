@@ -57,16 +57,16 @@ def setup_poisson_3D():
     S = FunctionSpace(mesh, "RT", p+1)
     V = FunctionSpace(mesh, "DG", p)
     W = S * V
-
-    # Define the source function
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
+
+    # Define the source function
     x, y, z = SpatialCoordinate(mesh)
     expr = (1+12*pi*pi)*cos(100*pi*x)*cos(100*pi*y)*cos(100*pi*z)
     f = Function(V).interpolate(expr)
 
     # Define the variational forms
-    a = dot(sigma, tau)*dx(degree=8) + (div(tau)*u + div(sigma)*v)*dx(degree=6)
+    a = dot(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
     L = -f*v*dx(degree=8)
     return a, L, W
 
