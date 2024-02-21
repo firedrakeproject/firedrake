@@ -279,7 +279,8 @@ def test_trivial_projector():
 
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
 @pytest.mark.parametrize('same_fspace', [False, True])
-def test_projector_bcs(tensor, same_fspace):
+@pytest.mark.parametrize('use_projector', [False, True])
+def test_bcs(tensor, same_fspace, use_projector):
     mesh = UnitSquareMesh(2, 2)
     x = SpatialCoordinate(mesh)
     if tensor == 'scalar':
@@ -314,10 +315,13 @@ def test_projector_bcs(tensor, same_fspace):
     else:
         v = Function(V).project(fct)
 
+    sp = {"ksp_type": "preonly", "pc_type": "lu"}
     ret = Function(V_ho)
-    projector = Projector(v, ret, bcs=bcs, solver_parameters={"ksp_type": "preonly",
-                                                              "pc_type": "lu"})
-    projector.project()
+    if use_projector:
+        projector = Projector(v, ret, bcs=bcs, solver_parameters=sp)
+        projector.project()
+    else:
+        ret.project(v, bcs=bcs, solver_parameters=sp)
 
     # Manually solve a Galerkin projection problem to get a reference
     ref = Function(V_ho)
