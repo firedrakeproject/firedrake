@@ -48,7 +48,6 @@ def backend(request):
     return request.param
 
 
-@pytest.mark.skipcomplexnoslate
 def test_linesmoother(mesh, S1family, expected, backend):
     base_cell = mesh._base_mesh.ufl_cell()
     S2family = "DG" if base_cell.is_simplex() else "DQ"
