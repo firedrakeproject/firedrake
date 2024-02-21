@@ -21,19 +21,17 @@ def test_abstract_external_operator(mesh):
     g = Function(V)
     ghat = TrialFunction(V)
 
-    def _check_extop_attributes_(x, ops, space, der, shape):
-        assert x.ufl_function_space() == space
-        assert x.ufl_operands == ops
-        assert x.derivatives == der
-        assert x.ufl_shape == shape
-
     f = lambda x, y: x*y
-    args = (Argument(V, 0), ghat)
-    p = TestAbstractExternalOperator(u, w, g, function_space=V, derivatives=(0, 0, 1), argument_slots=args,
+    args = (Argument(V.dual(), 0), ghat)
+    p = TestAbstractExternalOperator(u, w, g, function_space=V, derivatives=(0, 0, 1),
+                                     argument_slots=args,
                                      operator_data={"f": f})
 
-    _check_extop_attributes_(p, (u, w, g), V, (0, 0, 1), ())
-
+    assert p.ufl_function_space() == V
+    assert p.ufl_operands == (u, w, g)
+    assert p.derivatives == (0, 0, 1)
+    assert p.argument_slots() == args
+    assert p.ufl_shape == ()
     assert p.operator_data == {"f": f}
 
 

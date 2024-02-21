@@ -52,6 +52,9 @@ composition with variational forms of PDEs. Note that while `N` is linear with r
 its *argument*, it can be nonlinear with respect to `u`, its *operand*. In Firedrake, `u` would 
 be a :class:`~.Function` object, and `v^{*}` a :class:`~.Coargument` object.
 
+Arbitrary UFL expressions defined on arbitrary finite element spaces, i.e. other than `V`, can also 
+be passed as operands to the external operator using the symbolic :class:`~.Interpolate` operator. 
+
 .. _differentiation:
 
 Differentiation
@@ -173,9 +176,11 @@ Finally, the number of arguments of an external operator also determines the typ
 being assembled. For instance, given that an external operator with one argument is a 1-form, its assembly 
 would result in a :class:`~.Function` or a :class:`~.Cofunction`. Similarly, an external operator 
 with two arguments, i.e. a 2-form, would produce a :class:`~.MatrixBase` object. The following table 
-illustrates different types of external operators arising from different symbolic operations, such as 
-differentiation or action/adjoint, along with their derivative multi-index, argument slots, and assembly 
-type.
+illustrates an external operator `N` with two operands, 
+`N \colon V \times V \times V^{*} \rightarrow \mathbb{R}`, along with the external operators 
+resulting from different symbolic operations on it, such as differentiation or action/adjoint. 
+Additionally, the table includes the derivative multi-index, argument slots, and assembly type 
+of each external operator:
 
 
 .. figure:: images/table_external_operators.png
@@ -183,8 +188,8 @@ type.
    :alt: External operators table
    :align: center
 
-   Example of different types of external operator arising from different symbolic operations
-   with their argument slots, derivative multi-index, and their corresponding assembly type.
+   Example of external operators arising from `N(u, m; v^{*})`, with `u, m \in V`, along with their 
+   argument slots, derivative multi-index, and their corresponding assembly type.
 
 
 Build your own external operator
@@ -211,12 +216,13 @@ decorator takes in two arguments: `(i)` the derivative multi-index, and `(ii)` a
 arguments' numbers, wherein arguments that are not of type :class:`~.Argument` or :class:`~.Coargument` 
 are denoted with `None`.
 
-For instance, the Jacobian `\frac{\partial N(u; \hat{u}, v^{*})}{\partial u}` has two 
-arguments: `v^{*}` and `\hat{u}`. Linear forms' arguments are numbered incrementally, starting 
-from 0, as new arguments are added to the linear form as a result of differentiation. Hence, the second 
-entry of the *assemble_method* decorator for this Jacobian would be *(0, 1)*. As for the derivative multi-index, it 
-is *(1, 0)* as we differentiated with respect to the first operand, i.e. `u`. Therefore, the decorator 
-for the evaluation of the Jacobian would be:
+For instance, the Jacobian of the previously introduced external operator `N(u, m; v^{*})` with 
+respect to `u \in V`, i.e. `\frac{\partial N(u, m; \hat{u}, v^{*})}{\partial u}`, has two arguments: 
+`v^{*}` and `\hat{u}`. Linear forms' arguments are numbered incrementally, starting from 0, as new 
+arguments are added to the linear form as a result of differentiation. Hence, the second entry of the 
+*assemble_method* decorator for this Jacobian would be *(0, 1)*. As for the derivative multi-index, it 
+is *(1, 0)* as we differentiated with respect to the first operand, i.e. `u`. Therefore, the 
+decorator for the evaluation of the Jacobian would be:
 
 .. code-block:: python3
 
@@ -239,8 +245,8 @@ not :class:`~.Argument` or :class:`~.Coargument`, which results in:
   @assemble_method((1, 0), (None, 0))
 
 
-The following example illustrates how to define a new external operator, named *MyExternalOperator*, and 
-sketch out a few evaluation methods:
+The following example illustrates how to define a new external operator, named *MyExternalOperator*, 
+and sketch out a few evaluation methods:
 
 .. code-block:: python3
 
@@ -277,7 +283,10 @@ sketch out a few evaluation methods:
     ...
 
 
-Not all the above methods need to be implemented, only the ones required for the problem of interest.
+While the above template addresses the case of an external operator with two operands, there are no 
+restrictions on the number of operands an external operator can have. Additionally, not all the above 
+methods need to be implemented; only those required for the problem of interest should be included.
+
 
 A simple example: the translation operator
 ------------------------------------------

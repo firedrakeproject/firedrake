@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 from ufl.algorithms.ad import expand_derivatives
 
@@ -109,19 +110,19 @@ def test_jvp(u, nn):
     model = N.model
     # Set δu
     V = N.function_space()
-    δu = Function(V)
-    δu.vector()[:] = np.random.rand(V.dim())
+    delta_u = Function(V)
+    delta_u.vector()[:] = np.random.rand(V.dim())
 
     # Symbolic compute: <∂N/∂u, δu>
-    dN = action(derivative(N, u), δu)
+    dN = action(derivative(N, u), delta_u)
     # Assemble
     dN = assemble(dN)
 
     # Convert from Firedrake to PyTorch
-    δu_P = to_torch(δu)
+    delta_u_P = to_torch(delta_u)
     u_P = to_torch(u)
     # Compute Jacobian-vector product with PyTorch
-    _, jvp_exact = torch_func.jvp(lambda x: model(x), u_P, δu_P)
+    _, jvp_exact = torch_func.jvp(lambda x: model(x), u_P, delta_u_P)
 
     # Check
     assert np.allclose(dN.dat.data_ro, jvp_exact.numpy())
@@ -136,21 +137,20 @@ def test_vjp(u, nn):
     model = N.model
     # Set δN
     V = N.function_space()
-    δN = Cofunction(V.dual())
-    δN.vector()[:] = np.random.rand(V.dim())
+    delta_N = Cofunction(V.dual())
+    delta_N.vector()[:] = np.random.rand(V.dim())
 
     # Symbolic compute: <(∂N/∂u)*, δN>
     dNdu = expand_derivatives(derivative(N, u))
-    dNdu = action(adjoint(dNdu), δN)
+    dNdu = action(adjoint(dNdu), delta_N)
     # Assemble
     dN_adj = assemble(dNdu)
-    # TODO: Fix above so that can directly write: dN_adj = assemble(action(adjoint(derivative(N, u)), δN))
 
     # Convert from Firedrake to PyTorch
-    δN_P = to_torch(δN)
+    delta_N_P = to_torch(delta_N)
     u_P = to_torch(u)
     # Compute vector-Jacobian product with PyTorch
-    _, vjp_exact = torch_func.vjp(lambda x: model(x), u_P, δN_P)
+    _, vjp_exact = torch_func.vjp(lambda x: model(x), u_P, delta_N_P)
 
     # Check
     assert np.allclose(dN_adj.dat.data_ro, vjp_exact.numpy())

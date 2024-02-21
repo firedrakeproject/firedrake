@@ -86,33 +86,25 @@ class PytorchOperator(MLOperator):
 
     # --- Callbacks --- #
 
-    def _pre_forward_callback(self, *args, **kwargs):
-        """+   The evaluation of the PytorchOperator is done by performing a forward pass through the network N
-        The first argument is considered as the input of the network, if one want to correlate different
-        arguments (Functions, Constant, Expressions or even other PointwiseOperators) then he needs
-        to either:
-                    - subclass this method to specify how this correlation should be done
-                    or
-                    - construct another pointwise operator that will do this job and pass it in as argument
-        """
-        # Concatenate the operands to form the model inputs
+    def _pre_forward_callback(self, *operands, unsqueeze=False):
+        """Callback function to convert the Firedrake operand(s) to form the PyTorch input of the ML model."""
+        # Default: concatenate the operands to form the model inputs
         # -> For more complex cases, the user needs to overwrite this function
         #    to state how the operands can be used to form the inputs.
-        inputs = torch.cat([to_torch(op, requires_grad=True, batched=False) for op in args])
-        if kwargs.get("unsqueeze", False):
+        inputs = torch.cat([to_torch(op, requires_grad=True, batched=False) for op in operands])
+        if unsqueeze:
             return torch.unsqueeze(inputs, self.inputs_format)
         return inputs
 
     def _post_forward_callback(self, y_P):
+        """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
         space = self.ufl_function_space()
         return from_torch(y_P, space)
 
-    # One could also extend assembly to hessian, hvp (hessian-vector product) and vhp (vector-hessian product)
-    # using `torch.autograd.functional.{hvp, hessian, vhp}`
-
-    # `vjp` is faster than `.backward` and give you model output + vector-Jacbian product at same time in 1 traversal
-
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
+
+    # One could also extend the assembly to hessian, hvp (hessian-vector product) and
+    # vhp (vector-hessian product) using `torch.autograd.functional.{hvp, hessian, vhp}`
 
     def _vjp(self, y):
         """Implement the vector-Jacobian product (VJP) for a given vector `y`."""
@@ -134,18 +126,14 @@ class PytorchOperator(MLOperator):
 
     def _jac(self):
         """Compute the Jacobian of the PyTorch model."""
-        # Should we special case when the model acts locally on the inputs and therefore yields a diagonal
-        # matrix ?
-        #  -> Atm, PyTorch would produce that diagonal matrix but it might be possible to compute the local jacobian
-        #  -> However, another option is to compute the local Jacobian with PyTorch and then populate the diagonal of the PETSc matrix
-        # Both options rely on generated code so it is probably not that critical.
+        # Get the model
         model = self.model
         # Don't unsqueeze so that we end up with a rank 2 tensor
         x = self._pre_forward_callback(*self.ufl_operands, unsqueeze=False)
         jac = torch_func.jacobian(lambda x: model(x), x)
 
         # For big matrices, assembling the Jacobian is not a good idea and one should instead
-        # look for the Jacobian action (e.g. via using matrix-free methods) which in turn will call `jvp`
+        # look for the Jacobian action (e.g. via using matrix-free methods) which in turn would call `jvp`.
         n, m = jac.shape
         J = PETSc.Mat().create()
         J.setSizes([n, m])
