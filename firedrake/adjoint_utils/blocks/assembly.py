@@ -1,5 +1,6 @@
 import ufl
 import firedrake
+from ufl.domain import as_domain
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
@@ -10,8 +11,10 @@ class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') \
-            else None
+        try:
+            mesh = as_domain(form)
+        except AttributeError:
+            mesh = None
 
         if mesh and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
@@ -102,7 +105,7 @@ class AssembleBlock(Block):
         arity_form = len(extract_arguments(form))
 
         if isconstant(c):
-            mesh = self.form.ufl_domain()
+            mesh = as_domain(self.form)
             space = c._ad_function_space(mesh)
         elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
@@ -161,7 +164,7 @@ class AssembleBlock(Block):
         c1_rep = block_variable.saved_output
 
         if isconstant(c1):
-            mesh = form.ufl_domain()
+            mesh = as_domain(form)
             space = c1._ad_function_space(mesh)
         elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()

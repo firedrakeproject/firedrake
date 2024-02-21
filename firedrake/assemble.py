@@ -416,7 +416,9 @@ def assemble_base_form(expression, tensor=None, bcs=None,
 
     if tensor:
         update_tensor(result, tensor)
-    return result
+        return tensor
+    else:
+        return result
 
 
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
