@@ -63,15 +63,15 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
 
         a += (- inner(avg(grad(u)), outer_jump(conj(v), n))
               - inner(outer_jump(conj(u), n), avg(grad(v)))
-              + avg(penalty) * inner(outer_jump(u, n), outer_jump(v, n))) * dS(degree=qdeg)
+              + avg(penalty) * inner(outer_jump(u, n), outer_jump(conj(v), n))) * dS(degree=qdeg)
 
         a += (- inner(grad(u), outer(conj(v), n))
               - inner(outer(conj(u), n), grad(v))
-              + 2*penalty * inner(outer(u, n), outer(v, n))) * ds(degree=qdeg)
+              + 2*penalty * inner(outer(u, n), outer(conj(v), n))) * ds(degree=qdeg)
 
         L = inner(source, v) * dx(degree=qdeg)
         L += (- inner(outer(conj(u_exact), n), grad(v))
-              + 2*penalty * inner(outer(u_exact, n), outer(v, n))) * ds(degree=qdeg)
+              + 2*penalty * inner(outer(u_exact, n), outer(conj(v), n))) * ds(degree=qdeg)
 
         # left = 1
         # right = 2
