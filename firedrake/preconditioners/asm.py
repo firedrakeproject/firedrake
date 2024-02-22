@@ -112,7 +112,7 @@ class ASMPatchPC(PCBase):
         self.asmpc.view(viewer=viewer)
 
     def update(self, pc):
-        # FIXME this should be done internally by PCASM
+        # This is required to update an inplace ILU/ICC factorization
         try:
             for sub in self.asmpc.getASMSubKSP():
                 sub.getOperators()[0].setUnfactored()
@@ -330,6 +330,8 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
     :returns: the permuted array of points
     '''
+    # Order points by decreasing topological dimension (interiors, faces, edges, vertices)
+    points = points[::-1]
     if ordering_type == "natural":
         return points
     subgraph = [numpy.intersect1d(points, mesh_dm.getAdjacency(p), return_indices=True)[1] for p in points]
@@ -416,6 +418,20 @@ class ASMExtrudedStarPC(ASMStarPC):
 
         # Build index sets for the patches
         ises = []
+        # Build a base_depth-star on the base mesh and extrude it by an
+        # interval_depth-star on the interval mesh such that the depths sum to depth
+        # and 0 <= base_depth <= dim, 0 <= interval_depth <= 1.
+        #
+        # Vertex-stars: depth = 0 = 0 + 0.
+        # 0 + 0 -> vertex-star = (2D vertex-star) x (1D vertex-star)
+        #
+        # Edge-stars: depth = 1 = 1 + 0 = 0 + 1.
+        # 1 + 0 -> horizontal edge-star = (2D edge-star) x (1D vertex-star)
+        # 0 + 1 -> vertical edge-star = (2D vertex-star) x (1D interior)
+        #
+        # Face-stars: depth = 2 = 2 + 0 = 1 + 1.
+        # 2 + 0 -> horizontal face-star = (2D interior) x (1D vertex-star)
+        # 1 + 1 -> vertical face-star = (2D edge-star) x (1D interior)
         for base_depth in range(depth+1):
             interval_depth = depth - base_depth
             if interval_depth > 1:
@@ -434,12 +450,16 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points -= pstart  # offset by chart start
                 for k in range(nlayers-interval_depth):
                     if interval_depth == 1:
+                        # extrude by 1D interior
                         planes = [1]
                     elif k == 0:
+                        # extrude by 1D vertex-star on the bottom
                         planes = [1, 0]
                     elif k == nlayers - 1:
+                        # extrude by 1D vertex-star on the top
                         planes = [-1, 0]
                     else:
+                        # extrude by 1D vertex-star
                         planes = [-1, 1, 0]
 
                     indices = []
