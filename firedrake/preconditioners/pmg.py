@@ -595,7 +595,22 @@ def get_readonly_view(arr):
 @cached({}, key=generate_key_evaluate_dual)
 def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
-       on the (grad, curl, or div of the) basis functions of the source element.
+    on the (derivative of the) basis functions of the source element.
+
+    Parameters
+    ----------
+    source :
+        A :class:`FIAT.CiarletElement` to interpolate.
+    target :
+        A :class:`FIAT.CiarletElement` defining the interpolation space.
+    derivative : ``str`` or ``None``
+        An optional differential operator to apply on the source expression,
+        (currently only "grad" is supported).
+
+    Returns
+    -------
+    A read-only :class:`numpy.ndarray` with the evaluation of the target
+    dual basis on the (derivative of the) source primal basis.
     """
     if derivative is None:
         primal = source.get_nodal_basis()

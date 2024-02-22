@@ -83,6 +83,11 @@ def test_function_space_different_family_differ(mesh):
     assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh, "DG", 1)
 
 
+def test_function_space_different_variant_differ(mesh):
+    "FunctionSpaces defined with different element variants differ."
+    assert FunctionSpace(mesh, "CG", 3, variant="equispaced") != FunctionSpace(mesh, "CG", 3)
+
+
 def test_function_space_vector_function_space_differ(mesh):
     """A FunctionSpace and a VectorFunctionSpace defined with the same
     family and degree differ."""
@@ -104,6 +109,14 @@ def test_mixed_function_space_split(fs):
 
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
+
+
+@pytest.mark.parametrize("space",
+                         [FunctionSpace, VectorFunctionSpace,
+                          TensorFunctionSpace])
+def test_function_space_variant(mesh, space):
+    element = FiniteElement("DG", degree=1, variant="equispaced")
+    assert space(mesh, element) == space(mesh, "DG", 1, variant="equispaced")
 
 
 @pytest.mark.parametrize("modifier",
@@ -219,8 +232,8 @@ def test_reconstruct_mesh_degree(family, dual):
 @pytest.mark.parametrize("family", ["CG", "DG"])
 def test_reconstruct_variant(family, dual):
     m1 = UnitIntervalMesh(1)
-    V1 = FunctionSpace(m1, FiniteElement(family, cell=m1.ufl_cell(), degree=4, variant="spectral"))
-    V2 = FunctionSpace(m1, FiniteElement(family, cell=m1.ufl_cell(), degree=4, variant="equispaced"))
+    V1 = FunctionSpace(m1, family, degree=4, variant="spectral")
+    V2 = FunctionSpace(m1, family, degree=4, variant="equispaced")
     if dual:
         V1, V2 = V1.dual(), V2.dual()
     assert V1.reconstruct(variant="equispaced") == V2

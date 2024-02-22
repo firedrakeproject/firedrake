@@ -118,6 +118,7 @@ from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
+from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 from firedrake.fml import *
 

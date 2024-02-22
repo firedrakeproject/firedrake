@@ -1,11 +1,11 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
+from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, Interpolate
+from firedrake.interpolation import Interpolator
 from firedrake.dmhooks import get_function_space
-from firedrake.preconditioners.hypre_ams import chop
-from ufl import grad, curl, SpatialCoordinate
+from firedrake.preconditioners.hypre_ams import chop, P1_coordinates
+from ufl import grad, curl
 from pyop2.utils import as_tuple
 
 __all__ = ("HypreADS",)
@@ -36,9 +36,7 @@ class HypreADS(PCBase):
         else:
             self.C = C_callback(NC1, V)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)
-
+        self.coordinates = P1_coordinates(mesh)
         self.pc = PETSc.PC()
         self.build_hypre(obj, self.pc)
 

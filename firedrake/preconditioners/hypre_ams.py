@@ -1,13 +1,12 @@
-import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
+from firedrake.function import Function
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
+from firedrake.interpolation import Interpolator
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake_citations import Citations
-from firedrake import SpatialCoordinate
 from ufl import grad
 from pyop2.utils import as_tuple
 
@@ -27,6 +26,15 @@ def chop(A, tol=1E-10):
     B.assemble()
     A.destroy()
     return B
+
+
+def P1_coordinates(mesh):
+    VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+    coords = mesh.coordinates
+    if coords.function_space() == VectorP1:
+        return coords
+    else:
+        return Function(VectorP1).interpolate(coords)
 
 
 class HypreAMS(PCBase):
@@ -52,9 +60,7 @@ class HypreAMS(PCBase):
         else:
             self.G = G_callback(P1, V)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        self.coordinates = interpolate(SpatialCoordinate(mesh), VectorP1)
-
+        self.coordinates = P1_coordinates(mesh)
         self.pc = PETSc.PC()
         self.build_hypre(obj, self.pc)
 
@@ -69,12 +75,11 @@ class HypreAMS(PCBase):
 
         pc.setType('hypre')
         pc.setHYPREType('ams')
-        pc.setHYPREDiscreteGradient(self.G)
-        pc.setCoordinates(self.coordinates.dat.data_ro)
-
         zero_beta = PETSc.Options(prefix).getBool("pc_hypre_ams_zero_beta_poisson", default=False)
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
+
+        pc.setHYPREDiscreteGradient(self.G)
         pc.setCoordinates(self.coordinates.dat.data_ro)
         pc.setFromOptions()
         self.pc = pc

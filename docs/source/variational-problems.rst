@@ -288,9 +288,9 @@ For discontinuous elements these are the Gauss-Legendre points, and for
 continuous elements these are the Gauss-Lobatto-Legendre points.
 For CG and DG spaces on simplices, Firedrake offers both equispaced points and
 the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
-`recursivenodes`_ module. These are selected by passing
-`variant="equispaced"` or `variant="spectral"` to the
-:py:class:`~ufl.classes.FiniteElement` constructor. For example:
+`recursivenodes`_ module. These are selected by passing `variant="equispaced"`
+or `variant="spectral"` to the :py:class:`~ufl.classes.FiniteElement` or
+:py:func:`~.FunctionSpace` constructors. For example:
 
 .. code-block:: python3
 
