@@ -21,6 +21,7 @@ coarse = {
 fdmstar = {
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
+    "pmg_mg_coarse_compiler_mode": "vanilla",  # Turn off sum-factorization at lowest-order
     "pmg_mg_coarse": coarse,
     "pmg_mg_levels": {
         "ksp_max_it": 1,
@@ -52,12 +53,14 @@ facetstar = {
     "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
     "facet_fdm_fieldsplit_0": {
         "ksp_type": "preonly",
-        "pc_type": "icc",  # this is exact for the sparse approximation used in FDM
+        "pc_type": "bjacobi",
+        "sub_pc_type": "icc",  # this is exact for the sparse approximation used in FDM
     },
     "facet_fdm_fieldsplit_1": {
         "ksp_type": "preonly",
         "pc_type": "python",
         "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse_compiler_mode": "vanilla",  # Turn off sum-factorization at lowest-order
         "pmg_mg_coarse": coarse,
         "pmg_mg_levels": {
             "ksp_max_it": 1,

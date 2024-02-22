@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 import pytest
 
 
@@ -40,7 +41,6 @@ def run_riesz_map(V, mat_type):
         "mg_coarse": coarse,
         "mg_levels": {
             "ksp_type": "chebyshev",
-            "ksp_maxit": 1,
             "ksp_chebyshev_esteig": "0.75,0.25,0,1",
             "pc_type": "python",
             "pc_python_type": "firedrake.HiptmairPC",
@@ -49,30 +49,28 @@ def run_riesz_map(V, mat_type):
         },
     }
 
-    sobolev = V.ufl_element().sobolev_space
-    assert sobolev in [HCurl, HDiv]
-    d = div if sobolev == HDiv else curl
-
     u_exact = Constant((1, 2, 4))
     f = u_exact
 
     uh = Function(V)
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(d(u), d(v))*dx + inner(u, v)*dx
-    L = inner(f, v)*dx
+
+    d = {HCurl: curl,
+         HDiv: div}[V.ufl_element().sobolev_space]
+    a = (inner(d(u), d(v)) + inner(u, v)) * dx(degree=2)
+    L = inner(f, v) * dx(degree=2)
+
     bcs = [DirichletBC(V, u_exact, "on_boundary")]
     if V.mesh().ufl_cell().is_simplex():
         appctx = dict()
     else:
-        from firedrake.preconditioners.fdm import tabulate_exterior_derivative
         appctx = {"get_gradient": tabulate_exterior_derivative,
                   "get_curl": tabulate_exterior_derivative}
-    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs, form_compiler_parameters={"mode": "vanilla"})
     solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx=appctx)
     solver.solve()
-    its = solver.snes.ksp.getIterationNumber()
-    return its
+    return solver.snes.ksp.getIterationNumber()
 
 
 @pytest.mark.skipcomplexnoslate
