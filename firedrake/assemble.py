@@ -25,8 +25,10 @@ from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.function import Function
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.parloops import pack_tensor
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1364,12 +1366,20 @@ class ParloopBuilder:
     def build(self):
         """Construct the parloop."""
         p = self._iterset.index()
-        args = [
-            self._as_parloop_arg(tsfc_arg, p)
-            for tsfc_arg in self._kinfo.arguments
-        ]
-        kernel = op3.Function(self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]])
-        return op3.loop(p, kernel(*args))
+        args = []
+        gathers = []
+        scatters = []
+        for tsfc_arg in self._kinfo.arguments:
+            arg, gathers_, scatters_ = self._as_parloop_arg(tsfc_arg, p)
+            args.append(arg)
+            gathers.extend(gathers_)
+            scatters.extend(scatters_)
+
+        kernel = op3.Function(
+            # self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
+            self._kinfo.kernel.code, [op3.NA for _ in args]
+        )
+        return op3.loop(p, [*gathers, kernel(*args), *scatters])
 
     @property
     def _indices(self):
@@ -1424,25 +1434,6 @@ class ParloopBuilder:
                 self._all_integer_subdomain_ids
             )
 
-    def _get_map(self, V):
-        """Return the appropriate PyOP2 map for a given function space."""
-        assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-
-        plex = self._mesh.topology
-        if self._integral_type in {"cell", "exterior_facet_top",
-                                   "exterior_facet_bottom", "interior_facet_horiz"}:
-            return plex._fiat_closure
-        elif self._integral_type in {"exterior_facet", "exterior_facet_vert"}:
-            def mymap(pt):
-                return plex._fiat_closure(plex.exterior_facet_support(pt.i))
-            return mymap
-        elif self._integral_type in {"interior_facet", "interior_facet_vert"}:
-            def mymap(pt):
-                return plex._fiat_closure(plex.interior_facet_support(pt.i))
-            return mymap
-        else:
-            raise AssertionError
-
     @functools.singledispatchmethod
     def _as_parloop_arg(self, tsfc_arg, index):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
@@ -1460,11 +1451,13 @@ class ParloopBuilder:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
-            if V.ufl_element().family() == "Real":
-                return tensor
-            else:
-                return tensor[self._get_map(V)(index)]
+            return pack_tensor(tensor, index, op3.INC, self._integral_type)
+            # if V.ufl_element().family() == "Real":
+            #     return tensor, ()
+            # else:
+            #     return tensor[self._get_map(V)(index)]
         elif rank == 2:
+            raise NotImplementedError
             rmap, cmap = [self._get_map(V) for V in Vs]
 
             if all(V.ufl_element().family() == "Real" for V in Vs):
@@ -1483,9 +1476,7 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        func = self._mesh.coordinates
-        map_ = self._get_map(func.function_space())
-        return func.dat[map_(index)]
+        return pack_tensor(self._mesh.coordinates, index, op3.READ, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
@@ -1493,8 +1484,7 @@ class ParloopBuilder:
         if coeff.ufl_element().family() == "Real":
             return coeff.dat
         else:
-            m = self._get_map(coeff.function_space())
-            return coeff.dat[m(index)]
+            return pack_tensor(coeff, index, op3.READ, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -1580,7 +1570,8 @@ class _FormHandler:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             is_mixed = type(tensor.ufl_element()) is finat.ufl.MixedElement
-            return tensor.dat[index_str] if is_mixed and is_indexed else tensor.dat
+            # return tensor.dat[index_str] if is_mixed and is_indexed else tensor.dat
+            return tensor[index_str] if is_mixed and is_indexed else tensor
         elif rank == 2:
             is_mixed = any(
                 type(arg.ufl_element()) is finat.ufl.MixedElement

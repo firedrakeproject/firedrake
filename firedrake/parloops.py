@@ -2,19 +2,25 @@ r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 import collections
+import functools
+from cachetools import LRUCache
 
+import loopy
+import numpy as np
+import pyop3 as op3
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
+from pyrsistent import pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
-import loopy
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from firedrake.parameters import target
-
 from firedrake import constant
-from firedrake.ufl_expr import extract_domains
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
 from firedrake.petsc import PETSc
-from cachetools import LRUCache
+from firedrake.parameters import target
+from firedrake.ufl_expr import extract_domains
+from firedrake.utils import IntType
 
 
 kernel_cache = LRUCache(maxsize=128)
@@ -321,3 +327,96 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
     return op2.parloop(*op2args, **kwargs)
+
+
+def pack_tensor(tensor, index, intent, integral_type):
+    if integral_type in {
+        "cell",
+        "exterior_facet_top",
+        "exterior_facet_bottom",
+        "interior_facet_horiz",
+    }:
+        return pack_tensor_cell_integral(tensor, index, intent)
+    elif integral_type in {"exterior_facet", "exterior_facet_vert"}:
+        return pack_tensor_exterior_facet_integral(tensor, index)
+    else:
+        assert integral_type in {"interior_facet", "interior_facet_vert"}
+        return pack_tensor_interior_facet_integral(tensor, index)
+
+
+@functools.singledispatch
+def pack_tensor_cell_integral(tensor, index, intent):
+    raise TypeError
+
+
+@pack_tensor_cell_integral.register(Function)
+@pack_tensor_cell_integral.register(Cofunction)
+def pack_tensor_cell_integral(tensor, cell: op3.LoopIndex, intent):
+    V = tensor.function_space()
+    plex = V.mesh().topology
+
+    # First collect the DoFs in the cell closure in FIAT order.
+    # TODO ideally the FIAT permutation would not need to be known
+    # about by the mesh topology and instead be handled here. This
+    # would probably require an oriented mesh
+    # (see https://github.com/firedrakeproject/firedrake/pull/3332)
+    indexed = tensor.dat[plex._fiat_closure(cell)]
+
+    # Indexing an array with a loop index makes it "context sensitive" since
+    # the index could be over multiple entities (e.g. all mesh points). Here
+    # we know we are only looping over cells so the context is trivial.
+    cf_indexed = op3.utils.just_one(indexed.context_map.values())
+
+    # Determine the DoF layout per entity type in the cell closure. This is
+    # needed because the DoFs of the element may be interleaved (e.g. for quads).
+    layouts = {}
+    edofs = V.finat_element.entity_dofs()
+    for path in cf_indexed.axes.ordered_leaf_paths_with_nodes:
+        # concatenate entity_dofs for a particular dimension
+        root_axis, root_component = path[0]  # does this work with mixed?
+        key = (root_axis.id, root_component)
+        dim = int(cf_indexed.axes.target_paths[key][plex.name])
+
+        offsets = []  # TODO could be a numpy array
+        for entity, entity_offsets in edofs[dim].items():
+            for offset in entity_offsets:
+                for i in range(V._cdim):
+                    offsets.append(offset*V._cdim + i)
+        offsets = np.asarray(offsets, dtype=IntType)
+
+        print(offsets)
+
+        # TODO explain this
+        slices = tuple(
+            op3.Slice(ax.label, [op3.AffineSliceComponent(cpt)])
+            for ax, cpt in path
+        )
+        # drop extra info like the star forest
+        layout_axes = op3.AxisTree(cf_indexed.axes[slices].parent_to_children)
+        layout_dat = op3.HierarchicalArray(layout_axes, data=offsets)
+
+        label_path = pmap({ax.label: cpt for ax, cpt in path})
+        index_exprs = {ax.label: op3.AxisVariable(ax.label) for ax, _ in path}
+        layouts[label_path] = op3.MultiArrayVariable(layout_dat, label_path, index_exprs)
+
+    # Create the temporary that will be passed to the local kernel
+    packed = op3.HierarchicalArray(
+        op3.AxisTree(cf_indexed.axes.parent_to_children),
+        data=op3.NullBuffer(cf_indexed.dtype),
+        layouts=layouts,
+        prefix="T",
+        # _shape=V.finat_element.index_shape + V.shape,
+    )
+    # assert packed.size == np.prod(packed._shape)
+    # breakpoint()
+
+    if intent == op3.READ:
+        gathers = (op3.ReplaceAssignment(packed, cf_indexed),)
+        scatters = ()
+    else:
+        assert intent == op3.INC
+        gathers = (op3.ReplaceAssignment(packed, 0),)
+        scatters = (op3.AddAssignment(cf_indexed, packed),)
+        # scatters = (op3.ReplaceAssignment(cf_indexed, packed),)
+
+    return packed, gathers, scatters
