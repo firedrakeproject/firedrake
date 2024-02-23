@@ -410,7 +410,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         ises = []
         # Build a base_depth-star on the base mesh and extrude it by an
         # interval_depth-star on the interval mesh such that the depths sum to depth
-        # and 0 <= base_depth <= dim, 0 <= interval_depth <= 1.
+        # and 0 <= interval_depth <= 1.
         #
         # Vertex-stars: depth = 0 = 0 + 0.
         # 0 + 0 -> vertex-star = (2D vertex-star) x (1D vertex-star)
