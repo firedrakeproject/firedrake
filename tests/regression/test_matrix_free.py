@@ -360,3 +360,32 @@ def test_matrix_free_fieldsplit_with_real():
             }}
     stokes_solver = LinearVariationalSolver(stokes_problem, solver_parameters=opts)
     stokes_solver.solve()
+
+
+def test_matrixfree_invert_block_diagonal():
+    mesh = UnitSquareMesh(4, 4)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    bcs = [DirichletBC(V, 0, 1)]
+    uh = Function(V)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    B1 = as_tensor([[1, 2], [3, 4]])
+    B2 = as_tensor([[5, 6], [7, 8]])
+    a = inner(grad(v), B1*grad(u)*B2)*dx
+    rhs = assemble(inner(v, Constant([1, 1]))*dx)
+    sparams = {
+        "ksp_type": "gmres",
+        "pc_type": "pbjacobi",
+    }
+    niter = []
+    bdiag = []
+    for mat_type in ["aij", "matfree"]:
+        A = assemble(a, bcs=bcs, mat_type=mat_type)
+        solver = LinearSolver(A, solver_parameters=sparams)
+        uh.dat.zero()
+        solver.solve(uh, rhs)
+        niter.append(solver.ksp.getIterationNumber())
+        bdiag.append(A.petscmat.invertBlockDiagonal())
+
+    assert np.allclose(bdiag[0], bdiag[1], rtol=1E-12)
+    assert niter[0] == niter[1]
