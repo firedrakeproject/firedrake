@@ -1368,7 +1368,6 @@ class ParloopBuilder:
             self._as_parloop_arg(tsfc_arg, p)
             for tsfc_arg in self._kinfo.arguments
         ]
-
         kernel = op3.Function(self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]])
         return op3.loop(p, kernel(*args))
 
@@ -1396,6 +1395,10 @@ class ParloopBuilder:
     def _mesh(self):
         return self._form.ufl_domains()[self._kinfo.domain_number]
 
+    @property
+    def _topology(self):
+        return self._mesh.topology
+
     @cached_property
     def _iterset(self):
         try:
@@ -1415,7 +1418,7 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._mesh.topology.measure_set(
+            return self._topology.measure_set(
                 self._integral_type,
                 self._subdomain_id,
                 self._all_integer_subdomain_ids
@@ -1425,15 +1428,18 @@ class ParloopBuilder:
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
 
+        plex = self._mesh.topology
         if self._integral_type in {"cell", "exterior_facet_top",
                                    "exterior_facet_bottom", "interior_facet_horiz"}:
-            return self._mesh.topology._fiat_closure
+            return plex._fiat_closure
         elif self._integral_type in {"exterior_facet", "exterior_facet_vert"}:
-            raise NotImplementedError
-            return V.exterior_facet_node_map()
+            def mymap(pt):
+                return plex._fiat_closure(plex.exterior_facet_support(pt.i))
+            return mymap
         elif self._integral_type in {"interior_facet", "interior_facet_vert"}:
-            raise NotImplementedError
-            return V.interior_facet_node_map()
+            def mymap(pt):
+                return plex._fiat_closure(plex.interior_facet_support(pt.i))
+            return mymap
         else:
             raise AssertionError
 
@@ -1509,11 +1515,11 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._mesh.exterior_facets.local_facet_dat[index]
+        return self._topology.exterior_facets.local_facet_dat[index.i]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        return self._mesh.interior_facets.local_facet_dat[index]
+        return self._topology.interior_facets.local_facet_dat[index.i]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):

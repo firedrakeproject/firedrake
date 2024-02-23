@@ -3,6 +3,9 @@ import pytest
 
 from firedrake import *
 
+from firedrake.petsc import PETSc
+PETSc.Sys.popErrorHandler()
+
 
 def run_test():
     # mesh = UnitSquareMesh(10, 10)
@@ -22,6 +25,9 @@ def run_test():
 
     F = (inner(sol, test)*dx - inner(f, div(test_U))*dx
          + inner(avg(f), jump(normal, test_U)) * dS + f * inner(normal, test_U)*ds)
+
+    # debug
+    assemble(F)
 
     solve(F == 0, sol)
 

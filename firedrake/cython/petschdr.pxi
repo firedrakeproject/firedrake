@@ -66,6 +66,7 @@ cdef extern from "petscdmlabel.h" nogil:
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
     int DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
+    int DMLabelStratumHasPoint(DMLabel, PetscInt, PetscInt, PetscBool*)
 
 cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])

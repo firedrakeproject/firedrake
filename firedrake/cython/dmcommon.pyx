@@ -11,6 +11,7 @@ from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 from tsfc.finatinterface import as_fiat_cell
+from pyrsistent import pmap
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -251,79 +252,143 @@ def count_labelled_points(PETSc.DM dm, name,
     CHKERR(DMLabelDestroyIndex(label))
     return n
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray[PetscInt, ndim=1, mode="c"] facets,
-                    PETSc.Section cell_numbering,
-                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
-    """Compute the parent cell(s) and the local facet number within
-    each parent cell for each given facet.
 
-    :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg kind: String indicating the facet kind (interior or exterior)
-    :arg facets: Array of input facets
-    :arg cell_numbering: Section describing the global cell numbering
-    :arg cell_closures: 2D array of ordered cell closures
+def local_facet_number(mesh, facet_type):
+    """TODO, taken from facet_numbering.
+
+    It is possible for interior facets to only have a support size of 1. This
+    can occur in distributed meshes where the interior facet is on the boundary
+    of the local portion of the mesh. In these cases the second facet index
+    will be -1.
+
     """
     cdef:
-        PetscInt f, fStart, fEnd, fi, cell
-        PetscInt nfacets, nclosure, ncells, cells_per_facet
-        const PetscInt *cells = NULL
-        np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells
-        np.ndarray[PetscInt, ndim=2, mode="c"] facet_local_num
+        const PetscInt *cells=NULL
+        PetscInt ncells_per_facet, nfacets_in_closure
+        PetscInt fStart, nfacets, ncells,
+        PetscInt facet, facet_renum, cell, cell_renum
+        PetscInt ci, fi
+        PETSc.DM plex
+        np.ndarray[PetscInt, ndim=1, mode="c"] facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] cell_numbering
+        np.ndarray[PetscInt, ndim=1, mode="c"] facet_numbering
+        np.ndarray[PetscInt, ndim=2, mode="c"] closure_facets
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_number
 
-    get_height_stratum(plex.dm, 1, &fStart, &fEnd)
-    nfacets = facets.shape[0]
-    nclosure = cell_closures.shape[1]
+    plex = mesh.topology_dm
+    cell_numbering = mesh.points.component_numbering(mesh.cell_label)
+    facet_numbering = mesh.points.component_numbering(mesh.facet_label)
 
-    assert kind in ["interior", "exterior"]
-    if kind == "interior":
-        cells_per_facet = 2
+    fStart, _ = plex.getHeightStratum(1)
+
+    # TODO This could be easier to access
+    key = pmap({mesh.name: mesh.cell_label})
+    tdim = mesh.dimension
+    closure_facets_map = mesh._fiat_closure.connectivity[key][tdim-1]
+    nfacets_in_closure = closure_facets_map.arity
+    closure_facets = closure_facets_map.array.data_ro.reshape(
+        (mesh.num_cells(), nfacets_in_closure)
+    )
+
+    if facet_type == "exterior":
+        ncells_per_facet = 1
+        facets = mesh._exterior_facets_default
     else:
-        cells_per_facet = 1
-    facet_local_num = np.empty((nfacets, cells_per_facet), dtype=IntType)
-    facet_cells = np.empty((nfacets, cells_per_facet), dtype=IntType)
+        assert facet_type == "interior"
+        ncells_per_facet = 2
+        facets = mesh._interior_facets_default
 
-    # First determine the parent cell(s) for each facet
-    for f in range(nfacets):
-        CHKERR(DMPlexGetSupport(plex.dm, facets[f], &cells))
-        CHKERR(DMPlexGetSupportSize(plex.dm, facets[f], &ncells))
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
-        facet_cells[f,0] = cell
-        if cells_per_facet > 1:
-            if ncells > 1:
-                CHKERR(PetscSectionGetOffset(cell_numbering.sec,
-                                             cells[1], &cell))
-                facet_cells[f,1] = cell
-            else:
-                facet_cells[f,1] = -1
+    facet_number = np.full((len(facets), ncells_per_facet), -1, dtype=IntType)
+    for fi, facet in enumerate(facets):
+        facet_renum = facet_numbering[facet - fStart]
 
-    # Run through the sorted closure to get the
-    # local facet number within each parent cell
-    for f in range(nfacets):
-        # First cell
-        cell = facet_cells[f,0]
-        fi = 0
-        for c in range(nclosure):
-            if cell_closures[cell, c] == facets[f]:
-                facet_local_num[f,0] = fi
-            if fStart <= cell_closures[cell, c] < fEnd:
-                fi += 1
+        CHKERR(DMPlexGetSupport(plex.dm, facet, &cells))
+        CHKERR(DMPlexGetSupportSize(plex.dm, facet, &ncells))
 
-        # Second cell
-        if facet_cells.shape[1] > 1:
-            cell = facet_cells[f,1]
-            if cell >= 0:
-                fi = 0
-                for c in range(nclosure):
-                    if cell_closures[cell, c] == facets[f]:
-                        facet_local_num[f,1] = fi
-                    if fStart <= cell_closures[cell, c] < fEnd:
-                        fi += 1
-            else:
-                facet_local_num[f,1] = -1
-    return facet_local_num, facet_cells
+        for ci in range(ncells):
+            cell = cells[ci]
+            cell_renum = cell_numbering[cell]
+
+            for closure_fi in range(nfacets_in_closure):
+                if closure_facets[cell_renum, closure_fi] == facet_renum:
+                    facet_number[fi, ci] = closure_fi
+                    break
+    return facet_number
+
+# TODO this can now be removed
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# def facet_numbering(PETSc.DM plex, kind,
+#                     np.ndarray[PetscInt, ndim=1, mode="c"] facets,
+#                     PETSc.Section cell_numbering,
+#                     np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
+#     """Compute the parent cell(s) and the local facet number within
+#     each parent cell for each given facet.
+#
+#     :arg plex: The DMPlex object encapsulating the mesh topology
+#     :arg kind: String indicating the facet kind (interior or exterior)
+#     :arg facets: Array of input facets
+#     :arg cell_numbering: Section describing the global cell numbering
+#     :arg cell_closures: 2D array of ordered cell closures
+#     """
+#     cdef:
+#         PetscInt f, fStart, fEnd, fi, cell
+#         PetscInt nfacets, nclosure, ncells, cells_per_facet
+#         const PetscInt *cells = NULL
+#         np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells
+#         np.ndarray[PetscInt, ndim=2, mode="c"] facet_local_num
+#
+#     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
+#     nfacets = facets.shape[0]
+#     nclosure = cell_closures.shape[1]
+#
+#     if kind == "interior":
+#         cells_per_facet = 2
+#     else:
+#         assert kind == "exterior"
+#         cells_per_facet = 1
+#     facet_local_num = np.empty((nfacets, cells_per_facet), dtype=IntType)
+#     facet_cells = np.empty((nfacets, cells_per_facet), dtype=IntType)
+#
+#     # First determine the parent cell(s) for each facet
+#     for f in range(nfacets):
+#         CHKERR(DMPlexGetSupport(plex.dm, facets[f], &cells))
+#         CHKERR(DMPlexGetSupportSize(plex.dm, facets[f], &ncells))
+#         CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
+#         facet_cells[f,0] = cell
+#         if cells_per_facet > 1:
+#             if ncells > 1:
+#                 CHKERR(PetscSectionGetOffset(cell_numbering.sec,
+#                                              cells[1], &cell))
+#                 facet_cells[f,1] = cell
+#             else:
+#                 facet_cells[f,1] = -1
+#
+#     # Run through the sorted closure to get the
+#     # local facet number within each parent cell
+#     for f in range(nfacets):
+#         # First cell
+#         cell = facet_cells[f,0]
+#         fi = 0
+#         for c in range(nclosure):
+#             if cell_closures[cell, c] == facets[f]:
+#                 facet_local_num[f,0] = fi
+#             if fStart <= cell_closures[cell, c] < fEnd:
+#                 fi += 1
+#
+#         # Second cell
+#         if facet_cells.shape[1] > 1:
+#             cell = facet_cells[f,1]
+#             if cell >= 0:
+#                 fi = 0
+#                 for c in range(nclosure):
+#                     if cell_closures[cell, c] == facets[f]:
+#                         facet_local_num[f,1] = fi
+#                     if fStart <= cell_closures[cell, c] < fEnd:
+#                         fi += 1
+#             else:
+#                 facet_local_num[f,1] = -1
+#     return facet_local_num, facet_cells
 
 
 cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
@@ -810,8 +875,6 @@ def quadrilateral_closure_ordering(mesh,
         while off < 4 and g_vertices[off] != start_v:
             off += 1
         assert off < 4
-
-        print("off: ", off)
 
         # The second vertex is chosen so that the first facet appering in
         # the cone of c (cell_cone[0] in the below) would match up with
@@ -1566,13 +1629,14 @@ def label_facets(PETSc.DM plex):
 
     """
     cdef:
-        PetscInt fStart, fEnd, facet, pStart, pEnd
+        PetscInt tdim, fStart, fEnd, facet, pStart, pEnd, vStart, vEnd, pt
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
         DMLabel lbl_ext, lbl_int
         PetscBool has_point
 
-    if get_topological_dimension(plex) == 0:
+    tdim = get_topological_dimension(plex)
+    if tdim == 0:
         return
     plex.removeLabel(ext_label)
     plex.removeLabel(int_label)
@@ -1581,8 +1645,10 @@ def label_facets(PETSc.DM plex):
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_chart(plex.dm, &pStart, &pEnd)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
-    # Mark boundaries as exterior_facets.
+
+    # Mark boundaries as exterior_facets
     plex.markBoundaryFaces(ext_label)
+
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
     CHKERR(DMLabelCreateIndex(lbl_ext, pStart, pEnd))
     for facet in range(fStart, fEnd):
@@ -2169,6 +2235,51 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     return facets
 
 
+def facets_with_label(mesh, label_name):
+    """TODO, similar to get_facets_by_class.
+
+    Note that the facet indices returned by this function are *not*
+    renumbered.
+
+    """
+    cdef:
+        PETSc.DM plex
+        np.ndarray[PetscInt, ndim=1, mode="c"] facets
+
+        DMLabel label
+        PetscBool has_point
+        PetscInt pStart, pEnd, fStart, fEnd
+        PetscInt nfacets, pi, fi, facet_renum
+
+    plex = mesh.topology_dm
+    CHKERR(DMGetLabel(plex.dm, label_name.encode(), &label))
+
+    # Create a temporary index for the facet label, this enables membership testing
+    pStart, pEnd = plex.getChart()
+    fStart, fEnd = plex.getHeightStratum(1)
+    CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
+
+    # Count the number of facets with the right label (and omit vertices etc)
+    nfacets = 0
+    for pi in range(pStart, pEnd):
+        CHKERR(DMLabelHasPoint(label, pi, &has_point))
+        if has_point and fStart <= pi < fEnd:
+            nfacets += 1
+
+    # Store the facet numbers
+    facets = np.empty(nfacets, dtype=IntType)
+    fi = 0
+    for pi in range(pStart, pEnd):
+        CHKERR(DMLabelHasPoint(label, pi, &has_point))
+        if has_point and fStart <= pi < fEnd:
+            facets[fi] = pi
+            fi += 1
+
+    CHKERR(DMLabelDestroyIndex(label))
+    return facets
+
+
+# this can now go I think
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
