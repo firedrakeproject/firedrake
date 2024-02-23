@@ -238,8 +238,7 @@ def restricted_dofs(celem, felem):
 
 
 def get_permutation_map(V, W):
-    perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
-    perm.fill(-1)
+    perm = numpy.full((V.dof_count,), -1, dtype=PETSc.IntType)
     vdat = V.make_dat(val=perm)
 
     offset = 0

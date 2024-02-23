@@ -112,13 +112,9 @@ class ASMPatchPC(PCBase):
         self.asmpc.view(viewer=viewer)
 
     def update(self, pc):
-        # This is required to update an inplace ILU/ICC factorization
-        try:
-            for sub in self.asmpc.getASMSubKSP():
-                sub.getOperators()[0].setUnfactored()
-        except PETSc.Error:
-            pass
-        self.asmpc.setUp()
+        # This is required to update an inplace ILU factorization
+        for sub in self.asmpc.getASMSubKSP():
+            sub.getOperators()[0].setUnfactored()
 
     def apply(self, pc, x, y):
         self.asmpc.apply(x, y)
@@ -420,7 +416,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         ises = []
         # Build a base_depth-star on the base mesh and extrude it by an
         # interval_depth-star on the interval mesh such that the depths sum to depth
-        # and 0 <= base_depth <= dim, 0 <= interval_depth <= 1.
+        # and 0 <= interval_depth <= 1.
         #
         # Vertex-stars: depth = 0 = 0 + 0.
         # 0 + 0 -> vertex-star = (2D vertex-star) x (1D vertex-star)
