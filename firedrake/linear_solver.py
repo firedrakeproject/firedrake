@@ -181,14 +181,14 @@ class LinearSolver(OptionsManager):
         else:
             acc = x.dat.vec_wo
 
-        if "cuda" in self.A.petscmat.type:
+        if "cu" in self.A.petscmat.type: #todo: cuda or cu?
             with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
                 b_cu = PETSc.Vec()
                 b_cu.createCUDAWithArrays(rhs)  
                 u = PETSc.Vec()
                 u.createCUDAWithArrays(solution)
                 self.ksp.solve(b_cu, u)
-                u.getArray() #how do this in one with solve before?
+                u.getArray()
                 
         else:
 
