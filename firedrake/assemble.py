@@ -810,8 +810,6 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     """
     bcs = solving._extract_bcs(bcs)
 
-    _check_inputs(form, tensor, bcs, diagonal)
-
     if tensor is not None:
         _zero_tensor(tensor, form, diagonal)
     else:
@@ -912,39 +910,6 @@ def _assemble_expr(expr):
         return firedrake.Function(V).assign(expr)
 
 
-def _check_inputs(form, tensor, bcs, diagonal):
-    # Ensure mesh is 'initialised' as we could have got here without building a
-    # function space (e.g. if integrating a constant).
-    for mesh in form.ufl_domains():
-        mesh.init()
-
-    if diagonal and any(isinstance(bc, EquationBCSplit) for bc in bcs):
-        raise NotImplementedError("Diagonal assembly and EquationBC not supported")
-
-    rank = len(form.arguments())
-    if rank == 0:
-        assert tensor is None
-        assert not bcs
-    elif rank == 1:
-        test, = form.arguments()
-
-        if tensor is not None and test.function_space() != tensor.function_space():
-            raise ValueError("Form's argument does not match provided result tensor")
-    elif rank == 2 and diagonal:
-        test, trial = form.arguments()
-        if test.function_space() != trial.function_space():
-            raise ValueError("Can only assemble the diagonal of 2-form if the function spaces match")
-    elif rank == 2:
-        if tensor is not None and tensor.a.arguments() != form.arguments():
-            raise ValueError("Form's arguments do not match provided result tensor")
-    else:
-        raise AssertionError
-
-    if any(c.dat.dtype != ScalarType for c in form.coefficients()):
-        raise ValueError("Cannot assemble a form containing coefficients where the "
-                         "dtype is not the PETSc scalar type.")
-
-
 def _zero_tensor(tensor, form, diagonal):
     rank = len(form.arguments())
     assert rank != 0
@@ -1000,6 +965,13 @@ class FormAssembler(AbstractFormAssembler):
     """
     def __init__(self, form, bcs=None, form_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
+        # Ensure mesh is 'initialised' as we could have got here without building a
+        # function space (e.g. if integrating a constant).
+        for mesh in form.ufl_domains():
+            mesh.init()
+        if any(c.dat.dtype != ScalarType for c in form.coefficients()):
+            raise ValueError("Cannot assemble a form containing coefficients where the "
+                             "dtype is not the PETSc scalar type.")
 
 
 class ParloopFormAssembler(FormAssembler):
@@ -1035,6 +1007,7 @@ class ParloopFormAssembler(FormAssembler):
             Result of assembly: `float` for 0-forms, `firedrake.cofunction.Cofunction` or `firedrake.function.Function` for 1-forms, and `matrix.MatrixBase` for 2-forms.
 
         """
+        self._check_tensor(tensor)
         if annotate_tape():
             raise NotImplementedError(
                 "Taping with explicit FormAssembler objects is not supported yet. "
@@ -1050,6 +1023,10 @@ class ParloopFormAssembler(FormAssembler):
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc):
         """Apply boundary condition."""
+
+    @abc.abstractmethod
+    def _check_tensor(self, tensor):
+        """Check input tensor."""
 
     @staticmethod
     def _as_pyop2_type(tensor):
@@ -1166,6 +1143,9 @@ class ZeroFormAssembler(ParloopFormAssembler):
     def _apply_bc(self, tensor, bc):
         pass
 
+    def _check_tensor(self, tensor):
+        assert tensor is None
+
     @staticmethod
     def _as_pyop2_type(tensor):
         return tensor
@@ -1193,6 +1173,13 @@ class OneFormAssembler(ParloopFormAssembler):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
+        if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
+            raise NotImplementedError("Diagonal assembly and EquationBC not supported")
+        rank = len(self._form.arguments())
+        if rank == 2 and self._diagonal:
+            test, trial = self._form.arguments()
+            if test.function_space() != trial.function_space():
+                raise ValueError("Can only assemble the diagonal of 2-form if the function spaces match")
 
     def allocate(self):
         pass
@@ -1217,6 +1204,13 @@ class OneFormAssembler(ParloopFormAssembler):
             tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
         else:
             bc.zero(tensor)
+
+    def _check_tensor(self, tensor):
+        rank = len(self._form.arguments())
+        if rank == 1:
+            test, = self._form.arguments()
+            if tensor is not None and test.function_space() != tensor.function_space():
+                raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
     def _as_pyop2_type(tensor):
@@ -1358,6 +1352,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             dat = op2.DatView(dat, component)
         dat.zero(subset=node_set)
 
+    def _check_tensor(self, tensor):
+        if tensor is not None and tensor.a.arguments() != self._form.arguments():
+            raise ValueError("Form's arguments do not match provided result tensor")
+
     @staticmethod
     def _as_pyop2_type(tensor):
         return tensor.M
@@ -1390,8 +1388,13 @@ class MatrixFreeAssembler(FormAssembler):
         pass
 
     def assemble(self, tensor=None):
+        self._check_tensor(tensor)
         tensor.assemble()
         return tensor
+
+    def _check_tensor(self, tensor):
+        if tensor is not None and tensor.a.arguments() != self._form.arguments():
+            raise ValueError("Form's arguments do not match provided result tensor")
 
 
 def get_form_assembler(form, tensor, *args, **kwargs):
