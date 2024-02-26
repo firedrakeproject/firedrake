@@ -808,29 +808,6 @@ def _assemble_form(form, tensor=None, bcs=None, *,
 
     See :func:`assemble` for a description of the arguments to this function.
     """
-    bcs = solving._extract_bcs(bcs)
-
-    # It is expensive to construct new assemblers because extracting the data
-    # from the form is slow. Since all of the data structures in the assembler
-    # are persistent apart from the output tensor, we stash the assembler on the
-    # form and swap out the tensor if needed.
-    # The cache key only needs to contain the boundary conditions, diagonal and
-    # form compiler parameters since all other assemble kwargs are only used for
-    # creating the tensor which is handled above and has no bearing on the assembler.
-    # Note: This technically creates a memory leak since bcs are 'heavy' and so
-    # repeated assembly of the same form but with different boundary conditions
-    # will lead to old bcs getting stored along with old tensors.
-
-    # FIXME This only works for 1-forms at the moment
-    is_cacheable = len(form.arguments()) == 1
-    if is_cacheable:
-        try:
-            key = tuple(bcs), diagonal, tuplify(form_compiler_parameters), zero_bc_nodes
-            assembler = form._cache[_FORM_CACHE_KEY][key]
-            return assembler.assemble(tensor=tensor)
-        except KeyError:
-            pass
-
     rank = len(form.arguments())
     if rank == 0:
         assembler = ZeroFormAssembler(form, form_compiler_parameters=form_compiler_parameters)
@@ -842,11 +819,6 @@ def _assemble_form(form, tensor=None, bcs=None, *,
                                      mat_type=mat_type, sub_mat_type=sub_mat_type, options_prefix=options_prefix, appctx=appctx, weight=weight)
     else:
         raise AssertionError
-
-    if is_cacheable:
-        if _FORM_CACHE_KEY not in form._cache:
-            form._cache[_FORM_CACHE_KEY] = {}
-        form._cache[_FORM_CACHE_KEY][key] = assembler
 
     return assembler.assemble(tensor=tensor)
 
@@ -915,6 +887,50 @@ class FormAssembler(AbstractFormAssembler):
         Optional parameters to pass to the TSFC and/or Slate compilers.
 
     """
+
+    def __new__(cls, *args, **kwargs):
+        form = args[0]
+        if not isinstance(form, (ufl.Form, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.Form or slate.TensorBase: got {type(form)} ({form})")
+        # It is expensive to construct new assemblers because extracting the data
+        # from the form is slow. Since all of the data structures in the assembler
+        # are persistent apart from the output tensor, we stash the assembler on the
+        # form and swap out the tensor if needed.
+        # The cache key only needs to contain the boundary conditions, diagonal and
+        # form compiler parameters since all other assemble kwargs are only used for
+        # creating the tensor which is handled above and has no bearing on the assembler.
+        # Note: This technically creates a memory leak since bcs are 'heavy' and so
+        # repeated assembly of the same form but with different boundary conditions
+        # will lead to old bcs getting stored along with old tensors.
+        # FIXME This only works for 1-forms at the moment
+        key = cls._cache_key(*args, **kwargs)
+        if key is not None:
+            try:
+                return form._cache[_FORM_CACHE_KEY][key]
+            except KeyError:
+                pass
+        self = super().__new__(cls)
+        self._initialised = False
+        self.__init__(*args, **kwargs)
+        if _FORM_CACHE_KEY not in form._cache:
+            form._cache[_FORM_CACHE_KEY] = {}
+        form._cache[_FORM_CACHE_KEY][key] = self
+        return self
+
+    @classmethod
+    @abc.abstractmethod
+    def _cache_key(cls, *args, **kwargs):
+        """Return cache key."""
+
+    @staticmethod
+    def _skip_if_initialised(init):
+        @functools.wraps(init)
+        def wrapper(self, *args, **kwargs):
+            if not self._initialised:
+                init(self, *args, **kwargs)
+                self._initialised = True
+        return wrapper
+
     def __init__(self, form, bcs=None, form_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         # Ensure mesh is 'initialised' as we could have got here without building a
@@ -1091,6 +1107,11 @@ class ZeroFormAssembler(ParloopFormAssembler):
     diagonal = False
     """Diagonal assembly not possible for zero forms."""
 
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return
+
+    @FormAssembler._skip_if_initialised
     def __init__(self, form, form_compiler_parameters=None):
         super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters)
 
@@ -1133,6 +1154,13 @@ class OneFormAssembler(ParloopFormAssembler):
 
     """
 
+    @classmethod
+    def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
+                   zero_bc_nodes=False, diagonal=False):
+        bcs = solving._extract_bcs(bcs)
+        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
+
+    @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  zero_bc_nodes=False, diagonal=False):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
@@ -1269,6 +1297,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     diagonal = False
     """Diagonal assembly not possible for two forms."""
 
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return
+
+    @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
@@ -1421,6 +1454,12 @@ class MatrixFreeAssembler(FormAssembler):
     See `FormAssembler` and `assemble` for descriptions of the other parameters.
 
     """
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return
+
+    @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None,
                  options_prefix=None, appctx=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
