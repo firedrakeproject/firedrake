@@ -1,5 +1,5 @@
 import abc
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 import functools
 import itertools
 from itertools import product
@@ -810,14 +810,6 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     """
     bcs = solving._extract_bcs(bcs)
 
-    if tensor is not None:
-        _zero_tensor(tensor, form, diagonal)
-    else:
-        tensor = _make_tensor(form, bcs, diagonal=diagonal, mat_type=mat_type,
-                              sub_mat_type=sub_mat_type, appctx=appctx,
-                              form_compiler_parameters=form_compiler_parameters,
-                              options_prefix=options_prefix)
-
     # It is expensive to construct new assemblers because extracting the data
     # from the form is slow. Since all of the data structures in the assembler
     # are persistent apart from the output tensor, we stash the assembler on the
@@ -843,10 +835,10 @@ def _assemble_form(form, tensor=None, bcs=None, *,
     if rank == 0:
         assembler = ZeroFormAssembler(form, form_compiler_parameters=form_compiler_parameters)
     elif rank == 1 or (rank == 2 and diagonal):
-        assembler = OneFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=False,
+        assembler = OneFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
                                      zero_bc_nodes=zero_bc_nodes, diagonal=diagonal)
     elif rank == 2:
-        assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=False,
+        assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
                                      mat_type=mat_type, sub_mat_type=sub_mat_type, options_prefix=options_prefix, appctx=appctx, weight=weight)
     else:
         raise AssertionError
@@ -910,46 +902,6 @@ def _assemble_expr(expr):
         return firedrake.Function(V).assign(expr)
 
 
-def _zero_tensor(tensor, form, diagonal):
-    rank = len(form.arguments())
-    assert rank != 0
-    if rank == 1 or (rank == 2 and diagonal):
-        tensor.dat.zero()
-    elif rank == 2:
-        if not isinstance(tensor, matrix.ImplicitMatrix):
-            tensor.M.zero()
-    else:
-        raise AssertionError
-
-
-def _make_tensor(form, bcs, *, diagonal, mat_type, sub_mat_type, appctx,
-                 form_compiler_parameters, options_prefix):
-    rank = len(form.arguments())
-    if rank == 0:
-        # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
-        # revisit in a refactor
-        return op2.Global(
-            1,
-            [0.0],
-            dtype=utils.ScalarType,
-            comm=form.ufl_domains()[0]._comm
-        )
-    elif rank == 1:
-        test, = form.arguments()
-        return firedrake.Cofunction(test.function_space().dual())
-    elif rank == 2 and diagonal:
-        test, _ = form.arguments()
-        return firedrake.Cofunction(test.function_space().dual())
-    elif rank == 2:
-        mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
-        return allocate_matrix(form, bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
-                               appctx=appctx, form_compiler_parameters=form_compiler_parameters,
-                               options_prefix=options_prefix)
-    else:
-        raise AssertionError
-
-
 class FormAssembler(AbstractFormAssembler):
     """Form assembler.
 
@@ -1008,12 +960,17 @@ class ParloopFormAssembler(FormAssembler):
 
         """
         self._check_tensor(tensor)
+        if tensor is None:
+            tensor = self.allocate()
+            needs_zeroing = False
+        else:
+            needs_zeroing = self._needs_zeroing
         if annotate_tape():
             raise NotImplementedError(
                 "Taping with explicit FormAssembler objects is not supported yet. "
                 "Use assemble instead."
             )
-        if self._needs_zeroing:
+        if needs_zeroing:
             type(self)._as_pyop2_type(tensor).zero()
         self.execute_parloops(tensor)
         for bc in self._bcs:
@@ -1138,7 +1095,15 @@ class ZeroFormAssembler(ParloopFormAssembler):
         super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters)
 
     def allocate(self):
-        pass
+        # Getting the comm attribute of a form isn't straightforward
+        # form.ufl_domains()[0]._comm seems the most robust method
+        # revisit in a refactor
+        return op2.Global(
+            1,
+            [0.0],
+            dtype=utils.ScalarType,
+            comm=self._form.ufl_domains()[0]._comm
+        )
 
     def _apply_bc(self, tensor, bc):
         pass
@@ -1182,7 +1147,16 @@ class OneFormAssembler(ParloopFormAssembler):
                 raise ValueError("Can only assemble the diagonal of 2-form if the function spaces match")
 
     def allocate(self):
-        pass
+        rank = len(self._form.arguments())
+        if rank == 1:
+            test, = self._form.arguments()
+            return firedrake.Cofunction(test.function_space().dual())
+        elif rank == 2 and self._diagonal:
+            test, _ = self._form.arguments()
+            return firedrake.Cofunction(test.function_space().dual())
+        else:
+            raise RuntimeError(f"Not expected: found rank = {rank} and diagonal = {self._diagonal}")
+
     def _apply_bc(self, tensor, bc):
         # TODO Maybe this could be a singledispatchmethod?
         if isinstance(bc, DirichletBC):
@@ -1305,7 +1279,76 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self.weight = weight
 
     def allocate(self):
-        pass
+        test, trial = self._form.arguments()
+        sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial,
+                                                          self._mat_type,
+                                                          self._sub_mat_type,
+                                                          self._make_maps_and_regions())
+        return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                             options_prefix=self._options_prefix)
+
+    @staticmethod
+    def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
+        assert mat_type != "matfree"
+        nest = mat_type == "nest"
+        if nest:
+            baij = sub_mat_type == "baij"
+        else:
+            baij = mat_type == "baij"
+        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
+            raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+        map_pairs, iteration_regions = maps_and_regions
+        try:
+            sparsity = op2.Sparsity((test.function_space().dof_dset,
+                                     trial.function_space().dof_dset),
+                                    map_pairs,
+                                    iteration_regions=iteration_regions,
+                                    nest=nest,
+                                    block_sparse=baij)
+        except SparsityFormatError:
+            raise ValueError("Monolithic matrix assembly not supported for systems "
+                             "with R-space blocks")
+        return sparsity
+
+    def _make_maps_and_regions(self):
+        test, trial = self._form.arguments()
+        allocation_integral_types = set(i.integral_type() for i in self._form.integrals())
+        for bc in self._bcs:
+            allocation_integral_types.update(integral.integral_type()
+                                             for integral in bc.integrals())
+        return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
+
+    @staticmethod
+    def _make_maps_and_regions_default(test, trial, allocation_integral_types):
+        domains = defaultdict(set)
+        for integral_type in allocation_integral_types:
+            get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[integral_type]
+            domains[get_map].add(region)
+        map_pairs, iteration_regions = zip(*(((get_map(test), get_map(trial)),
+                                              tuple(sorted(regions)))
+                                             for get_map, regions in domains.items()
+                                             if regions))
+        return tuple(map_pairs), tuple(iteration_regions)
+
+    @classmethod
+    @property
+    def integral_type_op2_map(cls):
+        try:
+            return cls._integral_type_op2_map
+        except AttributeError:
+            get_cell_map = operator.methodcaller("cell_node_map")
+            get_extf_map = operator.methodcaller("exterior_facet_node_map")
+            get_intf_map = operator.methodcaller("interior_facet_node_map")
+            cls._integral_type_op2_map = {"cell": (get_cell_map, op2.ALL),
+                                          "exterior_facet_bottom": (get_cell_map, op2.ON_BOTTOM),
+                                          "exterior_facet_top": (get_cell_map, op2.ON_TOP),
+                                          "interior_facet_horiz": (get_cell_map, op2.ON_INTERIOR_FACETS),
+                                          "exterior_facet": (get_extf_map, op2.ALL),
+                                          "exterior_facet_vert": (get_extf_map, op2.ALL),
+                                          "interior_facet": (get_intf_map, op2.ALL),
+                                          "interior_facet_vert": (get_intf_map, op2.ALL)}
+            return cls._integral_type_op2_map
+
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
@@ -1385,10 +1428,15 @@ class MatrixFreeAssembler(FormAssembler):
         self._appctx = appctx
 
     def allocate(self):
-        pass
+        return matrix.ImplicitMatrix(self._form, self._bcs,
+                                     fc_params=self._form_compiler_params,
+                                     options_prefix=self._options_prefix,
+                                     appctx=self._appctx or {})
 
     def assemble(self, tensor=None):
         self._check_tensor(tensor)
+        if tensor is None:
+            tensor = self.allocate()
         tensor.assemble()
         return tensor
 
