@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import preprocess_base_form, allocate_matrix
+from firedrake.assemble import BaseFormAssembler, allocate_matrix
 from firedrake.utils import ScalarType
 import ufl
 
@@ -159,7 +159,7 @@ def test_preprocess_form(M, a, f):
     from ufl.algorithms import expand_indices, expand_derivatives
 
     expr = action(action(M, M), f)
-    A = preprocess_base_form(expr)
+    A = BaseFormAssembler.preprocess_base_form(expr)
     B = action(expand_derivatives(M), action(M, f))
 
     assert isinstance(A, ufl.Action)
