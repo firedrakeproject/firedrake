@@ -538,22 +538,24 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
     """
 
     if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-
         if args and mat_type != "matfree":
             # Retrieve the Form's children
             base_form_operators = base_form_operands(expr)
             # Substitute the base form operators by their output
             expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
-
-        return _assemble_form(expr, tensor=tensor, bcs=bcs,
-                              diagonal=diagonal,
-                              mat_type=mat_type,
-                              sub_mat_type=sub_mat_type,
-                              appctx=appctx,
-                              options_prefix=options_prefix,
-                              form_compiler_parameters=form_compiler_parameters,
-                              zero_bc_nodes=zero_bc_nodes, weight=weight)
-
+        form = expr
+        rank = len(form.arguments())
+        if rank == 0:
+            assembler = ZeroFormAssembler(form, form_compiler_parameters=form_compiler_parameters)
+        elif rank == 1 or (rank == 2 and diagonal):
+            assembler = OneFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
+                                         zero_bc_nodes=zero_bc_nodes, diagonal=diagonal)
+        elif rank == 2:
+            assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
+                                         mat_type=mat_type, sub_mat_type=sub_mat_type, options_prefix=options_prefix, appctx=appctx, weight=weight)
+        else:
+            raise AssertionError
+        return assembler.assemble(tensor=tensor)
     elif isinstance(expr, ufl.Adjoint):
         if len(args) != 1:
             raise TypeError("Not enough operands for Adjoint")
@@ -793,34 +795,6 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
 
     return matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
                          options_prefix=options_prefix)
-
-
-def _assemble_form(form, tensor=None, bcs=None, *,
-                   diagonal=False,
-                   mat_type=None,
-                   sub_mat_type=None,
-                   appctx=None,
-                   options_prefix=None,
-                   form_compiler_parameters=None,
-                   zero_bc_nodes=False,
-                   weight=1.0):
-    """Assemble a form.
-
-    See :func:`assemble` for a description of the arguments to this function.
-    """
-    rank = len(form.arguments())
-    if rank == 0:
-        assembler = ZeroFormAssembler(form, form_compiler_parameters=form_compiler_parameters)
-    elif rank == 1 or (rank == 2 and diagonal):
-        assembler = OneFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
-                                     zero_bc_nodes=zero_bc_nodes, diagonal=diagonal)
-    elif rank == 2:
-        assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=True,
-                                     mat_type=mat_type, sub_mat_type=sub_mat_type, options_prefix=options_prefix, appctx=appctx, weight=weight)
-    else:
-        raise AssertionError
-
-    return assembler.assemble(tensor=tensor)
 
 
 def _assemble_expr(expr):
