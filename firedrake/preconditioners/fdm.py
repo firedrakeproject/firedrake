@@ -291,14 +291,23 @@ class FDMPC(PCBase):
             P = PETSc.Mat().create(comm=self.comm)
             P.setType(ptype)
             P.setSizes(sizes)
+            P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
+
             P.setPreallocationNNZ((dnz, onz))
-            P.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
-            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+
+            #P.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
+            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
+            #P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
+            P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
             if ptype.endswith("sbaij"):
                 P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
             P.setUp()
+
+            self.set_values(P, Vrow, Vcol, addv, mat_type=ptype)
+            P.assemble()
+            if on_diag:
+                P.shift(1)
 
             # append callables to zero entries, insert element matrices, and apply BCs
             assembly_callables.append(P.zeroEntries)
@@ -307,9 +316,10 @@ class FDMPC(PCBase):
                 own = Vrow.dof_dset.layout_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
-                if len(bdofs) > 0:
-                    vals = numpy.ones(bdofs.shape, dtype=PETSc.RealType)
-                    assembly_callables.append(partial(P.setValuesRCV, bdofs, bdofs, vals, addv))
+
+                assembly_callables.append(P.assemble)
+                assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
+                #if len(bdofs) > 0:
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
