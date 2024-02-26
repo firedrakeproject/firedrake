@@ -190,6 +190,22 @@ class FDMPC(PCBase):
         else:
             fdmpc.setFromOptions()
 
+    def get_non_ghosted_lgmap(self, V):
+        lgmap = V.dof_dset.lgmap
+        indices = lgmap.indices.copy()
+
+        ncell = V.mesh().cell_set.size
+        non_ghost_cell_nodes = numpy.unique(V.cell_node_list[:ncell].flatten())
+        ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices)),
+                                           non_ghost_cell_nodes,
+                                           assume_unique=True)
+        indices[ghost_cell_nodes] = -1
+
+        #old_indices = [ind if i in non_ghost_cell_nodes else -1 for i, ind in enumerate(lgmap.indices)]
+        #assert numpy.allclose(indices, old_indices)
+
+        return PETSc.LGMap().create(indices, bsize=lgmap.block_size, comm=lgmap.getComm())
+
     @PETSc.Log.EventDecorator("FDMPrealloc")
     def allocate_matrix(self, Amat, V, J, bcs, fcp, pmat_type, use_static_condensation, use_amat):
         """
@@ -233,6 +249,8 @@ class FDMPC(PCBase):
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        self.non_ghosted_lgmaps = {Vsub: self.get_non_ghosted_lgmap(Vsub) for Vsub in V}
+
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
@@ -291,8 +309,9 @@ class FDMPC(PCBase):
             P = PETSc.Mat().create(comm=self.comm)
             P.setType(ptype)
             P.setSizes(sizes)
-            P.setLGMap(Vrow.dof_dset.lgmap, Vcol.dof_dset.lgmap)
 
+            P.setLGMap(self.non_ghosted_lgmaps[Vrow],
+                       self.non_ghosted_lgmaps[Vcol])
             P.setPreallocationNNZ((dnz, onz))
 
             #P.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
@@ -319,7 +338,6 @@ class FDMPC(PCBase):
 
                 assembly_callables.append(P.assemble)
                 assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
-                #if len(bdofs) > 0:
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
@@ -429,6 +447,7 @@ class FDMPC(PCBase):
         Pmats = dict(Smats)
         C0 = self.assemble_reference_tensor(V0)
         R0 = self.assemble_reference_tensor(V0, transpose=True)
+
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
         K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
         K1 = ImplicitSchurComplementKernel(K0)
@@ -704,6 +723,9 @@ class FDMPC(PCBase):
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
             R1 = self.assemble_reference_tensor(Vrow, transpose=True)
+
+
+
             # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
