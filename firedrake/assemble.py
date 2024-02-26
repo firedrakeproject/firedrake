@@ -1041,7 +1041,7 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
         if self._needs_zeroing:
-            self._as_pyop2_type(tensor).zero()
+            type(self)._as_pyop2_type(tensor).zero()
         self.execute_parloops(tensor)
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1050,6 +1050,11 @@ class ParloopFormAssembler(FormAssembler):
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc):
         """Apply boundary condition."""
+
+    @staticmethod
+    def _as_pyop2_type(tensor):
+        """Return tensor as pyop2 type."""
+        raise NotImplementedError
 
     def execute_parloops(self, tensor):
         for parloop in self.parloops(tensor):
@@ -1134,17 +1139,6 @@ class ParloopFormAssembler(FormAssembler):
     def result(self, tensor):
         """The result of the assembly operation."""
 
-    @staticmethod
-    def _as_pyop2_type(tensor):
-        if isinstance(tensor, op2.Global):
-            return tensor
-        elif isinstance(tensor, firedrake.Cofunction):
-            return tensor.dat
-        elif isinstance(tensor, matrix.Matrix):
-            return tensor.M
-        else:
-            raise AssertionError
-
 
 class ZeroFormAssembler(ParloopFormAssembler):
     """Class for assembling a 0-form.
@@ -1171,6 +1165,10 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def _apply_bc(self, tensor, bc):
         pass
+
+    @staticmethod
+    def _as_pyop2_type(tensor):
+        return tensor
 
     def result(self, tensor):
         return tensor.data[0]
@@ -1219,6 +1217,10 @@ class OneFormAssembler(ParloopFormAssembler):
             tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
         else:
             bc.zero(tensor)
+
+    @staticmethod
+    def _as_pyop2_type(tensor):
+        return tensor.dat
 
     def execute_parloops(self, tensor):
         # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
@@ -1355,6 +1357,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if component is not None:
             dat = op2.DatView(dat, component)
         dat.zero(subset=node_set)
+
+    @staticmethod
+    def _as_pyop2_type(tensor):
+        return tensor.M
 
     def result(self, tensor):
         tensor.M.assemble()
