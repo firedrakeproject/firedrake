@@ -100,12 +100,39 @@ def assemble(expr, *args, **kwargs):
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
     """
-    if isinstance(expr, (ufl.form.BaseForm, slate.TensorBase)):
-        return assemble_base_form(expr, *args, **kwargs)
-    elif isinstance(expr, ufl.core.expr.Expr):
-        return _assemble_expr(expr)
+    tensor = kwargs.pop("tensor", None)
+    return get_form_assembler(expr, tensor, *args, **kwargs)()
+
+
+def get_form_assembler(form, tensor, *args, **kwargs):
+    """Provide the assemble method for `form`"""
+
+    is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
+    bcs = kwargs.get('bcs', None)
+    fc_params = kwargs.get('form_compiler_parameters', None)
+    if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
+        mat_type = kwargs.get('mat_type', None)
+        # Preprocess the DAG and restructure the DAG
+        # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
+        form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
+        diagonal = kwargs.pop('diagonal', False)
+        if len(form.arguments()) == 0:
+            return functools.partial(ZeroFormAssembler(form, form_compiler_parameters=fc_params).assemble, tensor=tensor)
+        elif len(form.arguments()) == 1 or diagonal:
+            return functools.partial(OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
+                                                      zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal).assemble, tensor=tensor)
+        elif len(form.arguments()) == 2:
+            return functools.partial(TwoFormAssembler(form, *args, **kwargs).assemble, tensor=tensor)
+        else:
+            raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+    elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
+        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
+        return functools.partial(_assemble_expr, form)
+    elif isinstance(form, ufl.form.BaseForm):
+        return functools.partial(assemble_base_form, form, *args, tensor=tensor, **kwargs)
     else:
-        raise TypeError(f"Unable to assemble: {expr}")
+        raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
 
 class AbstractFormAssembler(abc.ABC):
@@ -386,7 +413,6 @@ def assemble_base_form(expression, tensor=None, bcs=None,
                        appctx=None,
                        options_prefix=None,
                        zero_bc_nodes=False,
-                       is_base_form_preprocessed=False,
                        weight=1.0,
                        visited=None):
     r"""Evaluate expression.
@@ -420,7 +446,6 @@ def assemble_base_form(expression, tensor=None, bcs=None,
     :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
         boundary condition. Default is ``False``.
-    :kwarg is_base_form_preprocessed: If ``True``, skip preprocessing of the form.
     :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
         identity matrix corresponding to the boundary nodes.
         To discretise eigenvalue problems set the weight equal to 0.0.
@@ -432,14 +457,7 @@ def assemble_base_form(expression, tensor=None, bcs=None,
     in a post-order fashion and evaluating the nodes on the fly.
     """
 
-    # Preprocess the DAG and restructure the DAG
-    if not is_base_form_preprocessed and not isinstance(expression, slate.TensorBase):
-        expr = preprocess_base_form(expression, mat_type, form_compiler_parameters)
-        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
-        if isinstance(expr, ufl.core.expr.Expr) and not isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            return _assemble_expr(expr)
-    else:
-        expr = expression
+    expr = expression
 
     # Define assembly DAG visitor
     assembly_visitor = functools.partial(base_form_assembly_visitor, bcs=bcs, diagonal=diagonal,
@@ -818,16 +836,16 @@ def _assemble_expr(expr):
             # Only Expr resulting in a Matrix if assembled are BaseFormOperator
             if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
                 raise TypeError('Mismatching Sum shapes')
-            return assemble_base_form(ufl.FormSum((a, 1), (b, 1)))
+            return get_form_assembler(ufl.FormSum((a, 1), (b, 1)), None)()
         elif isinstance(expr, ufl.algebra.Product):
             a, b = expr.ufl_operands
             scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
             if scalar:
                 base_form = a if a is scalar else b
                 assembled_mat = assemble(base_form)
-                return assemble_base_form(ufl.FormSum((assembled_mat, scalar[0])))
+                return get_form_assembler(ufl.FormSum((assembled_mat, scalar[0])), None)()
             a, b = [assemble(e) for e in (a, b)]
-            return assemble_base_form(ufl.action(a, b))
+            return get_form_assembler(ufl.action(a, b), None)()
     # -- Linear combination of Functions and 1-form BaseFormOperators -- #
     # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
     # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
@@ -1456,32 +1474,6 @@ class MatrixFreeAssembler(FormAssembler):
     def _check_tensor(self, tensor):
         if tensor is not None and tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
-
-
-def get_form_assembler(form, tensor, *args, **kwargs):
-    """Provide the assemble method for `form`"""
-
-    # Don't expand derivatives if `mat_type` is 'matfree'
-    mat_type = kwargs.get('mat_type', None)
-    if not isinstance(form, slate.TensorBase):
-        fc_params = kwargs.get('form_compiler_parameters')
-        # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-        form = preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not base_form_operands(form):
-        diagonal = kwargs.pop('diagonal', False)
-        if len(form.arguments()) == 1 or diagonal:
-            mat_type = kwargs.pop('mat_type', None)
-            return functools.partial(OneFormAssembler(form, *args, diagonal=diagonal, **kwargs).assemble, tensor=tensor)
-        elif len(form.arguments()) == 2:
-            return functools.partial(TwoFormAssembler(form, *args, **kwargs).assemble, tensor=tensor)
-        else:
-            raise ValueError('Expecting a 1-form or 2-form and not %s' % (form))
-    elif isinstance(form, ufl.form.BaseForm):
-        return functools.partial(assemble_base_form, form, *args, tensor=tensor,
-                                 is_base_form_preprocessed=True, **kwargs)
-    else:
-        raise ValueError('Expecting a BaseForm or a slate.TensorBase object and not %s' % form)
 
 
 def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
