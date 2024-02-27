@@ -361,7 +361,7 @@ def test_interpolate_unitsquare_mixed():
 
     # Can't go from non-mixed to mixed
     V_src_2 = VectorFunctionSpace(m_src, "CG", 1)
-    assert V_src_2.ufl_element().value_shape == V_src.ufl_element().value_shape
+    assert V_src_2.ufl_element().value_shape == V_src.ufl_element().value_shape(m_src)
     f_src_2 = Function(V_src_2)
     with pytest.raises(NotImplementedError):
         assemble(interpolate(f_src_2, V_dest))

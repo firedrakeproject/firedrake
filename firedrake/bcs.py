@@ -342,20 +342,21 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
+        V = self.function_space()
         if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
-            if g.function_space() != self.function_space():
+            if g.function_space() != V:
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
+            if g.ufl_shape and g.ufl_shape != V.ufl_element().value_shape(V.mesh()):
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape:
+            if g.ufl_shape != V.ufl_element().value_shape(V.mesh()):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                self._function_arg = firedrake.Function(self.function_space())
+                self._function_arg = firedrake.Function(V)
                 # Use `Interpolator` instead of assembling an `Interpolate` form
                 # as the expression compilation needs to happen at this stage to
                 # determine if we should use interpolation or projection
@@ -363,7 +364,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
-                self._function_arg = firedrake.Function(self.function_space()).project(g)
+                self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
         else:
             try:

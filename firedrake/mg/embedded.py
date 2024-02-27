@@ -17,9 +17,9 @@ alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher
 non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
-def get_embedding_element(element):
+def get_embedding_element(element, value_shape):
     broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
-    dg_element = get_embedding_dg_element(element, broken_cg=broken_cg)
+    dg_element = get_embedding_dg_element(element, value_shape, broken_cg=broken_cg)
     variant = element.variant() or "default"
     family = element.family()
     # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
@@ -40,8 +40,8 @@ class TransferManager(object):
         """A caching object for work vectors and matrices.
 
         :arg element: The element to use for the caching."""
-        def __init__(self, element):
-            self.embedding_element = get_embedding_element(element)
+        def __init__(self, key):
+            self.embedding_element = get_embedding_dg_element(*key)
             self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -83,11 +83,16 @@ class TransferManager(object):
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
-    def cache(self, element):
+    def cache(self, key):
         try:
-            return self.caches[element]
+            return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(element, TransferManager.Cache(element))
+            return self.caches.setdefault(key, TransferManager.Cache(key))
+
+    def get_cache_key(self, V):
+        elem = V.ufl_element()
+        value_shape = elem.value_shape(V.mesh())
+        return elem, value_shape
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -95,7 +100,7 @@ class TransferManager(object):
         :arg V: function space to compute weights for.
         :returns: A PETSc Vec.
         """
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = V.dim()
         try:
             return cache._V_dof_weights[key]
@@ -120,7 +125,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG
         """
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = V.dim()
         try:
             return cache._V_DG_mass[key]
@@ -135,7 +140,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat.
         """
-        cache = self.caches[DG.ufl_element()]
+        cache = self.cache(self.get_cache_key(DG))
         key = DG.dim()
         try:
             return cache._DG_inv_mass[key]
@@ -151,7 +156,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG.
         """
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = V.dim()
         try:
             return cache._V_approx_inv_mass[key]
@@ -169,7 +174,7 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A PETSc KSP for inverting (V, V).
         """
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = V.dim()
         try:
             return cache._V_inv_mass_ksp[key]
@@ -191,7 +196,7 @@ class TransferManager(object):
         :returns: A Function in the embedding DG space.
         """
         needs_dual = ufl.duals.is_dual(V)
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = (V.dim(), needs_dual)
         try:
             return cache._DG_work[key]
@@ -208,28 +213,28 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A PETSc Vec for V.
         """
-        cache = self.cache(V.ufl_element())
+        cache = self.cache(self.get_cache_key(V))
         key = V.dim()
         try:
             return cache._work_vec[key]
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
-    def requires_transfer(self, element, transfer_op, source, target):
+    def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
         the last time a grid transfer was executed with them."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         try:
-            return self.cache(element)._dat_versions[key] != dat_versions
+            return self.cache(self.get_cache_key(V))._dat_versions[key] != dat_versions
         except KeyError:
             return True
 
-    def cache_dat_versions(self, element, transfer_op, source, target):
+    def cache_dat_versions(self, V, transfer_op, source, target):
         """Record the returned dat_versions of the source and target."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
-        self.cache(element)._dat_versions[key] = dat_versions
+        self.cache(self.get_cache_key(V))._dat_versions[key] = dat_versions
 
     @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
@@ -243,7 +248,7 @@ class TransferManager(object):
         Vt = target.function_space()
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if not self.requires_transfer(source_element, transfer_op, source, target):
+        if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
         if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
@@ -280,7 +285,7 @@ class TransferManager(object):
                     work = self.work_vec(Vt)
                     self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
                     self.V_inv_mass_ksp(Vt).solve(work, t)
-        self.cache_dat_versions(source_element, transfer_op, source, target)
+        self.cache_dat_versions(Vs, transfer_op, source, target)
 
     def prolong(self, uc, uf):
         """Prolong a function.
@@ -308,7 +313,7 @@ class TransferManager(object):
         Vt_star = target.function_space()
         source_element = Vs_star.ufl_element()
         target_element = Vt_star.ufl_element()
-        if not self.requires_transfer(source_element, Op.RESTRICT, source, target):
+        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
         if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
@@ -344,4 +349,4 @@ class TransferManager(object):
             with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
-        self.cache_dat_versions(source_element, Op.RESTRICT, source, target)
+        self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)

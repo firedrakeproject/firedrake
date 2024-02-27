@@ -46,11 +46,11 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
-
+    gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension(),
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
@@ -220,7 +220,7 @@ def prolong_kernel(expression):
         assert hierarchy._meshes[int(idx)].cell_set._extruded
     V = expression.function_space()
     key = (("prolong",)
-           + expression.ufl_element().value_shape
+           + expression.ufl_element().value_shape(meshc)
            + entity_dofs_key(V.finat_element.complex.get_topology())
            + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -302,7 +302,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.ufl_element().value_shape
+           + Vf.ufl_element().value_shape(Vf.mesh())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -390,7 +390,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape
+           + Vf.ufl_element().value_shape(Vf.mesh())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())

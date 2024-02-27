@@ -206,12 +206,12 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         parameters = _
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
-
+    gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
     extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension(),
         "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),

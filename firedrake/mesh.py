@@ -66,10 +66,10 @@ _cells = {
 }
 
 
-_supported_embedded_cell_types = [ufl.Cell('interval', 2),
-                                  ufl.Cell('triangle', 3),
-                                  ufl.Cell("quadrilateral", 3),
-                                  ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), geometric_dimension=3)]
+_supported_embedded_cell_types_and_gdims = [(ufl.Cell('interval'), 2),
+                                            (ufl.Cell('triangle'), 3),
+                                            (ufl.Cell("quadrilateral"), 3),
+                                            (ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval')), 3)]
 
 
 unmarked = -1
@@ -1477,8 +1477,8 @@ class MeshTopology(AbstractMeshTopology):
         elem = tV.ufl_element()
         if tV.mesh() is not self:
             raise RuntimeError(f"tf must be defined on {self}: {tf.mesh()} is not {self}")
-        if elem.value_shape != ():
-            raise RuntimeError(f"tf must be scalar: {elem.value_shape} != ()")
+        if elem.reference_value_shape != ():
+            raise RuntimeError(f"tf must be scalar: {elem.reference_value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0
@@ -2303,7 +2303,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell.geometric_dimension()))
+                                                         (self.num_vertices(), self.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
@@ -2470,7 +2470,7 @@ values from f.)"""
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
 
-        gdim = self.ufl_cell().geometric_dimension()
+        gdim = self.geometric_dimension()
         if gdim <= 1:
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
@@ -2765,7 +2765,7 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if self.ufl_cell() not in _supported_embedded_cell_types:
+        if (self.ufl_cell(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
@@ -2774,8 +2774,8 @@ values from f.)"""
         if not isinstance(expr, ufl.classes.Expr):
             raise TypeError("UFL expression expected!")
 
-        if expr.ufl_shape != (self.ufl_cell().geometric_dimension(), ):
-            raise ValueError(f"Mismatching shapes: expr.ufl_shape ({expr.ufl_shape}) != (self.ufl_cell().geometric_dimension(), ) (({self.ufl_cell().geometric_dimension}, ))")
+        if expr.ufl_shape != (self.geometric_dimension(), ):
+            raise ValueError(f"Mismatching shapes: expr.ufl_shape ({expr.ufl_shape}) != (self.geometric_dimension(), ) (({self.geometric_dimension}, ))")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)
@@ -2848,12 +2848,9 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
 
     V = coordinates.function_space()
     element = coordinates.ufl_element()
-    if V.rank != 1 or len(element.value_shape) != 1:
+    if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
     assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
-    # Build coordinate element
-    cell = element.cell.reconstruct(geometric_dimension=V.value_size)
-    element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
@@ -2886,11 +2883,10 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
-    cell = cell.reconstruct(geometric_dimension=geometric_dim)
     if not topology.topology_dm.getCoordinatesLocalized():
-        element = finat.ufl.VectorElement("Lagrange", cell, 1)
+        element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
-        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
+        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
@@ -2922,10 +2918,9 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     import firedrake.function as function
 
     gdim = topology.topology_dm.getCoordinateDim()
-    tcell = topology.ufl_cell()
-    cell = tcell.reconstruct(geometric_dimension=gdim)
-    element = finat.ufl.VectorElement("DG", cell, 0)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
+    cell = topology.ufl_cell()
+    element = finat.ufl.VectorElement("DG", cell, 0, dim=gdim)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
@@ -3214,7 +3209,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         pass
     elif extrusion_type in ("radial", "radial_hedgehog"):
         # do not allow radial extrusion if tdim = gdim
-        if mesh.ufl_cell().geometric_dimension() == mesh.ufl_cell().topological_dimension():
+        if mesh.geometric_dimension() == mesh.topological_dimension():
             raise RuntimeError("Cannot radially-extrude a mesh with equal geometric and topological dimension")
     else:
         # check for kernel
@@ -3234,7 +3229,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
-        gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")
+        gdim = mesh.geometric_dimension() + (extrusion_type == "uniform")
     coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
@@ -4537,8 +4532,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             plex1.createLabel(label_name)
     for f, subid in zip(indicator_functions, subdomain_ids):
         elem = f.topological.function_space().ufl_element()
-        if elem.value_shape != ():
-            raise RuntimeError(f"indicator functions must be scalar: got {elem.value_shape} != ()")
+        if elem.reference_value_shape != ():
+            raise RuntimeError(f"indicator functions must be scalar: got {elem.reference_value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
             # cells
             height = 0

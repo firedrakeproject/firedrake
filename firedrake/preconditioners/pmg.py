@@ -132,7 +132,7 @@ class PMGBase(PCSNESBase):
         while True:
             try:
                 ele_ = self.coarsen_element(ele)
-                assert ele_.value_shape == ele.value_shape
+                assert ele_.value_shape(V.mesh()) == ele.value_shape(V.mesh())
                 ele = ele_
             except ValueError:
                 break
@@ -1098,7 +1098,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = ufl.Identity(Q.ufl_element().value_shape[0])
+        tensor = ufl.Identity(Q.ufl_element().value_shape(Q.mesh())[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -1347,8 +1347,8 @@ class StandaloneInterpolationMatrix(object):
                 in_place_mapping = True
             except Exception:
                 qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
-                if felem.value_shape:
-                    qelem = finat.ufl.TensorElement(qelem, shape=felem.value_shape, symmetry=felem.symmetry())
+                if felem.value_shape(Vf.mesh()):
+                    qelem = finat.ufl.TensorElement(qelem, shape=felem.value_shape(Vf.mesh()), symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
