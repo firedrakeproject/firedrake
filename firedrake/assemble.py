@@ -703,14 +703,14 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
         raise NotImplementedError
 
     def adjacency(pt):
-        return mesh.closure(mesh.star(pt))
+        return mesh.closure(mesh.star(pt), col=True)
 
     test_arg, trial_arg = arguments
     mymat = op3.PetscMat(
         mesh.points,
         adjacency,
         test_arg.function_space().axes,
-        trial_arg.function_space().axes,
+        trial_arg.function_space().axes1,
     )
 
     return matrix.Matrix(expr, bcs, mat_type, mymat, options_prefix=options_prefix)
@@ -1370,14 +1370,13 @@ class ParloopBuilder:
         gathers = []
         scatters = []
         for tsfc_arg in self._kinfo.arguments:
-            arg, gathers_, scatters_ = self._as_parloop_arg(tsfc_arg, p)
+            arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
-            gathers.extend(gathers_)
-            scatters.extend(scatters_)
+            # gathers.extend(gathers_)
+            # scatters.extend(scatters_)
 
         kernel = op3.Function(
-            # self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
-            self._kinfo.kernel.code, [op3.NA for _ in args]
+            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
         return op3.loop(p, [*gathers, kernel(*args), *scatters])
 
@@ -1457,6 +1456,7 @@ class ParloopBuilder:
             # else:
             #     return tensor[self._get_map(V)(index)]
         elif rank == 2:
+            return pack_tensor(tensor, index, op3.INC, self._integral_type)
             raise NotImplementedError
             rmap, cmap = [self._get_map(V) for V in Vs]
 
@@ -1577,7 +1577,7 @@ class _FormHandler:
                 type(arg.ufl_element()) is finat.ufl.MixedElement
                 for arg in tensor.a.arguments()
             )
-            return tensor.M[index_str] if is_mixed and is_indexed else tensor.M
+            return tensor.M[index_str] if is_mixed and is_indexed else tensor
         else:
             raise AssertionError
 

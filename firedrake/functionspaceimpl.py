@@ -520,13 +520,18 @@ class FunctionSpace:
         self.finat_element = create_element(element)
 
         axes = op3.PartialAxisTree(mesh.points)
+        axes1 = op3.PartialAxisTree(mesh.points.copy(label=mesh.points.label+"1"))
         for tdim, edofs in self.finat_element.entity_dofs().items():
             ndofs = single_valued(len(d) for d in edofs.values())
             subaxes = op3.PartialAxisTree(op3.Axis(ndofs, "dof"))
+            subaxes1 = op3.PartialAxisTree(op3.Axis(ndofs, "dof1"))
             for dim in self.shape:
                 subaxes = subaxes.add_subaxis(op3.Axis(dim), *subaxes.leaf)
+                subaxes1 = subaxes1.add_subaxis(op3.Axis(dim), *subaxes1.leaf)
             axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+            axes1 = axes1.add_subtree(subaxes1, axes1.root, str(tdim))
         self.axes = axes.set_up()
+        self.axes1 = axes1.set_up()
 
     # def set_shared_data(self):
     #     element = self.ufl_element()

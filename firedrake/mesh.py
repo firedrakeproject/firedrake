@@ -830,17 +830,17 @@ class AbstractMeshTopology(abc.ABC):
         """
         pass
 
-    def closure(self, index, ordering=ClosureOrdering.PLEX):
+    def closure(self, index, ordering=ClosureOrdering.PLEX, col=False):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)
 
         if ordering == ClosureOrdering.PLEX:
-            return self._plex_closure(index)
+            return self._plex_closure(index) if not col else self._plex_closure1(index)
         elif ordering == ClosureOrdering.FIAT:
             # target_paths = tuple(index.iterset.target_paths.values())
             # if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
-            return self._fiat_closure(index)
+            return self._fiat_closure(index) if not col else self._fiat_closure1(index)
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
 
@@ -899,10 +899,18 @@ class AbstractMeshTopology(abc.ABC):
         return self._closure_map(ClosureOrdering.PLEX)
 
     @cached_property
+    def _plex_closure1(self):
+        return self._closure_map(ClosureOrdering.PLEX, True)
+
+    @cached_property
     def _fiat_closure(self):
         return self._closure_map(ClosureOrdering.FIAT)
 
-    def _closure_map(self, ordering):
+    @cached_property
+    def _fiat_closure1(self):
+        return self._closure_map(ClosureOrdering.FIAT, True)
+
+    def _closure_map(self, ordering, col=False):
         if ordering == ClosureOrdering.PLEX:
             dims = range(self.dimension+1)
         else:
@@ -946,10 +954,12 @@ class AbstractMeshTopology(abc.ABC):
                     #     2   8   5
                     #     |       |
                     #     0---6---3
-                    numbering = np.asarray(
-                        [0, 1, 4, 2, 3, 5, 6, 7, 8],
-                        dtype=utils.IntType
-                    )
+                    # numbering = np.asarray(
+                    #     [0, 1, 4, 2, 3, 5, 6, 7, 8],
+                    #     dtype=utils.IntType
+                    # )
+                    # no longer do this here, doesn't work for higher order
+                    numbering = None
                 else:
                     # If we are passing the closure to TSFC then we need to transform the
                     # maps to deliver data in the canonical ordering declared by FIAT.
@@ -964,6 +974,11 @@ class AbstractMeshTopology(abc.ABC):
                 if size == 0:
                     continue
 
+                target_axis = self.name
+                target_dim = str(map_dim)
+                if col:
+                    target_axis += "1"
+
                 outer_axis = self.points[str(dim)].root
                 inner_axis = op3.Axis(size)
                 map_axes = op3.AxisTree.from_nest(
@@ -973,7 +988,7 @@ class AbstractMeshTopology(abc.ABC):
                     map_axes, data=data.flatten()
                 )
                 map_components.append(
-                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
                 )
             closures[freeze({self.name: str(dim)})] = map_components
 

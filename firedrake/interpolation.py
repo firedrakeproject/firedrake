@@ -24,6 +24,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
+from firedrake.parloops import pack_tensor, pack_petsc_mat
 from firedrake.ufl_expr import Argument, action, adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
@@ -898,13 +899,13 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 else:
                     val = firedrake.Constant(finfo.min)
                 f.assign(val)
-        tensor = f.dat
+        tensor = f
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
-        argfs_map = source_mesh.topology.closure
+        argfs_map = source_mesh.topology._fiat_closure1
         vom_onto_other_vom = (
             isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
@@ -929,6 +930,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     # this ourselves
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
+                    raise NotImplementedError("TODO, pyop3")
                     def argfs_map(pt):
                         return source_mesh.topology.closure(target_mesh.cell_parent_cell_map(pt), "fiat")
         if vom_onto_other_vom:
@@ -936,13 +938,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             tensor = None
         else:
             def adjacency(pt):
-                return argfs_map(target_mesh.topology.star(pt))
+                # return argfs_map(target_mesh.topology.star(pt))
+                return source_mesh.topology.closure(target_mesh.topology.star(pt), col=True)
 
             tensor = op3.PetscMat(
                 target_mesh.topology.points,
                 adjacency,
                 V.axes,
-                argfs.axes,
+                argfs.axes1,
             )
             # sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
             #                         ((V.cell_node_map(), argfs_map),),
@@ -1113,7 +1116,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
+        # tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
+        tensor = output.copy()
         if access != op3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
@@ -1125,7 +1129,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        parloop_args.append(tensor[V.cell_closure_map(loop_index)])
+        parloop_args.append(pack_tensor(tensor, loop_index, access, "cell"))
     else:
         assert len(expr_arguments) == 1
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1150,14 +1154,17 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor[rows_map(loop_index, "fiat"), columns_map(loop_index, "fiat")])
+        # TODO needed because we don't have a Firedrake object here, should probably
+        # pass pyop3 obj plus function spaces instead
+        # parloop_args.append(pack_tensor(tensor, loop_index, access, "cell"))
+        parloop_args.append(pack_petsc_mat(tensor, V, Vcol, loop_index, access))
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat[co.cell_closure_map(loop_index)])
+        parloop_args.append(pack_tensor(co, loop_index, op3.READ, "cell"))
     if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(cs.dat[cs.cell_closure_map(loop_index)])
+        parloop_args.append(pack_tensor(cs, loop_index, op3.READ, "cell"))
 
     for coefficient in coefficients:
         coeff_mesh = extract_unique_domain(coefficient)
@@ -1183,7 +1190,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                 coeff_index = None
         else:
             raise ValueError("Have coefficient with unexpected mesh")
-        parloop_args.append(coefficient.dat[coeff_index])
+        parloop_args.append(pack_tensor(coefficient, loop_index, op3.READ, "cell"))
 
     for const in extract_firedrake_constants(expr):
         # constants do not require indexing
