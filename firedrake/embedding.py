@@ -4,7 +4,7 @@ import finat.ufl
 import ufl
 
 
-def get_embedding_dg_element(element):
+def get_embedding_dg_element(element, value_shape):
     cell = element.cell
     degree = element.degree()
     family = lambda c: "DG" if c.is_simplex() else "DQ"
@@ -16,7 +16,7 @@ def get_embedding_dg_element(element):
                                                               for (c, d) in zip(cell.sub_cells(), degree)))
     else:
         scalar_element = finat.ufl.FiniteElement(family(cell), cell=cell, degree=degree)
-    shape = element.value_shape
+    shape = value_shape
     if len(shape) == 0:
         DG = scalar_element
     elif len(shape) == 1:
@@ -34,12 +34,12 @@ def get_embedding_dg_element(element):
 native_elements_for_checkpointing = {"Lagrange", "Discontinuous Lagrange", "Q", "DQ", "Real"}
 
 
-def get_embedding_element_for_checkpointing(element):
+def get_embedding_element_for_checkpointing(element, value_shape):
     """Convert the given UFL element to an element that :class:`~.CheckpointFile` can handle."""
     if element.family() in native_elements_for_checkpointing:
         return element
     else:
-        return get_embedding_dg_element(element)
+        return get_embedding_dg_element(element, value_shape)
 
 
 def get_embedding_method_for_checkpointing(element):

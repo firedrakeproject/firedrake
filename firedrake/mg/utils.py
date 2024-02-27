@@ -135,7 +135,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
 
 def physical_node_locations(V):
     element = V.ufl_element()
-    if element.value_shape:
+    if element.value_shape(V.mesh()):
         assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
         element = element.sub_elements[0]
     mesh = V.mesh()

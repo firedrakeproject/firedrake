@@ -486,7 +486,7 @@ class FunctionSpace(object):
             shape_element = element
             if isinstance(element, finat.ufl.WithMapping):
                 shape_element = element.wrapee
-            sub = shape_element.sub_elements[0].value_shape
+            sub = shape_element.sub_elements[0].reference_value_shape
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()

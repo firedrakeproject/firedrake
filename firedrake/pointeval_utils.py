@@ -115,7 +115,7 @@ def compile_element(expression, coordinates, parameters=None):
     extruded = isinstance(cell, TensorProductCell)
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": domain.geometric_dimension(),
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",

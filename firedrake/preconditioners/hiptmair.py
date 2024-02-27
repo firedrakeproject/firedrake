@@ -162,9 +162,9 @@ class HiptmairPC(TwoLevelPC):
         element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
-            celement = curl_to_grad(element)
+            celement = curl_to_grad(element, mesh)
         elif formdegree == 2:
-            celement = div_to_curl(element)
+            celement = div_to_curl(element, mesh)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
@@ -205,15 +205,15 @@ class HiptmairPC(TwoLevelPC):
         return coarse_operator, coarse_space_bcs, interp_petscmat
 
 
-def curl_to_grad(ele):
+def curl_to_grad(ele, mesh):
     if isinstance(ele, finat.ufl.VectorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
+        return type(ele)(curl_to_grad(ele._sub_element, mesh), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(curl_to_grad(ele._sub_element, mesh), shape=ele.value_shape(mesh), symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
-        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
+        return type(ele)(*(curl_to_grad(e, mesh) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
-        return finat.ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
+        return finat.ufl.RestrictedElement(curl_to_grad(ele._element, mesh), ele.restriction_domain())
     else:
         cell = ele.cell
         family = ele.family()
@@ -232,25 +232,25 @@ def curl_to_grad(ele):
         return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
 
 
-def div_to_curl(ele):
+def div_to_curl(ele, mesh):
     if isinstance(ele, finat.ufl.VectorElement):
-        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
+        return type(ele)(div_to_curl(ele._sub_element, mesh), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(div_to_curl(ele._sub_element, mesh), shape=ele.value_shape(mesh), symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
+        return type(ele)(*(div_to_curl(e, mesh) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
-        return finat.ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
+        return finat.ufl.RestrictedElement(div_to_curl(ele._element, mesh), ele.restriction_domain())
     elif isinstance(ele, finat.ufl.EnrichedElement):
-        return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
+        return type(ele)(*(div_to_curl(e, mesh) for e in reversed(ele._elements)))
     elif isinstance(ele, finat.ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements), cell=ele.cell)
+        return type(ele)(*(div_to_curl(e, mesh) for e in ele.sub_elements), cell=ele.cell)
     elif isinstance(ele, finat.ufl.WithMapping):
-        return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
+        return type(ele)(div_to_curl(ele.wrapee, mesh), ele.mapping())
     elif isinstance(ele, finat.ufl.BrokenElement):
-        return type(ele)(div_to_curl(ele._element))
+        return type(ele)(div_to_curl(ele._element, mesh))
     elif isinstance(ele, finat.ufl.HDivElement):
-        return finat.ufl.HCurlElement(div_to_curl(ele._element))
+        return finat.ufl.HCurlElement(div_to_curl(ele._element, mesh))
     elif isinstance(ele, finat.ufl.HCurlElement):
         raise ValueError("Expecting an H(div) element")
     else:
