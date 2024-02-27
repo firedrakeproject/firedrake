@@ -323,9 +323,7 @@ class FDMPC(PCBase):
                        self.non_ghosted_lgmaps[Vcol])
             P.setPreallocationNNZ((dnz, onz))
 
-            #P.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
-            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
-            #P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
             P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
             if ptype.endswith("sbaij"):
@@ -333,9 +331,13 @@ class FDMPC(PCBase):
             P.setUp()
 
             self.set_values(P, Vrow, Vcol, addv, mat_type=ptype)
-            P.assemble()
+            # populate diagonal entries
             if on_diag:
-                P.shift(1)
+                n = len(self.non_ghosted_lgmaps[Vrow].indices)
+                i = numpy.arange(n,dtype=PETSc.IntType).reshape(-1,1)
+                v = numpy.ones(n,dtype=PETSc.ScalarType).reshape(-1,1)
+                P.setValuesLocalRCV(i,i,v,addv=addv)
+            P.assemble()
 
             # append callables to zero entries, insert element matrices, and apply BCs
             assembly_callables.append(P.zeroEntries)
@@ -344,7 +346,6 @@ class FDMPC(PCBase):
                 own = Vrow.dof_dset.layout_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
-
                 assembly_callables.append(P.assemble)
                 assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
 
