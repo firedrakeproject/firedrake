@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, IntType
 
 
 @pytest.fixture(scope='module')
@@ -291,3 +291,28 @@ def test_assemble_vector_rspace_one_form(mesh):
     U = inner(u, u)*dx
     L = derivative(U, u)
     assemble(L)
+
+
+def test_assemble_sparsity_no_redundant_entries():
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    A = assemble(inner(u, v) * dx, mat_type="nest")
+    for i in range(len(W)):
+        for j in range(len(W)):
+            if i != j:
+                assert np.all(A.M.sparsity[i][j].nnz == np.zeros(9, dtype=IntType))
+
+
+def test_assemble_sparsity_diagonal_entries_for_bc():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    bc = DirichletBC(W.sub(1), 0, "on_boundary")
+    A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
+    # Make sure that diagonals are allocated.
+    assert np.all(A.M.sparsity[1][1].nnz == np.ones(4, dtype=IntType))

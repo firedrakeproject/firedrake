@@ -337,6 +337,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @cached_property
     def maps_and_regions(self):
+        # The sparsity could be made tighter by inspecting the form DAG.
         test, trial = self._form.arguments()
         return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self.allocation_integral_types)
 
@@ -1322,12 +1323,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             baij = mat_type == "baij"
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
-        map_pairs, iteration_regions = maps_and_regions
         try:
             sparsity = op2.Sparsity((test.function_space().dof_dset,
                                      trial.function_space().dof_dset),
-                                    map_pairs,
-                                    iteration_regions=iteration_regions,
+                                    maps_and_regions,
                                     nest=nest,
                                     block_sparse=baij)
         except SparsityFormatError:
@@ -1337,23 +1336,41 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     def _make_maps_and_regions(self):
         test, trial = self._form.arguments()
-        allocation_integral_types = set(i.integral_type() for i in self._form.integrals())
-        for bc in self._bcs:
-            allocation_integral_types.update(integral.integral_type()
-                                             for integral in bc.integrals())
-        return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
+        if self._allocation_integral_types is not None:
+            return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self._allocation_integral_types)
+        elif any(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels):
+            # Handle special cases: slate or split=False
+            assert all(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels)
+            allocation_integral_types = set(local_kernel.kinfo.integral_type
+                                            for local_kernel in self._all_local_kernels)
+            return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
+        else:
+            maps_and_regions = defaultdict(lambda: defaultdict(set))
+            for local_kernel in self._all_local_kernels:
+                i, j = local_kernel.indices
+                # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
+                get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[local_kernel.kinfo.integral_type]
+                rmap_ = get_map(test).split[i] if get_map(test) is not None else None
+                cmap_ = get_map(trial).split[j] if get_map(trial) is not None else None
+                maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
+            return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
+                    for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
     @staticmethod
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
-        domains = defaultdict(set)
+        # Make maps using outer-product of the component maps
+        # using the given allocation_integral_types.
+        if allocation_integral_types is None:
+            raise ValueError("allocation_integral_types can not be None")
+        maps_and_regions = defaultdict(lambda: defaultdict(set))
+        # Use outer product of component maps.
         for integral_type in allocation_integral_types:
             get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[integral_type]
-            domains[get_map].add(region)
-        map_pairs, iteration_regions = zip(*(((get_map(test), get_map(trial)),
-                                              tuple(sorted(regions)))
-                                             for get_map, regions in domains.items()
-                                             if regions))
-        return tuple(map_pairs), tuple(iteration_regions)
+            for i, rmap_ in enumerate(get_map(test)):
+                for j, cmap_ in enumerate(get_map(trial)):
+                    maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
+        return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
+                for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
     @classmethod
     @property
@@ -1373,6 +1390,20 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                           "interior_facet": (get_intf_map, op2.ALL),
                                           "interior_facet_vert": (get_intf_map, op2.ALL)}
             return cls._integral_type_op2_map
+
+    @cached_property
+    def _all_local_kernels(self):
+        """Collection of parloop_builders used for sparsity construction.
+
+        When constructing sparsity, we use all parloop_builders
+        that are to be used in the actual assembly.
+        """
+        all_local_kernels = tuple(local_kernel for local_kernel, _ in self.local_kernels)
+        for bc in self._bcs:
+            if isinstance(bc, EquationBCSplit):
+                _assembler = type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False)
+                all_local_kernels += _assembler._all_local_kernels
+        return all_local_kernels
 
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
