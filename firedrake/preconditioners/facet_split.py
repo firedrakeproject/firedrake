@@ -87,6 +87,17 @@ class FacetSplitPC(PCBase):
             self.perm = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             self.iperm = self.perm.invertPermutation()
 
+        def _permute_nullspace(nsp):
+            if not (nsp.handle and self.iperm):
+                return nsp
+            pvecs = []
+            for vec in nsp.getVecs():
+                pvec = vec.duplicate()
+                self._vec_permute(vec, pvec, self.iperm)
+                pvecs.append(pvec)
+
+            return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=pvecs, comm=nsp.getComm())
+
         if mat_type != "submatrix":
             self.mixed_op = allocate_matrix(mixed_operator,
                                             bcs=mixed_bcs,
@@ -99,15 +110,6 @@ class FacetSplitPC(PCBase):
             self._assemble_mixed_op()
             mixed_opmat = self.mixed_op.petscmat
 
-            def _permute_nullspace(nsp):
-                if not (nsp.handle and self.iperm):
-                    return nsp
-                vecs = [vec.duplicate() for vec in nsp.getVecs()]
-                for vec in vecs:
-                    self.work_vec_x.getArray(readonly=False)[:] = vec.getArray(readonly=True)[:]
-                    self._vec_permute(self.work_vec_x, vec, self.iperm)
-                return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vecs, comm=nsp.getComm())
-
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
@@ -116,6 +118,10 @@ class FacetSplitPC(PCBase):
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             mixed_opmat = self._permute_op()
+
+            mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
+            mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
+            mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         else:
             mixed_opmat = P
 
