@@ -177,9 +177,8 @@ class FDMPC(PCBase):
         # Assemble the FDM preconditioner with sparse local matrices
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
-        Pmat.setNullSpace(Amat.getNullSpace())
-        Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
-        Pmat.setNearNullSpace(Amat.getNearNullSpace())
+
+
         self._assemble_P()
 
         fdmpc.setOperators(A=Amat, P=Pmat)
@@ -191,28 +190,16 @@ class FDMPC(PCBase):
             fdmpc.setFromOptions()
 
     def get_non_ghosted_lgmap(self, V):
+        # TODO extruded meshes
+        lgmap = V.dof_dset.lgmap
+        indices = lgmap.indices.copy()
+
         ncell = V.mesh().cell_set.size
         non_ghost_cell_nodes = numpy.unique(V.cell_node_list[:ncell].flatten())
-
-        lgmap = V.dof_dset.lgmap
-        comm = lgmap.getComm()
-        print_rank = -1
-        if comm.rank == print_rank:
-            cn = V.cell_node_list
-            cn = lgmap.apply(cn).reshape(cn.shape)
-            print("number of cells", comm.rank, ncell, flush=True)
-            print("cell_node_list", cn, flush=True)
-
-        if comm.rank == print_rank:
-            print("indices before", comm.rank, lgmap.indices, flush=True)
-
-        indices = [ind if i in non_ghost_cell_nodes else -1 for i, ind in enumerate(lgmap.indices)]
-        if comm.rank == print_rank:
-            print("indices xxx", comm.rank, indices, flush=True)
-
-        #indices[numpy.ghost_cell_nodes] = -1
-        if comm.rank == print_rank:
-            print("indices after", comm.rank, indices, flush=True)
+        ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices)),
+                                           non_ghost_cell_nodes,
+                                           assume_unique=True)
+        indices[ghost_cell_nodes] = -1
         return PETSc.LGMap().create(indices, bsize=lgmap.block_size, comm=lgmap.getComm())
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
@@ -355,10 +342,26 @@ class FDMPC(PCBase):
                         diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
+        def sub_nullspace(nsp, iset):
+            if not nsp.handle:
+                return nsp
+            return PETSc.NullSpace().create(constant=nsp.hasConstant(),
+                                            vectors=[vec.getSubVector(iset) for vec in nsp.getVecs()],
+                                            comm=nsp.getComm())
+
         if len(V) == 1:
             Pmat = Pmats[V, V]
+            Pmat.setNullSpace(Amat.getNullSpace())
+            Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
+            Pmat.setNearNullSpace(Amat.getNearNullSpace())
+
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
+            for Vrow, iset in zip(V, Pmat.getNestISs()[0]):
+                Pmats[Vrow, Vrow].setNullSpace(sub_nullspace(Amat.getNullSpace(), iset))
+                Pmats[Vrow, Vrow].setTransposeNullSpace(sub_nullspace(Amat.getTransposeNullSpace(), iset))
+                Pmats[Vrow, Vrow].setNearNullSpace(sub_nullspace(Amat.getNearNullSpace(), iset))
+
         assembly_callables.append(Pmat.assemble)
         assembly_callables.extend(diagonal_terms)
         return Amat, Pmat, assembly_callables
