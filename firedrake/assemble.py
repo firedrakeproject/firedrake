@@ -1,5 +1,6 @@
 import abc
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
+from collections.abc import Sequence  # noqa: F401
 import functools
 import itertools
 from itertools import product
@@ -41,72 +42,105 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 @PETSc.Log.EventDecorator()
 @annotate_assemble
 def assemble(expr, *args, **kwargs):
-    r"""Evaluate expr.
+    """Assemble.
 
-    :arg expr: a :class:`~ufl.classes.BaseForm`, :class:`~ufl.classes.Expr` or
-        a :class:`~.slate.TensorBase` expression.
-    :arg tensor: Existing tensor object to place the result in.
-    :arg bcs: Iterable of boundary conditions to apply.
-    :kwarg diagonal: If assembling a matrix is it diagonal?
-    :kwarg form_compiler_parameters: Dictionary of parameters to pass to
-        the form compiler. Ignored if not assembling a :class:`~ufl.classes.Form`.
+    Parameters
+    ----------
+    expr : ufl.classes.Expr or ufl.classes.BaseForm or slate.TensorBase
+        Object to assemble.
+    tensor : firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase or None
+        Existing tensor object to place the result in.
+    bcs : Sequence
+        Iterable of boundary conditions to apply.
+    form_compiler_parameters : dict
+        Dictionary of parameters to pass to
+        the form compiler. Ignored if not assembling a `ufl.classes.Form`.
         Any parameters provided here will be overridden by parameters set on the
-        :class:`~ufl.classes.Measure` in the form. For example, if a
+        `ufl.classes.Measure` in the form. For example, if a
         ``quadrature_degree`` of 4 is specified in this argument, but a degree of
         3 is requested in the measure, the latter will be used.
-    :kwarg mat_type: String indicating how a 2-form (matrix) should be
+    mat_type : str
+        String indicating how a 2-form (matrix) should be
         assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
-        a block matrix (``"nest"``), or left as a :class:`.ImplicitMatrix` giving
+        a block matrix (``"nest"``), or left as a `matrix.ImplicitMatrix` giving
         matrix-free actions (``'matfree'``). If not supplied, the default value in
         ``parameters["default_matrix_type"]`` is used.  BAIJ differs
         from AIJ in that only the block sparsity rather than the dof
         sparsity is constructed.  This can result in some memory
         savings, but does not work with all PETSc preconditioners.
         BAIJ matrices only make sense for non-mixed matrices.
-    :kwarg sub_mat_type: String indicating the matrix type to
+    sub_mat_type : str
+        String indicating the matrix type to
         use *inside* a nested block matrix.  Only makes sense if
         ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
-    :kwarg appctx: Additional information to hang on the assembled
+    options_prefix : str
+        PETSc options prefix to apply to matrices.
+    appctx : dict
+        Additional information to hang on the assembled
         matrix if an implicit matrix is requested (mat_type ``"matfree"``).
-    :kwarg options_prefix: PETSc options prefix to apply to matrices.
-    :kwarg zero_bc_nodes: If ``True``, set the boundary condition nodes in the
+    zero_bc_nodes : bool
+        If `True`, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is ``False``.
-    :kwarg weight: weight of the boundary condition, i.e. the scalar in front of the
+        boundary condition. Default is `False`.
+    diagonal : bool
+        If assembling a matrix is it diagonal?
+    weight : float
+        Weight of the boundary condition, i.e. the scalar in front of the
         identity matrix corresponding to the boundary nodes.
         To discretise eigenvalue problems set the weight equal to 0.0.
+    allocation_integral_types : Sequence
+        `Sequence` of integral types to be used when allocating the output
+        `matrix.Matrix`.
+    is_base_form_preprocessed : bool
+        If `True`, skip preprocessing of the form.
 
-    :returns: See below.
+    Returns
+    -------
+    float or firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase
+        Result of assembly.
 
-    If expr is a :class:`~ufl.classes.Form` or Slate tensor expression then
-    this evaluates the corresponding integral(s) and returns a :class:`float`
-    for 0-forms, a :class:`.Function` for 1-forms and a :class:`.Matrix` or
-    :class:`.ImplicitMatrix` for 2-forms. In the case of 2-forms the rows
-    correspond to the test functions and the columns to the trial functions.
+    Notes
+    -----
+    Input arguments are all optional, except ``expr``.
+
+    If expr is a `ufl.classes.Form` or `slate.TensorBase` then this evaluates
+    the corresponding integral(s) and returns a `float` for 0-forms,
+    a `firedrake.function.Function` or a `firedrake.cofunction.Cofunction`
+    for 1-forms and a `matrix.Matrix` or a `matrix.ImplicitMatrix` for 2-forms.
+    In the case of 2-forms the rows correspond to the test functions and the
+    columns to the trial functions.
 
     If expr is an expression other than a form, it will be evaluated
-    pointwise on the :class:`.Function`\s in the expression. This will
+    pointwise on the `firedrake.function.Function`s in the expression. This will
     only succeed if all the Functions are on the same
-    :class:`.FunctionSpace`.
+    `firedrake.functionspace.FunctionSpace`.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be
     returned.
 
     If ``bcs`` is supplied and ``expr`` is a 2-form, the rows and columns
-    of the resulting :class:`.Matrix` corresponding to boundary nodes
+    of the resulting `matrix.Matrix` corresponding to boundary nodes
     will be set to 0 and the diagonal entries to 1. If ``expr`` is a
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
+
     """
+    if args:
+        raise RuntimeError(f"Got unexpected args: {args}")
     tensor = kwargs.pop("tensor", None)
-    return get_form_assembler(expr, tensor, *args, **kwargs)()
+    return get_assembler(expr, *args, **kwargs).assemble(tensor=tensor)
 
 
-def get_form_assembler(form, tensor, *args, **kwargs):
-    """Provide the assemble method for `form`"""
+def get_assembler(form, *args, **kwargs):
+    """Create an assembler.
 
+    Notes
+    -----
+    See `assemble` for descriptions of the parameters. ``tensor`` should not be passed to this function.
+
+    """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     bcs = kwargs.get('bcs', None)
     fc_params = kwargs.get('form_compiler_parameters', None)
@@ -118,19 +152,19 @@ def get_form_assembler(form, tensor, *args, **kwargs):
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
-            return functools.partial(ZeroFormAssembler(form, form_compiler_parameters=fc_params).assemble, tensor=tensor)
+            return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
         elif len(form.arguments()) == 1 or diagonal:
-            return functools.partial(OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
-                                                      zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal).assemble, tensor=tensor)
+            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
+                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
         elif len(form.arguments()) == 2:
-            return functools.partial(TwoFormAssembler(form, *args, **kwargs).assemble, tensor=tensor)
+            return TwoFormAssembler(form, *args, **kwargs)
         else:
             raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
-        return functools.partial(ExprAssembler(form).assemble, tensor=tensor)
+        return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
-        return functools.partial(BaseFormAssembler(form, *args, **kwargs).assemble, tensor=tensor)
+        return BaseFormAssembler(form, *args, **kwargs)
     else:
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
@@ -179,16 +213,16 @@ class ExprAssembler(object):
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
                 if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
-                return get_form_assembler(ufl.FormSum((a, 1), (b, 1)), None)()
+                return get_assembler(ufl.FormSum((a, 1), (b, 1))).assemble()
             elif isinstance(expr, ufl.algebra.Product):
                 a, b = expr.ufl_operands
                 scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
                 if scalar:
                     base_form = a if a is scalar else b
                     assembled_mat = assemble(base_form)
-                    return get_form_assembler(ufl.FormSum((assembled_mat, scalar[0])), None)()
+                    return get_assembler(ufl.FormSum((assembled_mat, scalar[0]))).assemble()
                 a, b = [assemble(e) for e in (a, b)]
-                return get_form_assembler(ufl.action(a, b), None)()
+                return get_assembler(ufl.action(a, b)).assemble()
         # -- Linear combination of Functions and 1-form BaseFormOperators -- #
         # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
         # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
@@ -288,7 +322,35 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._allocation_integral_types = allocation_integral_types
 
     def allocate(self):
-        pass
+        rank = len(self._form.arguments())
+        if rank == 2 and not self._diagonal:
+            if self._mat_type == "matfree":
+                return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
+                                           options_prefix=self._options_prefix,
+                                           appctx=self._appctx).allocate()
+            else:
+                test, trial = self._form.arguments()
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+        else:
+            raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
+
+    @cached_property
+    def maps_and_regions(self):
+        test, trial = self._form.arguments()
+        return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self.allocation_integral_types)
+
+    @cached_property
+    def allocation_integral_types(self):
+        if self._allocation_integral_types is None:
+            # Use the most conservative integration types.
+            test, _ = self._form.arguments()
+            if test.function_space().mesh().extruded:
+                return ("interior_facet_vert", "interior_facet_horiz")
+            else:
+                return ("interior_facet", )
+        else:
+            return self._allocation_integral_types
 
     def assemble(self, tensor=None):
         """Assemble the form.
@@ -346,7 +408,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
-                                             options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight)
+                                             options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
+                                             allocation_integral_types=self.allocation_integral_types)
             else:
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
@@ -800,87 +863,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         return ufl.algorithms.ad.expand_derivatives(form)
 
 
-@PETSc.Log.EventDecorator()
-def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
-                    appctx=None, form_compiler_parameters=None,
-                    integral_types=None, options_prefix=None):
-    r"""Allocate a matrix given an expression.
-
-    .. warning::
-
-       Do not use this function unless you know what you're doing.
-    """
-    bcs = bcs or ()
-    appctx = appctx or {}
-
-    matfree = mat_type == "matfree"
-    arguments = expr.arguments()
-    if bcs is None:
-        bcs = ()
-    else:
-        if any(isinstance(bc, EquationBC) for bc in bcs):
-            raise TypeError("EquationBC objects not expected here. "
-                            "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
-    if matfree:
-        return matrix.ImplicitMatrix(expr, bcs,
-                                     appctx=appctx,
-                                     fc_params=form_compiler_parameters,
-                                     options_prefix=options_prefix)
-
-    integral_types = integral_types or set(i.integral_type() for i in expr.integrals())
-    for bc in bcs:
-        integral_types.update(integral.integral_type()
-                              for integral in bc.integrals())
-    nest = mat_type == "nest"
-    if nest:
-        baij = sub_mat_type == "baij"
-    else:
-        baij = mat_type == "baij"
-
-    if any(len(a.function_space()) > 1 for a in arguments) and mat_type == "baij":
-        raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
-
-    get_cell_map = operator.methodcaller("cell_node_map")
-    get_extf_map = operator.methodcaller("exterior_facet_node_map")
-    get_intf_map = operator.methodcaller("interior_facet_node_map")
-    domains = OrderedDict((k, set()) for k in (get_cell_map,
-                                               get_extf_map,
-                                               get_intf_map))
-    mapping = {"cell": (get_cell_map, op2.ALL),
-               "exterior_facet_bottom": (get_cell_map, op2.ON_BOTTOM),
-               "exterior_facet_top": (get_cell_map, op2.ON_TOP),
-               "interior_facet_horiz": (get_cell_map, op2.ON_INTERIOR_FACETS),
-               "exterior_facet": (get_extf_map, op2.ALL),
-               "exterior_facet_vert": (get_extf_map, op2.ALL),
-               "interior_facet": (get_intf_map, op2.ALL),
-               "interior_facet_vert": (get_intf_map, op2.ALL)}
-    for integral_type in integral_types:
-        try:
-            get_map, region = mapping[integral_type]
-        except KeyError:
-            raise ValueError(f"Unknown integral type '{integral_type}'")
-        domains[get_map].add(region)
-
-    test, trial = arguments
-    map_pairs, iteration_regions = zip(*(((get_map(test), get_map(trial)),
-                                          tuple(sorted(regions)))
-                                         for get_map, regions in domains.items()
-                                         if regions))
-    try:
-        sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                 trial.function_space().dof_dset),
-                                tuple(map_pairs),
-                                iteration_regions=tuple(iteration_regions),
-                                nest=nest,
-                                block_sparse=baij)
-    except SparsityFormatError:
-        raise ValueError("Monolithic matrix assembly not supported for systems "
-                         "with R-space blocks")
-
-    return matrix.Matrix(expr, bcs, mat_type, sparsity, ScalarType,
-                         options_prefix=options_prefix)
-
-
 class FormAssembler(AbstractFormAssembler):
     """Form assembler.
 
@@ -1248,6 +1230,7 @@ def TwoFormAssembler(form, *args, **kwargs):
     if mat_type == "matfree":
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
+        kwargs.pop('allocation_integral_types', None)
         return MatrixFreeAssembler(form, *args, **kwargs)
     else:
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
@@ -1310,13 +1293,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0):
+                 mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
+                 allocation_integral_types=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
         self._appctx = appctx
         self.weight = weight
+        self._allocation_integral_types = allocation_integral_types
 
     def allocate(self):
         test, trial = self._form.arguments()

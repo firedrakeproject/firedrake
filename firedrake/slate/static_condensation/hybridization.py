@@ -42,7 +42,7 @@ class HybridizationPC(SCBase):
         from firedrake import (FunctionSpace, Cofunction, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
-        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -206,15 +206,12 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Cofunction(TraceSpace.dual())
-        self._assemble_Srhs = OneFormAssembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
+        self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
-                                 form_compiler_parameters=self.ctx.fc_params,
-                                 mat_type=mat_type,
-                                 options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
-        self._assemble_S = TwoFormAssembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type).assemble
+        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        self.S = form_assembler.allocate()
+        self._assemble_S = form_assembler.assemble
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
             self._assemble_S(tensor=self.S)
@@ -267,7 +264,7 @@ class HybridizationPC(SCBase):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -302,11 +299,11 @@ class HybridizationPC(SCBase):
                 rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
-        self._sub_unknown = functools.partial(OneFormAssembler(u_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=u)
+        self._sub_unknown = functools.partial(get_assembler(u_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=u)
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = functools.partial(OneFormAssembler(sigma_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=sigma)
+        self._elim_unknown = functools.partial(get_assembler(sigma_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=sigma)
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):

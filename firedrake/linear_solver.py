@@ -112,12 +112,12 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def _rhs(self):
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
 
         u = function.Function(self.trial_space)
         b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
-        return u, OneFormAssembler(expr).assemble, b
+        return u, get_assembler(expr).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs

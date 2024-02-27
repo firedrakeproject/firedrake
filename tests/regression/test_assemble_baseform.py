@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import BaseFormAssembler, allocate_matrix
+from firedrake.assemble import BaseFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 import ufl
 
@@ -186,7 +186,7 @@ def test_tensor_copy(a, M):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
     # 2-form tensor
-    tensor = allocate_matrix(M)
+    tensor = get_assembler(M).allocate()
     formsum = assemble(M) + M
     res = assemble(formsum, tensor=tensor)
 

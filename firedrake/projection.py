@@ -218,9 +218,9 @@ class BasicProjector(ProjectorBase):
 
     @cached_property
     def assembler(self):
-        from firedrake.assemble import OneFormAssembler
-        return OneFormAssembler(self.rhs_form,
-                                form_compiler_parameters=self.form_compiler_parameters).assemble
+        from firedrake.assemble import get_assembler
+        return get_assembler(self.rhs_form,
+                             form_compiler_parameters=self.form_compiler_parameters).assemble
 
     @property
     def rhs(self):
