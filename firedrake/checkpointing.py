@@ -519,6 +519,9 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
+
+    latest_version = '3.0.0'
+
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
@@ -530,7 +533,22 @@ class CheckpointFile(object):
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
+        if mode in [PETSc.Viewer.FileMode.WRITE, PETSc.Viewer.FileMode.W, "w"]:
+            version = CheckpointFile.latest_version
+            self.set_attr_byte_string("/", "dmplex_storage_version", version)
+        elif mode in [PETSc.Viewer.FileMode.APPEND, PETSc.Viewer.FileMode.A, "a"]:
+            if self.has_attr("/", "dmplex_storage_version"):
+                version = self.get_attr_byte_string("/", "dmplex_storage_version")
+            else:
+                version = CheckpointFile.latest_version
+                self.set_attr_byte_string("/", "dmplex_storage_version", version)
+        elif mode in [PETSc.Viewer.FileMode.READ, PETSc.Viewer.FileMode.R, "r"]:
+            if not self.has_attr("/", "dmplex_storage_version"):
+                raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
+            version = CheckpointFile.latest_version
+        else:
+            raise NotImplementedError(f"Unsupportd file mode: {mode} not in {'w', 'a', 'r'}")
+        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": version}, "")
         r"""DMPlex HDF5 version options."""
 
     def __enter__(self):
@@ -657,12 +675,30 @@ class CheckpointFile(object):
         perm_is = tmesh._dm_renumbering
         permutation_name = tmesh._permutation_name
         if tmesh_name in self.require_group(self._path_to_topologies()):
+            version_str = self.opts.parameters['dm_plex_view_hdf5_storage_version']
+            version_major, version_minor, version_patch = tuple(int(ver) for ver in version_str.split('.'))
             # Check if the global number of DMPlex points and
             # the global sum of DMPlex cone sizes are consistent.
+            cell_dim = topology_dm.getDimension()
+            if version_major < 3:
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology", "cells")
+            else:
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology")
+            cell_dim1 = self.get_attr(path, "cell_dim")
+            if cell_dim1 != cell_dim:
+                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the topological dimension is inconsistent: {cell_dim1} ({self.filename}) != {cell_dim} ({tmesh_name})")
             order_array_size, ornt_array_size = dmcommon.compute_point_cone_global_sizes(topology_dm)
-            path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-            order_array_size1 = self.h5pyfile[path]["order"].size
-            ornt_array_size1 = self.h5pyfile[path]["orientation"].size
+            if version_major < 3:
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology")
+                order_array_size1 = self.h5pyfile[path]["order"].size
+                ornt_array_size1 = self.h5pyfile[path]["orientation"].size
+            else:
+                order_array_size1 = 0
+                ornt_array_size1 = 0
+                for d in range(cell_dim + 1):
+                    path = os.path.join(self._path_to_topology(tmesh_name), "topology", "strata", str(d))
+                    order_array_size1 += self.h5pyfile[path]["cone_sizes"].size
+                    ornt_array_size1 += self.h5pyfile[path]["cones"].size
             if order_array_size1 != order_array_size:
                 raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
             if ornt_array_size1 != ornt_array_size:
@@ -1143,11 +1179,6 @@ class CheckpointFile(object):
         plex.setName(tmesh_name)
         # Check format
         path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-        if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
-                                                os.path.join(path, "cones"),
-                                                os.path.join(path, "order"),
-                                                os.path.join(path, "orientation")]):
-            raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
         format = ViewerHDF5.Format.HDF5_PETSC
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
@@ -1640,6 +1671,45 @@ class CheckpointFile(object):
         :returns: `True` if the attribute is found.
         """
         return key in self.h5pyfile[path].attrs
+
+    def set_attr_byte_string(self, path, key, string):
+        """Store string as byte string.
+
+        Parameters
+        ----------
+        path : str
+            Path.
+        key : str
+            Name of the attribute.
+        string : str
+            String to be stored as a byte string.
+
+        """
+        type_id = h5py.h5t.TypeID.copy(h5py.h5t.C_S1)
+        type_id.set_size(len(string) + 1)
+        type_id.set_strpad(h5py.h5t.STR_NULLTERM)
+        space = h5py.h5s.create(h5py.h5s.SCALAR)
+        grp = self.require_group(path)
+        aid = h5py.h5a.create(grp.id, key.encode('utf-8'), type_id, space)
+        aid.write(np.array(string.encode()))
+
+    def get_attr_byte_string(self, path, key):
+        """Return string stored as byte string.
+
+        Parameters
+        ----------
+        path : str
+            Path.
+        key : str
+            Name of the attribute.
+
+        Returns
+        -------
+        str
+            String stored as byte string.
+
+        """
+        return self.get_attr(path, key).decode()
 
     def close(self):
         r"""Close the checkpoint file."""
