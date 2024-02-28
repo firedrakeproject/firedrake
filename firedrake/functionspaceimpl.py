@@ -785,21 +785,9 @@ class FunctionSpace(object):
                 nodes.append(bc.nodes)
         if non_ghost_cells:
             mesh = self.mesh()
-            ncell = mesh.cell_set.size
+            cell_nodes = self.cell_node_list[:mesh.cell_set.size]
             if mesh.cell_set._extruded:
-                if mesh.variable_layers:
-                    cell_nodes = []
-                    layers = mesh.layers[:, 1] - mesh.layers[:, 0] - 1
-                    offsets = numpy.outer(numpy.arange(max(layers), dtype=self.offset.dtype), self.offset)
-                    for nlayers, base_nodes in zip(layers, self.cell_node_list[:ncell]):
-                        cell_nodes.append(base_nodes[None, :] + offsets[:nlayers, :])
-                    cell_nodes = numpy.concatenate(cell_nodes)
-                else:
-                    nlayers = mesh.layers - 1
-                    offsets = numpy.outer(numpy.arange(nlayers, dtype=self.offset.dtype), self.offset)
-                    cell_nodes = self.cell_node_list[None, :ncell, :] + offsets[:, None, :]
-            else:
-                cell_nodes = self.cell_node_list[:ncell]
+                cell_nodes = extrude_cell_node_list(cell_nodes, self.offset, mesh.layers)
 
             non_ghost_cell_nodes = numpy.unique(cell_nodes.flatten())
             cdim = self.dof_dset.cdim
@@ -1192,3 +1180,16 @@ class FunctionSpaceCargo:
 
     topological: FunctionSpace
     parent: Optional[WithGeometryBase]
+
+
+def extrude_cell_node_list(cell_node_list, offset, layers):
+    if layers.size == 1:
+        nlayers = layers - 1
+        offsets = numpy.outer(numpy.arange(nlayers, dtype=offset.dtype), offset)
+        cell_nodes = cell_node_list[:, None, :] + offsets[None, :, :]
+    else:
+        nlayers = layers[:, 1] - layers[:, 0] - 1
+        offsets = numpy.outer(numpy.arange(max(nlayers), dtype=offset.dtype), offset)
+        cell_nodes = numpy.concatenate([base_nodes[None, :] + offsets[:n, :]
+                                        for n, base_nodes in zip(nlayers, cell_node_list)])
+    return cell_nodes
