@@ -146,8 +146,6 @@ class ASMStarPC(ASMPatchPC):
 
         # Obtain the topological entities to use to construct the stars
         depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
-                                             default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -164,7 +162,6 @@ class ASMStarPC(ASMPatchPC):
 
             # Create point list from mesh DM
             pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
 
             # Get DoF indices for patch
             indices = []
@@ -208,7 +205,6 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
         exclude_subspaces = [int(subspace) for subspace in PETSc.Options().getString(self.prefix+"exclude_subspaces", default="-1").split(",")]
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = []
@@ -234,7 +230,6 @@ class ASMVankaPC(ASMPatchPC):
                 closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
                 pt_array.update(closure.tolist())
 
-            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
