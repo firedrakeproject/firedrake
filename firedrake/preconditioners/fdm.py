@@ -296,6 +296,7 @@ class FDMPC(PCBase):
             P.setPreallocationNNZ((dnz, onz))
 
             P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
             P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
             if ptype.endswith("sbaij"):
