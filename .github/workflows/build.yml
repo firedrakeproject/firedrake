@@ -83,6 +83,7 @@ jobs:
             --install fascd \
             --install defcon \
             --install gadopt \
+            --package-branch ufl ksagiyam/merge_upstream_partial \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
