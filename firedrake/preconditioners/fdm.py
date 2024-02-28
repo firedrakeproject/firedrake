@@ -302,7 +302,7 @@ class FDMPC(PCBase):
                 P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
             P.setUp()
 
-            self.set_values(P, Vrow, Vcol, addv, mat_type=ptype)
+            self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
             # populate diagonal entries
             if on_diag:
                 n = len(self.non_ghosted_lgmaps[Vrow].indices)
@@ -744,13 +744,19 @@ class FDMPC(PCBase):
                                     coefficients_acc,
                                     *indices_acc)
             self.assemblers.setdefault(key, assembler)
-        if A.getType() == "preallocator":
-            # Determine the global sparsity pattern by inserting a constant sparse element matrix
-            args = assembler.arguments[:2]
-            kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag)
-            assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                    *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
-                                    *indices_acc)
+        if A.getType() == "preallocator" or mat_type == "preallocator":
+            key = key + ("preallocator",)
+            try:
+                assembler = self.assemblers[key]
+            except KeyError:
+                # Determine the global sparsity pattern by inserting a constant sparse element matrix
+                args = assembler.arguments[:2]
+                kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
+                assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
+                                        *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
+                                        *indices_acc)
+                self.assemblers.setdefault(key, assembler)
+
         assembler.arguments[0].data = A.handle
         assembler()
 
