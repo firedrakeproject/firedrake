@@ -234,7 +234,7 @@ class ASMVankaPC(ASMPatchPC):
                 closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
                 pt_array.update(closure.tolist())
 
-            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
+            pt_array = order_points(mesh_dm, list(pt_array), ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
