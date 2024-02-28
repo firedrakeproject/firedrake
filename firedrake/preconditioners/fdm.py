@@ -177,8 +177,6 @@ class FDMPC(PCBase):
         # Assemble the FDM preconditioner with sparse local matrices
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
-
-
         self._assemble_P()
 
         fdmpc.setOperators(A=Amat, P=Pmat)
@@ -188,19 +186,6 @@ class FDMPC(PCBase):
                 fdmpc.setFromOptions()
         else:
             fdmpc.setFromOptions()
-
-    def get_non_ghosted_lgmap(self, V):
-        # TODO extruded meshes
-        lgmap = V.dof_dset.lgmap
-        indices = lgmap.indices.copy()
-
-        ncell = V.mesh().cell_set.size
-        non_ghost_cell_nodes = numpy.unique(V.cell_node_list[:ncell].flatten())
-        ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices)),
-                                           non_ghost_cell_nodes,
-                                           assume_unique=True)
-        indices[ghost_cell_nodes] = -1
-        return PETSc.LGMap().create(indices, bsize=lgmap.block_size, comm=lgmap.getComm())
 
     @PETSc.Log.EventDecorator("FDMPrealloc")
     def allocate_matrix(self, Amat, V, J, bcs, fcp, pmat_type, use_static_condensation, use_amat):
@@ -245,7 +230,7 @@ class FDMPC(PCBase):
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.non_ghosted_lgmaps = {Vsub: self.get_non_ghosted_lgmap(Vsub) for Vsub in V}
+        self.non_ghosted_lgmaps = {Vsub: Vsub.local_to_global_map([], lgmap=Vsub.dof_dset.lgmap, non_ghost_cells=True) for Vsub in V}
 
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
@@ -321,9 +306,9 @@ class FDMPC(PCBase):
             # populate diagonal entries
             if on_diag:
                 n = len(self.non_ghosted_lgmaps[Vrow].indices)
-                i = numpy.arange(n,dtype=PETSc.IntType).reshape(-1,1)
-                v = numpy.ones(n,dtype=PETSc.ScalarType).reshape(-1,1)
-                P.setValuesLocalRCV(i,i,v,addv=addv)
+                i = numpy.arange(n, dtype=PETSc.IntType).reshape(-1, 1)
+                v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+                P.setValuesLocalRCV(i, i, v, addv=addv)
             P.assemble()
 
             # append callables to zero entries, insert element matrices, and apply BCs
@@ -736,8 +721,6 @@ class FDMPC(PCBase):
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
             R1 = self.assemble_reference_tensor(Vrow, transpose=True)
-
-
 
             # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
             element_kernel = TripleProductKernel(R1, M, C1)
