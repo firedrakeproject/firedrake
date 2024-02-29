@@ -99,6 +99,7 @@ class BCBase(object):
                 break
         return tuple(reversed(indices))
 
+    # TODO: this should return an axis tree instead of a slice - more flexible
     @utils.cached_property
     def constrained_points(self):
         """Return the subset of mesh points constrained by the boundary condition."""
@@ -144,7 +145,7 @@ class BCBase(object):
                 subset_data.append(subsets[dim])
 
         flat_subset_data = {
-            dim: functools.reduce(np.intersect1d, data)
+            dim: functools.reduce(np.union1d, data)
             for dim, data in subset_data_per_dim.items()
         }
 

@@ -591,19 +591,19 @@ class AbstractMeshTopology(abc.ABC):
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
             # Mark OP2 entities and derive the resulting Plex renumbering
-            with PETSc.Log.Event("Mesh: numbering"):
-                self._mark_entity_classes()
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
-                if perm_is:
-                    self._dm_renumbering = perm_is
-                else:
-                    self._dm_renumbering = self._renumber_entities(reorder)
-                # Is this actually used anywhere?
-                self._did_reordering = bool(reorder)
-                # Derive a cell numbering from the Plex renumbering
-                tdim = dmcommon.get_topological_dimension(self.topology_dm)
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
+            if perm_is:
+                self._dm_renumbering = perm_is
+            elif reorder:
+                # NOTE: This should surely be the default?!
+                with PETSc.Log.Event("MeshTopology renumber"):
+                    self._dm_renumbering = self.topology_dm.getOrdering(
+                        PETSc.Mat.OrderingType.RCM
+                    )
+            else:
+                # TODO better to make this None
+                self._dm_renumbering = PETSc.IS().createGeneral(
+                    np.arange(self.num_points(), dtype=IntType), comm=self._comm
+                )
 
             points = op3.Axis(
                 {
@@ -611,7 +611,6 @@ class AbstractMeshTopology(abc.ABC):
                     for d in self.depth_strata_order
                 },
                 numbering=self._dm_renumbering.indices,
-                # numbering=np.arange(len(self._dm_renumbering.indices), dtype=IntType),
                 label=self.name,
             )
             if self.comm.size > 1:
@@ -653,15 +652,15 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    @abc.abstractmethod
-    def _mark_entity_classes(self):
-        """Mark entities with pyop2 classes."""
-        pass
-
-    @abc.abstractmethod
-    def _renumber_entities(self, reorder):
-        """Renumber entities."""
-        pass
+    # @abc.abstractmethod
+    # def _mark_entity_classes(self):
+    #     """Mark entities with pyop2 classes."""
+    #     pass
+    #
+    # @abc.abstractmethod
+    # def _renumber_entities(self, reorder):
+    #     """Renumber entities."""
+    #     pass
 
     @utils.cached_property
     def _vertex_numbering(self):
@@ -1153,6 +1152,10 @@ class AbstractMeshTopology(abc.ABC):
         """
 
     @abc.abstractmethod
+    def num_points(self) -> int:
+        pass
+
+    @abc.abstractmethod
     def num_cells(self):
         pass
 
@@ -1478,22 +1481,6 @@ class MeshTopology(AbstractMeshTopology):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
-    @property
-    def _default_reordering(self):
-        with PETSc.Log.Event("Mesh: reorder"):
-            old_to_new = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-            reordering = np.empty_like(old_to_new)
-            reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
-        return reordering
-
-    def _renumber_entities(self, reorder):
-        if reorder:
-            reordering = self._default_reordering
-        else:
-            # No reordering
-            reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
-
     def subdomain_points(self, subdomain_id):
         if subdomain_id == "on_boundary":
             label = "exterior_facets"
@@ -1693,11 +1680,16 @@ class MeshTopology(AbstractMeshTopology):
     def dimension(self):
         return self.topology_dm.getDimension()
 
-    def num_cells(self):
+    def num_points(self) -> int:
+        start, end = self.topology_dm.getChart()
+        assert start == 0
+        return end
+
+    def num_cells(self) -> int:
         cStart, cEnd = self.topology_dm.getHeightStratum(0)
         return cEnd - cStart
 
-    def num_facets(self):
+    def num_facets(self) -> int:
         fStart, fEnd = self.topology_dm.getHeightStratum(1)
         return fEnd - fStart
 
@@ -1904,7 +1896,6 @@ class ExtrudedMeshTopology(MeshTopology):
         self._dm_renumbering = mesh._dm_renumbering
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
-        self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         if layers.shape:
@@ -2203,7 +2194,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
-    def num_cells(self):
+    def num_points(self) -> int:
+        return self.num_cells()
+
+    def num_cells(self) -> int:
         return self.num_vertices()
 
     # TODO I reckon that these should error instead

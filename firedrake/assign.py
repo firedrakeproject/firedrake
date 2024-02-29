@@ -201,14 +201,16 @@ class Assigner:
         assign_to_halos = (
             func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
 
-        if self._subset:
+        if self._subset is not Ellipsis:
             raise NotImplementedError
 
         if assign_to_halos:
-            subset_indices = self._subset.indices if self._subset else ...
+            # subset_indices = self._subset.indices if self._subset else ...
+            subset_indices = ...
             data_ro = operator.attrgetter("_data")
         else:
-            subset_indices = self._subset.owned_indices if self._subset else ...
+            # subset_indices = self._subset.owned_indices if self._subset else ...
+            subset_indices = ...
             data_ro = operator.attrgetter("data_ro")
 
         # If mixed, loop over individual components

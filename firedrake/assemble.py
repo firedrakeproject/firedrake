@@ -1011,7 +1011,7 @@ class FormAssembler(abc.ABC):
         return self.result
 
     def replace_tensor(self, tensor):
-        self._tensor = self._as_pyop3_type(tensor)
+        self._tensor = tensor
 
     @cached_property
     def local_kernels(self):

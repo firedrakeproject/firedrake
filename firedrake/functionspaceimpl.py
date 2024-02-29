@@ -615,7 +615,7 @@ class FunctionSpace:
         # size = (self.size * self.cdim, None)
         # "size" is a 2-tuple of (local size, global size), setting global size
         # to None means PETSc will determine it for us.
-        size = (self.axes.size, None)
+        size = (self.axes.owned.size, None)
         # vec.setSizes(size, bsize=self.cdim)
         vec.setSizes(size)
         vec.setUp()
@@ -825,14 +825,21 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs=()):
-        r"""Return a map from process local dof numbering to global dof numbering.
+    def local_to_global_map(self, bcs: tuple = ()) -> PETSc.LGMap:
+        """Return a map from process-local to global DoF numbering.
 
-        If BCs is provided, mask out those dofs which match the BC nodes."""
-        # Caching these things is too complicated, since it depends
-        # not just on the bcs, but also the parent space, and anything
-        # this space has been recursively split out from [e.g. inside
-        # fieldsplit]
+        Parameters
+        ----------
+        bcs
+            Optional iterable of boundary conditions. If provided these DoFs
+            are masked out (set to -1) of the returned map.
+
+        Returns
+        -------
+        lgmap
+            The local-to-global mapping.
+
+        """
         if not bcs:
             return self._lgmap
 
@@ -842,69 +849,65 @@ class FunctionSpace:
                 fs = fs.parent
             if fs.topological != self.topological:
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-        unblocked = any(bc.function_space().component is not None
-                        for bc in bcs)
-        if lgmap is None:
-            lgmap = self.dof_dset.lgmap
-            if unblocked:
-                indices = lgmap.indices.copy()
-                bsize = 1
-            else:
-                indices = lgmap.block_indices.copy()
-                bsize = lgmap.getBlockSize()
-                assert bsize == self.value_size
+
+        unblocked = any(bc.function_space().component is not None for bc in bcs)
+        lgmap = self._lgmap
+        if unblocked:
+            indices = lgmap.indices.copy()
+            bsize = 1
         else:
-            # MatBlock case, LGMap is already unrolled.
             indices = lgmap.block_indices.copy()
             bsize = lgmap.getBlockSize()
-            unblocked = True
-        nodes = []
+            assert bsize == self.value_size
+        # if lgmap is None:
+        #     ...
+        # else:
+        #     # MatBlock case, LGMap is already unrolled.
+        #     indices = lgmap.block_indices.copy()
+        #     bsize = lgmap.getBlockSize()
+        #     unblocked = True
+
+        # Caching these things is too complicated, since it depends
+        # not just on the bcs, but also the parent space, and anything
+        # this space has been recursively split out from (e.g. inside
+        # fieldsplit)
+        indices_dat = op3.HierarchicalArray(self.axes, data=indices)
         for bc in bcs:
-            if bc.function_space().component is not None:
-                nodes.append(bc.nodes * self.value_size
-                             + bc.function_space().component)
-            elif unblocked:
-                tmp = bc.nodes * self.value_size
-                for i in range(self.value_size):
-                    nodes.append(tmp + i)
-            else:
-                nodes.append(bc.nodes)
-        nodes = numpy.unique(numpy.concatenate(nodes))
-        indices[nodes] = -1
+            op3.do_loop(
+                p := self.axes[bc.constrained_points].index(),
+                indices_dat[p].assign(-1)
+            )
+
+
+            # if bc.function_space().component is not None:
+            #     nodes.append(bc.nodes * self.value_size
+            #                  + bc.function_space().component)
+            # elif unblocked:
+            #     tmp = bc.nodes * self.value_size
+            #     for i in range(self.value_size):
+            #         nodes.append(tmp + i)
+            # else:
+            #     nodes.append(bc.nodes)
+        # nodes = numpy.unique(numpy.concatenate(nodes))
+        # indices[nodes] = -1
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     @utils.cached_property
-    def _lgmap(self):
-        """Return the mapping from process-local indices to global indices."""
-        # TODO remove circular import
-        from firedrake.cython.dmcommon import make_global_numbering
-
-        lsec = self.dm.getDefaultSection()
-        gsec = self.dm.getDefaultGlobalSection()
-        return make_global_numbering(lsec, gsec)
-        # lgmap = PETSc.LGMap()
-        # if self.comm.size == 1:
-        #     lgmap.create(indices=numpy.arange(self.size, dtype=IntType),
-        #                  bsize=self.cdim, comm=self.comm)
-        # else:
-        #     lgmap.create(indices=self.halo.local_to_global_numbering,
-        #                  bsize=self.cdim, comm=self.comm)
-        # return lgmap
+    def _lgmap(self) -> PETSc.LGMap:
+        """Return the mapping from process-local to global DoF numbering."""
+        return PETSc.LGMap().create(
+            self.axes.global_numbering(), comm=self._comm
+        )
 
     @utils.cached_property
-    def _unblocked_lgmap(self):
+    def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
-        raise NotImplementedError
         if self.cdim == 1:
             return self._lgmap
         else:
-            indices = self._lgmap.indices
-            lgmap = PETSc.LGMap().create(
-                indices=indices,
-                bsize=1,
-                comm=self._lgmap.comm,
+            return PETSc.LGMap().create(
+                indices=self._lgmap.indices, bsize=1, comm=self._lgmap.comm,
             )
-            return lgmap
 
     def collapse(self):
         from firedrake import FunctionSpace
@@ -1127,7 +1130,7 @@ class MixedFunctionSpace:
         # size = (self.size * self.cdim, None)
         # "size" is a 2-tuple of (local size, global size), setting global size
         # to None means PETSc will determine it for us.
-        size = (self.axes.size, None)
+        size = (self.axes.owned.size, None)
         # vec.setSizes(size, bsize=self.cdim)
         vec.setSizes(size)
         vec.setUp()

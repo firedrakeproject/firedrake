@@ -357,7 +357,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     def interpolate(
         self,
         expression,
-        subset=None,
+        subset=Ellipsis,
         allow_missing_dofs=False,
         default_missing_val=None
     ):
@@ -410,7 +410,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=Ellipsis):
         r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
         :class:`.FunctionSpace` as the :class:`Function` being assigned to.
