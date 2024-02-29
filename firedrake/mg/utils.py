@@ -139,7 +139,7 @@ def physical_node_locations(V):
         assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
         element = element.sub_elements[0]
     mesh = V.mesh()
-    Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+    Vc = firedrake.FunctionSpace(mesh, finat.ufl.VectorElement(element))
     # FIXME: This is unsafe for DG coordinates and CG target spaces.
     return firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
 
