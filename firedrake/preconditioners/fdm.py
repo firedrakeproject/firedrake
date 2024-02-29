@@ -15,6 +15,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
+from firedrake.functionspaceimpl import extrude_cell_node_list
 from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
@@ -229,10 +230,32 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Create data structures needed for assembly
-        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.non_ghosted_lgmaps = {Vsub: Vsub.local_to_global_map([], lgmap=Vsub.dof_dset.lgmap, non_ghost_cells=True) for Vsub in V}
+        def mask_local_indices(indices):
+            local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
+            local_indices[indices < 0] = -1
+            return local_indices
 
-        self.indices = {Vsub: op2.Dat(Vsub.dof_dset, self.lgmaps[Vsub].indices) for Vsub in V}
+        def get_lgmap(V, broken=False):
+            lgmap = V.dof_dset.lgmap
+            if broken:
+                mesh = V.mesh()
+                ncell = mesh.cell_set.size
+                indices = V.cell_node_list[:ncell]
+                if V.extruded:
+                    indices = extrude_cell_node_list(indices, V.offset, mesh.layers)
+                lgmap.apply(indices, result=indices)
+                return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+            else:
+                return V.local_to_global_map([], lgmap=lgmap, non_ghost_cells=True)
+
+        self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub) for Vsub in V}
+        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+<F4>
+        self.indices = {Vsub: op2.Dat(Vsub.dof_dset,
+                                      mask_local_indices(self.lgmaps[Vsub].indices),
+                                      dtype=PETSc.IntType) for Vsub in V}
+
+        #self.indices = {Vsub: op2.Dat(Vsub.dof_dset, numpy.arange(Vsub.dof_dset.set.size, dtype=PETSc.IntType), dtype=PETSc.IntType) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
         self.kernels = []
@@ -274,12 +297,15 @@ class FDMPC(PCBase):
             on_diag = Vrow == Vcol
             sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
             ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
+            rlgmap = self.non_ghosted_lgmaps[Vrow]
+            clgmap = self.non_ghosted_lgmaps[Vcol]
 
             preallocator = PETSc.Mat().create(comm=self.comm)
             preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
             preallocator.setSizes(sizes)
-            preallocator.setUp()
+            preallocator.setLGMap(rlgmap, clgmap)
             preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+            preallocator.setUp()
             self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
             preallocator.assemble()
             dnz, onz = get_preallocation(preallocator, sizes[0][0])
@@ -290,13 +316,11 @@ class FDMPC(PCBase):
             P = PETSc.Mat().create(comm=self.comm)
             P.setType(ptype)
             P.setSizes(sizes)
-
-            P.setLGMap(self.non_ghosted_lgmaps[Vrow],
-                       self.non_ghosted_lgmaps[Vcol])
+            P.setLGMap(rlgmap, clgmap)
             P.setPreallocationNNZ((dnz, onz))
 
             P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
+            #P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
             P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
             P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
             if ptype.endswith("sbaij"):
@@ -306,7 +330,7 @@ class FDMPC(PCBase):
             self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
             # populate diagonal entries
             if on_diag:
-                n = len(self.non_ghosted_lgmaps[Vrow].indices)
+                n = len(self.indices[Vrow].data_ro_with_halos)
                 i = numpy.arange(n, dtype=PETSc.IntType).reshape(-1, 1)
                 v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
                 P.setValuesLocalRCV(i, i, v, addv=addv)
@@ -316,11 +340,9 @@ class FDMPC(PCBase):
             assembly_callables.append(P.zeroEntries)
             assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, mat_type=ptype))
             if on_diag:
-                own = Vrow.dof_dset.layout_vec.getLocalSize()
-                bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
-                Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
+                bdofs = numpy.flatnonzero(self.indices[Vrow].data_ro < 0).astype(PETSc.IntType)[:, None]
                 assembly_callables.append(P.assemble)
-                assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
+                assembly_callables.append(partial(P.zeroRowsLocal, bdofs, 1.0))
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
@@ -768,7 +790,7 @@ class ElementKernel:
     code = dedent("""
         PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
             PetscFunctionBeginUser;
-            PetscCall(MatSetValuesSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
+            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
 
@@ -806,10 +828,10 @@ class ElementKernel:
         for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
             indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
             code += dedent("""
-                static inline PetscErrorCode MatSetValuesSparse(const Mat A, const Mat B,
-                                                                const PetscInt *restrict rindices,
-                                                                const PetscInt *restrict cindices,
-                                                                InsertMode addv) {
+                static inline PetscErrorCode MatSetValuesLocalSparse(const Mat A, const Mat B,
+                                                                     const PetscInt *restrict rindices,
+                                                                     const PetscInt *restrict cindices,
+                                                                     InsertMode addv) {
                     PetscBool done;
                     PetscInt m, ncols, istart, *indices;
                     const PetscInt *ai, *aj;
@@ -823,7 +845,7 @@ class ElementKernel:
                         istart = ai[i];
                         ncols = ai[i + 1] - istart;
                         %(select_cols)s
-                        PetscCall(MatSetValues(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
+                        PetscCall(MatSetValuesLocal(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
                     }
                     PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
                     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
@@ -848,7 +870,7 @@ class TripleProductKernel(ElementKernel):
             PetscCall(MatProductGetMats(B, NULL, &C, NULL));
             PetscCall(MatSetValuesArray(C, coefficients));
             PetscCall(MatProductNumeric(B));
-            PetscCall(MatSetValuesSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
+            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
 
@@ -870,7 +892,7 @@ class SchurComplementKernel(ElementKernel):
             PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
             PetscCall(MatSetValuesArray(C, coefficients));
             %(condense)s
-            PetscCall(MatSetValuesSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
+            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
 

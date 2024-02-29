@@ -788,7 +788,6 @@ class FunctionSpace(object):
             cell_nodes = self.cell_node_list[:mesh.cell_set.size]
             if mesh.cell_set._extruded:
                 cell_nodes = extrude_cell_node_list(cell_nodes, self.offset, mesh.layers)
-
             non_ghost_cell_nodes = numpy.unique(cell_nodes.flatten())
             cdim = self.dof_dset.cdim
             if not unblocked and cdim > 1:
