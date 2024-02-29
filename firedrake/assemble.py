@@ -416,7 +416,9 @@ def assemble_base_form(expression, tensor=None, bcs=None,
 
     if tensor:
         update_tensor(result, tensor)
-    return result
+        return tensor
+    else:
+        return result
 
 
 def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
@@ -586,6 +588,25 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
                                           options_prefix=options_prefix)
         else:
             raise TypeError("Mismatching FormSum shapes")
+    elif isinstance(expr, ufl.ExternalOperator):
+        opts = {'form_compiler_parameters': form_compiler_parameters,
+                'mat_type': mat_type, 'sub_mat_type': sub_mat_type,
+                'appctx': appctx, 'options_prefix': options_prefix,
+                'diagonal': diagonal}
+        # External operators might not have any children that needs to be assembled
+        # -> e.g. N(u; v0, w) with v0 a ufl.Argument and w a ufl.Coefficient
+        if args:
+            # Replace base forms in the operands and argument slots of the external operator by their result
+            v, *assembled_children = args
+            if assembled_children:
+                _, *children = base_form_operands(expr)
+                # Replace assembled children by their results
+                expr = ufl.replace(expr, dict(zip(children, assembled_children)))
+            # Always reconstruct the dual argument (0-slot argument) since it is a BaseForm
+            # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
+            expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
+        # Call the external operator assembly
+        return expr.assemble(assembly_opts=opts)
     elif isinstance(expr, ufl.Interpolate):
         # Replace assembled children
         _, expression = expr.argument_slots()
@@ -653,7 +674,8 @@ def base_form_assembly_visitor(expr, tensor, *args, bcs, diagonal,
 
 @PETSc.Log.EventDecorator()
 def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
-                    appctx=None, form_compiler_parameters=None, options_prefix=None):
+                    appctx=None, form_compiler_parameters=None,
+                    integral_types=None, options_prefix=None):
     r"""Allocate a matrix given an expression.
 
     .. warning::
@@ -677,7 +699,7 @@ def allocate_matrix(expr, bcs=None, *, mat_type=None, sub_mat_type=None,
                                      fc_params=form_compiler_parameters,
                                      options_prefix=options_prefix)
 
-    integral_types = set(i.integral_type() for i in expr.integrals())
+    integral_types = integral_types or set(i.integral_type() for i in expr.integrals())
     for bc in bcs:
         integral_types.update(integral.integral_type()
                               for integral in bc.integrals())

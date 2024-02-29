@@ -65,5 +65,6 @@ def test_facet_split(quadrilateral, pc_type):
 
 
 @pytest.mark.parallel
-def test_facet_split_parallel():
-    assert run_facet_split(True, "lu", refine=3) < 1E-10
+@pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
+def test_facet_split_parallel(pc_type):
+    assert run_facet_split(True, pc_type, refine=3) < 1E-10

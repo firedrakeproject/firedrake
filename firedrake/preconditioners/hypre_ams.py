@@ -9,6 +9,7 @@ from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
 from ufl import grad
+from pyop2.utils import as_tuple
 
 __all__ = ("HypreAMS",)
 
@@ -42,11 +43,7 @@ class HypreAMS(PCBase):
 
         family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 1 or degree != 1:
             raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
