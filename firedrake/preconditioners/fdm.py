@@ -250,7 +250,6 @@ class FDMPC(PCBase):
 
         self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub) for Vsub in V}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-<F4>
         self.indices = {Vsub: op2.Dat(Vsub.dof_dset,
                                       mask_local_indices(self.lgmaps[Vsub].indices),
                                       dtype=PETSc.IntType) for Vsub in V}
