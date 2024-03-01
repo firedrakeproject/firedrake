@@ -1535,8 +1535,10 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
         Pk = Pk.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
-                      (Pk.cell_node_map(),
-                       P1.cell_node_map()))
+                      {(i, j): [(rmap, cmap, None)]
+                          for i, rmap in enumerate(Pk.cell_node_map())
+                          for j, cmap in enumerate(P1.cell_node_map())
+                          if i == j})
     mat = op2.Mat(sp, PETSc.ScalarType)
     mesh = Pk.mesh()
 

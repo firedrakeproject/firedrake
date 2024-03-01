@@ -3,7 +3,7 @@ from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
 
 import firedrake.ufl_expr as ufl_expr
-from firedrake.assemble import allocate_matrix
+from firedrake.assemble import get_assembler
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -202,7 +202,6 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         This helper function provides a way to allocate matrices that can then be populated
         in the assembly method(s) of the external operator subclass.
-        This function relies on the :func:`firedrake.assemble.allocate_matrix` function.
 
         Parameters
         ----------
@@ -222,7 +221,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         # Remove `diagonal` keyword argument
         opts.pop('diagonal', None)
         # Allocate the matrix associated with `self`
-        return allocate_matrix(self, bcs=bcs, integral_types=integral_types, **opts)
+        return get_assembler(self, bcs=bcs, allocation_integral_types=integral_types, **opts).allocate()
 
     def _ufl_expr_reconstruct_(self, *operands, function_space=None, derivatives=None,
                                argument_slots=None, operator_data=None, add_kwargs={}):
