@@ -141,17 +141,16 @@ def build_sparsity(sparsity):
                           bsize=1)
     preallocator.setUp()
 
-    iteration_regions = sparsity.iteration_regions
     if mixed:
         for i, r in enumerate(rset):
             for j, c in enumerate(cset):
-                maps = list(zip((m.split[i] for m in sparsity.rmaps),
-                                (m.split[j] for m in sparsity.cmaps)))
+                maps = sparsity.rcmaps.get((i, j), [])
+                iter_regions = sparsity.iteration_regions.get((i, j), [])
                 mat = preallocator.getLocalSubMatrix(isrow=rset.local_ises[i],
                                                      iscol=cset.local_ises[j])
                 fill_with_zeros(mat, (r.cdim, c.cdim),
                                 maps,
-                                iteration_regions,
+                                iter_regions,
                                 set_diag=((i == j) and sparsity._has_diagonal))
                 mat.assemble()
                 preallocator.restoreLocalSubMatrix(isrow=rset.local_ises[i],
@@ -160,8 +159,10 @@ def build_sparsity(sparsity):
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
     else:
-        fill_with_zeros(preallocator, (1, 1), sparsity.maps,
-                        iteration_regions, set_diag=sparsity._has_diagonal)
+        fill_with_zeros(preallocator, (1, 1),
+                        sparsity.rcmaps[(0, 0)],
+                        sparsity.iteration_regions[(0, 0)],
+                        set_diag=sparsity._has_diagonal)
         preallocator.assemble()
         nnz, onnz = get_preallocation(preallocator, nrows)
         if not (sparsity._block_sparse and rset.cdim == cset.cdim):
@@ -216,8 +217,10 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
             if i < ncol  // cdim:
                 CHKERR(MatSetValuesBlockedLocal(mat.mat, 1, &i, 1, &i, diag_values, PETSC_INSERT_VALUES))
         CHKERR(PetscFree(diag_values))
+    if len(maps) == 0:
+        return
     extruded = maps[0][0].iterset._extruded
-    for iteration_region, pair in zip(iteration_regions, maps):
+    for pair, iteration_region in zip(maps, iteration_regions):
         # Iterate over row map values including value entries
         set_size = pair[0].iterset.size
         if set_size == 0:
@@ -264,8 +267,16 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                 cset_entry = <PetscInt>set_entry
                 for i in range(nrcomposedmaps):
                     rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                    if rset_entry < 0:
+                        break
+                if rset_entry < 0:
+                    continue
                 for i in range(nccomposedmaps):
                     cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
+                    if cset_entry < 0:
+                        break
+                if cset_entry < 0:
+                    continue
                 CHKERR(MatSetValuesBlockedLocal(mat.mat, rarity, &rmap[<int>rset_entry, 0],
                                                 carity, &cmap[<int>cset_entry, 0],
                                                 values, PETSC_INSERT_VALUES))
@@ -318,8 +329,16 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
                     cset_entry = <PetscInt>set_entry
                     for i in range(nrcomposedmaps):
                         rset_entry = rcomposedmaps[nrcomposedmaps - 1 - i][rset_entry]
+                        if rset_entry < 0:
+                            break
+                    if rset_entry < 0:
+                        continue
                     for i in range(nccomposedmaps):
                         cset_entry = ccomposedmaps[nccomposedmaps - 1 - i][cset_entry]
+                        if cset_entry < 0:
+                            break
+                    if cset_entry < 0:
+                        continue
                     if constant_layers:
                         layer_start = layers[0, 0]
                         layer_end = layers[0, 1] - 1

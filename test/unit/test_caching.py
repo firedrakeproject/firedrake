@@ -233,44 +233,46 @@ class TestObjectCaching:
         assert not mds2 == mds3
 
     def test_sparsity_cache_hit(self, base_set, base_map):
-        dsets = (base_set, base_set)
+        dsets = (base_set ** 1, base_set ** 1)
         maps = (base_map, base_map)
-        sp = op2.Sparsity(dsets, maps)
-        sp2 = op2.Sparsity(dsets, maps)
+        sp = op2.Sparsity(dsets, [(*maps, None)])
+        sp2 = op2.Sparsity(dsets, [(*maps, None)])
 
         assert sp is sp2
         assert not sp != sp2
         assert sp == sp2
 
-        dsets = op2.MixedSet([base_set, base_set])
+        mixed_set = op2.MixedSet([base_set, base_set])
+        dsets = (mixed_set ** 1, mixed_set ** 1)
 
         maps = op2.MixedMap([base_map, base_map])
-        sp = op2.Sparsity(dsets, maps)
+        sp = op2.Sparsity(dsets, {(i, j): [(rm, cm, None)] for i, rm in enumerate(maps) for j, cm in enumerate(maps)})
 
-        dsets2 = op2.MixedSet([base_set, base_set])
+        mixed_set2 = op2.MixedSet([base_set, base_set])
+        dsets2 = (mixed_set2 ** 1, mixed_set2 ** 1)
         maps2 = op2.MixedMap([base_map, base_map])
-        sp2 = op2.Sparsity(dsets2, maps2)
+        sp2 = op2.Sparsity(dsets2, {(i, j): [(rm, cm, None)] for i, rm in enumerate(maps2) for j, cm in enumerate(maps2)})
         assert sp is sp2
         assert not sp != sp2
         assert sp == sp2
 
     def test_sparsity_cache_miss(self, base_set, base_set2,
                                  base_map, base_map2):
-        dsets = (base_set, base_set)
+        dsets = (base_set ** 1, base_set ** 1)
         maps = (base_map, base_map)
-        sp = op2.Sparsity(dsets, maps, iteration_regions=[(op2.ALL, )])
+        sp = op2.Sparsity(dsets, [(*maps, (op2.ALL, ))])
 
-        dsets2 = op2.MixedSet([base_set, base_set])
+        mixed_set = op2.MixedSet([base_set, base_set])
+        dsets2 = (mixed_set ** 1, mixed_set ** 1)
         maps2 = op2.MixedMap([base_map, base_map])
-        sp2 = op2.Sparsity(dsets2, maps2, iteration_regions=[(op2.ALL, )])
+        sp2 = op2.Sparsity(dsets2, {(i, j): [(rm, cm, (op2.ALL, ))] for i, rm in enumerate(maps2) for j, cm in enumerate(maps2)})
         assert sp is not sp2
         assert sp != sp2
         assert not sp == sp2
 
-        dsets2 = (base_set, base_set2)
+        dsets2 = (base_set ** 1, base_set2 ** 1)
         maps2 = (base_map, base_map2)
-
-        sp2 = op2.Sparsity(dsets2, maps2, iteration_regions=[(op2.ALL, )])
+        sp2 = op2.Sparsity(dsets2, [(*maps2, (op2.ALL, ))])
         assert sp is not sp2
         assert sp != sp2
         assert not sp == sp2
@@ -486,44 +488,38 @@ class TestSparsityCache:
 
     def test_sparsities_differing_maps_not_cached(self, m1, m2, ds2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity(ds2, m1)
-        sp2 = op2.Sparsity(ds2, m2)
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m1, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m2, m2, None)])
         assert sp1 is not sp2
 
     def test_sparsities_differing_map_pairs_not_cached(self, m1, m2, ds2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((ds2, ds2), (m1, m2))
-        sp2 = op2.Sparsity((ds2, ds2), (m2, m1))
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m2, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m2, m1, None)])
         assert sp1 is not sp2
 
     def test_sparsities_differing_map_tuples_not_cached(self, m1, m2, ds2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((ds2, ds2), ((m1, m1), (m2, m2)))
-        sp2 = op2.Sparsity((ds2, ds2), ((m2, m2), (m2, m2)))
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m1, None), (m2, m2, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m2, m2, None), (m2, m2, None)])
         assert sp1 is not sp2
-
-    def test_sparsities_same_map_cached(self, m1, ds2):
-        """Sparsities with the same map should share a C handle."""
-        sp1 = op2.Sparsity(ds2, m1)
-        sp2 = op2.Sparsity(ds2, m1)
-        assert sp1 is sp2
 
     def test_sparsities_same_map_pair_cached(self, m1, ds2):
         """Sparsities with the same map pair should share a C handle."""
-        sp1 = op2.Sparsity((ds2, ds2), (m1, m1))
-        sp2 = op2.Sparsity((ds2, ds2), (m1, m1))
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m1, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m1, m1, None)])
         assert sp1 is sp2
 
     def test_sparsities_same_map_tuple_cached(self, m1, m2, ds2):
         "Sparsities with the same tuple of map pairs should share a C handle."
-        sp1 = op2.Sparsity((ds2, ds2), ((m1, m1), (m2, m2)))
-        sp2 = op2.Sparsity((ds2, ds2), ((m1, m1), (m2, m2)))
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m1, None), (m2, m2, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m1, m1, None), (m2, m2, None)])
         assert sp1 is sp2
 
     def test_sparsities_different_ordered_map_tuple_cached(self, m1, m2, ds2):
         "Sparsities with the same tuple of map pairs should share a C handle."
-        sp1 = op2.Sparsity((ds2, ds2), ((m1, m1), (m2, m2)))
-        sp2 = op2.Sparsity((ds2, ds2), ((m2, m2), (m1, m1)))
+        sp1 = op2.Sparsity((ds2, ds2), [(m1, m1, None), (m2, m2, None)])
+        sp2 = op2.Sparsity((ds2, ds2), [(m2, m2, None), (m1, m1, None)])
         assert sp1 is sp2
 
 

@@ -39,6 +39,7 @@ from numpy.testing import assert_allclose
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
 from pyop2.mpi import COMM_WORLD
+from pyop2.datatypes import IntType
 
 from petsc4py.PETSc import ScalarType
 
@@ -89,7 +90,7 @@ def elem_node(elements, nodes):
 
 @pytest.fixture
 def mat(elem_node, dnodes):
-    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), name="sparsity")
+    sparsity = op2.Sparsity((dnodes, dnodes), [(elem_node, elem_node, None)], name="sparsity")
     return op2.Mat(sparsity, valuetype, "mat")
 
 
@@ -525,17 +526,17 @@ def mmap(mset):
 
 @pytest.fixture
 def msparsity(mset, mmap):
-    return op2.Sparsity(mset, mmap)
+    return op2.Sparsity((mset ** 1, mset ** 1), {(i, j): [(rm, cm, None)] for i, rm in enumerate(mmap) for j, cm in enumerate(mmap)})
 
 
 @pytest.fixture
 def non_nest_mixed_sparsity(mset, mmap):
-    return op2.Sparsity(mset, mmap, nest=False)
+    return op2.Sparsity((mset ** 1, mset ** 1), {(i, j): [(rm, cm, None)] for i, rm in enumerate(mmap) for j, cm in enumerate(mmap)}, nest=False)
 
 
 @pytest.fixture
 def mvsparsity(mset, mmap):
-    return op2.Sparsity(mset ** 2, mmap)
+    return op2.Sparsity((mset ** 2, mset ** 2), {(i, j): [(rm, cm, None)] for i, rm in enumerate(mmap) for j, cm in enumerate(mmap)})
 
 
 class TestSparsity:
@@ -549,7 +550,7 @@ class TestSparsity:
         s = op2.Set(5)
         with pytest.raises(MapValueError):
             m = op2.Map(s, s, 1)
-            op2.Sparsity((s, s), (m, m))
+            op2.Sparsity((s ** 1, s ** 1), [(m, m, None)])
 
     def test_sparsity_has_diagonal_space(self):
         # A sparsity should have space for diagonal entries if rmap==cmap
@@ -558,8 +559,8 @@ class TestSparsity:
         m = op2.Map(s, d, 2, [1, 3])
         d2 = op2.Set(4)
         m2 = op2.Map(s, d2, 3, [1, 2, 3])
-        sparsity = op2.Sparsity((d, d), (m, m))
-        sparsity2 = op2.Sparsity((d, d2), (m, m2))
+        sparsity = op2.Sparsity((d ** 1, d ** 1), [(m, m, None)])
+        sparsity2 = op2.Sparsity((d ** 1, d2 ** 1), [(m, m2, None)])
 
         assert all(sparsity.nnz == [1, 2, 1, 2])
         assert all(sparsity2.nnz == [0, 3, 0, 3])
@@ -581,7 +582,7 @@ class TestMatrices:
     @pytest.mark.parametrize('n', [1, 2])
     def test_mat_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
-        mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
+        mat = op2.Mat(op2.Sparsity((nodes ** n, nodes ** n), [(elem_node, elem_node, None)]), valuetype)
         nrows = mat.nblock_rows
         mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
@@ -590,7 +591,7 @@ class TestMatrices:
     @pytest.mark.parametrize('n', [1, 2])
     def test_mat_repeated_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
-        mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
+        mat = op2.Mat(op2.Sparsity((nodes ** n, nodes ** n), [(elem_node, elem_node, None)]), valuetype)
         nrows = mat.nblock_rows
         mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
@@ -606,7 +607,7 @@ class TestMatrices:
         m = op2.Map(s, d, 1, [2])
         d2 = op2.Set(3)
         m2 = op2.Map(s, d2, 1, [1])
-        sparsity = op2.Sparsity((d, d2), (m, m2))
+        sparsity = op2.Sparsity((d ** 1, d2 ** 1), [(m, m2, None)])
 
         from petsc4py import PETSc
         # petsc4py default error handler swallows SETERRQ, so just
@@ -628,7 +629,7 @@ void zero_mat(double local_mat[1][1]) {
         nelems = 128
         set = op2.Set(nelems)
         map = op2.Map(set, set, 1, np.array(list(range(nelems)), np.uint32))
-        sparsity = op2.Sparsity((set, set), (map, map))
+        sparsity = op2.Sparsity((set ** 1, set ** 1), [(map, map, None)])
         mat = op2.Mat(sparsity, np.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set,
@@ -939,6 +940,45 @@ static void addone_rhs_vec(double v[6], double d[3][2]) {
         exp = np.kron(list(zip([1.0, 4.0, 6.0, 4.0])), np.ones(2))
         assert_allclose(dat[0].data_ro, np.kron(list(zip(rdata(3))), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
+
+
+def test_matrices_sparsity_blockwise_specification():
+    #
+    # 0    1    2    3   nodesetA
+    # x----x----x----x
+    #   0     1    2     setA
+    #
+    #      0    1    2   nodesetB
+    #      x----x----x
+    #         0    1     setB
+    #
+    #   0 1 2 3 | 0 1 2
+    # 0 x       |
+    # 1   x     | x x
+    # 2     x   | x x x
+    # 3       x |   x x  sparsity
+    # ----------+------
+    # 0   x x   | x
+    # 1   x x x |   x
+    # 2     x x |     x
+    #
+    arity = 2
+    setA = op2.Set(3)
+    nodesetA = op2.Set(4)
+    setB = op2.Set(2)
+    nodesetB = op2.Set(3)
+    nodesetAB = op2.MixedSet((nodesetA, nodesetB))
+    datasetAB = nodesetAB ** 1
+    mapA = op2.Map(setA, nodesetA, arity, values=[[0, 1], [1, 2], [2, 3]])
+    mapB = op2.Map(setB, nodesetB, arity, values=[[0, 1], [1, 2]])
+    mapBA = op2.Map(setB, setA, 1, values=[1, 2])
+    mapAB = op2.Map(setA, setB, 1, values=[-1, 0, 1])  # "inverse" map
+    s = op2.Sparsity((datasetAB, datasetAB), {(1, 0): [(mapB, op2.ComposedMap(mapA, mapBA), None)],
+                                              (0, 1): [(mapA, op2.ComposedMap(mapB, mapAB), None)]})
+    assert np.all(s._blocks[0][0].nnz == np.array([1, 1, 1, 1], dtype=IntType))
+    assert np.all(s._blocks[0][1].nnz == np.array([0, 2, 3, 2], dtype=IntType))
+    assert np.all(s._blocks[1][0].nnz == np.array([2, 3, 2], dtype=IntType))
+    assert np.all(s._blocks[1][1].nnz == np.array([1, 1, 1], dtype=IntType))
 
 
 if __name__ == '__main__':

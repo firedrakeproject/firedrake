@@ -155,13 +155,13 @@ def mds(dtoset, set):
                         ('mds', 'dtoset', 'mmap', 'm_iterset_toset'),
                         ('dtoset', 'mds', 'm_iterset_toset', 'mmap')])
 def ms(request):
-    rds, cds, rm, cm = [request.getfixturevalue(p) for p in request.param]
-    return op2.Sparsity((rds, cds), (rm, cm))
+    rds, cds, rmm, cmm = [request.getfixturevalue(p) for p in request.param]
+    return op2.Sparsity((rds, cds), {(i, j): [(rm, cm, None)] for i, rm in enumerate(rmm) for j, cm in enumerate(cmm)})
 
 
 @pytest.fixture
 def sparsity(m_iterset_toset, dtoset):
-    return op2.Sparsity((dtoset, dtoset), (m_iterset_toset, m_iterset_toset))
+    return op2.Sparsity((dtoset, dtoset), [(m_iterset_toset, m_iterset_toset, None)])
 
 
 @pytest.fixture
@@ -171,7 +171,9 @@ def mat(sparsity):
 
 @pytest.fixture
 def diag_mat(toset):
-    return op2.Mat(op2.Sparsity(toset, op2.Map(toset, toset, 1, np.arange(toset.size))))
+    _d = toset ** 1
+    _m = op2.Map(toset, toset, 1, np.arange(toset.size))
+    return op2.Mat(op2.Sparsity((_d, _d), [(_m, _m, None)]))
 
 
 @pytest.fixture
@@ -973,97 +975,82 @@ class TestSparsityAPI:
 
     @pytest.fixture
     def s(cls, di, mi):
-        return op2.Sparsity(di, mi)
+        return op2.Sparsity((di, di), [(mi, mi, None)])
 
     @pytest.fixture
     def mixed_row_sparsity(cls, dtoset, mds, m_iterset_toset, mmap):
-        return op2.Sparsity((mds, dtoset), (mmap, m_iterset_toset))
+        return op2.Sparsity((mds, dtoset), {(0, 0): [(mmap[0], m_iterset_toset, None)],
+                                            (1, 0): [(mmap[1], m_iterset_toset, None)]})
 
     @pytest.fixture
     def mixed_col_sparsity(cls, dtoset, mds, m_iterset_toset, mmap):
-        return op2.Sparsity((dtoset, mds), (m_iterset_toset, mmap))
+        return op2.Sparsity((dtoset, mds), {(0, 0): [(m_iterset_toset, mmap[0], None)],
+                                            (0, 1): [(m_iterset_toset, mmap[1], None)]})
 
     def test_sparsity_illegal_rdset(self, di, mi):
         "Sparsity rdset should be a DataSet"
         with pytest.raises(TypeError):
-            op2.Sparsity(('illegalrmap', di), (mi, mi))
+            op2.Sparsity(('illegalrmap', di), [(mi, mi, None)])
 
     def test_sparsity_illegal_cdset(self, di, mi):
         "Sparsity cdset should be a DataSet"
         with pytest.raises(TypeError):
-            op2.Sparsity((di, 'illegalrmap'), (mi, mi))
+            op2.Sparsity((di, 'illegalrmap'), [(mi, mi, None)])
 
     def test_sparsity_illegal_rmap(self, di, mi):
         "Sparsity rmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity((di, di), ('illegalrmap', mi))
+            op2.Sparsity((di, di), [('illegalrmap', mi, None)])
 
     def test_sparsity_illegal_cmap(self, di, mi):
         "Sparsity cmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity((di, di), (mi, 'illegalcmap'))
+            op2.Sparsity((di, di), [(mi, 'illegalcmap', None)])
 
     def test_sparsity_illegal_name(self, di, mi):
         "Sparsity name should be a string."
         with pytest.raises(TypeError):
-            op2.Sparsity(di, mi, 0)
-
-    def test_sparsity_single_dset(self, di, mi):
-        "Sparsity constructor should accept single Map and turn it into tuple"
-        s = op2.Sparsity(di, mi, name="foo")
-        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
-                and s.name == "foo" and s.dsets == (di, di))
-
-    def test_sparsity_set_not_dset(self, di, mi):
-        "If we pass a Set, not a DataSet, it default to dimension 1."
-        s = op2.Sparsity(mi.toset, mi)
-        assert s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) \
-            and s.dsets == (di, di)
-
-    def test_sparsity_map_pair(self, di, mi):
-        "Sparsity constructor should accept a pair of maps"
-        s = op2.Sparsity((di, di), (mi, mi), name="foo")
-        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1)
-                and s.name == "foo" and s.dsets == (di, di))
+            op2.Sparsity((di, di), [(mi, mi, None)], 0)
 
     def test_sparsity_map_pair_different_dataset(self, mi, md, di, dd, m_iterset_toset):
         """Sparsity can be built from different row and column maps as long as
         the tosets match the row and column DataSet."""
-        s = op2.Sparsity((di, dd), (m_iterset_toset, md), name="foo")
-        assert (s.maps[0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1)
+        s = op2.Sparsity((di, dd), [(m_iterset_toset, md, None)], name="foo")
+        assert (s.rcmaps[(0, 0)][0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1)
                 and s.name == "foo" and s.dsets == (di, dd))
 
     def test_sparsity_unique_map_pairs(self, mi, di):
         "Sparsity constructor should filter duplicate tuples of pairs of maps."
-        s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), name="foo")
-        assert s.maps == [(mi, mi)] and s.dims[0][0] == (1, 1)
+        s = op2.Sparsity((di, di), [(mi, mi, None), (mi, mi, None)], name="foo")
+        assert s.rcmaps[(0, 0)] == [(mi, mi)] and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_different_itset(self, mi, di, dd, m_iterset_toset):
         "Sparsity constructor should accept maps with different iteration sets"
         maps = ((m_iterset_toset, m_iterset_toset), (mi, mi))
-        s = op2.Sparsity((di, di), maps, name="foo")
-        assert frozenset(s.maps) == frozenset(maps) and s.dims[0][0] == (1, 1)
+        s = op2.Sparsity((di, di), [(*maps[0], None),
+                                    (*maps[1], None)], name="foo")
+        assert frozenset(s.rcmaps[(0, 0)]) == frozenset(maps) and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_sorted(self, mi, di, dd, m_iterset_toset):
         "Sparsity maps should have a deterministic order."
-        s1 = op2.Sparsity((di, di), [(m_iterset_toset, m_iterset_toset), (mi, mi)])
-        s2 = op2.Sparsity((di, di), [(mi, mi), (m_iterset_toset, m_iterset_toset)])
-        assert s1.maps == s2.maps
+        s1 = op2.Sparsity((di, di), [(m_iterset_toset, m_iterset_toset, None), (mi, mi, None)])
+        s2 = op2.Sparsity((di, di), [(mi, mi, None), (m_iterset_toset, m_iterset_toset, None)])
+        assert s1.rcmaps[(0, 0)] == s2.rcmaps[(0, 0)]
 
     def test_sparsity_illegal_itersets(self, mi, md, di, dd):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity((dd, di), (md, mi))
+            op2.Sparsity((dd, di), [(md, mi, None)])
 
     def test_sparsity_illegal_row_datasets(self, mi, md, di):
         "All row maps must share the same data set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity((di, di), ((mi, mi), (md, mi)))
+            op2.Sparsity((di, di), [(mi, mi, None), (md, mi, None)])
 
     def test_sparsity_illegal_col_datasets(self, mi, md, di, dd):
         "All column maps must share the same data set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity((di, di), ((mi, mi), (mi, md)))
+            op2.Sparsity((di, di), [(mi, mi, None), (mi, md, None)])
 
     def test_sparsity_shape(self, s):
         "Sparsity shape of a single block should be (1, 1)."
@@ -1087,21 +1074,21 @@ class TestSparsityAPI:
     def test_sparsity_mmap_getitem(self, ms):
         """Sparsity block i, j should be defined on the corresponding row and
         column DataSets and Maps."""
-        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
-            for j, (cds, cm) in enumerate(zip(ms.dsets[1], ms.cmaps)):
+        for i, rds in enumerate(ms.dsets[0]):
+            for j, cds in enumerate(ms.dsets[1]):
                 block = ms[i, j]
                 # Indexing with a tuple and double index is equivalent
                 assert block == ms[i][j]
                 assert (block.dsets == (rds, cds)
-                        and block.maps == [(rm.split[i], cm.split[j])])
+                        and block.rcmaps[(0, 0)] == ms.rcmaps[(i, j)])
 
     def test_sparsity_mmap_getrow(self, ms):
         """Indexing a Sparsity with a single index should yield a row of
         blocks."""
-        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
-            for j, (s, cds, cm) in enumerate(zip(ms[i], ms.dsets[1], ms.cmaps)):
+        for i, rds in enumerate(ms.dsets[0]):
+            for j, (s, cds) in enumerate(zip(ms[i], ms.dsets[1])):
                 assert (s.dsets == (rds, cds)
-                        and s.maps == [(rm.split[i], cm.split[j])])
+                        and s.rcmaps[(0, 0)] == ms.rcmaps[(i, j)])
 
     def test_sparsity_mmap_shape(self, ms):
         "Sparsity shape of should be the sizes of the mixed space."
@@ -1111,36 +1098,39 @@ class TestSparsityAPI:
                                             m_iterset_set, m_set_toset,
                                             m_set_set, mds):
         "Both maps in a (rmap,cmap) tuple must have same iteration set."
+        rmm = op2.MixedMap((m_iterset_toset, m_iterset_set))
+        cmm = op2.MixedMap((m_set_toset, m_set_set))
         with pytest.raises(RuntimeError):
-            op2.Sparsity((mds, mds), (op2.MixedMap((m_iterset_toset, m_iterset_set)),
-                                      op2.MixedMap((m_set_toset, m_set_set))))
+            op2.Sparsity((mds, mds), {(i, j): [(rm, cm, None)] for i, rm in enumerate(rmm) for j, cm in enumerate(cmm)})
 
     def test_sparsity_mmap_illegal_row_datasets(self, m_iterset_toset,
                                                 m_iterset_set, m_set_toset, mds):
         "All row maps must share the same data set."
+        rmm = op2.MixedMap((m_iterset_toset, m_iterset_set))
+        cmm = op2.MixedMap((m_set_toset, m_set_toset))
         with pytest.raises(RuntimeError):
-            op2.Sparsity((mds, mds), (op2.MixedMap((m_iterset_toset, m_iterset_set)),
-                                      op2.MixedMap((m_set_toset, m_set_toset))))
+            op2.Sparsity((mds, mds), {(i, j): [(rm, cm, None)] for i, rm in enumerate(rmm) for j, cm in enumerate(cmm)})
 
     def test_sparsity_mmap_illegal_col_datasets(self, m_iterset_toset,
                                                 m_iterset_set, m_set_toset, mds):
         "All column maps must share the same data set."
+        rmm = op2.MixedMap((m_set_toset, m_set_toset))
+        cmm = op2.MixedMap((m_iterset_toset, m_iterset_set))
         with pytest.raises(RuntimeError):
-            op2.Sparsity((mds, mds), (op2.MixedMap((m_set_toset, m_set_toset)),
-                                      op2.MixedMap((m_iterset_toset, m_iterset_set))))
+            op2.Sparsity((mds, mds), {(i, j): [(rm, cm, None)] for i, rm in enumerate(rmm) for j, cm in enumerate(cmm)})
 
     def test_sparsity_repr(self, sparsity):
         "Sparsity should have the expected repr."
 
         # Note: We can't actually reproduce a Sparsity from its repr because
         # the Sparsity constructor checks that the maps are populated
-        r = "Sparsity(%r, %r, %r)" % (sparsity.dsets, sparsity.maps, sparsity.name)
+        r = "Sparsity(%r, %r, name=%r, nested=%r, block_sparse=%r, diagonal_block=%r)" % (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse, sparsity._diagonal_block)
         assert repr(sparsity) == r
 
     def test_sparsity_str(self, sparsity):
         "Sparsity should have the expected string representation."
-        s = "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
-            (sparsity.dsets, sparsity.rmaps, sparsity.cmaps, sparsity.name)
+        s = "OP2 Sparsity: dsets %s, maps_and_regions %s, name %s, nested %s, block_sparse %s, diagonal_block %s" % \
+            (sparsity.dsets, sparsity._maps_and_regions, sparsity.name, sparsity._nested, sparsity._block_sparse, sparsity._diagonal_block)
         assert str(sparsity) == s
 
 
@@ -1596,7 +1586,7 @@ class TestParLoopAPI:
         set from the par_loop's."""
         set1 = op2.Set(2)
         m = op2.Mat(sparsity)
-        rmap, cmap = sparsity.maps[0]
+        rmap, cmap = sparsity.rcmaps[(0, 0)][0]
         kernel = op2.Kernel("static void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
             op2.par_loop(
