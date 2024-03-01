@@ -117,12 +117,13 @@ def point_expr(point_expr, function_space):
 
     Example
     -------
-    ```
-    # Stage 1: Partially initialise the operator.
-    N = point_expr(lambda x, y: x - y, function_space=V)
-    # Stage 2: Define the operands and use the operator in a UFL expression.
-    F = (inner(grad(u), grad(v)) + inner(N(u, f), v)) * dx
-    ```
+
+    .. code-block:: python
+
+        # Stage 1: Partially initialise the operator.
+        N = point_expr(lambda x, y: x - y, function_space=V)
+        # Stage 2: Define the operands and use the operator in a UFL expression.
+        F = (inner(grad(u), grad(v)) + inner(N(u, f), v)) * dx
 
     Parameters
     ----------
