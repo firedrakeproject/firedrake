@@ -173,7 +173,7 @@ def MeshHierarchy(mesh, refinement_levels,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-    meshes = [mesh] + [mesh_builder(dm, dim=mesh.ufl_cell().geometric_dimension(),
+    meshes = [mesh] + [mesh_builder(dm, dim=mesh.geometric_dimension(),
                                     distribution_parameters=distribution_parameters,
                                     reorder=reorder, comm=mesh.comm)
                        for dm in dms]

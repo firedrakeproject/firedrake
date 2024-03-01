@@ -25,11 +25,11 @@ def cell_midpoints(m):
     num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
-    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.ufl_cell().geometric_dimension())
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.geometric_dimension())
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
-    midpoints = np.empty((num_cells, m.ufl_cell().geometric_dimension()), dtype=local_midpoints.dtype)
+    midpoints = np.empty((num_cells, m.geometric_dimension()), dtype=local_midpoints.dtype)
     MPI.COMM_WORLD.Allgatherv(local_midpoints, (midpoints, local_midpoints_sizes))
     assert len(np.unique(midpoints, axis=0)) == len(midpoints)
     return midpoints, local_midpoints

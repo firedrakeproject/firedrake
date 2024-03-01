@@ -83,6 +83,9 @@ jobs:
             --install fascd \
             --install defcon \
             --install gadopt \
+            --package-branch tsfc mscroggs/gdim \
+            --package-branch finat mscroggs/gdim \
+            --package-branch ufl ksagiyam/merge_upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
