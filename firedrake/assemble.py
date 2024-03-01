@@ -1367,18 +1367,14 @@ class ParloopBuilder:
         """Construct the parloop."""
         p = self._iterset.index()
         args = []
-        gathers = []
-        scatters = []
         for tsfc_arg in self._kinfo.arguments:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
-            # gathers.extend(gathers_)
-            # scatters.extend(scatters_)
 
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        return op3.loop(p, [*gathers, kernel(*args), *scatters])
+        return op3.loop(p, kernel(*args))
 
     @property
     def _indices(self):

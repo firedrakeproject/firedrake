@@ -987,11 +987,14 @@ class AbstractMeshTopology(abc.ABC):
                     map_axes, data=data.flatten()
                 )
                 map_components.append(
-                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
+                    # testing
+                    # op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
+                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
                 )
             closures[freeze({self.name: str(dim)})] = map_components
 
-        return op3.Map(closures, numbering=numbering)
+        name = "closure" if not col else "closure1"
+        return op3.Map(closures, numbering=numbering, name=name)
 
     def _reorder_closure_fiat_simplex(self, closure_data, closure_sizes):
         return dmcommon.closure_ordering(self, closure_data, closure_sizes)
