@@ -376,12 +376,12 @@ class FDMPC(PCBase):
 
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
+            assembly_callables.append(Pmat.assemble)
             for Vrow, iset in zip(V, Pmat.getNestISs()[0]):
                 Pmats[Vrow, Vrow].setNullSpace(sub_nullspace(Amat.getNullSpace(), iset))
                 Pmats[Vrow, Vrow].setTransposeNullSpace(sub_nullspace(Amat.getTransposeNullSpace(), iset))
                 Pmats[Vrow, Vrow].setNearNullSpace(sub_nullspace(Amat.getNearNullSpace(), iset))
 
-        assembly_callables.append(Pmat.assemble)
         assembly_callables.extend(diagonal_terms)
         return Amat, Pmat, assembly_callables
 
@@ -800,7 +800,6 @@ class ElementKernel:
     By default, it inserts the same matrix on each cell."""
     code = dedent("""
         PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
-            PetscFunctionBeginUser;
             PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
@@ -826,7 +825,6 @@ class ElementKernel:
                     PetscInt m;
                     const PetscInt *ai;
                     PetscScalar *vals;
-                    PetscFunctionBeginUser;
                     PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
                     PetscCall(MatSeqAIJGetArrayWrite(A, &vals));
                     PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
@@ -847,7 +845,6 @@ class ElementKernel:
                     PetscInt m, ncols, istart, *indices;
                     const PetscInt *ai, *aj;
                     const PetscScalar *vals;
-                    PetscFunctionBeginUser;
                     PetscCall(MatGetRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
                     PetscCall(PetscMalloc1(ai[m], &indices));
                     for (PetscInt j = 0; j < ai[m]; j++) indices[j] = cindices[aj[j]];
@@ -877,7 +874,6 @@ class TripleProductKernel(ElementKernel):
                                 const PetscScalar *restrict coefficients,
                                 %(indices)s) {
             Mat C;
-            PetscFunctionBeginUser;
             PetscCall(MatProductGetMats(B, NULL, &C, NULL));
             PetscCall(MatSetValuesArray(C, coefficients));
             PetscCall(MatProductNumeric(B));
@@ -899,7 +895,6 @@ class SchurComplementKernel(ElementKernel):
                                 const Mat A11, const Mat A10, const Mat A01, const Mat A00,
                                 const PetscScalar *restrict coefficients, %(indices)s) {
             Mat C;
-            PetscFunctionBeginUser;
             PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
             PetscCall(MatSetValuesArray(C, coefficients));
             %(condense)s
@@ -994,7 +989,6 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         const PetscInt *ai;
         PetscScalar *vals, *U;
         Mat X;
-        PetscFunctionBeginUser;
         PetscCall(MatProductNumeric(A11));
         PetscCall(MatProductNumeric(A01));
         PetscCall(MatProductNumeric(A00));
@@ -1061,7 +1055,6 @@ class SchurComplementBlockLU(SchurComplementKernel):
         const PetscInt *ai;
         PetscScalar *vals, *work, *L, *U;
         Mat X;
-        PetscFunctionBeginUser;
         PetscCall(MatProductNumeric(A11));
         PetscCall(MatProductNumeric(A10));
         PetscCall(MatProductNumeric(A01));
@@ -1164,7 +1157,6 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         PetscInt m, irow, bsize, *ipiv;
         const PetscInt *ai;
         PetscScalar *vals, *work, *ainv, swork;
-        PetscFunctionBeginUser;
         PetscCall(MatProductNumeric(A11));
         PetscCall(MatProductNumeric(A10));
         PetscCall(MatProductNumeric(A01));
@@ -1287,7 +1279,6 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
             static PetscErrorCode %(prefix)s(Mat A, Vec X, Vec Y) {
                 PetscScalar **appctx, *y;
                 const PetscScalar *x;
-                PetscFunctionBeginUser;
                 PetscCall(MatShellGetContext(A, &appctx));
                 PetscCall(VecZeroEntries(Y));
                 PetscCall(VecGetArray(Y, &y));
@@ -1314,7 +1305,6 @@ class InteriorSolveKernel(ElementKernel):
             PetscInt m;
             Mat A, B, C;
             Vec X, Y;
-            PetscFunctionBeginUser;
             PetscCall(KSPGetOperators(ksp, &A, &B));
             PetscCall(MatShellSetContext(A, &appctx));
             PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
@@ -1381,7 +1371,6 @@ class ImplicitSchurComplementKernel(ElementKernel):
             PetscInt i;
             Mat A, B, C;
             Vec X, Y;
-            PetscFunctionBeginUser;
             PetscCall(KSPGetOperators(ksp, &A, &B));
             PetscCall(MatShellSetContext(A, &appctx));
             PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
@@ -1815,7 +1804,6 @@ class SparseAssembler:
                 PetscInt m, ncols, irow, icol;
                 PetscInt *cols, *indices;
                 PetscScalar *vals;
-                PetscFunctionBeginUser;
                 PetscCall(MatGetSize(B, &m, NULL));
                 PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
                 PetscCall(PetscMalloc1(ncols, &indices));
