@@ -83,6 +83,7 @@ jobs:
             --install fascd \
             --install defcon \
             --install gadopt \
+            --package-branch pyop2 emmarothwell1/restricted_function_space \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
