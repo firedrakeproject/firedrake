@@ -227,18 +227,20 @@ class ASMVankaPC(ASMPatchPC):
 
             # Create point list from mesh DM
             star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = set()
-            for pt in star.tolist():
+            star = order_points(mesh_dm, star, ordering, self.prefix)
+            pt_array = []
+            for pt in reversed(star):
                 closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
-                pt_array.update(closure.tolist())
+                pt_array.extend(closure)
+            # Grab unique points with stable ordering
+            pt_array = list(reversed(dict.fromkeys(pt_array)))
 
-            pt_array = order_points(mesh_dm, list(pt_array), ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
                 section = W.dm.getDefaultSection()
                 if i in exclude_subspaces:
-                    loop_list = [seed]
+                    loop_list = star
                 else:
                     loop_list = pt_array
                 for p in loop_list:
