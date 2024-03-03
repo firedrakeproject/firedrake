@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, IntType
 
 
 @pytest.fixture(scope='module')
@@ -104,11 +104,11 @@ def test_assemble_with_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     L = conj(v) * dx
-    f = Function(V)
+    f = Cofunction(V.dual())
     # Assemble a form into f
-    f = assemble(L, f)
+    f = assemble(L, tensor=f)
     # Assemble a different form into f
-    f = assemble(Constant(2)*L, f)
+    f = assemble(Constant(2)*L, tensor=f)
     # Make sure we get the result of the last assembly
     assert np.allclose(f.dat.data, 2*assemble(L).dat.data, rtol=1e-14)
 
@@ -120,7 +120,7 @@ def test_assemble_mat_with_tensor(mesh):
     a = inner(u, v) * dx
     M = assemble(a)
     # Assemble a different form into M
-    M = assemble(Constant(2)*a, M)
+    M = assemble(Constant(2)*a, tensor=M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
@@ -193,7 +193,7 @@ def test_one_form_assembler_cache(mesh):
     assert len(L._cache[_FORM_CACHE_KEY]) == 1
 
     # changing tensor should not increase the cache size
-    tensor = Function(V)
+    tensor = Cofunction(V.dual())
     assemble(L, tensor=tensor)
     assert len(L._cache[_FORM_CACHE_KEY]) == 1
 
@@ -291,3 +291,28 @@ def test_assemble_vector_rspace_one_form(mesh):
     U = inner(u, u)*dx
     L = derivative(U, u)
     assemble(L)
+
+
+def test_assemble_sparsity_no_redundant_entries():
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    A = assemble(inner(u, v) * dx, mat_type="nest")
+    for i in range(len(W)):
+        for j in range(len(W)):
+            if i != j:
+                assert np.all(A.M.sparsity[i][j].nnz == np.zeros(9, dtype=IntType))
+
+
+def test_assemble_sparsity_diagonal_entries_for_bc():
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    bc = DirichletBC(W.sub(1), 0, "on_boundary")
+    A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
+    # Make sure that diagonals are allocated.
+    assert np.all(A.M.sparsity[1][1].nnz == np.ones(4, dtype=IntType))

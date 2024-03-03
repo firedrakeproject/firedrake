@@ -178,7 +178,7 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import get_form_assembler
+        from firedrake.assemble import get_assembler
 
         if pmat_type is None:
             pmat_type = mat_type
@@ -233,9 +233,9 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
-        self._assemble_residual = get_form_assembler(self.F, self._F, bcs=self.bcs_F,
-                                                     form_compiler_parameters=self.fcp,
-                                                     zero_bc_nodes=True)
+        self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
+                                                form_compiler_parameters=self.fcp,
+                                                zero_bc_nodes=True).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -412,7 +412,7 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        ctx._assemble_residual()
+        ctx._assemble_residual(tensor=ctx._F)
 
         if ctx._post_function_callback is not None:
             with ctx._F.dat.vec as F_:
@@ -450,15 +450,14 @@ class _SNESContext(object):
 
         if ctx._pre_jacobian_callback is not None:
             ctx._pre_jacobian_callback(X)
-
-        ctx._assemble_jac()
+        ctx._assemble_jac(ctx._jac)
 
         if ctx._post_jacobian_callback is not None:
             ctx._post_jacobian_callback(X, J)
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
-            ctx._assemble_pjac()
+            ctx._assemble_pjac(ctx._pjac)
 
         ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
@@ -493,50 +492,46 @@ class _SNESContext(object):
                 if isinstance(bc, DirichletBC):
                     bc.apply(ctx._x)
 
-        ctx._assemble_jac()
+        ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
-            ctx._assemble_pjac()
+            ctx._assemble_pjac(ctx._pjac)
+
+    @cached_property
+    def _assembler_jac(self):
+        from firedrake.assemble import get_assembler
+        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp, mat_type=self.mat_type, options_prefix=self.options_prefix, appctx=self.appctx)
 
     @cached_property
     def _jac(self):
-        from firedrake.assemble import allocate_matrix
-        return allocate_matrix(self.J,
-                               bcs=self.bcs_J,
-                               form_compiler_parameters=self.fcp,
-                               mat_type=self.mat_type,
-                               appctx=self.appctx,
-                               options_prefix=self.options_prefix)
+        return self._assembler_jac.allocate()
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import get_form_assembler
-        return get_form_assembler(self.J, self._jac, bcs=self.bcs_J,
-                                  mat_type=self.mat_type,
-                                  form_compiler_parameters=self.fcp)
+        return self._assembler_jac.assemble
 
     @cached_property
     def is_mixed(self):
         return self._jac.block_shape != (1, 1)
 
     @cached_property
+    def _assembler_pjac(self):
+        from firedrake.assemble import get_assembler
+        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+            return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, options_prefix=self.options_prefix, appctx=self.appctx)
+        else:
+            return self._assembler_jac
+
+    @cached_property
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            from firedrake.assemble import allocate_matrix
-            return allocate_matrix(self.Jp,
-                                   bcs=self.bcs_Jp,
-                                   form_compiler_parameters=self.fcp,
-                                   mat_type=self.pmat_type,
-                                   appctx=self.appctx,
-                                   options_prefix=self.options_prefix)
+            return self._assembler_pjac.allocate()
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import get_form_assembler
-        return get_form_assembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
-                                  form_compiler_parameters=self.fcp)
+        return self._assembler_pjac.assemble
 
     @cached_property
     def _F(self):

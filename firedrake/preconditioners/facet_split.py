@@ -40,7 +40,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
         from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -99,15 +99,10 @@ class FacetSplitPC(PCBase):
             return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=pvecs, comm=nsp.getComm())
 
         if mat_type != "submatrix":
-            self.mixed_op = allocate_matrix(mixed_operator,
-                                            bcs=mixed_bcs,
-                                            form_compiler_parameters=fcp,
-                                            mat_type=mat_type,
-                                            options_prefix=options_prefix)
-            self._assemble_mixed_op = TwoFormAssembler(mixed_operator, tensor=self.mixed_op,
-                                                       form_compiler_parameters=fcp,
-                                                       bcs=mixed_bcs).assemble
-            self._assemble_mixed_op()
+            form_assembler = get_assembler(mixed_operator, bcs=mixed_bcs, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
+            self.mixed_op = form_assembler.allocate()
+            self._assemble_mixed_op = form_assembler.assemble
+            self._assemble_mixed_op(tensor=self.mixed_op)
             mixed_opmat = self.mixed_op.petscmat
 
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
@@ -153,7 +148,7 @@ class FacetSplitPC(PCBase):
 
     def update(self, pc):
         if hasattr(self, "mixed_op"):
-            self._assemble_mixed_op()
+            self._assemble_mixed_op(tensor=self.mixed_op)
         elif hasattr(self, "_permute_op"):
             for mat in self.pc.getOperators():
                 mat.destroy()
