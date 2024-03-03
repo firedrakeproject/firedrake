@@ -452,11 +452,9 @@ class PMGPC(PCBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        max_levels = odm.getRefineLevel() + 1
-        if max_levels > 1:
-            opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
-            if opts.getString("mg_coarse_pc_type") == "mg":
-                opts["mg_coarse_pc_mg_levels"] = min(opts.getInt("mg_coarse_pc_mg_levels", max_levels), max_levels)
+        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+        opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+
         return ppc
 
     def apply(self, pc, x, y):
@@ -497,13 +495,10 @@ class PMGSNES(SNESBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        max_levels = odm.getRefineLevel() + 1
-        if max_levels > 1:
-            opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
-            if opts.getString("fas_coarse_pc_type") == "mg":
-                opts["fas_coarse_pc_mg_levels"] = min(opts.getInt("fas_coarse_pc_mg_levels", max_levels), max_levels)
-            if opts.getString("fas_coarse_snes_type") == "fas":
-                opts["fas_coarse_snes_fas_levels"] = min(opts.getInt("fas_coarse_snes_fas_levels", max_levels), max_levels)
+        opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+        opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
+        opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
+
         return psnes
 
     def step(self, snes, x, f, y):
@@ -612,18 +607,22 @@ def evaluate_dual(source, target, derivative=None):
     A read-only :class:`numpy.ndarray` with the evaluation of the target
     dual basis on the (derivative of the) source primal basis.
     """
-    if derivative is None:
-        primal = source.get_nodal_basis()
-    else:
-        from FIAT.demkowicz import project_derivative
-        primal = project_derivative(source, derivative)
-
-    coeffs = primal.get_coeffs()
+    primal = source.get_nodal_basis()
     dual = target.get_dual_set()
-    dual_mat = dual.to_riesz(primal)
-    A = dual_mat.reshape((dual_mat.shape[0], -1))
-    B = coeffs.reshape((-1, A.shape[1]))
-    return get_readonly_view(numpy.dot(A, B.T))
+    A = dual.to_riesz(primal)
+    B = numpy.transpose(primal.get_coeffs())
+    if derivative == "grad":
+        dmats = primal.get_dmats()
+        assert len(dmats) == 1
+        alpha = (1,)
+        for i in range(len(alpha)):
+            for j in range(alpha[i]):
+                B = numpy.dot(dmats[i], B)
+    elif derivative in ("curl", "div"):
+        raise NotImplementedError(f"Dual evaluation of {derivative} is not yet implemented.")
+    elif derivative is not None:
+        raise ValueError(f"Invalid derivaitve type {derivative}.")
+    return get_readonly_view(numpy.dot(A, B))
 
 
 @cached({}, key=generate_key_evaluate_dual)
@@ -1169,16 +1168,16 @@ class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
+
     _cache_work = {}
 
-    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs, derivative=False):
+    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
         self.uc = self.work_function(Vc)
         self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()
         self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
         self.Vf_bcs = Vf_bcs
-        self.derivative = derivative
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1196,6 +1195,7 @@ class StandaloneInterpolationMatrix(object):
         kernel_code = f"""
         void weight(PetscScalar *restrict w){{
             for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
+            return;
         }}
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
@@ -1205,8 +1205,7 @@ class StandaloneInterpolationMatrix(object):
         return weight
 
     @cached_property
-    def _parloops(self):
-        self._prolong_write = True
+    def _kernels(self):
         try:
             # We generate custom prolongation and restriction kernels mainly because:
             # 1. Code generation for the transpose of prolongation is not readily available
@@ -1218,7 +1217,6 @@ class StandaloneInterpolationMatrix(object):
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
-            self._prolong_write = False
         except ValueError:
             # The elements do not have the expected tensor product structure
             # Fall back to aij kernels
@@ -1239,10 +1237,14 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        self._parloops[0]()
+        with self.uf.dat.vec_wo as uf:
+            uf.set(0.0E0)
+        self._kernels[0]()
 
     def _restrict(self):
-        self._parloops[1]()
+        with self.uc.dat.vec_wo as uc:
+            uc.set(0.0E0)
+        self._kernels[1]()
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -1270,7 +1272,8 @@ class StandaloneInterpolationMatrix(object):
         else:
             raise ValueError("Unknown info type %s" % info)
 
-    def make_blas_kernels(self, Vf, Vc):
+    @staticmethod
+    def make_blas_kernels(Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
@@ -1280,9 +1283,6 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
-        if self.derivative:
-            # TODO hook up tabulate_exterior_derivative from fdm.py
-            raise ValueError
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
@@ -1412,47 +1412,14 @@ class StandaloneInterpolationMatrix(object):
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         return prolong_kernel, restrict_kernel, coefficients
 
-    def mat_mult_kernel(self, A, value_size, transpose=False):
-        if transpose:
-            A = A.T
-        name = "matmult"
-        code = f"""
-        void {name}(PetscScalar *restrict y, const PetscScalar *restrict x
-                    {", const PetscScalar *restrict w" if transpose else ""}
-        ){{
-            const PetscScalar A[] = {{ {", ".join(map(float.hex, A.flat))} }};
-            {IntType_c} i0, i1;
-            for ({IntType_c} k = 0; k < {value_size}; k++) {{
-                for ({IntType_c} i = 0; i < {A.shape[0]}; i++) {{
-                    i0 = i * {value_size} + k;
-                    {"" if transpose else "y[i0] = 0;"}
-                    for ({IntType_c} j = 0; j < {A.shape[1]}; j++) {{
-                        i1 = j * {value_size} + k;
-                        y[i0] += A[i * {A.shape[1]} + j] * {"(x[i1] * w[i1])" if transpose else "x[i1]"};
-                    }}
-                }}
-            }}
-        }}"""
-        return op2.Kernel(code, name, requires_zeroed_output_arguments=transpose)
-
     def make_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between arbitrary elements.
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        if Vf.finat_element.formdegree == Vc.finat_element.formdegree + self.derivative and Vf.shape == Vc.shape:
-            derivative = None
-            if self.derivative:
-                derivative = {ufl.HCurl: "grad", ufl.HDiv: "curl", ufl.L2: "div"}[Vf.ufl_element().sobolev_space]
-            A = evaluate_dual(Vc.finat_element.fiat_equivalent, Vf.finat_element.fiat_equivalent, derivative=derivative)
-            return self.mat_mult_kernel(A, Vf.value_size), self.mat_mult_kernel(A, Vf.value_size, transpose=True), []
-
-        expr = self.uc
-        if self.derivative:
-            expr = ufl.exterior_derivative(expr)
-        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, expr)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, ufl.derivative(expr, self.uc))
+        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -1482,45 +1449,48 @@ class StandaloneInterpolationMatrix(object):
         )
         return prolong_kernel, restrict_kernel, coefficients
 
-    def _copy(self, x, y):
-        if x.handle != y.handle:
-            x.copy(y)
+    def multTranspose(self, mat, rf, rc):
+        """
+        Implement restriction: restrict residual on fine grid rf to coarse grid rc.
+        """
+        with self.uf.dat.vec_wo as uf:
+            rf.copy(uf)
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
-    def _op(self, action, x_bcs, y_bcs, x, y, X, Y, W=None, inc=False):
-        out = Y if W is None else W
+        self._restrict()
+
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
+        with self.uc.dat.vec_ro as uc:
+            uc.copy(rc)
+
+    def mult(self, mat, xc, xf, inc=False):
+        """
+        Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
+        """
+        with self.uc.dat.vec_wo as uc:
+            xc.copy(uc)
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
+
+        self._prolong()
+
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
         if inc:
-            self._copy(Y, out)
-        with y.dat.vec_wo as v:
-            if W is None or inc:
-                v.zeroEntries()
-            else:
-                self._copy(Y, v)
-        with x.dat.vec_wo as v:
-            self._copy(X, v)
-        for bc in x_bcs:
-            bc.zero(x)
-        action()
-        for bc in y_bcs:
-            bc.zero(y)
-        with y.dat.vec_ro as v:
-            if inc:
-                out.axpy(1.0, v)
-            else:
-                self._copy(v, out)
+            with self.uf.dat.vec_ro as uf:
+                xf.axpy(1.0, uf)
+        else:
+            with self.uf.dat.vec_ro as uf:
+                uf.copy(xf)
 
-    def mult(self, mat, X, Y):
-        """Prolong correction on coarse grid X to fine grid Y."""
-        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y)
-
-    def multAdd(self, mat, X, Y, W):
-        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W=W, inc=self._prolong_write)
-
-    def multTranspose(self, mat, X, Y):
-        """Restrict residual on fine grid X to coarse grid Y."""
-        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y)
-
-    def multTransposeAdd(self, mat, X, Y, W):
-        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y, W=W)
+    def multAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.mult(mat, x, w, inc=True)
+        else:
+            self.mult(mat, x, w)
+            w.axpy(1.0, y)
 
 
 class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
@@ -1542,12 +1512,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         return standalones
 
     @cached_property
-    def _parloops(self):
-        # FIXME we cannot be lazy, as we do not know a priori if prolongation has write access
-        # Therefore we must initiliaze all standalone parloops in order to know the prolongation access
-        for s in self._standalones:
-            s._parloops
-        self._prolong_write = any(s._prolong_write for s in self._standalones)
+    def _kernels(self):
         prolong = lambda: [s._prolong() for s in self._standalones]
         restrict = lambda: [s._restrict() for s in self._standalones]
         return prolong, restrict
