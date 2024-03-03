@@ -141,7 +141,6 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_pc_type": "python",
                        "mg_levels_pc_python_type": "firedrake.ASMStarPC",
                        "mg_levels_pc_star_construct_dim": 0,
-                       "mg_levels_pc_star_sub_sub_pc_factor_shift_type": "nonzero",
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                        "mg_coarse_assembled_pc_type": "lu"}
@@ -181,7 +180,6 @@ def test_star_equivalence(problem_type, backend):
     assert star_its == comp_its
 
 
-@pytest.mark.skipif(True, reason="This test seems to randomly fail CI")
 def test_vanka_equivalence(problem_type):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
@@ -302,7 +300,7 @@ def test_vanka_equivalence(problem_type):
         (z, p) = split(u)
         (v, q) = split(TestFunction(V))
 
-        a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(q, div(z))*dx
+        a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(div(z), q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
         nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
@@ -320,11 +318,11 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_dim": 0,
                         "mg_levels_pc_vanka_exclude_subspaces": "1",
+                        "mg_levels_pc_vanka_sub_sub_pc_type": "cholesky",
                         "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
-                        "mg_levels_pc_vanka_sub_sub_pc_factor_mat_solver_type": "mumps",
                         "mg_coarse_pc_type": "python",
                         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                        "mg_coarse_assembled_pc_type": "lu",
+                        "mg_coarse_assembled_pc_type": "cholesky",
                         "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
