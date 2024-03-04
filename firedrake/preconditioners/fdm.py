@@ -13,9 +13,9 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
-from firedrake.functionspaceimpl import extrude_cell_node_list
 from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
@@ -229,40 +229,43 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Create data structures needed for assembly
+        def get_broken_indices(V, indices):
+            W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
+            w = Function(W, dtype=indices.dtype)
+            v = Function(V, val=indices)
+            domain = "{[i]: 0 <= i < v.dofs}"
+            instructions = """
+            for i
+                w[i] = v[i]
+            end
+            """
+            par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+            return w
+
         def get_lgmap(V, broken=False):
             lgmap = V.dof_dset.lgmap
             if broken:
-                mesh = V.mesh()
-                ncell = mesh.cell_set.size
-                indices = V.cell_node_list[:ncell].copy()
-                if V.extruded:
-                    indices = extrude_cell_node_list(indices, V.offset, mesh.layers)
-                lgmap.apply(indices, result=indices)
+                indices = get_broken_indices(V, lgmap.indices).dat.data_ro
                 return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
             else:
                 return V.local_to_global_map([], lgmap=lgmap, non_ghost_cells=True)
 
         def mask_local_indices(V, lgmap, broken=False):
+            mask = lgmap.indices
             if broken:
-                indices = V.cell_node_list.copy()
-                if V.extruded:
-                    indices = extrude_cell_node_list(indices, V.offset, V.mesh().layers)
-                mask = indices.flatten()
-                lgmap.apply(mask, result=mask)
-                V = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
-            else:
-                mask = lgmap.indices
-
+                w = get_broken_indices(V, mask)
+                V = w.function_space()
+                mask = w.dat.data_ro_with_halos
             indices = numpy.arange(len(mask), dtype=PETSc.IntType)
             indices[mask == -1] = -1
-            indices_dat = op2.Dat(V.dof_dset, indices, dtype=PETSc.IntType)
+            indices_dat = V.make_dat(val=indices)
             indices_acc = indices_dat(op2.READ, V.cell_node_map())
             return indices_acc
 
         broken = pmat_type == "is"
         self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub, broken) for Vsub in V}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.indices = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
+        self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
         self.kernels = []
@@ -352,7 +355,6 @@ class FDMPC(PCBase):
                 Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
                 assembly_callables.append(P.assemble)
                 assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
-                # assembly_callables.append(P.view)
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
@@ -361,25 +363,26 @@ class FDMPC(PCBase):
             Pmats[Vrow, Vcol] = P
 
         def sub_nullspace(nsp, iset):
-            if not nsp.handle:
+            if not nsp.handle or iset is None:
                 return nsp
             return PETSc.NullSpace().create(constant=nsp.hasConstant(),
                                             vectors=[vec.getSubVector(iset) for vec in nsp.getVecs()],
                                             comm=nsp.getComm())
 
+        def set_nullspaces(P, A, iset=None):
+            set_nsps = (P.setNullSpace, P.setTransposeNullSpace, P.setNearNullSpace)
+            get_nsps = (A.getNullSpace, A.getTransposeNullSpace, A.getNearNullSpace)
+            for setNP, getNA in zip(set_nsps, get_nsps):
+                setNP(sub_nullspace(getNA(), iset))
+
         if len(V) == 1:
             Pmat = Pmats[V, V]
-            Pmat.setNullSpace(Amat.getNullSpace())
-            Pmat.setTransposeNullSpace(Amat.getTransposeNullSpace())
-            Pmat.setNearNullSpace(Amat.getNearNullSpace())
-
+            set_nullspaces(Pmat, Amat)
         else:
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
-            assembly_callables.append(Pmat.assemble)
             for Vrow, iset in zip(V, Pmat.getNestISs()[0]):
-                Pmats[Vrow, Vrow].setNullSpace(sub_nullspace(Amat.getNullSpace(), iset))
-                Pmats[Vrow, Vrow].setTransposeNullSpace(sub_nullspace(Amat.getTransposeNullSpace(), iset))
-                Pmats[Vrow, Vrow].setNearNullSpace(sub_nullspace(Amat.getNearNullSpace(), iset))
+                set_nullspaces(Pmats[Vrow, Vrow], Amat, iset=iset)
+            assembly_callables.append(Pmat.assemble)
 
         assembly_callables.extend(diagonal_terms)
         return Amat, Pmat, assembly_callables
@@ -765,8 +768,8 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
             self.kernels.append(element_kernel)
-            spaces = (Vrow, Vcol)[on_diag:]
-            indices_acc = tuple(self.indices[V] for V in spaces)
+            spaces = (Vrow,) if on_diag else (Vrow, Vcol)
+            indices_acc = tuple(self.indices_acc[V] for V in spaces)
             coefficients = self.coefficients["cell"]
             coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)

@@ -793,8 +793,8 @@ class FunctionSpace(object):
             if not unblocked and cdim > 1:
                 non_ghost_cell_nodes *= cdim
                 non_ghost_cell_nodes = numpy.add.outer(non_ghost_cell_nodes,
-                                                       numpy.arange(cdim, dtype=non_ghost_cell_nodes.dtype))
-            ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices), dtype=non_ghost_cell_nodes.dtype),
+                                                       numpy.arange(cdim, dtype=cell_nodes.dtype))
+            ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices), dtype=cell_nodes.dtype),
                                                non_ghost_cell_nodes,
                                                assume_unique=True)
             nodes.append(ghost_cell_nodes)
@@ -1182,7 +1182,9 @@ class FunctionSpaceCargo:
 
 
 def extrude_cell_node_list(cell_node_list, offset, layers):
-    if layers.size == 1:
+    if offset is None:
+        cell_nodes = cell_node_list
+    elif layers.size == 1:
         nlayers = layers - 1
         offsets = numpy.outer(numpy.arange(nlayers, dtype=offset.dtype), offset)
         cell_nodes = cell_node_list[:, None, :] + offsets[None, :, :]

@@ -258,8 +258,5 @@ def get_permutation_map(V, W):
         for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
     }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set,
-                 vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
-
-    own = V.dof_dset.layout_vec.sizes[0]
-    return perm[:own]
+    op2.par_loop(kernel, V.mesh().cell_set, vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
+    return vdat.data_ro
