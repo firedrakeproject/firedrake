@@ -313,6 +313,7 @@ class FDMPC(PCBase):
             preallocator = PETSc.Mat().create(comm=self.comm)
             preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
             preallocator.setSizes(sizes)
+            preallocator.setISAllowRepeated(broken)
             preallocator.setLGMap(rlgmap, clgmap)
             preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
             preallocator.setUp()
@@ -326,6 +327,7 @@ class FDMPC(PCBase):
             P = PETSc.Mat().create(comm=self.comm)
             P.setType(ptype)
             P.setSizes(sizes)
+            P.setISAllowRepeated(broken)
             P.setLGMap(rlgmap, clgmap)
             P.setPreallocationNNZ((dnz, onz))
 
@@ -355,6 +357,7 @@ class FDMPC(PCBase):
                 Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
                 assembly_callables.append(P.assemble)
                 assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
+                # assembly_callables.append(P.view)
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
