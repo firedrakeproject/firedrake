@@ -79,23 +79,23 @@ def test_star_equivalence(problem_type, backend):
                        "snes_type": "ksponly",
                        "ksp_type": "cg",
                        "pc_type": "mg",
-                       "pc_mg_type": "full",
+                       "pc_mg_type": "multiplicative",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "richardson",
                        "mg_levels_ksp_richardson_scale": 1/4,
                        "mg_levels_ksp_max_it": 1,
                        "mg_levels_pc_type": "python",
                        "mg_levels_pc_python_type": "firedrake.ASMStarPC",
                        "mg_levels_pc_star_construct_dim": 1,
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                       "mg_coarse_pc_type": "lu",
+                       "mg_coarse_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
                        "ksp_type": "cg",
                        "pc_type": "mg",
-                       "pc_mg_type": "full",
+                       "pc_mg_type": "multiplicative",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "richardson",
                        "mg_levels_ksp_richardson_scale": 1/4,
                        "mg_levels_ksp_max_it": 1,
@@ -134,23 +134,21 @@ def test_star_equivalence(problem_type, backend):
                        "ksp_type": "richardson",
                        "pc_type": "mg",
                        "pc_mg_type": "multiplicative",
-                       "pc_mg_cycles": "v",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "chebyshev",
                        "mg_levels_ksp_max_it": 2,
                        "mg_levels_ksp_convergence_test": "skip",
                        "mg_levels_pc_type": "python",
                        "mg_levels_pc_python_type": "firedrake.ASMStarPC",
                        "mg_levels_pc_star_construct_dim": 0,
-                       "mg_coarse_pc_type": "python",
-                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                       "mg_coarse_assembled_pc_type": "lu"}
+                       "mg_coarse_pc_type": "lu"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
                        "pc_mg_type": "multiplicative",
-                       "pc_mg_cycles": "v",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "chebyshev",
                        "mg_levels_ksp_max_it": 2,
                        "mg_levels_ksp_convergence_test": "skip",
@@ -167,6 +165,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_assembled_pc_type": "lu"}
 
     star_params["mg_levels_pc_star_backend"] = backend
+    star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
+    star_params["mg_levels_pc_star_sub_sub_pc_factor_mat_ordering_type"] = "natural"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=star_params, nullspace=nsp)
     star_solver.solve()
@@ -202,24 +202,22 @@ def test_vanka_equivalence(problem_type):
                         "ksp_type": "richardson",
                         "pc_type": "mg",
                         "pc_mg_type": "multiplicative",
-                        "pc_mg_cycles": "v",
+                        "pc_mg_cycle_type": "v",
                         "mg_levels_ksp_type": "richardson",
                         "mg_levels_ksp_richardson_scale": 1/10,
                         "mg_levels_ksp_max_it": 1,
                         "mg_levels_pc_type": "python",
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_codim": 0,
-                        "mg_coarse_pc_type": "python",
-                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                        "mg_coarse_assembled_pc_type": "lu",
-                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_type": "lu",
+                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
                        "pc_mg_type": "multiplicative",
-                       "pc_mg_cycles": "v",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "richardson",
                        "mg_levels_ksp_richardson_scale": 1/10,
                        "mg_levels_ksp_max_it": 1,
@@ -262,10 +260,8 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_type": "python",
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_codim": 0,
-                        "mg_coarse_pc_type": "python",
-                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                        "mg_coarse_assembled_pc_type": "lu",
-                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_type": "lu",
+                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -310,7 +306,7 @@ def test_vanka_equivalence(problem_type):
                         "ksp_type": "richardson",
                         "pc_type": "mg",
                         "pc_mg_type": "multiplicative",
-                        "pc_mg_cycles": "v",
+                        "pc_mg_cycle_type": "v",
                         "mg_levels_ksp_type": "chebyshev",
                         "mg_levels_ksp_max_it": 2,
                         "mg_levels_ksp_convergence_test": "skip",
@@ -319,18 +315,15 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_vanka_construct_dim": 0,
                         "mg_levels_pc_vanka_exclude_subspaces": "1",
                         "mg_levels_pc_vanka_sub_sub_pc_type": "cholesky",
-                        "mg_levels_pc_vanka_sub_sub_pc_factor_shift_type": "nonzero",
-                        "mg_coarse_pc_type": "python",
-                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                        "mg_coarse_assembled_pc_type": "cholesky",
-                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_type": "cholesky",
+                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
                        "ksp_type": "richardson",
                        "pc_type": "mg",
                        "pc_mg_type": "multiplicative",
-                       "pc_mg_cycles": "v",
+                       "pc_mg_cycle_type": "v",
                        "mg_levels_ksp_type": "chebyshev",
                        "mg_levels_ksp_max_it": 2,
                        "mg_levels_ksp_convergence_test": "skip",
@@ -348,6 +341,8 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_assembled_pc_type": "lu",
                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
+    vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
+    vanka_params["mg_levels_pc_vanka_sub_sub_pc_factor_mat_ordering_type"] = "natural"  # avoids zero pivots in saddle-point problems
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
     star_solver.solve()
