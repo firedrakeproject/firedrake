@@ -898,6 +898,7 @@ class SchurComplementKernel(ElementKernel):
             PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
             PetscCall(MatSetValuesArray(C, coefficients));
             %(condense)s
+            PetscCall(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
             PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
             PetscFunctionReturn(PETSC_SUCCESS);
         }""")
@@ -918,7 +919,9 @@ class SchurComplementKernel(ElementKernel):
             istart += k * kdofs
         self.blocks = sorted(degree for degree in self.slices if degree > 1)
 
-        super().__init__(self.condense(), name=name)
+        result = self.condense()
+        result.axpy(1.0, self.submats[0])
+        super().__init__(result, name=name)
         self.mats.extend(self.submats)
         self.rules["condense"] = self.condense_code
 
@@ -930,16 +933,15 @@ class SchurComplementPattern(SchurComplementKernel):
     """Kernel builder to pad with zeros the Schur complement sparsity pattern."""
     condense_code = dedent("""
         PetscCall(MatProductNumeric(A11));
-        PetscCall(MatAYPX(B, 0.0, A11, SUBSET_NONZERO_PATTERN));
+        PetscCall(MatScale(B, 0.0));
         """)
 
     def condense(self, result=None):
         """Pad with zeros the statically condensed pattern"""
-        structure = PETSc.Mat.Structure.SUBSET if result else None
         if result is None:
             _, A10, A01, A00 = self.submats
             result = A10.matMatMult(A00, A01, result=result)
-        result.aypx(0.0, self.submats[0], structure=structure)
+        result.scale(0.0)
         return result
 
 
@@ -964,18 +966,15 @@ class SchurComplementDiagonal(SchurComplementKernel):
         PetscCall(MatSeqAIJRestoreArray(A00, &vals));
 
         PetscCall(MatProductNumeric(B));
-        PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
         """)
 
     def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
         self.work[0] = A00.getDiagonal(result=self.work[0])
         self.work[0].reciprocal()
         self.work[0].scale(-1)
         A01.diagonalScale(L=self.work[0])
         result = A10.matMult(A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
         return result
 
 
@@ -1016,11 +1015,10 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         PetscCall(MatProductGetMats(B, &X, NULL, NULL));
         PetscCall(MatProductNumeric(X));
         PetscCall(MatProductNumeric(B));
-        PetscCall(MatAYPX(B, -1.0, A11, SUBSET_NONZERO_PATTERN));
+        PetscCall(MatScale(B, -1.0));
         """)
 
     def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
         # asssume that A10 = A01^T
         A11, _, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
@@ -1041,7 +1039,7 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         A00.assemble()
         self.work[0] = A00.matMult(A01, result=self.work[0])
         result = self.work[0].transposeMatMult(self.work[0], result=result)
-        result.aypx(-1.0, A11, structure=structure)
+        result.scale(-1.0)
         return result
 
 
@@ -1113,13 +1111,11 @@ class SchurComplementBlockLU(SchurComplementKernel):
         PetscCall(MatSeqAIJRestoreArray(A00, &vals));
         PetscCall(PetscFree3(ipiv, perm, work));
 
-        // B = A11 - A10 * inv(L^T) * X
+        // B = - A10 * inv(L^T) * X
         PetscCall(MatProductNumeric(B));
-        PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
         """)
 
     def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
         Q = numpy.ones(R.shape, dtype=R.dtype)
@@ -1144,7 +1140,6 @@ class SchurComplementBlockLU(SchurComplementKernel):
         A00.assemble()
         A00.scale(-1.0)
         result = A10.matMatMult(A00, self.work[0], result=result)
-        result.axpy(1.0, A11, structure=structure)
         return result
 
 
@@ -1192,11 +1187,9 @@ class SchurComplementBlockInverse(SchurComplementKernel):
 
         PetscCall(MatScale(A00, -1.0));
         PetscCall(MatProductNumeric(B));
-        PetscCall(MatAXPY(B, 1.0, A11, SUBSET_NONZERO_PATTERN));
         """)
 
     def condense(self, result=None):
-        structure = PETSc.Mat.Structure.SUBSET if result else None
         A11, A10, A01, A00 = self.submats
         indptr, indices, R = A00.getValuesCSR()
 
@@ -1215,7 +1208,6 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         A00.assemble()
         A00.scale(-1.0)
         result = A10.matMatMult(A00, A01, result=result)
-        result.axpy(1.0, A11, structure=structure)
         return result
 
 
