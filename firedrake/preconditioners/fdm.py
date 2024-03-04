@@ -804,7 +804,7 @@ class ElementKernel:
     code = dedent("""
         PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
             PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            PetscFunctionReturn(PETSC_SUCCESS);
+            return PETSC_SUCCESS;
         }""")
 
     def __init__(self, A, name=None):
@@ -833,7 +833,7 @@ class ElementKernel:
                     PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
                     PetscCall(MatSeqAIJRestoreArrayWrite(A, &vals));
                     PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-                    PetscFunctionReturn(PETSC_SUCCESS);
+                    return PETSC_SUCCESS;
                 }""")
         if mat_type != "matfree":
             select_cols = """
@@ -861,7 +861,7 @@ class ElementKernel:
                     PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
                     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
                     PetscCall(PetscFree(indices));
-                    PetscFunctionReturn(PETSC_SUCCESS);
+                    return PETSC_SUCCESS;
                 }""" % {"select_cols": select_cols if mat_type.endswith("sbaij") else ""})
         code += self.code % dict(self.rules, name=self.name,
                                  indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
@@ -881,7 +881,7 @@ class TripleProductKernel(ElementKernel):
             PetscCall(MatSetValuesArray(C, coefficients));
             PetscCall(MatProductNumeric(B));
             PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            PetscFunctionReturn(PETSC_SUCCESS);
+            return PETSC_SUCCESS;
         }""")
 
     def __init__(self, L, C, R, name=None):
@@ -903,7 +903,7 @@ class SchurComplementKernel(ElementKernel):
             %(condense)s
             PetscCall(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
             PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            PetscFunctionReturn(PETSC_SUCCESS);
+            return PETSC_SUCCESS;
         }""")
 
     def __init__(self, *kernels, name=None):
@@ -936,7 +936,7 @@ class SchurComplementPattern(SchurComplementKernel):
     """Kernel builder to pad with zeros the Schur complement sparsity pattern."""
     condense_code = dedent("""
         PetscCall(MatProductNumeric(A11));
-        PetscCall(MatScale(B, 0.0));
+        PetscCall(MatZeroEntries(B));
         """)
 
     def condense(self, result=None):
@@ -944,7 +944,7 @@ class SchurComplementPattern(SchurComplementKernel):
         if result is None:
             _, A10, A01, A00 = self.submats
             result = A10.matMatMult(A00, A01, result=result)
-        result.scale(0.0)
+        result.zeroEntries()
         return result
 
 
@@ -1281,7 +1281,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
                 %(matmult_call)s
                 PetscCall(VecRestoreArrayRead(X, &x));
                 PetscCall(VecRestoreArray(Y, &y));
-                PetscFunctionReturn(PETSC_SUCCESS);
+                return PETSC_SUCCESS;
             }""" % {"prefix": prefix, "matmult_call": matmult_call("x", "y")})
     return matmult_struct, matmult_call, ctx_struct, ctx_pack
 
@@ -1312,7 +1312,7 @@ class InteriorSolveKernel(ElementKernel):
             PetscCall(KSPSolve(ksp, Y, X));
             PetscCall(VecDestroy(&X));
             PetscCall(VecDestroy(&Y));
-            PetscFunctionReturn(PETSC_SUCCESS);
+            return PETSC_SUCCESS;
         }""")
 
     def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
@@ -1392,7 +1392,7 @@ class ImplicitSchurComplementKernel(ElementKernel):
             for (i = 0; i < %(size)d; i++) y[i] = 0.0;
             %(A_call)s
             for (i = 0; i < %(fsize)d; i++) yf[i] += y[fdofs[i]];
-            PetscFunctionReturn(PETSC_SUCCESS);
+            return PETSC_SUCCESS;
         }""")
 
     def __init__(self, kernel, name=None):
@@ -1814,7 +1814,7 @@ class SparseAssembler:
                     PetscCall(MatRestoreRow(B, i, &ncols, &cols, &vals));
                 }}
                 PetscCall(PetscFree(indices));
-                PetscFunctionReturn(PETSC_SUCCESS);
+                return PETSC_SUCCESS;
             }}
             """)
         argtypes = [ctypes.c_voidp, ctypes.c_voidp,
