@@ -9,6 +9,7 @@ import finat
 import loopy
 import numpy as np
 import pyop3 as op3
+import ufl
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 from pyrsistent import freeze, pmap
@@ -22,7 +23,7 @@ from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
-from firedrake.utils import IntType
+from firedrake.utils import IntType, assert_empty
 
 
 kernel_cache = LRUCache(maxsize=128)
@@ -370,10 +371,12 @@ def _(tensor, cell: op3.LoopIndex, intent):
     # we know we are only looping over cells so the context is trivial.
     cf_indexed = op3.utils.just_one(indexed.context_map.values())
 
-    if not isinstance(V.finat_element, finat.FlattenedDimensions):
+    if plex.ufl_cell().is_simplex():
         return cf_indexed
 
     ###
+
+    # TODO: Put into docstring.
 
     # FIAT numbering:
     #
@@ -436,122 +439,10 @@ def _(tensor, cell: op3.LoopIndex, intent):
     # We therefore want a temporary that is in the tensor-product form, but we
     # need to be able to fill it from the "flat" closure that DMPlex gives us.
 
-    if V.mesh().ufl_cell().cellname() != "quadrilateral":
+    if plex.ufl_cell() != ufl.quadrilateral:
         raise NotImplementedError
 
-    subelem_axess = []
-    subelems = V.finat_element.product.factors
-    for i, subelem in enumerate(subelems):
-        npoints = []
-        subaxess = []
-        for tdim, edofs in subelem.entity_dofs().items():
-            npoints.append(len(edofs))
-            ndofs = op3.utils.single_valued(len(d) for d in edofs.values())
-            subaxes = op3.Axis(ndofs, f"dof{i}")
-            subaxess.append(subaxes)
-
-        subelem_axes = op3.AxisTree.from_nest({
-            op3.Axis(
-                {str(tdim): n for tdim, n in enumerate(npoints)}, f"points{i}"
-            ): subaxess
-        })
-
-        # hack
-        subelem_axes = op3.PartialAxisTree(subelem_axes.parent_to_children)
-        subelem_axess.append(subelem_axes)
-
-    # lazy, make a separate function
-    def _build_rec(_axess):
-        _axes, *_subaxess = _axess
-
-        if _subaxess:
-            for leaf in _axes.leaves:
-                subtree = _build_rec(_subaxess)
-                _axes = _axes.add_subtree(subtree, *leaf, uniquify_ids=True)
-        return _axes
-
-    tensor_axes = _build_rec(subelem_axess)
-
-    shape_target_paths = {None: {}}
-    shape_index_exprs = {None: {}}
-    if V.shape:
-        shape_axes = []
-        for i, s in enumerate(V.shape):
-            axis_label = f"dim{i}"
-            cpt_label = "XXX"
-            shape_axes.append(op3.Axis({cpt_label: s}, axis_label))
-            shape_target_paths[None][axis_label] = cpt_label
-            shape_index_exprs[None][axis_label] = op3.AxisVariable(axis_label)
-
-        shape_axes = op3.AxisTree.from_iterable(shape_axes)
-        for leaf in tensor_axes.leaves:
-            tensor_axes = tensor_axes.add_subtree(shape_axes, *leaf, uniquify_ids=True)
-
-    tensor_axes = tensor_axes.set_up()
-
-    # this is easy, the target path is just summing things up!
-    def _build_target_paths(_axes, _axis=None, tdim=0):
-        if _axis is None:
-            _axis = _axes.root
-
-        paths = {}
-        for component in _axis.components:
-            if not (_axis.label.startswith("dof") or _axis.label.startswith("dim")):
-                tdim_ = tdim + int(component.label)
-            else:
-                tdim_ = tdim
-            if subaxis := _axes.child(_axis, component):
-                paths.update(_build_target_paths(_axes, subaxis, tdim_))
-            else:
-                paths[_axis.id,component.label] = {"closure": str(tdim_), "dof": "XXX"}
-        return paths
-
-    tensor_target_paths = _build_target_paths(tensor_axes)
-    tensor_target_paths.update(shape_target_paths)
-
-    # hard code for quads for now, hexes are harder and I can't yet come up with
-    # a general solution/algorithm
-    my_leaves = tensor_axes.leaves
-    if len(my_leaves) != 4:
-        raise NotImplementedError
-
-    tensor_index_exprs = {}
-    flat_mesh_axis_label = "closure"
-    flat_dof_axis_label = "dof"
-    for i, (leaf_axis, leaf_cpt) in enumerate(my_leaves):
-        if i == 0:  # (0, 0)
-            index_expr = {
-                flat_mesh_axis_label: 2*op3.AxisVariable("points0") + op3.AxisVariable("points1"),
-                flat_dof_axis_label: 0,  # single DoF
-            }
-        elif i == 1:  # (0, 1)
-            index_expr = {
-                flat_mesh_axis_label: op3.AxisVariable("points0"),  # e0, e1
-                flat_dof_axis_label: op3.AxisVariable("dof1"),
-            }
-        elif i == 2:  # (1, 0)
-            index_expr = {
-                flat_mesh_axis_label: op3.AxisVariable("points1") + 2,  # e2, e3
-                flat_dof_axis_label: op3.AxisVariable("dof0"),
-            }
-        else:  # (1, 1)
-            assert i == 3
-            if subelems[0] is not subelems[1]:
-                raise NotImplementedError("Currently assume that sub elements are identical")
-            dof_stride = len(subelems[0].entity_dofs()[1][0])
-            index_expr = {
-                flat_mesh_axis_label: 0,  # single cell
-                flat_dof_axis_label: dof_stride*op3.AxisVariable("dof0") + op3.AxisVariable("dof1"),
-            }
-        tensor_index_exprs[leaf_axis.id, leaf_cpt] = index_expr
-
-    tensor_index_exprs.update(shape_index_exprs)
-
-    # !!!
-
-    # debug
-    old_target_paths = tensor_target_paths.copy()
-    old_index_exprs = tensor_index_exprs.copy()
+    tensor_axes, target_paths, index_exprs = _tensorify_axes(V)
 
     from pyop3.itree.tree import _compose_bits
     tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
@@ -560,17 +451,15 @@ def _(tensor, cell: op3.LoopIndex, intent):
         cf_indexed.index_exprs,
         None,
         tensor_axes,
-        tensor_target_paths,
-        tensor_index_exprs,
+        target_paths,
+        index_exprs,
         {},
     )
 
-    # breakpoint()
-    #
     cf_indexed_tensor = op3.HierarchicalArray(
         tensor_axes,
-        target_paths=freeze(tensor_target_paths),
-        index_exprs=freeze(tensor_index_exprs),
+        target_paths=tensor_target_paths,
+        index_exprs=tensor_index_exprs,
         layouts=cf_indexed.layouts,
         data=cf_indexed.buffer,
         name=cf_indexed.name,
@@ -586,23 +475,99 @@ def _(tensor, cell: op3.LoopIndex, intent):
     return op3.Pack(cf_indexed_tensor, packed)
 
 
+def _tensorify_axes(V, suffix=""):
+    subelem_axess = []
+    subelems = V.finat_element.product.factors
+    for i, subelem in enumerate(subelems):
+        npoints = []
+        subaxess = []
+        for tdim, edofs in subelem.entity_dofs().items():
+            npoints.append(len(edofs))
+            ndofs = op3.utils.single_valued(len(d) for d in edofs.values())
+            subaxes = op3.Axis(ndofs, f"dof{i}"+suffix)
+            subaxess.append(subaxes)
+
+        subelem_axes = op3.AxisTree.from_nest({
+            op3.Axis(
+                {str(tdim): n for tdim, n in enumerate(npoints)}, f"points{i}"+suffix
+            ): subaxess
+        })
+
+        # hack
+        subelem_axes = op3.PartialAxisTree(subelem_axes.parent_to_children)
+        subelem_axess.append(subelem_axes)
+
+    tensor_axes = _build_rec(subelem_axess)
+
+    shape_target_paths = {None: {}}
+    shape_index_exprs = {None: {}}
+    if V.shape:
+        shape_axes = []
+        for i, s in enumerate(V.shape):
+            axis_label = f"dim{i}" + suffix
+            cpt_label = "XXX"
+            shape_axes.append(op3.Axis({cpt_label: s}, axis_label))
+            shape_target_paths[None][axis_label] = cpt_label
+            shape_index_exprs[None][axis_label] = op3.AxisVariable(axis_label)
+
+        shape_axes = op3.AxisTree.from_iterable(shape_axes)
+        for leaf in tensor_axes.leaves:
+            tensor_axes = tensor_axes.add_subtree(shape_axes, *leaf, uniquify_ids=True)
+
+    tensor_axes = tensor_axes.set_up()
+
+    tensor_target_paths = _build_target_paths(tensor_axes, suffix=suffix)
+    tensor_target_paths.update(shape_target_paths)
+    tensor_index_exprs = _tensor_product_index_exprs(tensor_axes)
+    tensor_index_exprs.update(shape_index_exprs)
+
+    return tensor_axes, tensor_target_paths, tensor_index_exprs
+
+
 @pack_tensor_cell_integral.register(Matrix)
 def _(tensor, cell: op3.LoopIndex, intent):
     V0, V1 = tensor.ufl_function_spaces()
     return pack_petsc_mat(tensor.M, V0, V1, cell, intent)
 
 
+# this is easy, the target path is just summing things up!
+def _build_target_paths(_axes, _axis=None, tdim=0, suffix=""):
+    if _axis is None:
+        _axis = _axes.root
+
+    paths = {}
+    for component in _axis.components:
+        if not (_axis.label.startswith("dof") or _axis.label.startswith("dim")):
+            tdim_ = tdim + int(component.label)
+        else:
+            tdim_ = tdim
+        if subaxis := _axes.child(_axis, component):
+            paths.update(_build_target_paths(_axes, subaxis, tdim_, suffix=suffix))
+        else:
+            paths[_axis.id, component.label] = {"closure"+suffix: str(tdim_), "dof"+suffix: "XXX"}
+    return paths
+
+
+def _build_rec(_axess):
+    _axes, *_subaxess = _axess
+
+    if _subaxess:
+        for leaf in _axes.leaves:
+            subtree = _build_rec(_subaxess)
+            _axes = _axes.add_subtree(subtree, *leaf, uniquify_ids=True)
+    return _axes
+
+
 def pack_petsc_mat(tensor, V0, V1, cell, intent):
-    rplex = V0.mesh().topology
-    cplex = V1.mesh().topology
+    plex = op3.utils.single_valued(V.mesh().topology for V in {V0, V1})
 
     # First collect the DoFs in the cell closure in FIAT order.
     # TODO ideally the FIAT permutation would not need to be known
     # about by the mesh topology and instead be handled here. This
     # would probably require an oriented mesh
     # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-    rmap = rplex._fiat_closure(cell)
-    cmap = cplex._fiat_closure1(cell)
+    rmap = plex._fiat_closure(cell)
+    cmap = plex._fiat_closure1(cell)
     indexed = tensor[rmap, cmap]
 
     # Indexing an array with a loop index makes it "context sensitive" since
@@ -610,77 +575,161 @@ def pack_petsc_mat(tensor, V0, V1, cell, intent):
     # we know we are only looping over cells so the context is trivial.
     cf_indexed = op3.utils.just_one(indexed.context_map.values())
 
-    # Determine the DoF layout per entity type in the cell closure. This is
-    # needed because the DoFs of the element may be interleaved (e.g. for quads).
-    roffs = []
-    for rdim in range(rplex.dimension+1):
-        roff = []  # TODO could be a numpy array
-        for entity, entity_offsets in V0.finat_element.entity_dofs()[rdim].items():
-            for offset in entity_offsets:
-                for i in range(V0._cdim):
-                    roff.append(offset*V0._cdim + i)
-        roff = np.asarray(roff, dtype=IntType)
-        roffs.append(roff)
+    if plex.ufl_cell().is_simplex():
+        return cf_indexed
 
-    # TODO These are constant for a particular finite element, cache them
-    coffs = []
-    for cdim in range(cplex.dimension+1):
-        coff = []  # TODO could be a numpy array
-        for entity, entity_offsets in V1.finat_element.entity_dofs()[cdim].items():
-            for offset in entity_offsets:
-                for i in range(V1._cdim):
-                    coff.append(offset*V1._cdim + i)
-        coff = np.asarray(coff, dtype=IntType)
-        coffs.append(coff)
+    if plex.ufl_cell() != ufl.quadrilateral:
+        raise NotImplementedError
 
-    # not for vector things!
-    all_coffs = sum(len(o) for o in coffs)
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(V0)
+    axes1, target_paths1, index_exprs1 = _tensorify_axes(V1, suffix="1")
 
-    layouts = {}
-    for path in cf_indexed.axes.ordered_leaf_paths_with_nodes:
-        # TODO explain this
-        slices = tuple(
-            op3.Slice(ax.label, [op3.AffineSliceComponent(cpt)])
-            for ax, cpt in path
-        )
-        # drop extra info like the star forest
-        layout_axes = op3.AxisTree(cf_indexed.axes[slices].parent_to_children)
+    tensor_axes = op3.PartialAxisTree(axes0.parent_to_children)
+    for leaf in axes0.leaves:
+        tensor_axes = tensor_axes.add_subtree(axes1, *leaf, uniquify_ids=True)
+    tensor_axes = tensor_axes.set_up()
 
-        if layout_axes.size == 0:
-            continue
+    target_paths = op3.utils.merge_dicts([target_paths0, target_paths1])
+    index_exprs = op3.utils.merge_dicts([index_exprs0, index_exprs1])
 
-        # Collect the layout data
-        raxis, rcpt = op3.utils.just_one(p for p in path if p[0].label == rmap.label)
-        rkey = (raxis.id, rcpt)
-        rdim = int(cf_indexed.axes.target_paths[rkey][rplex.name])
-        roffsets = roffs[rdim]
+    from pyop3.itree.tree import _compose_bits
+    tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
+        cf_indexed.axes,
+        cf_indexed.target_paths,
+        cf_indexed.index_exprs,
+        None,
+        tensor_axes,
+        target_paths,
+        index_exprs,
+        {},
+    )
 
-        caxis, ccpt = op3.utils.just_one(p for p in path if p[0].label == cmap.label)
-        ckey = (caxis.id, ccpt)
-        cdim = int(cf_indexed.axes.target_paths[ckey][cplex.name+"1"])
-        coffsets = coffs[cdim]
-
-        # TODO explain this better
-        # build a matrix of layout entries. for roffsets = [2, 3, 4],
-        # all_coffs = 3 and coffsets = [0, 1, 2] this should make
-        # [ [2*3+0, 2*3+1, 2*3+2]
-        #   [3*3+0, 3*3+1, 3*3+2]
-        #   [4*3+0, 4*3+1, 4*3+2] ] (flattened)
-        layout_data = np.tile(roffsets*all_coffs, (len(coffsets), 1)).T
-        layout_data += coffsets
-        # TODO check for identity, if so not needed
-        layout_dat = op3.HierarchicalArray(layout_axes, data=layout_data.flatten())
-
-        label_path = pmap({ax.label: cpt for ax, cpt in path})
-        index_exprs = {ax.label: op3.AxisVariable(ax.label) for ax, _ in path}
-        layouts[label_path] = op3.MultiArrayVariable(layout_dat, label_path, index_exprs)
+    cf_indexed_tensor = op3.HierarchicalArray(
+        tensor_axes,
+        target_paths=tensor_target_paths,
+        index_exprs=tensor_index_exprs,
+        layouts=cf_indexed.layouts,
+        data=cf_indexed.buffer,
+        name=cf_indexed.name,
+    )
 
     # Create the temporary that will be passed to the local kernel
     packed = op3.HierarchicalArray(
-        op3.AxisTree(cf_indexed.axes.parent_to_children),
+        tensor_axes,
         data=op3.NullBuffer(cf_indexed.dtype),
-        layouts=layouts,
         prefix="T",  # not really needed if temporaries are also renumbered in codegen, which they should be
     )
 
-    return op3.Pack(cf_indexed, packed)
+    return op3.Pack(cf_indexed_tensor, packed)
+
+
+def _tensor_product_index_exprs(tensor_axes):
+    index_exprs = collections.defaultdict(dict)
+
+    # first points
+    leaf_iter = iter(tensor_axes.leaves)
+    point_axess = _flatten_tensor_axes_points_only(tensor_axes)
+    for point_axes in point_axess.values():
+        point_axes = point_axes.set_up()
+
+        for pleaf in point_axes.leaves:
+            ppath = point_axes.path(*pleaf)
+            playout = point_axes.layouts[ppath]
+
+            leaf = next(leaf_iter)
+            index_exprs[leaf[0].id, leaf[1]]["closure"] = playout
+    assert_empty(leaf_iter)
+
+    # then DoFs
+    dof_axess = _flatten_tensor_axes_dofs_only(tensor_axes)
+    leaf_iter = iter(tensor_axes.leaves)
+    for dof_axes in dof_axess:
+        dpath = dof_axes.path(*dof_axes.leaf)
+        dlayout = dof_axes.layouts[dpath]
+
+        leaf = next(leaf_iter)
+        index_exprs[leaf[0].id, leaf[1]]["dof"] = dlayout
+    assert_empty(leaf_iter)
+
+    return index_exprs
+
+
+def _flatten_tensor_axes_points_only(tensor_axes, axis=None, is_point_axis=True, tdim_acc=0):
+    if axis is None:
+        axis = tensor_axes.root
+
+    if is_point_axis:
+        assert axis.label.startswith("point")
+
+        tree_infos = collections.defaultdict(list)
+        for component in axis.components:
+            tdim_acc_ = tdim_acc + int(component.label)
+
+            subaxis = tensor_axes.child(axis, component)
+            assert subaxis is not None, "Final axis should be for DoFs"
+
+            subtrees = _flatten_tensor_axes_points_only(
+                tensor_axes, subaxis, False, tdim_acc_
+            )
+            for tdim, subtree in subtrees.items():
+                tree_infos[tdim].append((component, subtree))
+
+        # now combine the trees
+        trees = {}
+        for tdim, tree_info in tree_infos.items():
+            root = op3.Axis([c for c, _ in tree_info], axis.label)
+            tree = op3.PartialAxisTree(root)
+            for component, subtree in tree_info:
+                tree = tree.add_subtree(subtree, root, component)
+            trees[tdim] = tree
+        return trees
+
+    else:
+        assert axis.label.startswith("dof")
+
+        component = op3.utils.just_one(axis.components)
+        subaxis = tensor_axes.child(axis, component)
+        # nasty trick to handle shape
+        if subaxis and subaxis.label.startswith("point"):
+            return _flatten_tensor_axes_points_only(tensor_axes, subaxis, True, tdim_acc)
+        else:
+            return {tdim_acc: op3.PartialAxisTree()}
+
+
+def _flatten_tensor_axes_dofs_only(tensor_axes, axis=None, is_dof_axis=False, dof_axes_acc=()):
+    """
+
+    Return an `pyop3.AxisTree` for each leaf of ``tensor_axes``.
+
+    """
+    if axis is None:
+        axis = tensor_axes.root
+
+    if is_dof_axis:
+        assert axis.label.startswith("dof")
+
+        dof_axes_acc_ = dof_axes_acc + (axis,)
+
+        component = op3.utils.just_one(axis.components)
+        subaxis = tensor_axes.child(axis, component)
+        if subaxis and subaxis.label.startswith("point"):
+            return _flatten_tensor_axes_dofs_only(tensor_axes, subaxis, False, dof_axes_acc_)
+        else:
+            return (op3.AxisTree.from_iterable(dof_axes_acc_),)
+
+    else:
+        # assert axis.label.startswith("points")
+
+        dof_axess = []
+        for component in axis.components:
+            subaxis = tensor_axes.child(axis, component)
+            assert subaxis is not None, "Final axis should be for DoFs"
+
+            # nasty trick to catch extra shape
+            if subaxis.label.startswith("dof"):
+                dof_axess.extend(
+                    _flatten_tensor_axes_dofs_only(
+                        tensor_axes, subaxis, True, dof_axes_acc
+                    )
+                )
+        return tuple(dof_axess)
