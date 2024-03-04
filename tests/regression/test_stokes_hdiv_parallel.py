@@ -21,11 +21,12 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_p = []
     err_div = []
     hdiv, l2 = element_pair
+    hdiv_family, degree = hdiv
     for n in [8, 16, 32, 64]:
         mesh = UnitSquareMesh(n, n)
 
-        V = FunctionSpace(mesh, *hdiv)
-        Q = FunctionSpace(mesh, *l2)
+        V = FunctionSpace(mesh, hdiv_family, degree)
+        Q = FunctionSpace(mesh, *l2, variant="integral")
         W = V * Q
 
         x, y = SpatialCoordinate(mesh)
@@ -43,75 +44,76 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         (v, q) = TestFunctions(W)
 
         n = FacetNormal(mesh)
-        h = CellSize(mesh)
-        sigma = 10.0
+        sigma = Constant(degree*(degree+1))
+        penalty = sigma * FacetArea(mesh) / CellVolume(mesh)
+
+        # Augmented Lagrangian penalty coefficient
+        gamma = Constant(1000)
 
         # Manually specify integration degree due to non-polynomial
         # source terms.
-        a = (inner(grad(u), grad(v)) - inner(p, div(v)) - inner(div(u), q)) * dx(degree=6)
+        qdeg = 2 * degree
+        a = (inner(grad(u), grad(v))
+             + inner(div(u) * gamma - p, div(v))
+             - inner(div(u), q)) * dx(degree=qdeg-2)
 
-        a += (- inner(avg(grad(u)), outer(jump(conj(v)), n("+")))
-              - inner(outer(jump(conj(u)), n("+")), avg(grad(v)))
-              + (sigma/avg(h)) * inner(jump(u), jump(v))) * dS(degree=6)
+        a += (- inner(dot(avg(grad(u)), n('+')), jump(v))
+              - inner(jump(u), dot(avg(grad(v)), n('+')))
+              + avg(penalty) * inner(jump(u), jump(v))) * dS(degree=qdeg)
 
-        a += (- inner(grad(u), outer(conj(v), n))
-              - inner(outer(conj(u), n), grad(v))
-              + (sigma/h) * inner(u, v)) * ds(degree=6)
+        a += (- inner(dot(grad(u), n), v)
+              - inner(u, dot(grad(v), n))
+              + 2*penalty * inner(u, v)) * ds(degree=qdeg)
 
-        L = (inner(source, v) * dx(degree=6)
-             + (sigma/h) * inner(u_exact, v) * ds(degree=6)
-             - inner(outer(conj(u_exact), n), grad(v)) * ds(degree=6))
+        L = inner(source, v) * dx(degree=qdeg)
+        L += (- inner(u_exact, dot(grad(v), n))
+              + 2*penalty * inner(u_exact, v)) * ds(degree=qdeg)
 
         # left = 1
         # right = 2
         # bottom = 3
         # top = 4
-        bcfunc_left = Function(V).project(as_vector([u_exact[0], 0]))
-        bcfunc_right = Function(V).project(as_vector([u_exact[0], 0]))
-        bcfunc_bottom = Function(V).project(as_vector([0, u_exact[1]]))
-        bcfunc_top = Function(V).project(as_vector([0, u_exact[1]]))
-        bcs = [DirichletBC(W.sub(0), bcfunc_left, 1),
-               DirichletBC(W.sub(0), bcfunc_right, 2),
-               DirichletBC(W.sub(0), bcfunc_bottom, 3),
-               DirichletBC(W.sub(0), bcfunc_top, 4)]
+        bcfunc_x = as_vector([u_exact[0], 0])
+        bcfunc_y = as_vector([0, u_exact[1]])
+        bcs = [DirichletBC(W.sub(0), bcfunc_x, (1, 2)),
+               DirichletBC(W.sub(0), bcfunc_y, (3, 4))]
 
         UP = Function(W)
-
-        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+        # Cannot set the nullspace with constant=True for non-Lagrange pressure elements
+        nsp_basis = Function(Q).interpolate(Constant(1))
+        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis([nsp_basis])])
 
         parameters = {
             "mat_type": mat_type,
             "pmat_type": "matfree",
-            "ksp_type": "fgmres",
-            "ksp_max_it": "30",
+            "ksp_type": "minres",
+            "ksp_norm_type": "preconditioned",
+            "ksp_max_it": 10,
             "ksp_atol": "1.e-16",
             "ksp_rtol": "1.e-11",
             "ksp_monitor_true_residual": None,
             "pc_type": "fieldsplit",
-            "pc_fieldsplit_type": "multiplicative",
-
+            "pc_fieldsplit_type": "additive",
             "fieldsplit_0": {
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.AssembledPC",
                 # Avoid MUMPS segfaults
                 "assembled_pc_type": "redundant",
-                "assembled_redundant_pc_type": "lu",
+                "assembled_redundant_pc_type": "cholesky",
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.MassInvPC",
-                # Avoid MUMPS hangs?
-                "Mp_ksp_type": "preonly",
-                "Mp_pc_type": "redundant",
-                "Mp_redundant_pc_type": "lu",
+                "Mp_mat_type": "matfree",
+                "Mp_pc_type": "jacobi",
             }
         }
 
-        # Switch sign of pressure mass matrix
-        mu = Constant(-1.0)
-        appctx = {"mu": mu, "pressure_space": 1}
+        # Scale for the pressure mass matrix
+        mu = 1/gamma
+        appctx = {"mu": mu}
 
         UP.assign(0)
         solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
@@ -120,9 +122,10 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         u, p = UP.subfunctions
         u_error = u - u_exact
         p_error = p - p_exact
-        err_u.append(sqrt(abs(assemble(inner(u_error, u_error) * dx))))
-        err_p.append(sqrt(abs(assemble(inner(p_error, p_error) * dx))))
-        err_div.append(sqrt(assemble(inner(div(u), div(u)) * dx)))
+        l2_norm = lambda z: sqrt(abs(assemble(inner(z, z) * dx(degree=2*qdeg))))
+        err_u.append(l2_norm(u_error))
+        err_p.append(l2_norm(p_error))
+        err_div.append(sqrt(abs(assemble(inner(div(u), div(u)) * dx))))
     err_u = numpy.asarray(err_u)
     err_p = numpy.asarray(err_p)
     err_div = numpy.asarray(err_div)

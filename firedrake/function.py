@@ -359,7 +359,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         expression,
         subset=Ellipsis,
         allow_missing_dofs=False,
-        default_missing_val=None
+        default_missing_val=None,
+        ad_block_tag=None
     ):
         r"""Interpolate an expression onto this :class:`Function`.
 
@@ -381,6 +382,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             value to assign to DoFs in the target mesh that are outside the source
             mesh. If this is not set then zero is used. Ignored if interpolating
             within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
+            the Pyadjoint tape.
         :returns: this :class:`Function` object"""
         from firedrake import interpolation, assemble
         V = self.function_space()
@@ -388,7 +391,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                                            subset=subset,
                                            allow_missing_dofs=allow_missing_dofs,
                                            default_missing_val=default_missing_val)
-        return assemble(interp, tensor=self)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
         """Set all values to zero.

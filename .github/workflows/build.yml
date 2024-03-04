@@ -82,6 +82,7 @@ jobs:
             --install femlium \
             --install fascd \
             --install defcon \
+            --install gadopt \
             --package-branch tsfc connorjward/pyop3 \
             --package-branch petsc connorjward/pyop3 \
             --package-branch pyop3 firedrake \

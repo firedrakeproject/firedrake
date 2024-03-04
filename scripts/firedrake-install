@@ -45,6 +45,8 @@ firedrake_apps = {
               "git+ssh://bitbucket.org/pefarrell/fascd.git@master#egg=fascd"),
     "defcon": ("""Deflated continuation algorithm for bifurcation analysis. https://bitbucket.org/pefarrell/defcon""",
                "git+ssh://bitbucket.org/pefarrell/defcon.git@master#egg=defcon"),
+    "gadopt": ("""Geodynamic Adjoint Optimization Platform. http://g-adopt.github.io""",
+               "git+ssh://github.com/g-adopt/g-adopt.git@master#egg=gadopt"),
 }
 
 
@@ -1161,8 +1163,8 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
-        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
+        # Choosing 12.0 as the oldest MacOS version supported as of 2024-02-08
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "12.0")
         with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1901,6 +1903,8 @@ if mode == "install":
 
     # FIAT requires recursivenodes, but does not include a requirements.txt
     run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with environment(**compiler_env):
         build_and_install_h5py()
@@ -2041,6 +2045,11 @@ else:
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
+
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with pipargs("--no-deps"):
         if args.rebuild or update_petsc or update_petsc4py:

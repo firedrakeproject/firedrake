@@ -708,7 +708,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels])
     return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs, headers=Ainv.headers)
+        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+        headers=Ainv.headers, events=Ainv.events)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

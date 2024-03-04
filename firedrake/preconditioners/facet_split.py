@@ -40,7 +40,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
         from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
         from firedrake import FunctionSpace, TestFunctions, TrialFunctions
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -77,26 +77,21 @@ class FacetSplitPC(PCBase):
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
 
-        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)), coefficients={})
+        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)))
         mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in bcs)
 
         self.perm = None
         self.iperm = None
         indices = self.get_permutation(V, W)
         if indices is not None:
-            self.perm = PETSc.IS().createGeneral(indices, comm=V._comm)
+            self.perm = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             self.iperm = self.perm.invertPermutation()
 
         if mat_type != "submatrix":
-            self.mixed_op = allocate_matrix(mixed_operator,
-                                            bcs=mixed_bcs,
-                                            form_compiler_parameters=fcp,
-                                            mat_type=mat_type,
-                                            options_prefix=options_prefix)
-            self._assemble_mixed_op = TwoFormAssembler(mixed_operator, tensor=self.mixed_op,
-                                                       form_compiler_parameters=fcp,
-                                                       bcs=mixed_bcs).assemble
-            self._assemble_mixed_op()
+            form_assembler = get_assembler(mixed_operator, bcs=mixed_bcs, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
+            self.mixed_op = form_assembler.allocate()
+            self._assemble_mixed_op = form_assembler.assemble
+            self._assemble_mixed_op(tensor=self.mixed_op)
             mixed_opmat = self.mixed_op.petscmat
 
             def _permute_nullspace(nsp):
@@ -112,7 +107,9 @@ class FacetSplitPC(PCBase):
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
             mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         elif self.perm:
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self.iperm, self.iperm)
+            global_indices = V.dof_dset.lgmap.apply(self.iperm.indices)
+            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
+            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             mixed_opmat = self._permute_op()
         else:
             mixed_opmat = P
@@ -145,7 +142,7 @@ class FacetSplitPC(PCBase):
 
     def update(self, pc):
         if hasattr(self, "mixed_op"):
-            self._assemble_mixed_op()
+            self._assemble_mixed_op(tensor=self.mixed_op)
         elif hasattr(self, "_permute_op"):
             for mat in self.pc.getOperators():
                 mat.destroy()
@@ -236,8 +233,7 @@ def restricted_dofs(celem, felem):
 
 
 def get_permutation_map(V, W):
-    perm = numpy.empty((V.dof_count, ), dtype=PETSc.IntType)
-    perm.fill(-1)
+    perm = numpy.full((V.dof_count,), -1, dtype=PETSc.IntType)
     vdat = V.make_dat(val=perm)
 
     offset = 0
@@ -246,27 +242,18 @@ def get_permutation_map(V, W):
         val = numpy.arange(offset, offset + Wsub.dof_count, dtype=PETSc.IntType)
         wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
-
-    sizes = [Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W]
+    wdat = op2.MixedDat(wdats)
+    size = sum(Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
     kernel_code = f"""
-    void permutation(PetscInt *restrict x,
-                     const PetscInt *restrict xi,
-                     const PetscInt *restrict xf){{
-        for(PetscInt i=0; i<{sizes[0]}; i++) x[i] = xi[i];
-        for(PetscInt i=0; i<{sizes[1]}; i++) x[i+{sizes[0]}] = xf[i];
-        return;
-    }}
-    """
+    void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
+        for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
+    }}"""
     kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
     op2.par_loop(kernel, V.mesh().cell_set,
-                 vdat(op2.WRITE, pmap),
-                 wdats[0](op2.READ, W[0].cell_node_map()),
-                 wdats[1](op2.READ, W[1].cell_node_map()))
+                 vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
 
     own = V.dof_dset.layout_vec.sizes[0]
-    perm = perm.reshape((-1, ))
-    perm = V.dof_dset.lgmap.apply(perm, result=perm)
     return perm[:own]

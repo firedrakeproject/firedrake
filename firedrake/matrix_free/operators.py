@@ -87,7 +87,7 @@ class ImplicitMatrixContext(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
-        from firedrake.assemble import get_form_assembler
+        from firedrake.assemble import get_assembler
 
         self.a = a
         self.aT = adjoint(a)
@@ -144,10 +144,10 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = get_form_assembler(self.action, tensor=self._ystar,
-                                                   bcs=self.bcs_action,
-                                                   form_compiler_parameters=self.fc_params,
-                                                   zero_bc_nodes=True)
+        self._assemble_action = get_assembler(self.action,
+                                              bcs=self.bcs_action,
+                                              form_compiler_parameters=self.fc_params,
+                                              zero_bc_nodes=True).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -161,13 +161,12 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
                 self._assemble_actionT.append(
-                    get_form_assembler(action(adjoint(ebc.f), self._y), tensor=self._xbc,
-                                       form_compiler_parameters=self.fc_params))
+                    get_assembler(action(adjoint(ebc.f), self._y),
+                                  form_compiler_parameters=self.fc_params).assemble)
         # Domain last
         self._assemble_actionT.append(
-            get_form_assembler(self.actionT,
-                               tensor=self._xstar if len(self.bcs) == 0 else self._xbc,
-                               form_compiler_parameters=self.fc_params))
+            get_assembler(self.actionT,
+                          form_compiler_parameters=self.fc_params).assemble)
 
     @cached_property
     def _diagonal(self):
@@ -177,13 +176,13 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake.assemble import get_form_assembler
-        return get_form_assembler(self.a, tensor=self._diagonal,
-                                  form_compiler_parameters=self.fc_params,
-                                  diagonal=True)
+        from firedrake.assemble import get_assembler
+        return get_assembler(self.a,
+                             form_compiler_parameters=self.fc_params,
+                             diagonal=True).assemble
 
     def getDiagonal(self, mat, vec):
-        self._assemble_diagonal()
+        self._assemble_diagonal(tensor=self._diagonal)
         diagonal_func = self._diagonal.riesz_representation(riesz_map="l2")
         for bc in self.bcs:
             # Operator is identity on boundary nodes
@@ -212,7 +211,7 @@ class ImplicitMatrixContext(object):
         # If we are not, then the matrix just has 0s in the rows and columns.
         for bc in self.col_bcs:
             bc.zero(self._x)
-        self._assemble_action()
+        self._assemble_action(tensor=self._ystar)
         # This sets the essential boundary condition values on the
         # result.
         if self.on_diag:
@@ -307,14 +306,14 @@ class ImplicitMatrixContext(object):
                 # zero columns associated with DirichletBCs/EquationBCs
                 for obc in obj.bcs:
                     obc.zero(self._y)
-                aT()
+                aT(tensor=self._xbc)
                 self._xstar += self._xbc
         else:
             # No DirichletBC/EquationBC
             # There is only a single element in the list (for the domain equation).
             # Save to self._x directly
             aT, = self._assemble_actionT
-            aT()
+            aT(tensor=self._xstar)
 
         if self.on_diag:
             if len(self.col_bcs) > 0:

@@ -155,6 +155,7 @@ def interpolate(
     access=op3.WRITE,
     allow_missing_dofs=False,
     default_missing_val=None,
+    ad_block_tag=None
 ):
     """Interpolate an expression onto a new function in V.
 
@@ -186,6 +187,7 @@ def interpolate(
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
+    :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
@@ -210,7 +212,7 @@ def interpolate(
     """
     return Interpolator(
         expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs
-    ).interpolate(default_missing_val=default_missing_val)
+    ).interpolate(default_missing_val=default_missing_val, ad_block_tag=ad_block_tag)
 
 
 class Interpolator(abc.ABC):
@@ -349,7 +351,8 @@ class Interpolator(abc.ABC):
         return interp
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None):
+    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None,
+                    ad_block_tag=None):
         """Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
         Parameters
@@ -370,6 +373,8 @@ class Interpolator(abc.ABC):
                              :meth:`interpolate` method or (b) set to zero. This does not affect
                              transpose interpolation. Ignored if interpolating within the same
                              mesh or onto a :func:`.VertexOnlyMesh`.
+        ad_block_tag: str
+                      An optional string for tagging the resulting assemble block on the Pyadjoint tape.
 
         Returns
         -------
@@ -396,7 +401,7 @@ from firedrake.__future__ import interpolate
 assemble(interpolate(expr, V))
 ```
 
-Alternatively, you can also perform other symbolic operations on `interp`, such as taking
+Alternatively, you can also perform other symbolic operations on the interpolation operator, such as taking
 the derivative, and then assemble the resulting form.
 """, FutureWarning)
 
@@ -412,7 +417,7 @@ the derivative, and then assemble the resulting form.
         # to perform the interpolation. Having this structure ensures consistency between
         # `Interpolator` and `Interp`. This mechanism handles annotation since performing interpolation will drop an
         # `AssembleBlock` on the tape.
-        return assemble(interp, tensor=output)
+        return assemble(interp, tensor=output, ad_block_tag=ad_block_tag)
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -594,7 +599,7 @@ class CrossMeshInterpolator(Interpolator):
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
         f_dest_node_coords = assemble(f_dest_node_coords)
         dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
         try:

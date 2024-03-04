@@ -1,5 +1,6 @@
 import abc
 
+from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
@@ -23,9 +24,6 @@ class TwoLevelPC(PCBase):
     should implement:
     - :meth:`coarsen`
     """
-
-    needs_python_pmat = False
-
     @abc.abstractmethod
     def coarsen(self, pc):
         """Return a tuple with coarse bilinear form, coarse
@@ -34,7 +32,7 @@ class TwoLevelPC(PCBase):
         raise NotImplementedError
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -49,15 +47,10 @@ class TwoLevelPC(PCBase):
         coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
-        self.coarse_op = allocate_matrix(coarse_operator,
-                                         bcs=coarse_space_bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=coarse_mat_type,
-                                         options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
-                                                    form_compiler_parameters=fcp,
-                                                    bcs=coarse_space_bcs).assemble
-        self._assemble_coarse_op()
+        form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
+        self.coarse_op = form_assembler.allocate()
+        self._assemble_coarse_op = form_assembler.assemble
+        self._assemble_coarse_op(tensor=self.coarse_op)
         coarse_opmat = self.coarse_op.petscmat
 
         # We set up a PCMG object that uses the constructed interpolation
@@ -105,7 +98,7 @@ class TwoLevelPC(PCBase):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
-        self._assemble_coarse_op()
+        self._assemble_coarse_op(tensor=self.coarse_op)
         self.pc.setUp()
 
     def apply(self, pc, X, Y):
@@ -162,23 +155,11 @@ class HiptmairPC(TwoLevelPC):
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
-            dminus = ufl.grad
-            G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             celement = div_to_curl(element)
-            dminus = ufl.curl
-            if V.shape:
-                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
-                                                  for k in range(u.ufl_shape[0])])
-            G_callback = appctx.get("get_curl", None)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
@@ -186,18 +167,30 @@ class HiptmairPC(TwoLevelPC):
         assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
 
+        if element.sobolev_space == ufl.HDiv:
+            G_callback = appctx.get("get_curl", None)
+            dminus = ufl.curl
+            if V.shape:
+                dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
+                                                  for k in range(u.ufl_shape[0])])
+        else:
+            G_callback = appctx.get("get_gradient", None)
+            dminus = ufl.grad
+
         # Get only the zero-th order term of the form
         replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
         beta = ufl.replace(expand_derivatives(a), replace_dict)
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
-        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+        coarse_operator = beta(dminus(test), dminus(trial))
 
-        if formdegree > 1 and degree > 1:
+        cdegree = max(as_tuple(celement.degree()))
+        if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                coarse_operator += beta(test, shift*trial, coefficients={})
+                b = beta(test, shift * trial)
+                coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
@@ -224,6 +217,8 @@ def curl_to_grad(ele):
         if family.startswith("Sminus"):
             family = "S"
         else:
+            if family in ["Nedelec 2nd kind H(curl)", "Brezzi-Douglas-Marini"]:
+                degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
                 cells = ele.cell.sub_cells()
@@ -258,11 +253,13 @@ def div_to_curl(ele):
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
             family = "DG" if ele.cell.is_simplex() else "DQ"
-            degree = degree-1
+            degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"
-            degree = degree+1
+            degree = degree + 1
         else:
+            if family == "Brezzi-Douglas-Marini":
+                degree = degree + 1
             replace_dict = {
                 "Raviart-Thomas": "N1curl",
                 "Brezzi-Douglas-Marini": "N2curl",

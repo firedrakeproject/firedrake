@@ -146,9 +146,9 @@ The source is injected at the center of the unit square::
     ricker = Constant(0.0)
     ricker.assign(RickerWavelet(t, freq))
 
-We also create a function `R` to save the assembled RHS vector::
+We also create a cofunction `R` to save the assembled RHS vector::
 
-    R = Function(V)
+    R = Cofunction(V.dual())
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 

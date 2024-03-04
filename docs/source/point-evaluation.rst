@@ -131,7 +131,8 @@ evaluation of a function :math:`f` defined in a function space
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 9-28
+   :start-after: [test_vertex_only_mesh_manual_example 1]
+   :end-before: [test_vertex_only_mesh_manual_example 3]
 
 will print ``[0.02, 0.08, 0.18]`` when running in serial, the values of
 :math:`x^2 + y^2` at the points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and
@@ -225,7 +226,20 @@ warning or switched off entirely:
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 50-52,55-57,59-63
+   :start-after: [test_vom_manual_points_outside_domain 1]
+   :end-before: [test_vom_manual_points_outside_domain 2]
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_manual_points_outside_domain 3]
+   :end-before: [test_vom_manual_points_outside_domain 4]
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_manual_points_outside_domain 5]
+   :end-before: [test_vom_manual_points_outside_domain 6]
 
 
 Expressions with point evaluations
@@ -254,7 +268,8 @@ Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 72-86
+   :start-after: [test_vom_manual_keyword_arguments 1]
+   :end-before: [test_vom_manual_keyword_arguments 2]
 
 .. _external-point-data:
 
@@ -276,7 +291,8 @@ vertex-only mesh. For example:
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 158-172
+   :start-after: [test_input_ordering_input 1]
+   :end-before: [test_input_ordering_input 2]
 
 This is entirely parallel safe.
 
@@ -288,7 +304,8 @@ had
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 26-28
+   :start-after: [test_vertex_only_mesh_manual_example 2]
+   :end-before: [test_vertex_only_mesh_manual_example 3]
 
 In parallel, this will print the values of ``f`` at the given ``points`` list
 **after the points have been distributed over the parent mesh**. If we want the
@@ -298,7 +315,8 @@ distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as f
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 30-37
+   :start-after: [test_vertex_only_mesh_manual_example 4]
+   :end-before: [test_vertex_only_mesh_manual_example 5]
 
 .. note::
 
@@ -321,7 +339,8 @@ a good idea to set the values to ``nan`` before the interpolation:
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 39-43
+   :start-after: [test_vertex_only_mesh_manual_example 6]
+   :end-before: [test_vertex_only_mesh_manual_example 7]
 
 
 More ways to interact with external data
@@ -363,7 +382,8 @@ the mesh cells and is a property of the mesh itself
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 92-112
+   :start-after: [test_mesh_tolerance 1]
+   :end-before: [test_mesh_tolerance 2]
 
 Keyword arguments
 ~~~~~~~~~~~~~~~~~
@@ -380,7 +400,8 @@ vertex-only mesh. This will modify the tolerance property of the parent mesh.
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 122-139
+   :start-after: [test_mesh_tolerance_change 1]
+   :end-before: [test_mesh_tolerance_change 2]
 
 Note that since our tolerance is relative, the number of cells in a mesh
 dictates the point loss behaviour close to cell edges. So the mesh

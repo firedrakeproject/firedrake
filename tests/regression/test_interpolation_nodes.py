@@ -34,10 +34,9 @@ def degree(request):
                         ("N2div")],
                 ids=lambda x: "%s" % x)
 def V(request, mesh, degree):
-    space = request.param
+    family = request.param
     over_integration = max(0, 9 - degree)
-    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=f"integral({over_integration})")
-    return FunctionSpace(mesh, V_el)
+    return FunctionSpace(mesh, family, degree, variant=f"integral({over_integration})")
 
 
 def test_div_curl_preserving(V):
@@ -48,18 +47,18 @@ def test_div_curl_preserving(V):
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
     if dim == 2:
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             expression = grad(sin(x)*cos(y))
         else:
             expression = as_vector([cos(y), sin(x)])
     elif dim == 3:
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             expression = grad(sin(x)*exp(y)*z)
         else:
             expression = as_vector([sin(y)*z, cos(x)*z, exp(x)])
 
     f = assemble(interpolate(expression, V))
-    if "Nedelec" in V.ufl_element().family():
+    if V.ufl_element().sobolev_space == HCurl:
         norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
         norm_exp = sqrt(assemble(inner(div(f), div(f))*dx))
@@ -80,11 +79,10 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
             expression = as_vector([sin(x)*cos(y), exp(x)*y])
         elif dim == 3:
             expression = as_vector([sin(y)*z*cos(x), cos(x)*z*x, exp(x)*y])
-        V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant="integral")
-        V = FunctionSpace(mesh, V_el)
+        V = FunctionSpace(mesh, space, degree, variant="integral")
         f = assemble(interpolate(expression, V))
         error_l2 = errornorm(expression, f, 'L2')
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             error_hD = errornorm(expression, f, 'hcurl')
         else:
             error_hD = errornorm(expression, f, 'hdiv')
