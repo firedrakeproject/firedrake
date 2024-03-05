@@ -385,8 +385,8 @@ for partitioner in partitioner_priority:
         break
 else:
     warn(
-        "No external package for" + ", ".join(partitioner_priority)
-        + "found, defaulting to PETSc simple partitioner. This may not be optimal."
+        "No external package for " + ", ".join(partitioner_priority)
+        + " found, defaulting to PETSc simple partitioner. This may not be optimal."
     )
     DEFAULT_PARTITIONER = "simple"
 
@@ -399,8 +399,8 @@ for solver in direct_solver_priority:
         break
 else:
     warn(
-        "No external package for" + ", ".join(direct_solver_priority)
-        + "found, defaulting to PETSc LU. This will only work in serial."
+        "No external package for " + ", ".join(direct_solver_priority)
+        + " found, defaulting to PETSc LU. This will only work in serial."
     )
     DEFAULT_DIRECT_SOLVER = "petsc"
     DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
