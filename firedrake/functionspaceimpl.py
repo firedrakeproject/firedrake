@@ -740,7 +740,7 @@ class FunctionSpace(object):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None, non_ghost_cells=False):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -748,7 +748,7 @@ class FunctionSpace(object):
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
-        if not non_ghost_cells and (bcs is None or len(bcs) == 0):
+        if bcs is None or len(bcs) == 0:
             return lgmap or self.dof_dset.lgmap
         for bc in bcs:
             fs = bc.function_space()
@@ -783,21 +783,6 @@ class FunctionSpace(object):
                     nodes.append(tmp + i)
             else:
                 nodes.append(bc.nodes)
-        if non_ghost_cells:
-            mesh = self.mesh()
-            cell_nodes = self.cell_node_list[:mesh.cell_set.size]
-            if mesh.cell_set._extruded:
-                cell_nodes = extrude_cell_node_list(cell_nodes, self.offset, mesh.layers)
-            non_ghost_cell_nodes = numpy.unique(cell_nodes.flatten())
-            cdim = self.dof_dset.cdim
-            if not unblocked and cdim > 1:
-                non_ghost_cell_nodes *= cdim
-                non_ghost_cell_nodes = numpy.add.outer(non_ghost_cell_nodes,
-                                                       numpy.arange(cdim, dtype=cell_nodes.dtype))
-            ghost_cell_nodes = numpy.setdiff1d(numpy.arange(len(indices), dtype=cell_nodes.dtype),
-                                               non_ghost_cell_nodes,
-                                               assume_unique=True)
-            nodes.append(ghost_cell_nodes)
         nodes = numpy.unique(numpy.concatenate(nodes))
         indices[nodes] = -1
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
@@ -1179,18 +1164,3 @@ class FunctionSpaceCargo:
 
     topological: FunctionSpace
     parent: Optional[WithGeometryBase]
-
-
-def extrude_cell_node_list(cell_node_list, offset, layers):
-    if offset is None:
-        cell_nodes = cell_node_list
-    elif layers.size == 1:
-        nlayers = layers - 1
-        offsets = numpy.outer(numpy.arange(nlayers, dtype=offset.dtype), offset)
-        cell_nodes = cell_node_list[:, None, :] + offsets[None, :, :]
-    else:
-        nlayers = layers[:, 1] - layers[:, 0] - 1
-        offsets = numpy.outer(numpy.arange(max(nlayers), dtype=offset.dtype), offset)
-        cell_nodes = numpy.concatenate([base_nodes[None, :] + offsets[:n, :]
-                                        for n, base_nodes in zip(nlayers, cell_node_list)])
-    return cell_nodes

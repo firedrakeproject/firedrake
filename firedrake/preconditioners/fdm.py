@@ -125,14 +125,11 @@ class FDMPC(PCBase):
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[-1].function_space()
-        element = V.ufl_element()
-        e_fdm = element.reconstruct(variant=self._variant)
-
-        if element == e_fdm:
-            V_fdm, J_fdm, bcs_fdm = (V, J, bcs)
+        V_fdm = V.reconstruct(variant=self._variant)
+        if V == V_fdm:
+            J_fdm, bcs_fdm = (J, bcs)
         else:
             # Reconstruct Jacobian and bcs with variant element
-            V_fdm = FunctionSpace(V.mesh(), e_fdm)
             J_fdm = J(*(t.reconstruct(function_space=V_fdm) for t in J.arguments()))
             bcs_fdm = []
             for bc in bcs:
@@ -242,13 +239,19 @@ class FDMPC(PCBase):
             par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
             return w
 
-        def get_lgmap(V, broken=False):
+        def get_lgmap(V, mat_type, broken=False):
             lgmap = V.dof_dset.lgmap
+            if pmat_type != "is":
+                return lgmap
             if broken:
                 indices = get_broken_indices(V, lgmap.indices).dat.data_ro
-                return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
             else:
-                return V.local_to_global_map([], lgmap=lgmap, non_ghost_cells=True)
+                indices = lgmap.indices.copy()
+                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
+                cell_node_map = get_broken_indices(V, local_indices)
+                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map.dat.data_ro), assume_unique=True)
+                indices[ghost] = -1
+            return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
 
         def mask_local_indices(V, lgmap, broken=False):
             mask = lgmap.indices
@@ -263,7 +266,7 @@ class FDMPC(PCBase):
             return indices_acc
 
         broken = pmat_type == "is"
-        self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub, broken) for Vsub in V}
+        self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub, pmat_type, broken) for Vsub in V}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
