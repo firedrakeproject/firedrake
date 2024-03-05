@@ -1622,6 +1622,7 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
+        # breakpoint()
         return op3.loop(p, kernel(*args))
 
     @property
@@ -1826,7 +1827,25 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._topology.exterior_facets.local_facet_dat[index.i]
+        local_facet_nums = self._topology.exterior_facets.local_facet_dat
+        # TODO clean this up, subsets are not the same in pyop3
+        if self._subdomain_id == "otherwise":
+            if self._all_integer_subdomain_ids:
+                raise NotImplementedError
+            return local_facet_nums[index.i]
+        else:
+            subset_dat = self._topology.exterior_facets.subset(self._subdomain_id)
+
+            # recast as a map?
+            mymap = op3.Map({
+                pmap({self._topology.name: self._topology.facet_label}): [
+                    op3.TabulatedMapComponent(self._topology.name, self._topology.facet_label, subset_dat)]
+            })
+
+            # indexedsubset = op3.utils.just_one(subset.slices[0].array[index.i].context_map.values())
+            # new_subset = op3.Slice(subset.axis, [op3.Subset(subset.slices[0].component, indexedsubset)])
+            # return local_facet_nums[subset[index.i]]
+            return local_facet_nums[mymap(index.i)]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):

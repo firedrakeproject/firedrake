@@ -19,6 +19,7 @@ from pyrsistent import freeze, pmap
 import rtree
 from textwrap import dedent
 from pathlib import Path
+from typing import Iterable, Optional, Union
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -172,7 +173,7 @@ class _Facets(object):
             facets = mesh._exterior_facets
         nfacets = len(facets)
 
-        facet_axes = op3.AxisTree.from_iterable((nfacets,))
+        facet_axes = op3.Axis({mesh.topology.facet_label: nfacets}, mesh.topology.name)
         self.facets = op3.HierarchicalArray(facet_axes, data=facets)
 
         # Dat indicating which local facet of each adjacent cell corresponds
@@ -189,8 +190,19 @@ class _Facets(object):
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
+    @property
+    def topology(self):
+        return self.mesh.topology
+
+    @property
+    def plex(self):
+        return self.topology.topology_dm
+
     @utils.cached_property
     def set(self):
+        # return self.facets.axes
+        # doing the following works for unlabelled bits... I guess otherwise maps
+        # would break... as the "from axis" is numbered wrongly...
         slice_ = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, self.facets)])
         return self.mesh.points[slice_]
         # size = self.classes
@@ -251,42 +263,81 @@ class _Facets(object):
                 _, indices, _ = np.intersect1d(self.facets, unmarked_points, return_indices=True)
                 return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
-            return self.subset(subdomain_id)
+            # raise NotImplementedError
+            # return self.set[self.subset(subdomain_id)]
+            return self.set[self.subset(subdomain_id)]
 
     @PETSc.Log.EventDecorator()
-    def subset(self, markers):
-        """Return the subset corresponding to a given marker value.
+    def subset(self, markers: Optional[Union[int, Iterable[int]]]) -> op3.AxisTree:
+        """Return the subset corresponding to a given set of markers.
 
-        :param markers: integer marker id or an iterable of marker ids
-            (or ``None``, for an empty subset).
+        Parameters
+        ----------
+        markers
+            The marker ID or an iterable of marker IDs, if `None` the
+            subset is empty.
+
+        Returns
+        -------
+        pyop3.AxisTree
+            The subset of marked points.
+
         """
         valid_markers = set([unmarked]).union(self.unique_markers)
         markers = as_tuple(markers, numbers.Integral)
         try:
             return self._subsets[markers]
         except KeyError:
-            # check that the given markers are valid
-            if len(set(markers).difference(valid_markers)) > 0:
-                invalid = set(markers).difference(valid_markers)
-                raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
+            pass
 
-            # build a list of indices corresponding to the subsets selected by
-            # markers
-            marked_points_list = []
-            for i in markers:
-                if i == unmarked:
-                    _markers = self.mesh.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
-                    # Can exclude points labeled with i\in markers here,
-                    # as they will be included in the below anyway.
-                    marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
-                else:
-                    if self.mesh.topology_dm.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-                        marked_points_list.append(self.mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
-            if marked_points_list:
-                _, indices, _ = np.intersect1d(self.facets, np.concatenate(marked_points_list), return_indices=True)
-                return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
-            else:
-                return self._subsets.setdefault(markers, self._null_subset)
+        # check that the given markers are valid
+        if len(set(markers).difference(valid_markers)) > 0:
+            invalid = set(markers).difference(valid_markers)
+            raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
+
+        # build a list of indices corresponding to the subsets selected by markers
+        marked_points_list = []
+        for i in markers:
+            if i == unmarked:
+                raise NotImplementedError
+                _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+                # Can exclude points labeled with i\in markers here,
+                # as they will be included in the below anyway.
+                marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
+            elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+                marked_points = self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices
+
+                cidx = self.topology.points.component_index(self.topology.facet_label)
+                f_start, f_stop = self.topology.points._component_offsets[cidx:cidx+2]
+
+                nmarked_facets = 0
+                for point in marked_points:
+                    if f_start <= point < f_stop:
+                        nmarked_facets += 1
+
+                # renumber the points
+                marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
+                facet_numbering = self.topology.points.component_numbering(self.topology.facet_label)
+                fi = 0
+                for point in marked_points:
+                    if f_start <= point < f_stop:
+                        marked_points_renum[fi] = facet_numbering[point - f_start]
+                        fi += 1
+                assert fi == nmarked_facets
+                marked_points_list.append(marked_points_renum)
+
+        if marked_points_list:
+            # indices = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list))
+            _, indices, _ = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
+            # breakpoint()
+            # FIXME, specific labels here
+            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({"1": len(indices)}, "firedrake_default_topology"), 1]), data=indices)
+            return indices_dat
+            # subset = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, indices_dat)])
+        else:
+            raise NotImplementedError
+            subset = self._null_subset
+        return self._subsets.setdefault(markers, subset)
 
     def _collect_unmarked_points(self, markers):
         """Collect points that are not marked by markers."""
@@ -862,7 +913,7 @@ class AbstractMeshTopology(abc.ABC):
             self._support.connectivity[facet_key]
         )
 
-        ext_facets_axes = op3.Axis(len(self._exterior_facets))
+        ext_facets_axes = op3.AxisTree.from_iterable([len(self._exterior_facets), 1])
         ext_facets_dat = op3.HierarchicalArray(ext_facets_axes, data=self._exterior_facets)
         ext_facets_slice = op3.Slice(self.name, [op3.Subset(self.facet_label, ext_facets_dat)])
         ext_facet_support_dat = facet_support_map.array[ext_facets_slice]
