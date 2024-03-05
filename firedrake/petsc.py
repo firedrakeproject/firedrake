@@ -5,6 +5,7 @@ import os
 import subprocess
 from contextlib import contextmanager
 from typing import Any
+from warnings import warn
 
 import petsc4py
 from mpi4py import MPI
@@ -383,7 +384,10 @@ for partitioner in partitioner_priority:
         DEFAULT_PARTITIONER = partitioner
         break
 else:
-    # RAISE WARNING
+    warn(
+        "No external package for" + ", ".join(partitioner_priority)
+        + "found, defaulting to PETSc simple partitioner. This may not be optimal."
+    )
     DEFAULT_PARTITIONER = "simple"
 
 # Setup default direct solver
@@ -394,11 +398,17 @@ for solver in direct_solver_priority:
         DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": solver}
         break
 else:
-    # RAISE WARNING
+    warn(
+        "No external package for" + ", ".join(direct_solver_priority)
+        + "found, defaulting to PETSc LU. This will only work in serial."
+    )
     DEFAULT_DIRECT_SOLVER = "petsc"
     DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
 
-# Mumps needs an additional parameter set
+# MUMPS needs an additional parameter set
+# From the MUMPS documentation:
+# > ICNTL(14) controls the percentage increase in the estimated working space...
+# > ... Remarks: When significant extra fill-in is caused by numerical pivoting, increasing ICNTL(14) may help.
 if DEFAULT_DIRECT_SOLVER == "mumps":
     DEFAULT_DIRECT_SOLVER_PARAMETERS["mat_mumps_icntl_14"] = 200
 
@@ -408,7 +418,6 @@ for amg in amg_priority:
     if amg in external_packages:
         DEFAULT_AMG_PC = amg
 else:
-    # RAISE WARNING
     DEFAULT_AMG_PC = "gamg"
 
 
@@ -425,5 +434,6 @@ DEFAULT_SNES_PARAMETERS = {
     "snes_linesearch_type": "basic",
     # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSovler class works
 }
-# We want looser KSP tolerances for non-linear solves
+# We also want looser KSP tolerances for non-linear solves
 # DEFAULT_SNES_PARAMETERS["ksp_rtol"] = 1e-5
+# this is specified in the NonlinearVariationalSovler class
