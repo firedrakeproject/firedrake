@@ -4,6 +4,7 @@ non-finite element operations such as slope limiters."""
 import collections
 import functools
 from cachetools import LRUCache
+from typing import Any, Iterable, Union
 
 import finat
 import loopy
@@ -19,6 +20,7 @@ from ufl.domain import join_domains
 from firedrake import constant
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
@@ -332,39 +334,50 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     return op2.parloop(*op2args, **kwargs)
 
 
-def pack_tensor(tensor, index, intent, integral_type):
-    if integral_type in {
-        "cell",
-        "exterior_facet_top",
-        "exterior_facet_bottom",
-        "interior_facet_horiz",
-    }:
-        return pack_tensor_cell_integral(tensor, index, intent)
-    elif integral_type in {"exterior_facet", "exterior_facet_vert"}:
-        return pack_tensor_exterior_facet_integral(tensor, index)
-    else:
-        assert integral_type in {"interior_facet", "interior_facet_vert"}
-        return pack_tensor_interior_facet_integral(tensor, index)
-
-
-# ah, never use intent!
 @functools.singledispatch
-def pack_tensor_cell_integral(tensor, index, intent):
-    raise TypeError
+def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str):
+    raise TypeError(f"No handler defined for {type(tensor).__name__}")
 
 
-@pack_tensor_cell_integral.register(Function)
-@pack_tensor_cell_integral.register(Cofunction)
-def _(tensor, cell: op3.LoopIndex, intent):
-    V = tensor.function_space()
+@pack_tensor.register(Function)
+@pack_tensor.register(Cofunction)
+def _(func: Union[Function, Cofunction], index: op3.LoopIndex, integral_type: str):
+    return pack_pyop3_tensor(
+        func.dat, func.ufl_function_space(), index, integral_type
+    )
+
+
+@pack_tensor.register
+def _(matrix: Matrix, index: op3.LoopIndex, integral_type: str):
+    return pack_pyop3_tensor(
+        matrix.M, *matrix.ufl_function_spaces(), index, integral_type
+    )
+
+
+@functools.singledispatch
+def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
+    raise TypeError(f"No handler defined for {type(tensor).__name__}")
+
+
+@pack_pyop3_tensor.register
+def _(
+    array: op3.HierarchicalArray,
+    V: WithGeometry,
+    index: op3.LoopIndex,
+    integral_type: str,
+):
     plex = V.mesh().topology
 
-    # First collect the DoFs in the cell closure in FIAT order.
-    # TODO ideally the FIAT permutation would not need to be known
-    # about by the mesh topology and instead be handled here. This
-    # would probably require an oriented mesh
-    # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-    indexed = tensor.dat[plex._fiat_closure(cell)]
+    if integral_type == "cell":
+        # TODO ideally the FIAT permutation would not need to be known
+        # about by the mesh topology and instead be handled here. This
+        # would probably require an oriented mesh
+        # (see https://github.com/firedrakeproject/firedrake/pull/3332)
+        indexed = array[plex._fiat_closure(index)]
+    elif integral_type == "exterior_facet":
+        indexed = array[plex._fiat_closure(plex.exterior_facet_support(index))]
+    else:
+        raise NotImplementedError
 
     # Indexing an array with a loop index makes it "context sensitive" since
     # the index could be over multiple entities (e.g. all mesh points). Here
@@ -373,71 +386,6 @@ def _(tensor, cell: op3.LoopIndex, intent):
 
     if plex.ufl_cell().is_simplex():
         return cf_indexed
-
-    ###
-
-    # TODO: Put into docstring.
-
-    # FIAT numbering:
-    #
-    #     1-----7-----3     v1----e3----v3
-    #     |           |     |           |
-    #     |           |     |           |
-    #     4     8     5  =  e0    c0    e1
-    #     |           |     |           |
-    #     |           |     |           |
-    #     0-----6-----2     v0----e2----v2
-    #
-    # therefore P3 standard DoF ordering (returned by packing closure):
-    #
-    #     1---10--11--3
-    #     |           |
-    #     5   13  15  7
-    #     |           |
-    #     4   12  14  6
-    #     |           |
-    #     0---8---9---2
-    #
-    # which would have a data layout like:
-    #
-    #     +----+----+----+----#----+----+----+----#----+
-    #     | v0 | v1 | v2 | v3 # e0 | e1 | e2 | e3 # c0 |
-    #     +----+----+----+----#----+----+----+----#----+
-    #          /                 /                   \
-    #      +-----+      +-----+-----+     +-----+-----+-----+-----+
-    #      | dof |      | dof | dof |     | dof | dof | dof | dof |
-    #      +-----+      +-----+-----+     +-----+-----+-----+-----+
-    #
-    # But it's a tensor product of intervals:
-    #
-    #     1---9---13--5
-    #     |           |
-    #     3   11  15  7
-    #     |           |
-    #     2   10  14  6
-    #     |           |
-    #     0---8---12--4
-    #
-    # so it actually has a data layout like:
-    #
-    #                     +----+----#----+
-    #                     | v0 | v1 # e0 |
-    #                     +----+----#----+
-    #                      /            \
-    #                +-----+          +-----+-----+
-    #                | dof |          | dof | dof |
-    #                +-----+          +-----+-----+
-    #                   |                   |
-    #           +----+----#----+     +----+----#----+
-    #           | v0 | v1 # e0 |     | v0 | v1 # e0 |
-    #           +----+----#----+     +----+----#----+
-    #           /           |             |         \
-    #    +-----+      +-----+-----+    +-----+    +-----+-----+
-    #    | dof |      | dof | dof |    | dof |    | dof | dof |
-    #    +-----+      +-----+-----+    +-----+    +-----+-----+
-    #
-    # We therefore want a temporary that is in the tensor-product form, but we
-    # need to be able to fill it from the "flat" closure that DMPlex gives us.
 
     if plex.ufl_cell() != ufl.quadrilateral:
         raise NotImplementedError
@@ -469,13 +417,154 @@ def _(tensor, cell: op3.LoopIndex, intent):
     packed = op3.HierarchicalArray(
         tensor_axes,
         data=op3.NullBuffer(cf_indexed.dtype),
-        prefix="T",
+        prefix="t",
+    )
+
+    return op3.Pack(cf_indexed_tensor, packed)
+
+
+@pack_pyop3_tensor.register
+def _(
+    mat: op3.PetscMat,
+    Vrow: WithGeometry,
+    Vcol: WithGeometry,
+    cell: op3.LoopIndex,
+    integral_type: str
+):
+    if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
+        raise NotImplementedError("TODO")
+
+    if integral_type != "cell":
+        raise NotImplementedError
+
+    plex = op3.utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
+
+    # First collect the DoFs in the cell closure in FIAT order.
+    # TODO ideally the FIAT permutation would not need to be known
+    # about by the mesh topology and instead be handled here. This
+    # would probably require an oriented mesh
+    # (see https://github.com/firedrakeproject/firedrake/pull/3332)
+    rmap = plex._fiat_closure(cell)
+    cmap = plex._fiat_closure1(cell)
+    indexed = mat[rmap, cmap]
+
+    # Indexing an array with a loop index makes it "context sensitive" since
+    # the index could be over multiple entities (e.g. all mesh points). Here
+    # we know we are only looping over cells so the context is trivial.
+    cf_indexed = op3.utils.just_one(indexed.context_map.values())
+
+    if plex.ufl_cell().is_simplex():
+        return cf_indexed
+
+    if plex.ufl_cell() != ufl.quadrilateral:
+        raise NotImplementedError
+
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
+    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="1")
+
+    tensor_axes = op3.PartialAxisTree(axes0.parent_to_children)
+    for leaf in axes0.leaves:
+        tensor_axes = tensor_axes.add_subtree(axes1, *leaf, uniquify_ids=True)
+    tensor_axes = tensor_axes.set_up()
+
+    target_paths = op3.utils.merge_dicts([target_paths0, target_paths1])
+    index_exprs = op3.utils.merge_dicts([index_exprs0, index_exprs1])
+
+    from pyop3.itree.tree import _compose_bits
+    tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
+        cf_indexed.axes,
+        cf_indexed.target_paths,
+        cf_indexed.index_exprs,
+        None,
+        tensor_axes,
+        target_paths,
+        index_exprs,
+        {},
+    )
+
+    cf_indexed_tensor = op3.HierarchicalArray(
+        tensor_axes,
+        target_paths=tensor_target_paths,
+        index_exprs=tensor_index_exprs,
+        layouts=cf_indexed.layouts,
+        data=cf_indexed.buffer,
+        name=cf_indexed.name,
+    )
+
+    # Create the temporary that will be passed to the local kernel
+    packed = op3.HierarchicalArray(
+        tensor_axes,
+        data=op3.NullBuffer(cf_indexed.dtype),
+        kernel_prefix="t",
     )
 
     return op3.Pack(cf_indexed_tensor, packed)
 
 
 def _tensorify_axes(V, suffix=""):
+    """
+
+    FIAT numbering:
+
+        1-----7-----3     v1----e3----v3
+        |           |     |           |
+        |           |     |           |
+        4     8     5  =  e0    c0    e1
+        |           |     |           |
+        |           |     |           |
+        0-----6-----2     v0----e2----v2
+
+    therefore P3 standard DoF ordering (returned by packing closure):
+
+        1---10--11--3
+        |           |
+        5   13  15  7
+        |           |
+        4   12  14  6
+        |           |
+        0---8---9---2
+
+    which would have a data layout like:
+
+        +----+----+----+----#----+----+----+----#----+
+        | v0 | v1 | v2 | v3 # e0 | e1 | e2 | e3 # c0 |
+        +----+----+----+----#----+----+----+----#----+
+             /                 /                   \
+         +-----+      +-----+-----+     +-----+-----+-----+-----+
+         | dof |      | dof | dof |     | dof | dof | dof | dof |
+         +-----+      +-----+-----+     +-----+-----+-----+-----+
+
+    But it's a tensor product of intervals:
+
+        1---9---13--5
+        |           |
+        3   11  15  7
+        |           |
+        2   10  14  6
+        |           |
+        0---8---12--4
+
+    so it actually has a data layout like:
+
+                        +----+----#----+
+                        | v0 | v1 # e0 |
+                        +----+----#----+
+                         /            \
+                   +-----+          +-----+-----+
+                   | dof |          | dof | dof |
+                   +-----+          +-----+-----+
+                      |                   |
+              +----+----#----+     +----+----#----+
+              | v0 | v1 # e0 |     | v0 | v1 # e0 |
+              +----+----#----+     +----+----#----+
+              /           |             |         \
+       +-----+      +-----+-----+    +-----+    +-----+-----+
+       | dof |      | dof | dof |    | dof |    | dof | dof |
+       +-----+      +-----+-----+    +-----+    +-----+-----+
+
+    We therefore want a temporary that is in the tensor-product form, but we
+    need to be able to fill it from the "flat" closure that DMPlex gives us.
+    """
     subelem_axess = []
     subelems = V.finat_element.product.factors
     for i, subelem in enumerate(subelems):
@@ -524,12 +613,6 @@ def _tensorify_axes(V, suffix=""):
     return tensor_axes, tensor_target_paths, tensor_index_exprs
 
 
-@pack_tensor_cell_integral.register(Matrix)
-def _(tensor, cell: op3.LoopIndex, intent):
-    V0, V1 = tensor.ufl_function_spaces()
-    return pack_petsc_mat(tensor.M, V0, V1, cell, intent)
-
-
 # this is easy, the target path is just summing things up!
 def _build_target_paths(_axes, _axis=None, tdim=0, suffix=""):
     if _axis is None:
@@ -556,71 +639,6 @@ def _build_rec(_axess):
             subtree = _build_rec(_subaxess)
             _axes = _axes.add_subtree(subtree, *leaf, uniquify_ids=True)
     return _axes
-
-
-def pack_petsc_mat(tensor, V0, V1, cell, intent):
-    plex = op3.utils.single_valued(V.mesh().topology for V in {V0, V1})
-
-    # First collect the DoFs in the cell closure in FIAT order.
-    # TODO ideally the FIAT permutation would not need to be known
-    # about by the mesh topology and instead be handled here. This
-    # would probably require an oriented mesh
-    # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-    rmap = plex._fiat_closure(cell)
-    cmap = plex._fiat_closure1(cell)
-    indexed = tensor[rmap, cmap]
-
-    # Indexing an array with a loop index makes it "context sensitive" since
-    # the index could be over multiple entities (e.g. all mesh points). Here
-    # we know we are only looping over cells so the context is trivial.
-    cf_indexed = op3.utils.just_one(indexed.context_map.values())
-
-    if plex.ufl_cell().is_simplex():
-        return cf_indexed
-
-    if plex.ufl_cell() != ufl.quadrilateral:
-        raise NotImplementedError
-
-    axes0, target_paths0, index_exprs0 = _tensorify_axes(V0)
-    axes1, target_paths1, index_exprs1 = _tensorify_axes(V1, suffix="1")
-
-    tensor_axes = op3.PartialAxisTree(axes0.parent_to_children)
-    for leaf in axes0.leaves:
-        tensor_axes = tensor_axes.add_subtree(axes1, *leaf, uniquify_ids=True)
-    tensor_axes = tensor_axes.set_up()
-
-    target_paths = op3.utils.merge_dicts([target_paths0, target_paths1])
-    index_exprs = op3.utils.merge_dicts([index_exprs0, index_exprs1])
-
-    from pyop3.itree.tree import _compose_bits
-    tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
-        cf_indexed.axes,
-        cf_indexed.target_paths,
-        cf_indexed.index_exprs,
-        None,
-        tensor_axes,
-        target_paths,
-        index_exprs,
-        {},
-    )
-
-    cf_indexed_tensor = op3.HierarchicalArray(
-        tensor_axes,
-        target_paths=tensor_target_paths,
-        index_exprs=tensor_index_exprs,
-        layouts=cf_indexed.layouts,
-        data=cf_indexed.buffer,
-        name=cf_indexed.name,
-    )
-
-    # Create the temporary that will be passed to the local kernel
-    packed = op3.HierarchicalArray(
-        tensor_axes,
-        data=op3.NullBuffer(cf_indexed.dtype),
-        prefix="T",  # not really needed if temporaries are also renumbered in codegen, which they should be
-    )
-
-    return op3.Pack(cf_indexed_tensor, packed)
 
 
 def _tensor_product_index_exprs(tensor_axes):

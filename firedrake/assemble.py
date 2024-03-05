@@ -1266,6 +1266,7 @@ def TwoFormAssembler(form, *args, **kwargs):
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
     if mat_type == "matfree":
+        # Arguably we should crash here, as we would be passing ignored arguments through
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
         kwargs.pop('allocation_integral_types', None)
@@ -1770,13 +1771,13 @@ class ParloopBuilder:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
-            return pack_tensor(tensor, index, op3.INC, self._integral_type)
+            return pack_tensor(tensor, index, self._integral_type)
             # if V.ufl_element().family() == "Real":
             #     return tensor, ()
             # else:
             #     return tensor[self._get_map(V)(index)]
         elif rank == 2:
-            return pack_tensor(tensor, index, op3.INC, self._integral_type)
+            return pack_tensor(tensor, index, self._integral_type)
             raise NotImplementedError
             rmap, cmap = [self._get_map(V) for V in Vs]
 
@@ -1796,7 +1797,7 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, op3.READ, self._integral_type)
+        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
@@ -1804,7 +1805,7 @@ class ParloopBuilder:
         if coeff.ufl_element().family() == "Real":
             return coeff.dat
         else:
-            return pack_tensor(coeff, index, op3.READ, self._integral_type)
+            return pack_tensor(coeff, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):

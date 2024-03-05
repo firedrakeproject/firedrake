@@ -24,7 +24,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.parloops import pack_tensor, pack_petsc_mat
+from firedrake.parloops import pack_tensor, pack_pyop3_tensor
 from firedrake.ufl_expr import Argument, action, adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
@@ -1134,7 +1134,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        parloop_args.append(pack_tensor(tensor, loop_index, access, "cell"))
+        parloop_args.append(pack_tensor(tensor, loop_index, "cell"))
     else:
         assert len(expr_arguments) == 1
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1161,15 +1161,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
         # TODO needed because we don't have a Firedrake object here, should probably
         # pass pyop3 obj plus function spaces instead
-        # parloop_args.append(pack_tensor(tensor, loop_index, access, "cell"))
-        parloop_args.append(pack_petsc_mat(tensor, V, Vcol, loop_index, access))
+        parloop_args.append(pack_pyop3_tensor(tensor, V, Vcol, loop_index, "cell"))
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(pack_tensor(co, loop_index, op3.READ, "cell"))
+        parloop_args.append(pack_tensor(co, loop_index, "cell"))
     if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(pack_tensor(cs, loop_index, op3.READ, "cell"))
+        parloop_args.append(pack_tensor(cs, loop_index, "cell"))
 
     for coefficient in coefficients:
         coeff_mesh = extract_unique_domain(coefficient)
@@ -1195,7 +1194,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                 coeff_index = None
         else:
             raise ValueError("Have coefficient with unexpected mesh")
-        parloop_args.append(pack_tensor(coefficient, loop_index, op3.READ, "cell"))
+        parloop_args.append(pack_tensor(coefficient, loop_index, "cell"))
 
     for const in extract_firedrake_constants(expr):
         # constants do not require indexing
