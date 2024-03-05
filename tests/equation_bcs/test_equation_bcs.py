@@ -266,7 +266,8 @@ def test_EquationBC_poisson_matfree(with_bbc):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
-##SKIPMUMPS?
+# This test is so sensitive it will not pass unless MUMPS is used
+@pytest.mark.skipmumps
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 def test_EquationBC_mixedpoisson_matrix(eq_type):
     mat_type = "aij"
