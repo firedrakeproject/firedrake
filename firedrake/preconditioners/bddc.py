@@ -1,5 +1,4 @@
 from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
@@ -42,17 +41,16 @@ class BDDCPC(PCBase):
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
         if sobolev_space == HCurl:
-            if "discrete_gradient" in appctx:
-                gradient = appctx["discrete_gradient"]
-            else:
+            gradient = appctx.get("discrete_gradient", None)
+            if gradient is None:
+                from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 Q = V.reconstruct(family="Lagrange")
                 gradient = tabulate_exterior_derivative(Q, V)
             bddcpc.setBDDCDiscreteGradient(gradient)
 
         elif sobolev_space == HDiv:
-            if "divergence_mat" in appctx:
-                B = appctx["divergence_mat"]
-            else:
+            B = appctx.get("divergence_mat", None)
+            if B is None:
                 from firedrake.assemble import assemble
                 degree = max(as_tuple(V.ufl_element().degree()))
                 Q = V.reconstruct(family="DG", degree=degree-1, variant=None)

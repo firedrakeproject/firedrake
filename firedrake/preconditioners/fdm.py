@@ -371,8 +371,11 @@ class FDMPC(PCBase):
         def sub_nullspace(nsp, iset):
             if not nsp.handle or iset is None:
                 return nsp
+            vectors = [vec.getSubVector(iset) for vec in nsp.getVecs()]
+            for v in vectors:
+                v.normalize()
             return PETSc.NullSpace().create(constant=nsp.hasConstant(),
-                                            vectors=[vec.getSubVector(iset) for vec in nsp.getVecs()],
+                                            vectors=vectors,
                                             comm=nsp.getComm())
 
         def set_nullspaces(P, A, iset=None):
