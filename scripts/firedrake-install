@@ -47,6 +47,8 @@ firedrake_apps = {
                "git+ssh://bitbucket.org/pefarrell/defcon.git@master#egg=defcon"),
     "gadopt": ("""Geodynamic Adjoint Optimization Platform. http://g-adopt.github.io""",
                "git+ssh://github.com/g-adopt/g-adopt.git@master#egg=gadopt"),
+    "asQ": ("""ParaDiag parallel-in-time methods. http://firedrakeproject.org/asQ""",
+            "git+ssh://github.com/firedrakeproject/asQ.git@master#egg=asQ"),
 }
 
 
