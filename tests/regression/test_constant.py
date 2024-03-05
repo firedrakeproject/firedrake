@@ -250,15 +250,18 @@ def test_derivative_wrt_constant():
     u = TrialFunction(V)
     v = TestFunction(V)
     c = Constant(5)
-    f = Function(V)
-    solution = Function(V)
+    f = Function(V).assign(7)
+    solution_a = Function(V)
+    solution_b = Function(V)
 
     a = (c**2)*inner(u, v) * dx
     L = inner(f, v) * dx
-    solve(a == L, solution)
+    solve(a == L, solution_a)
 
     d = derivative(a, c, IntValue(1))
-    solve(d == L, solution)
+    solve(d == L, solution_b)
+
+    assert np.allclose(solution_b.dat.data, (c.dat.data/2)*solution_a.dat.data)
 
 
 def test_constant_ufl2unicode():
@@ -267,7 +270,13 @@ def test_constant_ufl2unicode():
     b = Constant(2.0, name="b")
     F = a * a * b * b * dx(mesh)
     _ = ufl2unicode(F)
-    dFda = derivative(F, u=a, du=ufl.classes.IntValue(1))
-    dFdb = derivative(F, u=b, du=ufl.classes.IntValue(1))
+
+    dFda = derivative(F, u=a)
+    dFdb = derivative(F, u=b)
     _ = ufl2unicode(dFda)
     _ = ufl2unicode(dFdb)
+
+    dFda_du = derivative(F, u=a, du=ufl.classes.IntValue(1))
+    dFdb_du = derivative(F, u=b, du=ufl.classes.IntValue(1))
+    _ = ufl2unicode(dFda_du)
+    _ = ufl2unicode(dFdb_du)
