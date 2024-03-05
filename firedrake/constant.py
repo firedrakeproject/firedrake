@@ -212,7 +212,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 def _unicode_format_firedrake_constant(self, o):
     """Format a Firedrake constant."""
     i = o.count()
-    var = "💩"
+    var = "C"
     if len(o.ufl_shape) == 1:
         var += UC.combining_right_arrow_above
     elif len(o.ufl_shape) > 1 and self.colorama_bold:
