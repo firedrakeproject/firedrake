@@ -14,7 +14,7 @@ __all__ = ("BDDCPC",)
 class BDDCPC(PCBase):
     """PC for PETSc PCBDDC"""
 
-    _prefix = "bddc"
+    _prefix = "bddc_"
 
     def initialize(self, pc):
         # Get context from pc
