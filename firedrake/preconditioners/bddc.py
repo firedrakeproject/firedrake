@@ -1,7 +1,7 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_function_space, get_appctx
 import numpy
 
 
@@ -19,6 +19,8 @@ class BDDCPC(PCBase):
         dm = pc.getDM()
         self.prefix = pc.getOptionsPrefix() + self._prefix
 
+        V = get_function_space(dm)
+
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
         bddcpc.incrementTabLevel(1, parent=pc)
@@ -30,8 +32,9 @@ class BDDCPC(PCBase):
         bcs = tuple(ctx._problem.bcs)
         if len(bcs) > 0:
             bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
+            V.dof_dset.lgmap.apply(bc_nodes, result=bc_nodes)
             bndr = PETSc.IS().createGeneral(bc_nodes, comm=pc.comm)
-            bddcpc.setBDDCDirichletBoundariesLocal(bndr)
+            bddcpc.setBDDCDirichletBoundaries(bndr)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
