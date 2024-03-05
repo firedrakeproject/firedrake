@@ -201,7 +201,7 @@ def delcomm_outer(comm, keyval, icomm):
     if comp_comm is not None:
         debug('Removing compilation comm on inner comm')
         decref(comp_comm)
-    icomm.Delete_attr(compilationcomm_keyval)
+        icomm.Delete_attr(compilationcomm_keyval)
 
     # Once we have removed the reference to the inner/compilation comm we can free it
     cidx = icomm.Get_attr(cidx_keyval)
