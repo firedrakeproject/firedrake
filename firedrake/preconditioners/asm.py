@@ -61,6 +61,9 @@ class ASMPatchPC(PCBase):
             opts = PETSc.Options(asmpc.getOptionsPrefix())
             if "sub_pc_type" not in opts:
                 opts["sub_pc_type"] = "lu"
+            if "sub_pc_factor_mat_ordering_type" not in opts:
+                # Preserve the natural ordering to avoid zero pivots in saddle-point problems
+                opts["sub_pc_factor_mat_ordering_type"] = "natural"
 
             # If an ordering type is provided, PCASM should not sort patch indices, otherwise it can.
             mat_type = P.getType()

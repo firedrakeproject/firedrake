@@ -166,7 +166,6 @@ def test_star_equivalence(problem_type, backend):
 
     star_params["mg_levels_pc_star_backend"] = backend
     star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
-    star_params["mg_levels_pc_star_sub_sub_pc_factor_mat_ordering_type"] = "natural"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=star_params, nullspace=nsp)
     star_solver.solve()
@@ -342,7 +341,6 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
 
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
-    vanka_params["mg_levels_pc_vanka_sub_sub_pc_factor_mat_ordering_type"] = "natural"  # avoids zero pivots in saddle-point problems
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
     star_solver.solve()
