@@ -7,6 +7,7 @@ try:
     import ngsPETSc
     del ngsPETSc
 except ImportError:
+    # Netgen is not installed
     pytest.skip("Netgen not installed", allow_module_level=True)
 
 
