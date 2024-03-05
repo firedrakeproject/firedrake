@@ -25,6 +25,7 @@ def mesh_hierarchy(request):
     return mh
 
 
+@pytest.mark.markif_fixture(pytest.mark.slow, stress_element="conforming")
 def test_aw_convergence(stress_element, mesh_hierarchy):
 
     mesh = mesh_hierarchy[0]

@@ -66,6 +66,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
 
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
+@pytest.mark.markif_fixture(pytest.mark.slow, rst_file="linear_wave_equation.py.rst")
 def test_demo_runs(py_file, env):
     if basename(py_file) == "qgbasinmodes.py":
         try:
