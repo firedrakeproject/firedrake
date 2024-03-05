@@ -147,6 +147,7 @@ def test_p_independence_hgrad(mesh, variant):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
@@ -159,6 +160,7 @@ def test_p_independence_hcurl(mesh):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
