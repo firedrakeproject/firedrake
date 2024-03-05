@@ -48,7 +48,7 @@ firedrake_apps = {
     "gadopt": ("""Geodynamic Adjoint Optimization Platform. http://g-adopt.github.io""",
                "git+ssh://github.com/g-adopt/g-adopt.git@master#egg=gadopt"),
     "gusto": ("""ParaDiag parallel-in-time methods. http://firedrakeproject.org/asQ""",
-              "git+ssh://github.com/firedrakeproject/asQ.git@main#egg=asQ"),
+              "git+ssh://github.com/firedrakeproject/asQ.git@master#egg=asQ"),
 }
 
 
