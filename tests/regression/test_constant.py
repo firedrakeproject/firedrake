@@ -261,7 +261,7 @@ def test_derivative_wrt_constant():
     d = derivative(a, c, IntValue(1))
     solve(d == L, solution_b)
 
-    assert np.allclose(solution_b.dat.data, (c.dat.data/2)*solution_a.dat.data)
+    assert np.allclose(solution_b.dat.data_ro, float(c)/2*solution_a.dat.data_ro)
 
 
 def test_constant_ufl2unicode():
