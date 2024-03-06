@@ -2618,6 +2618,18 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     def _topology(self, val):
         self.topology = val
 
+    def num_cells(self):
+        return self.topology.num_cells()
+
+    def num_facets(self):
+        return self.topology.num_facets()
+
+    def num_edges(self):
+        return self.topology.num_edges()
+
+    def num_vertices(self):
+        return self.topology.num_vertices()
+
     @property
     def _parent_mesh(self):
         return self.ufl_cargo()._parent_mesh
@@ -2640,13 +2652,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
-
-    @property
-    def _topology_dm(self):
-        """Alias of topology_dm"""
-        from warnings import warn
-        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
-        return self.topology_dm
 
     @property
     @MeshGeometryMixin._ad_annotate_coordinates_function

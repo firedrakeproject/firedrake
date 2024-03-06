@@ -376,6 +376,8 @@ def _(
         indexed = array[plex._fiat_closure(index)]
     elif integral_type == "exterior_facet":
         indexed = array[plex._fiat_closure(plex.exterior_facet_support(index))]
+    elif integral_type == "interior_facet":
+        indexed = array[plex._fiat_closure(plex.interior_facet_support(index))]
     else:
         raise NotImplementedError
 
