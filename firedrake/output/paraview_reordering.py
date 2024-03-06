@@ -2,9 +2,28 @@ from tsfc.finatinterface import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
 
+try:
+    import vtkmodules.vtkCommonDataModel
+    del vtkmodules.vtkCommonDataModel
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Error importing vtkmodules. Firedrake does not install VTK by default, "
+        "you may need to install VTK by running\n\t"
+        "pip install vtk"
+    ) from e
 from vtkmodules.vtkCommonDataModel import (
     vtkLagrangeTriangle, vtkLagrangeTetra,
     vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge
+)
+
+
+__all__ = (
+    "vtk_lagrange_tet_reorder",
+    "vtk_lagrange_hex_reorder",
+    "vtk_lagrange_interval_reorder",
+    "vtk_lagrange_triangle_reorder",
+    "vtk_lagrange_quad_reorder",
+    "vtk_lagrange_wedge_reorder",
 )
 
 

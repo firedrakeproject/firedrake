@@ -14,6 +14,7 @@ Installing Netgen
 This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation). ::
 
    from firedrake import *
+   from firedrake.output import VTKFile
    try:
        import netgen
    except ImportError:
@@ -48,13 +49,13 @@ Now using the two of the predefined CSG geometries included in Netgen, a rectang
    geo.SetMaterial(2, "inner")
    geo.SetDomainMaxH(2, 0.02)
 
-Notice that the `leftdomain` and `rightdomain` attribute in the `AddRectangle` and `AddCircle` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction. 
+Notice that the `leftdomain` and `rightdomain` attribute in the `AddRectangle` and `AddCircle` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction.
 We can now construct a mesh for the geometry we have defined and save it to a PVD file for visualisation. We will do so using the `GenerateMesh` method inside of the `SplineGeometry` class: ::
 
    ngmsh = geo.GenerateMesh(maxh=0.1)
    # Generating a Firedrake mesh from the NetGen mesh
    msh = Mesh(ngmsh)
-   File("output/MeshExample1.pvd").write(msh)
+   VTKFile("output/MeshExample1.pvd").write(msh)
 
 
 .. figure:: Example1.png
@@ -79,7 +80,7 @@ Here is showed how to construct a "Pacman"-like domain::
    [geo.Append(c, bc=bc) for c, bc in curves]
    ngmsh = geo.GenerateMesh(maxh=0.4)
    msh = Mesh(ngmsh)
-   File("output/MeshExample2.pvd").write(msh)
+   VTKFile("output/MeshExample2.pvd").write(msh)
 
 .. figure:: Example2.png
    :align: center
@@ -94,7 +95,7 @@ The only method new to the reader should be the `GetRegionNames` which allows to
    V = FunctionSpace(msh, "CG", 1)
    u = TrialFunction(V)
    v = TestFunction(V)
-   
+
    f = Function(V)
    x, y = SpatialCoordinate(msh)
    f.assign(1)
@@ -102,7 +103,7 @@ The only method new to the reader should be the `GetRegionNames` which allows to
 Now we can define the bilinear form and linear function that characterize the weak formulation of the Poisson problem in abstract form, i.e.
 
 .. math::
-   
+
    \text{find } u\in H^1_0(\Omega) \text{ s.t. } a(u,v) := \int_{\Omega} \nabla u\cdot \nabla v \; d\vec{x} = L(v) := \int_{\Omega} fv\; d\vec{x}\qquad v\in H^1_0(\Omega).
 
 In code this becomes: ::
@@ -111,16 +112,16 @@ In code this becomes: ::
    L = inner(f, v) * dx
 
 Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a `DirichletBC` object and we use the `GetRegionNames` method from the Netgen mesh in order to map the label we have given when describing the geometry to the PETSc `DMPLEX` IDs. In particular if we look for the IDs of boundary element labeled either "line" or "curve" we would get::
- 
+
    labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name in ["line","curve"]]
    bc = DirichletBC(V, 0, labels)
    print(labels)
 
 We then proceed to solve the problem::
- 
+
    sol = Function(V)
    solve(a == L, sol, bcs=bc)
-   File("output/Poisson.pvd").write(sol)
+   VTKFile("output/Poisson.pvd").write(sol)
 
 
 Mesh Refinement
@@ -172,7 +173,7 @@ Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use 
         vr, vi = Asc.getVecs()
         with uh.dat.vec_wo as vr:
             lam = E.getEigenpair(0, vr, vi)
-        return (lam, uh, V) 
+        return (lam, uh, V)
 
 We will also need a function that mark the elements that need to be marked according to an error indicator, i.e.
 
@@ -228,7 +229,7 @@ It is now time to define the solve, mark and refine loop that is at the heart of
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.refine_marked_elements(mark)
-        File("output/AdaptiveMeshRefinement.pvd").write(uh)
+        VTKFile("output/AdaptiveMeshRefinement.pvd").write(uh)
 
 Note that the mesh conforms to the CAD geometry as it is adaptively refined.
 
@@ -257,8 +258,8 @@ The `+,-,*` operators have respectively the meaning of union, set difference, an
    geo.Add(cube-sphere)
    ngmsh = geo.GenerateMesh(maxh=0.1)
    msh = Mesh(ngmsh)
-   File("output/MeshExample3.pvd").write(msh)
-   
+   VTKFile("output/MeshExample3.pvd").write(msh)
+
 
 Open Cascade Technology
 -----------------------
@@ -297,7 +298,7 @@ Once the bottom part of the flask has been constructed we then extrude it to cre
    body = body + neck
    fmax = body.faces.Max(Z)
    thickbody = body.MakeThickSolid([fmax], -myThickness / 50, 1.e-3)
-   
+
 Last we are left to construct the threading of the flask neck and fuse it to the rest of the flask body. In order to do this we are going to need the value of pi, which we grab from the Python math package::
 
    import math
@@ -321,7 +322,7 @@ As usual, we generate a mesh for the described geometry and use the Firedrake-Ne
 
    ngmsh = geo.GenerateMesh(maxh=5)
    msh = Mesh(ngmsh)
-   File("output/MeshExample4.pvd").write(msh)
+   VTKFile("output/MeshExample4.pvd").write(msh)
 
 .. figure:: Bottle.png
    :align: center
@@ -337,7 +338,7 @@ In particular, we need to pass the degree of the polynomial field we want to use
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
    from mpi4py import MPI
-   
+
    wp = WorkPlane()
    if COMM_WORLD.rank == 0:
        for i in range(6):
@@ -347,7 +348,7 @@ In particular, we need to pass the degree of the polynomial field we want to use
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
    mesh = Mesh(Mesh(ngmesh, comm=COMM_WORLD).curve_field(4))
-   File("output/MeshExample5.pvd").write(mesh)
+   VTKFile("output/MeshExample5.pvd").write(mesh)
 
 .. figure:: Example5.png
    :align: center
@@ -359,7 +360,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    from netgen.occ import Sphere, Pnt
    import netgen
    from mpi4py import MPI
-   
+
    if COMM_WORLD.rank == 0:
        shape = Sphere(Pnt(0,0,0), 1)
        ngmesh = OCCGeometry(shape,dim=3).GenerateMesh(maxh=1.)
@@ -367,7 +368,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
        ngmesh = netgen.libngpy._meshing.Mesh(3)
    mesh = Mesh(Mesh(ngmesh).curve_field(3))
    # Solving the Poisson problem
-   File("output/MeshExample6.pvd").write(mesh)
+   VTKFile("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
    V = FunctionSpace(mesh, "CG", 3)
    f = Function(V).interpolate(1+0*x)
@@ -375,16 +376,16 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    v = TestFunction(V)
    a = inner(grad(u), grad(v)) * dx
    l = inner(f, v) * dx
-   
+
    sol = Function(V)
-   
+
    bc = DirichletBC(V, 0.0, [1])
    A = assemble(a, bcs=bc)
    b = assemble(l)
    bc.apply(b)
    solve(A, sol, b, solver_parameters={"ksp_type": "cg", "pc_type": "lu"})
-   
-   File("output/Sphere.pvd").write(sol)
+
+   VTKFile("output/Sphere.pvd").write(sol)
 
 .. figure:: Example6.png
    :align: center
@@ -395,7 +396,7 @@ It is also possible to construct high-order meshes using the `SplineGeometry`, `
    from netgen.geom2d import CSG2d, Circle, Rectangle
    import netgen
    from mpi4py import MPI
-   
+
    if COMM_WORLD.rank == 0:
       geo = CSG2d()
       circle = Circle(center=(1,1), radius=0.1, bc="curve").Maxh(0.01)
@@ -406,7 +407,7 @@ It is also possible to construct high-order meshes using the `SplineGeometry`, `
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
    mesh = Mesh(Mesh(ngmesh,comm=COMM_WORLD).curve_field(2))
-   File("output/MeshExample7.pvd").write(mesh)
+   VTKFile("output/MeshExample7.pvd").write(mesh)
 
 .. figure:: Example7.png
    :align: center
