@@ -1186,6 +1186,10 @@ class RestrictedFunctionSpace(FunctionSpace):
                                     name="%s_nodes_dset" % self.name)
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
+        # check not all are constrained 
+        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+        if self.comm.allreduce(unconstrained_dofs) == 0:
+            raise ValueError("All degrees of freedom are constrained.")
         self.finat_element = create_element(self.ufl_element())
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
