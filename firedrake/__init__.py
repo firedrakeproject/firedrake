@@ -127,9 +127,11 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import output, plot
-sys.modules["firedrake.output"] = output
-from firedrake.output import *
+from firedrake._deprecation import plot, File  # noqa: F401
+# Once `File` is deprecated update the above line removing `File` and add
+#   from firedrake._deprecation import output
+#   sys.modules["firedrake.output"] = output
+#   from firedrake.output import *
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
