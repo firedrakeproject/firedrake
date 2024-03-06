@@ -46,8 +46,6 @@ class BCBase(object):
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
         self._function_space = V
-        if isinstance(sub_domain, (numbers.Integral, str)):
-            sub_domain = (sub_domain, )
         self.sub_domain = sub_domain
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
