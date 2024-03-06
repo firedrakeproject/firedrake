@@ -2376,7 +2376,6 @@ def plex_renumbering(PETSc.DM plex,
     # Get boundary points (if the boundary_set exists) and count each type
     constrained_core = 0
     constrained_owned = 0
-    boundary_points = np.array([])
     if boundary_set:
         for marker in boundary_set:
             if marker == "on_boundary":
@@ -2423,17 +2422,17 @@ def plex_renumbering(PETSc.DM plex,
             for ci in range(nclosure):
                 p = closure[2*ci]
                 if not PetscBTLookup(seen, p):
-                    for l in range(3):
-                        CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
+                    for idx in range(3):
+                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
                         if has_point:
                             PetscBTSet(seen, p)
-                            if boundary_set and PetscBTLookup(seen_boundary, p) and l <= 1:
+                            if boundary_set and PetscBTLookup(seen_boundary, p) and idx <= 1:
                                 # push boundary point to end of constrained owned dofs
                                 perm[lidx[3]] = p
                                 lidx[3] += 1
                             else:
-                                perm[lidx[l]] = p
-                                lidx[l] += 1
+                                perm[lidx[idx]] = p
+                                lidx[idx] += 1
                             break
 
     if closure != NULL:
