@@ -392,6 +392,21 @@ def _(
 
     tensor_axes, target_paths, index_exprs = _tensorify_axes(V)
 
+    # NOTE: this is very similar to how we deal with shape inside
+    # _tensorify_axes, could they be combined/made more similar?
+    if integral_type in {"exterior_facet", "interior_facet"}:
+        # Add the top-level bit too
+        facet_axis = cf_indexed.axes.root
+        tensor_axes = op3.PartialAxisTree(facet_axis).add_subtree(tensor_axes, facet_axis, facet_axis.component)
+        tensor_axes = tensor_axes.set_up()
+
+        key = facet_axis.id, facet_axis.component.label
+        facet_target_paths = {key: {facet_axis.label: facet_axis.component.label}}
+        facet_index_exprs = {key: {facet_axis.label: op3.AxisVariable(facet_axis.label)}}
+
+        target_paths.update(facet_target_paths)
+        index_exprs.update(facet_index_exprs)
+
     from pyop3.itree.tree import _compose_bits
     tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
         cf_indexed.axes,

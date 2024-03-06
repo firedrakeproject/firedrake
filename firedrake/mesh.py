@@ -180,7 +180,7 @@ class _Facets(object):
         # to the current facet.
         root = op3.Axis({mesh.facet_label: nfacets}, mesh.name)
         axes = op3.AxisTree.from_iterable((root, self._rank))
-        self.local_facet_dat = op3.HierarchicalArray(
+        self._local_facets = op3.HierarchicalArray(
             axes, data=np.asarray(local_facet_number.flatten(), dtype=np.uint32)
         )
         # self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
@@ -242,6 +242,14 @@ class _Facets(object):
 
          :returns: A :class:`pyop2.Subset` for iteration.
         """
+        subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
+        return self.set[subset]
+
+    def local_facets(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
+        subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
+        return self._local_facets[subset]
+
+    def subset(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
         if integral_type in ("exterior_facet_bottom",
                              "exterior_facet_top",
                              "interior_facet_horiz"):
@@ -250,11 +258,15 @@ class _Facets(object):
         elif not (integral_type.startswith("exterior_")
                   or integral_type.startswith("interior_")):
             raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+
         if subdomain_id == "everywhere":
-            return self.set
+            # return Ellipsis
+            return slice(None)
         if subdomain_id == "otherwise":
-            if all_integer_subdomain_ids is None:
-                return self.set
+            if not all_integer_subdomain_ids:
+                # return Ellipsis
+                return slice(None)
+            raise NotImplementedError
             key = ("otherwise", ) + all_integer_subdomain_ids
             try:
                 return self._subsets[key]
@@ -263,12 +275,9 @@ class _Facets(object):
                 _, indices, _ = np.intersect1d(self.facets, unmarked_points, return_indices=True)
                 return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
-            # raise NotImplementedError
-            # return self.set[self.subset(subdomain_id)]
-            return self.set[self.subset(subdomain_id)]
+            return self._subset(subdomain_id)
 
-    @PETSc.Log.EventDecorator()
-    def subset(self, markers: Optional[Union[int, Iterable[int]]]) -> op3.AxisTree:
+    def _subset(self, markers: Optional[Union[int, Iterable[int]]]) -> op3.AxisTree:
         """Return the subset corresponding to a given set of markers.
 
         Parameters
@@ -331,9 +340,8 @@ class _Facets(object):
             _, indices, _ = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
             # breakpoint()
             # FIXME, specific labels here
-            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({"1": len(indices)}, "firedrake_default_topology"), 1]), data=indices)
-            return indices_dat
-            # subset = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, indices_dat)])
+            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({self.mesh.topology.facet_label: len(indices)}, self.mesh.topology.name)]), data=indices)
+            subset = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, indices_dat)])
         else:
             raise NotImplementedError
             subset = self._null_subset
