@@ -13,6 +13,7 @@ from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.driver import collect_domains_in_form
 import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
@@ -1037,15 +1038,15 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
+        #try:
+        #    topology, = set(d.topology for d in self._form.ufl_domains())
+        #except ValueError:
+        #    raise NotImplementedError("All integration domains must share a mesh topology")
 
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = extract_unique_domain(o)
-            if domain is not None and domain.topology != topology:
-                raise NotImplementedError("Assembly with multiple meshes is not supported")
+        #for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
+        #    domain = extract_unique_domain(o)
+        #    if domain is not None and domain.topology != topology:
+        #        raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
@@ -1560,6 +1561,7 @@ class _GlobalKernelBuilder:
         self._diagonal = diagonal
         self._unroll = unroll
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
@@ -1575,6 +1577,7 @@ class _GlobalKernelBuilder:
                        for arg in self._kinfo.arguments]
 
         # we should use up all of the coefficients and constants
+        assert_empty(self._active_coordinates)
         assert_empty(self._active_coefficients)
         assert_empty(self._constants)
 
@@ -1601,7 +1604,8 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = collect_domains_in_form(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -1706,7 +1710,8 @@ def _as_global_kernel_arg_output(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_global_kernel_arg_coordinates(_, self):
-    V = self._mesh.coordinates.function_space()
+    coord = next(self._active_coordinates)
+    V = coord.function_space()
     return self._make_dat_global_kernel_arg(V)
 
 
@@ -1798,6 +1803,7 @@ class ParloopBuilder:
         self._diagonal = diagonal
         self._bcs = bcs
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
@@ -1926,7 +1932,8 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = collect_domains_in_form(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):
@@ -1999,8 +2006,8 @@ def _as_parloop_arg_output(_, self):
 
 @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_parloop_arg_coordinates(_, self):
-    func = self._mesh.coordinates
-    map_ = self._get_map(func.function_space())
+    func = next(self._active_coordinates)
+    map_ = self._get_map(func.function_space())  #Compose!
     return op2.DatParloopArg(func.dat, map_)
 
 
@@ -2062,6 +2069,13 @@ def _as_parloop_arg_layer_count(_, self):
 
 class _FormHandler:
     """Utility class for inspecting forms and local kernels."""
+
+    @staticmethod
+    def iter_active_coordinates(form, kinfo):
+        """Yield the form coordinates referenced in ``kinfo``."""
+        all_meshes = collect_domains_in_form(form)
+        for i in kinfo.domain_numbers:
+            yield all_meshes[i].coordinates
 
     @staticmethod
     def iter_active_coefficients(form, kinfo):

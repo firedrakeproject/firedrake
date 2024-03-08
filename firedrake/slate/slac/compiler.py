@@ -187,6 +187,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        oriented=builder.bag.needs_cell_orientations,
                        subdomain_id=("otherwise",),
                        domain_number=0,
+                       domain_numbers=(0, ),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,

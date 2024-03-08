@@ -1414,7 +1414,7 @@ def hash_expr(expr):
     :arg expr: A UFL expression.
     :returns: A numbering-invariant hash for the expression.
     """
-    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
+    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr, expand_mixed_mesh=False))}
     coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
     constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
     return compute_expression_signature(

@@ -216,7 +216,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = FunctionSpace(V.mesh(), ebig)
+            Vbig = FunctionSpace(V.mesh().unique(), ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
@@ -399,6 +399,7 @@ class FDMPC(PCBase):
         V = J.arguments()[0].function_space()
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
         V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
+        import pdb;pdb.set_trace()
         if V0 is None:
             V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
         if V1 is None:

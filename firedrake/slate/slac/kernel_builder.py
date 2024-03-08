@@ -132,7 +132,11 @@ class LocalLoopyKernelBuilder:
             that are coordinates, orientations, cell sizes and cofficients.
         """
 
-        kernel_data = [(mesh.coordinates, self.coordinates_arg_name)]
+        kernel_data = []
+        for coord_domain_number in kinfo.domain_numbers:
+            if coord_domain_number != 0:
+                raise ValueError("Slate currently only supports single domain")
+            kernel_data.append((mesh.coordinates, self.coordinates_arg_name))
 
         if kinfo.oriented:
             self.bag.needs_cell_orientations = True

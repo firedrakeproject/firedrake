@@ -22,6 +22,7 @@ from .ufl_expr import TestFunction
 from tsfc import compile_form as tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.driver import collect_domains_in_form
 
 from pyop2 import op2
 from pyop2.caching import Cached
@@ -43,6 +44,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
+                                     "domain_numbers",
                                      "coefficient_numbers",
                                      "constant_numbers",
                                      "needs_cell_facets",
@@ -113,9 +115,10 @@ class TSFCKernel(Cached):
         comm.barrier()
 
     @classmethod
-    def _cache_key(cls, form, name, parameters, coefficient_numbers, constant_numbers, interface, diagonal=False):
+    def _cache_key(cls, form, name, parameters, domain_number_map, coefficient_numbers, constant_numbers, interface, diagonal=False):
         return md5((form.signature() + name
                     + str(sorted(parameters.items()))
+                    + str(domain_number_map)
                     + str(coefficient_numbers)
                     + str(constant_numbers)
                     + str(type(interface))
@@ -126,6 +129,7 @@ class TSFCKernel(Cached):
         form,
         name,
         parameters,
+        domain_number_map,
         coefficient_numbers,
         constant_numbers,
         interface,
@@ -136,6 +140,7 @@ class TSFCKernel(Cached):
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
+        :arg domain_number_map: Map from domain numbers in the provided (split) form to domain numbers in the original form.
         :arg coefficient_numbers: Map from coefficient numbers in the provided (split) form to coefficient numbers in the original form.
         :arg constant_numbers: Map from local constant numbers in the provided (split) form to constant numbers in the original form.
         :arg interface: the KernelBuilder interface for TSFC (may be None)
@@ -148,6 +153,8 @@ class TSFCKernel(Cached):
                                  diagonal=diagonal, log=PETSc.Log.isActive())
         kernels = []
         for kernel in tree:
+            domain_number = domain_number_map[kernel.domain_number]
+            domain_numbers = tuple(domain_number_map[dn] for dn in kernel.domain_numbers)
             # Individual kernels do not have to use all of the coefficients
             # provided by the (split) form. Here we combine the numberings
             # of (kernel coefficients -> split form coefficients) and
@@ -170,7 +177,8 @@ class TSFCKernel(Cached):
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
-                                      domain_number=kernel.domain_number,
+                                      domain_number=domain_number,
+                                      domain_numbers=domain_numbers,
                                       coefficient_numbers=coefficient_numbers_per_kernel,
                                       constant_numbers=constant_numbers_per_kernel,
                                       needs_cell_facets=False,
@@ -234,6 +242,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
 
     kernels = []
     numbering = form.terminal_numbering()
+    all_meshes_in_form = collect_domains_in_form(form)
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -249,8 +258,10 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
             continue
-        # Map local coefficient/constant numbers (as seen inside the
+        # Map local domain/coefficient/constant numbers (as seen inside the
         # compiler) to the global coefficient/constant numbers
+        all_meshes_in_subform = collect_domains_in_form(f)
+        domain_number_map = tuple(all_meshes_in_form.index(m) for m in all_meshes_in_subform)
         coefficient_numbers = tuple(
             numbering[c] for c in f.coefficients()
         )
@@ -259,6 +270,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         )
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         kinfos = TSFCKernel(f, prefix, parameters,
+                            domain_number_map,
                             coefficient_numbers,
                             constant_numbers,
                             interface, diagonal).kernels
