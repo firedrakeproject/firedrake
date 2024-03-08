@@ -309,25 +309,31 @@ class FDMPC(PCBase):
             # Preallocate and assemble the FDM auxiliary sparse operator
             on_diag = Vrow == Vcol
             P = self.setup_block(Vrow, Vcol, pmat_type, broken, addv)
-            self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
-            # populate diagonal entries
-            if on_diag:
-                n = len(self.non_ghosted_lgmaps[Vrow].indices)
-                i = numpy.arange(n, dtype=PETSc.IntType).reshape(-1, 1)
-                v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
-                P.setValuesLocalRCV(i, i, v, addv=addv)
-            P.assemble()
+            if pmat_type == "is":
+                self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
+                # populate diagonal entries
+                if on_diag:
+                    n = len(self.non_ghosted_lgmaps[Vrow].indices)
+                    i = numpy.arange(n, dtype=PETSc.IntType)[:, None]
+                    v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
+                    P.setValuesLocalRCV(i, i, v, addv=addv)
+                P.assemble()
 
             # append callables to zero entries, insert element matrices, and apply BCs
             assembly_callables.append(P.zeroEntries)
-            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, mat_type=P.getType()))
+            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv))
             if on_diag:
                 own = Vrow.dof_dset.layout_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
-                Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
-                assembly_callables.append(P.assemble)
-                assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
-                # assembly_callables.append(P.view)
+                if pmat_type == "is":
+                    Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
+                    assembly_callables.append(P.assemble)
+                    assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
+                    # assembly_callables.append(P.view)
+                else:
+                    v = numpy.ones(bdofs.shape, PETSc.ScalarType)
+                    assembly_callables.append(partial(P.setValuesLocalRCV, bdofs, bdofs, v, addv=addv))
+                    assembly_callables.append(P.assemble)
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
@@ -358,7 +364,7 @@ class FDMPC(PCBase):
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
             for Vrow, iset in zip(V, Pmat.getNestISs()[0]):
                 set_nullspaces(Pmats[Vrow, Vrow], Amat, iset=iset)
-        assembly_callables.append(Pmat.assemble)
+            assembly_callables.append(Pmat.assemble)
         assembly_callables.extend(diagonal_terms)
         return Amat, Pmat, assembly_callables
 
@@ -734,14 +740,15 @@ class FDMPC(PCBase):
         preallocator.setISAllowRepeated(broken)
         preallocator.setLGMap(rmap, cmap)
         preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+        if ptype.endswith("sbaij"):
+            preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
         preallocator.setUp()
         self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
         preallocator.assemble()
         dnz, onz = get_preallocation(preallocator, sizes[0][0])
-        preallocator.destroy()
-
         if on_diag:
             numpy.maximum(dnz, 1, out=dnz)
+        preallocator.destroy()
         P = PETSc.Mat().create(comm=self.comm)
         P.setType(ptype)
         P.setSizes(sizes)
@@ -749,7 +756,8 @@ class FDMPC(PCBase):
         P.setLGMap(rmap, cmap)
         P.setPreallocationNNZ((dnz, onz))
 
-        P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
+        if not (ptype.endswith("sbaij") or ptype == "is"):
+            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
         P.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, True)
@@ -760,7 +768,7 @@ class FDMPC(PCBase):
         return P
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
+    def set_values(self, A, Vrow, Vcol, addv, mat_type=None):
         """Assemble the auxiliary operator in the FDM basis using sparse
         reference tensors and diagonal mass matrices.
 
@@ -783,6 +791,7 @@ class FDMPC(PCBase):
         try:
             assembler = self.assemblers[key]
         except KeyError:
+            mat_type = mat_type or A.getType()
             spaces = (Vrow,) if on_diag else (Vrow, Vcol)
             indices_acc = tuple(self.indices_acc[V] for V in spaces)
             coefficients = self.coefficients["cell"]
@@ -850,9 +859,8 @@ class ElementKernel:
                     return PETSC_SUCCESS;
                 }""")
         if mat_type != "matfree":
-            select_cols = """
-        for (PetscInt j = ai[i]; j < ai[i + 1]; j++)
-            indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
+            select_cols = """for (PetscInt j = ai[i]; j < ai[i + 1]; j++) indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
+            select_cols = ""
             code += dedent("""
                 static inline PetscErrorCode MatSetValuesLocalSparse(const Mat A, const Mat B,
                                                                      const PetscInt *restrict rindices,
