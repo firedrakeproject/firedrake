@@ -16,6 +16,7 @@ import finat.ufl
 from pyop2 import op2, mpi
 
 from firedrake import dmhooks, utils
+from firedrake.mesh import MeshGeometry, MixedMeshTopology, MixedMeshGeometry 
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
@@ -92,9 +93,10 @@ class WithGeometryBase(object):
         generation.
     """
     def __init__(self, mesh, element, component=None, cargo=None):
+        if type(element) is finat.ufl.MixedElement:
+            assert isinstance(mesh, MixedMeshGeometry), f"Got {type(mesh)}"
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
-
         super().__init__(mesh, element, label=cargo.topological._label or "")
         self.component = component
         self.cargo = cargo
@@ -102,13 +104,15 @@ class WithGeometryBase(object):
         self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
-    def create(cls, function_space, mesh):
+    def create(cls, function_space, mesh, parent=None):
         """Create a :class:`WithGeometry`.
 
         :arg function_space: The topological function space to attach
             geometry to.
         :arg mesh: The mesh with geometric information to use.
         """
+        if isinstance(function_space, MixedFunctionSpace):
+            assert isinstance(mesh, MixedMeshGeometry), f"Got {type(mesh)}"
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
@@ -119,7 +123,8 @@ class WithGeometryBase(object):
         component = function_space.component
 
         if function_space.parent is not None:
-            parent = cls.create(function_space.parent, mesh)
+            if parent is None:
+                raise AssertionError
         else:
             parent = None
 
@@ -149,8 +154,12 @@ class WithGeometryBase(object):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.subfunctions)
+        if len(self) == 1:
+            return (self, )
+        else:
+            assert isinstance(self.mesh(), MixedMeshGeometry)
+            return tuple(type(self).create(subspace, mesh, parent=self)
+                         for mesh, subspace in zip(self.mesh(), self.topological.subfunctions, strict=True))
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -175,10 +184,10 @@ class WithGeometryBase(object):
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
-            return tuple(type(self).create(self.topological.sub(i), self.mesh())
+            return tuple(type(self).create(self.topological.sub(i), self.mesh(), parent=self)
                          for i in range(self.value_size))
         else:
-            return self.subfunctions
+            raise AssertionError
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -188,7 +197,10 @@ class WithGeometryBase(object):
             bound = len(self)
         if i < 0 or i >= bound:
             raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
-        return self._components[i]
+        if len(self) == 1:
+            return self._components[i]
+        else:
+            return self.subfunctions[i]
 
     @utils.cached_property
     def dm(self):
@@ -298,7 +310,7 @@ class WithGeometryBase(object):
     def __eq__(self, other):
         try:
             return self.topological == other.topological and \
-                self.mesh() is other.mesh()
+                self.mesh() == other.mesh()
         except AttributeError:
             return False
 
@@ -349,6 +361,7 @@ class WithGeometryBase(object):
         """
         # Have to replicate the definition from FunctionSpace because
         # we want to access the DM on the WithGeometry object.
+        assert not isinstance(self.topological, MixedFunctionSpace)
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     def collapse(self):
@@ -361,9 +374,15 @@ class WithGeometryBase(object):
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
-            spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
-            new = MixedFunctionSpace(spaces, name=name)
+            if isinstance(mesh, MeshGeometry):
+                mesh = MixedMeshGeometry(*[mesh for _ in element.sub_elements])
+                topology = mesh.topology
+            else:
+                assert isinstance(mesh, MixedMeshGeometry)
+            spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
+            new = MixedFunctionSpace(spaces, topology, name=name)
         else:
+            assert not isinstance(topology, MixedMeshTopology), f"Got {type(topology)}"
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
             check_element(element)
             if element.family() == "Real":
@@ -421,7 +440,8 @@ class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
                                            cargo=cargo)
 
     def dual(self):
-        return FiredrakeDualSpace.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return FiredrakeDualSpace.create(self.topological, self.mesh(), parent=parent)
 
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
@@ -432,7 +452,8 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
                                                  cargo=cargo)
 
     def dual(self):
-        return WithGeometry.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return WithGeometry.create(self.topological, self.mesh(), parent=parent)
 
 
 class FunctionSpace(object):
@@ -560,7 +581,7 @@ class FunctionSpace(object):
         if not isinstance(other, FunctionSpace):
             return False
         # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.dof_dset is other.dof_dset and \
             self.ufl_element() == other.ufl_element() and \
             self.component == other.component
@@ -933,11 +954,12 @@ class MixedFunctionSpace(object):
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None):
+    def __init__(self, spaces, mesh, name=None):
         super(MixedFunctionSpace, self).__init__()
+        assert isinstance(mesh, MixedMeshTopology), f"Got {type(mesh)}"
+        assert len(mesh) == len(spaces)
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
                                                      finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
@@ -1132,7 +1154,9 @@ class MixedFunctionSpace(object):
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
+        # TODO: Think harder.
+        m = self.mesh()[0]
+        _, level = get_level(m)
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
@@ -1306,7 +1330,7 @@ class RealFunctionSpace(FunctionSpace):
         if not isinstance(other, RealFunctionSpace):
             return False
         # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.ufl_element() == other.ufl_element()
 
     def __ne__(self, other):
