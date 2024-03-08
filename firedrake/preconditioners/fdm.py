@@ -266,12 +266,12 @@ class FDMPC(PCBase):
             return indices_acc
 
         broken = pmat_type == "is"
+        self.V = V
         self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub, pmat_type, broken) for Vsub in V}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
-        self.kernels = []
         Pmats = {}
 
         # Dictionary with kernel to compute the Schur complement
@@ -308,40 +308,7 @@ class FDMPC(PCBase):
 
             # Preallocate and assemble the FDM auxiliary sparse operator
             on_diag = Vrow == Vcol
-            sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
-            ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
-            rlgmap = self.non_ghosted_lgmaps[Vrow]
-            clgmap = self.non_ghosted_lgmaps[Vcol]
-
-            preallocator = PETSc.Mat().create(comm=self.comm)
-            preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-            preallocator.setSizes(sizes)
-            preallocator.setISAllowRepeated(broken)
-            preallocator.setLGMap(rlgmap, clgmap)
-            preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-            preallocator.setUp()
-            self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
-            preallocator.assemble()
-            dnz, onz = get_preallocation(preallocator, sizes[0][0])
-            if on_diag:
-                numpy.maximum(dnz, 1, out=dnz)
-            preallocator.destroy()
-
-            P = PETSc.Mat().create(comm=self.comm)
-            P.setType(ptype)
-            P.setSizes(sizes)
-            P.setISAllowRepeated(broken)
-            P.setLGMap(rlgmap, clgmap)
-            P.setPreallocationNNZ((dnz, onz))
-
-            P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
-            P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
-            P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
-            if ptype.endswith("sbaij"):
-                P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-            P.setUp()
-
+            P = self.setup_block(Vrow, Vcol, pmat_type, broken, addv)
             self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
             # populate diagonal entries
             if on_diag:
@@ -353,7 +320,7 @@ class FDMPC(PCBase):
 
             # append callables to zero entries, insert element matrices, and apply BCs
             assembly_callables.append(P.zeroEntries)
-            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, mat_type=ptype))
+            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv, mat_type=P.getType()))
             if on_diag:
                 own = Vrow.dof_dset.layout_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
@@ -391,8 +358,7 @@ class FDMPC(PCBase):
             Pmat = PETSc.Mat().createNest([[Pmats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=self.comm)
             for Vrow, iset in zip(V, Pmat.getNestISs()[0]):
                 set_nullspaces(Pmats[Vrow, Vrow], Amat, iset=iset)
-            assembly_callables.append(Pmat.assemble)
-
+        assembly_callables.append(Pmat.assemble)
         assembly_callables.extend(diagonal_terms)
         return Amat, Pmat, assembly_callables
 
@@ -568,9 +534,7 @@ class FDMPC(PCBase):
         V = args_J[0].function_space()
         fe = V.finat_element
         formdegree = fe.formdegree
-        degree = fe.degree
-        if type(degree) != int:
-            degree, = set(degree)
+        degree, = set(as_tuple(fe.degree))
         qdeg = degree
         if formdegree == tdim:
             qfam = "DG" if tdim == 1 else "DQ"
@@ -637,9 +601,7 @@ class FDMPC(PCBase):
         fe = V.finat_element
         tdim = fe.cell.get_spatial_dimension()
         formdegree = fe.formdegree
-        degree = fe.degree
-        if type(degree) != int:
-            degree, = set(degree)
+        degree, = set(as_tuple(fe.degree))
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(fe)
@@ -736,6 +698,67 @@ class FDMPC(PCBase):
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
         return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
 
+    @cached_property
+    def _element_kernels(self):
+        M = self._element_mass_matrix
+        element_kernels = {}
+        for Vrow, Vcol in product(self.V, self.V):
+            # Interpolation of basis and exterior derivative onto broken spaces
+            C1 = self.assemble_reference_tensor(Vcol)
+            R1 = self.assemble_reference_tensor(Vrow, transpose=True)
+            # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
+            element_kernel = TripleProductKernel(R1, M, C1)
+            schur_kernel = self.schur_kernel.get(Vrow) if Vrow == Vcol else None
+            if schur_kernel is not None:
+                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                C0 = self.assemble_reference_tensor(V0, sort_interior=True)
+                R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
+                element_kernel = schur_kernel(element_kernel,
+                                              TripleProductKernel(R1, M, C0),
+                                              TripleProductKernel(R0, M, C1),
+                                              TripleProductKernel(R0, M, C0))
+            element_kernels[Vrow, Vcol] = element_kernel
+        return element_kernels
+
+    def setup_block(self, Vrow, Vcol, pmat_type, broken, addv):
+        # Preallocate the auxiliary sparse operator
+        sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
+        rmap = self.non_ghosted_lgmaps[Vrow]
+        cmap = self.non_ghosted_lgmaps[Vcol]
+        on_diag = Vrow == Vcol
+        ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
+
+        preallocator = PETSc.Mat().create(comm=self.comm)
+        preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+        preallocator.setSizes(sizes)
+        preallocator.setISAllowRepeated(broken)
+        preallocator.setLGMap(rmap, cmap)
+        preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+        preallocator.setUp()
+        self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
+        preallocator.assemble()
+        dnz, onz = get_preallocation(preallocator, sizes[0][0])
+        preallocator.destroy()
+
+        if on_diag:
+            numpy.maximum(dnz, 1, out=dnz)
+        P = PETSc.Mat().create(comm=self.comm)
+        P.setType(ptype)
+        P.setSizes(sizes)
+        P.setISAllowRepeated(broken)
+        P.setLGMap(rmap, cmap)
+        P.setPreallocationNNZ((dnz, onz))
+
+        P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, ptype != "is")
+        P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
+        P.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, True)
+        P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
+        if ptype.endswith("sbaij"):
+            P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+        P.setUp()
+        return P
+
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
         """Assemble the auxiliary operator in the FDM basis using sparse
@@ -760,27 +783,12 @@ class FDMPC(PCBase):
         try:
             assembler = self.assemblers[key]
         except KeyError:
-            M = self._element_mass_matrix
-            # Interpolation of basis and exterior derivative onto broken spaces
-            C1 = self.assemble_reference_tensor(Vcol)
-            R1 = self.assemble_reference_tensor(Vrow, transpose=True)
-
-            # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
-            element_kernel = TripleProductKernel(R1, M, C1)
-            schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
-            if schur_kernel is not None:
-                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
-                C0 = self.assemble_reference_tensor(V0, sort_interior=True)
-                R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
-                element_kernel = schur_kernel(element_kernel,
-                                              TripleProductKernel(R1, M, C0),
-                                              TripleProductKernel(R0, M, C1),
-                                              TripleProductKernel(R0, M, C0))
-            self.kernels.append(element_kernel)
             spaces = (Vrow,) if on_diag else (Vrow, Vcol)
             indices_acc = tuple(self.indices_acc[V] for V in spaces)
             coefficients = self.coefficients["cell"]
             coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
+
+            element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
             assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
                                     *element_kernel.make_args(A),
@@ -2138,7 +2146,7 @@ class PoissonFDMPC(FDMPC):
         tdim = mesh.topological_dimension()
         Finv = ufl.JacobianInverse(mesh)
 
-        degree = max(as_tuple(V.ufl_element().degree()))
+        degree, = set(as_tuple(V.ufl_element().degree()))
         quad_deg = fcp.get("degree", 2*degree+1)
         dx = ufl.dx(degree=quad_deg, domain=mesh)
         family = "Discontinuous Lagrange" if tdim == 1 else "DQ"
