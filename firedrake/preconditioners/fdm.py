@@ -296,7 +296,7 @@ class FDMPC(PCBase):
 
             # Preallocate and assemble the FDM auxiliary sparse operator
             on_diag = Vrow == Vcol
-            P = self.setup_block(Vrow, Vcol, pmat_type, broken, addv)
+            P = self.setup_block(Vrow, Vcol, addv)
             if pmat_type == "is":
                 self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
                 # populate diagonal entries
@@ -732,18 +732,18 @@ class FDMPC(PCBase):
             lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
         return lgmaps
 
-    def setup_block(self, Vrow, Vcol, pmat_type, broken, addv):
+    def setup_block(self, Vrow, Vcol, addv):
         # Preallocate the auxiliary sparse operator
         sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
         cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
-        ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
+        ptype = self.mat_type if on_diag else PETSc.Mat.Type.AIJ
 
         preallocator = PETSc.Mat().create(comm=self.comm)
         preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
         preallocator.setSizes(sizes)
-        preallocator.setISAllowRepeated(broken)
+        preallocator.setISAllowRepeated(True)
         preallocator.setLGMap(rmap, cmap)
         preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
         if ptype.endswith("sbaij"):
@@ -758,7 +758,7 @@ class FDMPC(PCBase):
         P = PETSc.Mat().create(comm=self.comm)
         P.setType(ptype)
         P.setSizes(sizes)
-        P.setISAllowRepeated(broken)
+        P.setISAllowRepeated(True)
         P.setLGMap(rmap, cmap)
         P.setPreallocationNNZ((dnz, onz))
 
