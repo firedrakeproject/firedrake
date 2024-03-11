@@ -1798,7 +1798,9 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
+        retval = pack_tensor(self._mesh.coordinates, index, self._integral_type)
+        # breakpoint()
+        return retval
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
@@ -1827,17 +1829,19 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
+        return self._topology.exterior_facets._local_facets[index]
         local_facets = self._topology.exterior_facets.local_facets(
             self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids
         )
-        return local_facets[index.i]
+        return local_facets[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
+        return self._topology.interior_facets._local_facets[index]
         local_facets = self._topology.interior_facets.local_facets(
             self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids
         )
-        return local_facets[index.i]
+        return local_facets[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):

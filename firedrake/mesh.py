@@ -176,7 +176,6 @@ class _Facets:
         nfacets = len(facets)
 
         facet_axis = op3.Axis({mylabel: nfacets}, mesh.topology.name)
-        self.myset = facet_axis
         self.facets = op3.HierarchicalArray(facet_axis, data=facets)
 
         # Dat indicating which local facet of each adjacent cell corresponds
@@ -204,16 +203,17 @@ class _Facets:
 
     @utils.cached_property
     def set(self):
-        return self.myset
-        # return self.facets.axes
-        # doing the following works for unlabelled bits... I guess otherwise maps
-        # would break... as the "from axis" is numbered wrongly...
         if self._rank == 1:
             mylabel = "ext_facets"
         else:
             assert self._rank == 2
             mylabel = "int_facets"
-        slice_ = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, self.facets, label=mylabel)], label=self.mesh.name)
+
+        return op3.Axis({mylabel: self.facets.size}, self.mesh.topology.name)
+        # return self.facets.axes
+        # doing the following works for unlabelled bits... I guess otherwise maps
+        # would break... as the "from axis" is numbered wrongly...
+        slice_ = op3.Slice(self.mesh.topology.name, [op3.Subset(self.mesh.facet_label, self.facets, label=mylabel)], label=self.mesh.topology.name)
         return self.mesh.points[slice_]
         # size = self.classes
         # if isinstance(self.mesh, ExtrudedMeshTopology):
@@ -253,7 +253,9 @@ class _Facets:
          :returns: A :class:`pyop2.Subset` for iteration.
         """
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
-        return self.set[subset]
+        retval = self.set[subset]
+        # breakpoint()
+        return retval
 
     def local_facets(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
@@ -351,9 +353,8 @@ class _Facets:
             # breakpoint()
             # FIXME, specific labels here
             mylabel = "ext_facets" if self._rank == 1 else "int_facets"
-            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({mylabel: len(indices)}, self.mesh.topology.name)]), data=indices)
-
-            subset = op3.Slice(self.mesh.name, [op3.Subset(mylabel, indices_dat)])
+            indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
+            subset = op3.Slice(self.mesh.topology.name, [op3.Subset(mylabel, indices_dat)])
         else:
             raise NotImplementedError
             subset = self._null_subset
@@ -937,7 +938,7 @@ class AbstractMeshTopology(abc.ABC):
             op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1),
         ]
         supports[freeze({self.name: "int_facets"})] = [
-            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat),
+            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat, arity=2),
         ]
 
         return op3.Map(supports)
@@ -1002,8 +1003,6 @@ class AbstractMeshTopology(abc.ABC):
             ext_facet_support_dat.set_value([fi, 0], cell)
 
         return ext_facet_support_dat
-
-        return facet_support_dat[ext_facets_subset]
 
     @cached_property
     def _interior_facet_support_dat(self):
