@@ -41,8 +41,9 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
     res = sqrt(assemble(inner(out - exact, out - exact) * dx))
 
     if not test_mode:
+        from firedrake.output import VTKFile
         print("The error is ", res)
-        file = File("side-bcs.pvd")
+        file = VTKFile("side-bcs.pvd")
         file.write(out, exact)
     return res
 
@@ -81,8 +82,9 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
     res = sqrt(assemble(inner(out - exact, out - exact) * dx))
 
     if not test_mode:
+        from firedrake.output import VTKFile
         print("The error is ", res)
-        file = File("side-bcs.pvd")
+        file = VTKFile("side-bcs.pvd")
         file.write(out, exact)
     return res
 

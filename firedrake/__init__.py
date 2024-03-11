@@ -93,7 +93,6 @@ from firedrake.exceptions import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
-from firedrake.output import *
 from firedrake.linear_solver import *
 from firedrake.preconditioners import *
 from firedrake.mesh import *
@@ -118,6 +117,7 @@ from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
+from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 from firedrake.fml import *
 
@@ -127,7 +127,11 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot
+from firedrake._deprecation import plot, File  # noqa: F401
+# Once `File` is deprecated update the above line removing `File` and add
+#   from firedrake._deprecation import output
+#   sys.modules["firedrake.output"] = output
+#   from firedrake.output import *
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
