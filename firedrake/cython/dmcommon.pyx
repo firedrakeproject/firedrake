@@ -341,6 +341,7 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
     comparison with the associated FIAT cones.
     The reordered DMPlex cones are later used to construct cell_closure and to
     compute orientations.
+
     """
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
@@ -392,16 +393,19 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
 
 
-cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
-                                           PetscInt p,
-                                           PetscInt *plex_closure,
-                                           PetscInt *fiat_closure):
+cdef inline PetscInt _reorder_plex_closure(
+    PETSc.DM dm,
+    PetscInt p,
+    PetscInt *plex_closure,
+    PetscInt *fiat_closure,
+    PetscInt *orientations,
+):
     """Reorder DMPlex closure for FIAT closure.
 
     :arg dm: The DMPlex object
     :arg p: The plex point
     :arg plex_closure: The original DMPlex closure
-    :arg fiat_closure: The reorderd closure (output)
+    :arg fiat_closure: The reordered closure (output)
 
     This function defines fixed rules to reorder DMPlex closures
     for FIAT closures.
@@ -411,6 +415,8 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
     Indeed the same FIAT closure can be obtained merely using
     _reorder_plex_cone() and ensuring that the cell orientation is 0.
     """
+    cdef PetscDMPolytopeType ct = dm.getCellType(p)
+
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
         raise RuntimeError(f"POINT has no cone")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT:
@@ -418,20 +424,47 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #
         # PETSc.DM.PolytopeType.  1---0---2
         # SEGMENT:
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        fiat_closure[0] = plex_closure[2*0]
+        orientations[0] = plex_closure[2*0+1]
+
+        fiat_closure[1] = plex_closure[2*1]
+        orientations[1] = plex_closure[2*1+1]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE:
         # UFCTriangle:            1 
-        #                         | \
+        #                         ↑ ↘
         #                         5   3
-        #                         |  6   \
-        #                         0---4---2
+        #                         ↑  6  ↘
+        #                         0 → 4 → 2
         #
-        # PETSc.DM.PolytopeType.  4
-        # TRIANGLE:               | \
-        #                         3   1
-        #                         |  0   \
-        #                         6---2---5
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        # PETSc.DM.PolytopeType.  5
+        # TRIANGLE:               ↑ ↘
+        #                         1   2
+        #                         ↑  0  ↘
+        #                         4 ← 3 ← 6
+
+        # TODO: could straightforwardly-ish convert these directly to FIAT orientations
+        fiat_closure[0] = plex_closure[2*4]
+        orientations[0] = plex_closure[2*4+1]
+
+        fiat_closure[1] = plex_closure[2*5]
+        orientations[1] = plex_closure[2*5+1]
+
+        fiat_closure[2] = plex_closure[2*6]
+        orientations[2] = plex_closure[2*6+1]
+
+        fiat_closure[3] = plex_closure[2*2]
+        orientations[3] = plex_closure[2*2+1]
+
+        # this edge is flipped
+        fiat_closure[4] = plex_closure[2*3]
+        orientations[4] = DMPolytopeTypeComposeOrientation(ct, plex_closure[2*3 + 1], -1)
+
+        fiat_closure[5] = plex_closure[2 * 1]
+        orientations[5] = plex_closure[2 * 1+1]
+
+        fiat_closure[6] = plex_closure[2 * 0]
+        orientations[6] = plex_closure[2 * 0+1]
+
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
         # UFCTetrahedron:         0---9---1---9---0
         #                          \ 12  / \ 13  /
@@ -523,6 +556,61 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
 
 
+def cell_orientation_from_vertex_arrangement(
+    cell_type,
+    vertex_ordering
+):
+    cdef:
+        PetscDMPolytopeType ct
+        PetscInt nvert, narr
+        PetscInt *arr
+
+    ct = cell_type
+    nvert = DMPolytopeTypeGetNumVertices(ct)
+    narr = DMPolytopeTypeGetNumArrangments(ct)
+    shift = narr // 2
+    for o in range(-shift, shift):
+        arr = DMPolytopeTypeGetVertexArrangment(ct, o)
+
+        # compare to vertex_ordering
+        equal = True
+        for i in range(nvert):
+            if arr[i] != vertex_ordering[i]:
+                equal = False
+                break
+        if equal:
+            return o
+
+    raise ValueError(f"No valid orientation found for vertex arrangement {vertex_ordering}")
+
+
+def _ordering(iterable):
+    iterable = list(iterable)
+    return tuple(iterable.index(p) for p in sorted(iterable))
+
+
+def orient_mesh(PETSc.DM dm, vertex_numbering):
+    cdef:
+        PetscDMPolytopeType ct
+        PetscInt o, nverts
+
+    pstart, pend = dm.getChart()
+    for p in range(pstart, pend):
+        cell_type = dm.getCellType(p)
+
+        # vertices have just a single orientation
+        if cell_type == PETSc.DM.PolytopeType.POINT:
+            continue
+
+        ct = cell_type
+        nverts = DMPolytopeTypeGetNumVertices(ct)
+        verts = dm.getTransitiveClosure(p)[0][-nverts:]
+        verts_renum = [vertex_numbering.getOffset(v) for v in verts]
+        vertex_ordering = _ordering(verts_renum)
+        o = cell_orientation_from_vertex_arrangement(cell_type, vertex_ordering)
+        DMPlexOrientPoint(dm.dm, p, o)
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def create_cell_closure(PETSc.DM dm,
@@ -538,7 +626,7 @@ def create_cell_closure(PETSc.DM dm,
         PetscInt c, cStart, cEnd, cell, i
         PetscInt closureSize = _closureSize, closureSize1
         PetscInt *closure = NULL
-        PetscInt *fiat_closure = NULL
+        PetscInt *fiat_closure = NULL, *fiat_orientations = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
@@ -550,16 +638,20 @@ def create_cell_closure(PETSc.DM dm,
             raise RuntimeError(f"point 0 and point {c} have different cell types")
         restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
     cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
+    orientations = np.empty((cEnd - cStart, closureSize), dtype=IntType)
     CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    CHKERR(PetscMalloc1(closureSize, &fiat_orientations))
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        _reorder_plex_closure(dm, c, closure, fiat_closure)
+        _reorder_plex_closure(dm, c, closure, fiat_closure, fiat_orientations)
         restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
         for i in range(closureSize):
             cell_closure[cell, i] = fiat_closure[i]
+            orientations[cell, i] = fiat_orientations[i]
     CHKERR(PetscFree(fiat_closure))
-    return cell_closure
+    CHKERR(PetscFree(fiat_orientations))
+    return cell_closure, orientations
 
 
 @cython.boundscheck(False)

@@ -26,6 +26,28 @@ cdef extern from "petsc.h":
         PETSC_COMPLEX,
         PETSC_DATATYPE_UNKNOWN
 
+cdef extern from * nogil:
+    ctypedef enum PetscDMPolytopeType "DMPolytopeType":
+        DM_POLYTOPE_POINT
+        DM_POLYTOPE_SEGMENT
+        DM_POLYTOPE_POINT_PRISM_TENSOR
+        DM_POLYTOPE_TRIANGLE
+        DM_POLYTOPE_QUADRILATERAL
+        DM_POLYTOPE_SEG_PRISM_TENSOR
+        DM_POLYTOPE_TETRAHEDRON
+        DM_POLYTOPE_HEXAHEDRON
+        DM_POLYTOPE_TRI_PRISM
+        DM_POLYTOPE_TRI_PRISM_TENSOR
+        DM_POLYTOPE_QUAD_PRISM_TENSOR
+        DM_POLYTOPE_PYRAMID
+        DM_POLYTOPE_FV_GHOST
+        DM_POLYTOPE_INTERIOR_GHOST
+        DM_POLYTOPE_UNKNOWN
+        DM_POLYTOPE_UNKNOWN_CELL
+        DM_POLYTOPE_UNKNOWN_FACE
+        DM_NUM_POLYTOPES
+
+
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
     int PetscMalloc2(PetscInt,void*,PetscInt,void*)
@@ -54,6 +76,8 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
 
+    int DMPlexOrientPoint(PETSc.PetscDM,PetscInt,PetscInt)
+
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
@@ -71,6 +95,12 @@ cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+
+    PetscInt DMPolytopeTypeGetNumVertices(PetscDMPolytopeType)
+    PetscInt DMPolytopeTypeComposeOrientation(PetscDMPolytopeType,PetscInt,PetscInt)
+    PetscInt DMPolytopeTypeGetNumArrangments(PetscDMPolytopeType)
+    PetscInt* DMPolytopeTypeGetArrangment(PetscDMPolytopeType,PetscInt)
+    PetscInt* DMPolytopeTypeGetVertexArrangment(PetscDMPolytopeType,PetscInt)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
