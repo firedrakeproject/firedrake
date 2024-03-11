@@ -836,7 +836,6 @@ Firedrake. Please do not cite this as a general source for Firedrake
 or any of its dependencies. Instead, refer to
 https://www.firedrakeproject.org/citing.html"""
 
-
 for component in (set(shas) & set(components)):
     log.info("Releasing %s" % component)
     repo = gh.repository(projects[component], component)
