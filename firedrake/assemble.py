@@ -4,7 +4,6 @@ from collections.abc import Sequence  # noqa: F401
 import functools
 import itertools
 from itertools import product
-import operator
 
 import cachetools
 import finat
@@ -1349,9 +1348,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for local_kernel in self._all_local_kernels:
                 i, j = local_kernel.indices
                 # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-                get_map, region = ExplicitMatrixAssembler.integral_type_op2_map()[local_kernel.kinfo.integral_type]
-                rmap_ = get_map(test).split[i] if get_map(test) is not None else None
-                cmap_ = get_map(trial).split[j] if get_map(trial) is not None else None
+                integral_type = local_kernel.kinfo.integral_type
+                rmap_ = test.function_space().topological[i].entity_node_map(integral_type)
+                # rmap_ = rmap_.split[i] if rmap_ is not None else None
+                cmap_ = trial.function_space().topological[j].entity_node_map(integral_type)
+                # cmap_ = cmap_.split[j] if cmap_ is not None else None
+                region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                 maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                     for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1365,31 +1367,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         maps_and_regions = defaultdict(lambda: defaultdict(set))
         # Use outer product of component maps.
         for integral_type in allocation_integral_types:
-            get_map, region = ExplicitMatrixAssembler.integral_type_op2_map()[integral_type]
-            for i, rmap_ in enumerate(get_map(test)):
-                for j, cmap_ in enumerate(get_map(trial)):
+            region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
+            for i, rmap_ in enumerate(test.function_space().topological.entity_node_map(integral_type)):
+                for j, cmap_ in enumerate(trial.function_space().topological.entity_node_map(integral_type)):
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
-    @classmethod
-    def integral_type_op2_map(cls):
-        # Make this a property once we drop python3.8.
-        try:
-            return cls._integral_type_op2_map
-        except AttributeError:
-            get_cell_map = operator.methodcaller("cell_node_map")
-            get_extf_map = operator.methodcaller("exterior_facet_node_map")
-            get_intf_map = operator.methodcaller("interior_facet_node_map")
-            cls._integral_type_op2_map = {"cell": (get_cell_map, op2.ALL),
-                                          "exterior_facet_bottom": (get_cell_map, op2.ON_BOTTOM),
-                                          "exterior_facet_top": (get_cell_map, op2.ON_TOP),
-                                          "interior_facet_horiz": (get_cell_map, op2.ON_INTERIOR_FACETS),
-                                          "exterior_facet": (get_extf_map, op2.ALL),
-                                          "exterior_facet_vert": (get_extf_map, op2.ALL),
-                                          "interior_facet": (get_intf_map, op2.ALL),
-                                          "interior_facet_vert": (get_intf_map, op2.ALL)}
-            return cls._integral_type_op2_map
+    _integral_type_region_map = \
+        {"cell": op2.ALL,
+         "exterior_facet_bottom": op2.ON_BOTTOM,
+         "exterior_facet_top": op2.ON_TOP,
+         "interior_facet_horiz": op2.ON_INTERIOR_FACETS,
+         "exterior_facet": op2.ALL,
+         "exterior_facet_vert": op2.ALL,
+         "interior_facet": op2.ALL,
+         "interior_facet_vert": op2.ALL}
 
     @cached_property
     def _all_local_kernels(self):
@@ -2006,16 +1999,7 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-
-        if self._integral_type in {"cell", "exterior_facet_top",
-                                   "exterior_facet_bottom", "interior_facet_horiz"}:
-            return V.cell_node_map()
-        elif self._integral_type in {"exterior_facet", "exterior_facet_vert"}:
-            return V.exterior_facet_node_map()
-        elif self._integral_type in {"interior_facet", "interior_facet_vert"}:
-            return V.interior_facet_node_map()
-        else:
-            raise AssertionError
+        return V.entity_node_map(self._integral_type)
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
