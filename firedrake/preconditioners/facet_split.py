@@ -1,6 +1,7 @@
 from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
+from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -208,11 +209,7 @@ def split_dofs(elem):
     edofs = [[], []]
     for key in sorted(entity_dofs.keys()):
         vals = entity_dofs[key]
-        edim = key
-        try:
-            edim = sum(edim)
-        except TypeError:
-            pass
+        edim = sum(as_tuple(key))
         for k in sorted(vals.keys()):
             edofs[edim < ndim].extend(sorted(vals[k]))
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)

@@ -61,6 +61,33 @@ Citations().add("Brubeck2022b", """
 __all__ = ("FDMPC", "PoissonFDMPC")
 
 
+def get_broken_indices(V, indices):
+    W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
+    w = Function(W, dtype=indices.dtype)
+    v = Function(V, val=indices)
+    domain = "{[i]: 0 <= i < v.dofs}"
+    instructions = """
+    for i
+        w[i] = v[i]
+    end
+    """
+    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+    return w
+
+
+def mask_local_indices(V, lgmap, broken=False):
+    mask = lgmap.indices
+    if broken:
+        w = get_broken_indices(V, mask)
+        V = w.function_space()
+        mask = w.dat.data_ro_with_halos
+    indices = numpy.arange(len(mask), dtype=PETSc.IntType)
+    indices[mask == -1] = -1
+    indices_dat = V.make_dat(val=indices)
+    indices_acc = indices_dat(op2.READ, V.cell_node_map())
+    return indices_acc
+
+
 class FDMPC(PCBase):
     """
     A preconditioner for tensor-product elements that changes the shape
@@ -172,6 +199,8 @@ class FDMPC(PCBase):
         self.pc = fdmpc
 
         # Assemble the FDM preconditioner with sparse local matrices
+        self.V = V_fdm
+        self.mat_type = pmat_type
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
         self._assemble_P()
@@ -226,48 +255,7 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Create data structures needed for assembly
-        def get_broken_indices(V, indices):
-            W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
-            w = Function(W, dtype=indices.dtype)
-            v = Function(V, val=indices)
-            domain = "{[i]: 0 <= i < v.dofs}"
-            instructions = """
-            for i
-                w[i] = v[i]
-            end
-            """
-            par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
-            return w
-
-        def get_lgmap(V, mat_type, broken=False):
-            lgmap = V.dof_dset.lgmap
-            if pmat_type != "is":
-                return lgmap
-            if broken:
-                indices = get_broken_indices(V, lgmap.indices).dat.data_ro
-            else:
-                indices = lgmap.indices.copy()
-                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = get_broken_indices(V, local_indices)
-                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map.dat.data_ro), assume_unique=True)
-                indices[ghost] = -1
-            return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
-
-        def mask_local_indices(V, lgmap, broken=False):
-            mask = lgmap.indices
-            if broken:
-                w = get_broken_indices(V, mask)
-                V = w.function_space()
-                mask = w.dat.data_ro_with_halos
-            indices = numpy.arange(len(mask), dtype=PETSc.IntType)
-            indices[mask == -1] = -1
-            indices_dat = V.make_dat(val=indices)
-            indices_acc = indices_dat(op2.READ, V.cell_node_map())
-            return indices_acc
-
         broken = pmat_type == "is"
-        self.V = V
-        self.non_ghosted_lgmaps = {Vsub: get_lgmap(Vsub, pmat_type, broken) for Vsub in V}
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
@@ -313,8 +301,7 @@ class FDMPC(PCBase):
                 self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
                 # populate diagonal entries
                 if on_diag:
-                    n = len(self.non_ghosted_lgmaps[Vrow].indices)
-                    i = numpy.arange(n, dtype=PETSc.IntType)[:, None]
+                    i = numpy.arange(P.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
                     v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
                     P.setValuesLocalRCV(i, i, v, addv=addv)
                 P.assemble()
@@ -726,11 +713,30 @@ class FDMPC(PCBase):
             element_kernels[Vrow, Vcol] = element_kernel
         return element_kernels
 
+    @cached_property
+    def assembly_lgmaps(self):
+        if self.mat_type != "is":
+            return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
+        broken = True
+        lgmaps = {}
+        for Vsub in self.V:
+            lgmap = Vsub.dof_dset.lgmap
+            if broken:
+                indices = get_broken_indices(Vsub, lgmap.indices).dat.data_ro
+            else:
+                indices = lgmap.indices.copy()
+                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
+                cell_node_map = get_broken_indices(Vsub, local_indices)
+                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map.dat.data_ro), assume_unique=True)
+                indices[ghost] = -1
+            lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+        return lgmaps
+
     def setup_block(self, Vrow, Vcol, pmat_type, broken, addv):
         # Preallocate the auxiliary sparse operator
         sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
-        rmap = self.non_ghosted_lgmaps[Vrow]
-        cmap = self.non_ghosted_lgmaps[Vcol]
+        rmap = self.assembly_lgmaps[Vrow]
+        cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
         ptype = pmat_type if on_diag else PETSc.Mat.Type.AIJ
 
