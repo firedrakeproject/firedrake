@@ -83,6 +83,7 @@ jobs:
             --install fascd \
             --install defcon \
             --install gadopt \
+            --install asQ \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |

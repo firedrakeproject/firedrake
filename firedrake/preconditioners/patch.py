@@ -21,6 +21,7 @@ import weakref
 
 import ctypes
 from pyop2 import op2
+from pyop2.mpi import COMM_SELF
 import pyop2.types
 import pyop2.parloop
 from pyop2.compilation import load
@@ -743,10 +744,10 @@ class PlaneSmoother(object):
                 if not patch:
                     continue
                 else:
-                    iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
+                    iset = PETSc.IS().createGeneral(patch, comm=COMM_SELF)
                     patches.append(iset)
 
-        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=PETSc.COMM_SELF)
+        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=COMM_SELF)
         return (patches, iterationSet)
 
 
@@ -802,7 +803,7 @@ class PatchBase(PCSNESBase):
                 # but doesn't warn!
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
-        patch = obj.__class__().create(comm=obj.comm)
+        patch = obj.__class__().create(comm=mesh.comm)
         patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
@@ -828,7 +829,7 @@ class PatchBase(PCSNESBase):
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
         code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
+        Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
         Jhas_int_facet_kernel = False
@@ -839,7 +840,7 @@ class PatchBase(PCSNESBase):
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
             code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
+            facet_Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
             point2facet = mesh.interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
@@ -858,7 +859,7 @@ class PatchBase(PCSNESBase):
                                                            require_state=True)
 
             code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+            Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
             Fhas_int_facet_kernel = False
@@ -871,7 +872,7 @@ class PatchBase(PCSNESBase):
                                                                            require_state=True,
                                                                            require_facet_number=True)
                 code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+                facet_Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
                 point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,

@@ -20,6 +20,7 @@ hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
 
   mesh = UnitSquareMesh(8, 8)
 
@@ -114,7 +115,7 @@ appropriate settings using solver parameters. ::
 
   u = run_solve(parameters)
   print('MG F-cycle error', error(u))
-     
+
 A saddle-point system: The Stokes equations
 -------------------------------------------
 
@@ -259,7 +260,7 @@ Finally, we'll write the solution for visualisation with Paraview. ::
   u.rename("Velocity")
   p.rename("Pressure")
 
-  File("stokes.pvd").write(u, p)
+  VTKFile("stokes.pvd").write(u, p)
 
 A runnable python version of this demo can be found :demo:`here
 <geometric_multigrid.py>`.
