@@ -49,6 +49,7 @@ method, so lets go ahead and produce a numerical solution.
 First, we always need a mesh. Let's have a :math:`10\times10` element unit square::
 
   from firedrake import *
+  from firedrake.output import VTKFile
   mesh = UnitSquareMesh(10, 10)
 
 We need to decide on the function space in which we'd like to solve the
@@ -93,7 +94,7 @@ of the manual on :doc:`solving PDEs <../solving-interface>`.
 Next, we might want to look at the result, so we output our solution
 to a file::
 
-  File("helmholtz.pvd").write(u)
+  VTKFile("helmholtz.pvd").write(u)
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 

@@ -1349,7 +1349,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for local_kernel in self._all_local_kernels:
                 i, j = local_kernel.indices
                 # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-                get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[local_kernel.kinfo.integral_type]
+                get_map, region = ExplicitMatrixAssembler.integral_type_op2_map()[local_kernel.kinfo.integral_type]
                 rmap_ = get_map(test).split[i] if get_map(test) is not None else None
                 cmap_ = get_map(trial).split[j] if get_map(trial) is not None else None
                 maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
@@ -1365,7 +1365,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         maps_and_regions = defaultdict(lambda: defaultdict(set))
         # Use outer product of component maps.
         for integral_type in allocation_integral_types:
-            get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[integral_type]
+            get_map, region = ExplicitMatrixAssembler.integral_type_op2_map()[integral_type]
             for i, rmap_ in enumerate(get_map(test)):
                 for j, cmap_ in enumerate(get_map(trial)):
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
@@ -1373,8 +1373,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
     @classmethod
-    @property
     def integral_type_op2_map(cls):
+        # Make this a property once we drop python3.8.
         try:
             return cls._integral_type_op2_map
         except AttributeError:

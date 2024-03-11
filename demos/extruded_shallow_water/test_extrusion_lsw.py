@@ -3,6 +3,7 @@
 a sin(x)*sin(y) solution that doesn't care about the silly BCs"""
 
 from firedrake import *
+from firedrake.output import VTKFile
 
 
 power = 5
@@ -37,7 +38,7 @@ T = 0.5
 t = 0
 dt = 0.0025
 
-file = File("lsw3d.pvd")
+file = VTKFile("lsw3d.pvd")
 p_trial = TrialFunction(Xplot)
 p_test = TestFunction(Xplot)
 solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
