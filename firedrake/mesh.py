@@ -148,7 +148,7 @@ class DistributedMeshOverlapType(enum.Enum):
     VERTEX = 3
 
 
-class _Facets(object):
+class _Facets:
     """Wrapper class for facet interation information on a :func:`Mesh`
 
     .. warning::
@@ -168,21 +168,25 @@ class _Facets(object):
         if kind == "interior":
             self._rank = 2
             facets = mesh._interior_facets
+            mylabel = "int_facets"
         else:
             self._rank = 1
             facets = mesh._exterior_facets
+            mylabel = "ext_facets"
         nfacets = len(facets)
 
-        facet_axes = op3.Axis({mesh.topology.facet_label: nfacets}, mesh.topology.name)
-        self.facets = op3.HierarchicalArray(facet_axes, data=facets)
+        facet_axis = op3.Axis({mylabel: nfacets}, mesh.topology.name)
+        self.myset = facet_axis
+        self.facets = op3.HierarchicalArray(facet_axis, data=facets)
 
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
-        root = op3.Axis({mesh.facet_label: nfacets}, mesh.name)
-        axes = op3.AxisTree.from_iterable((root, self._rank))
+        axes = op3.AxisTree.from_iterable((facet_axis, self._rank))
         self._local_facets = op3.HierarchicalArray(
             axes, data=np.asarray(local_facet_number.flatten(), dtype=np.uint32)
+            # axes, data=np.asarray(local_facet_number, dtype=np.uint32)
         )
+        # breakpoint()
         # self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
         #                                "%s_%s_local_facet_number" %
         #                                (self.mesh.name, self.kind))
@@ -200,10 +204,16 @@ class _Facets(object):
 
     @utils.cached_property
     def set(self):
+        return self.myset
         # return self.facets.axes
         # doing the following works for unlabelled bits... I guess otherwise maps
         # would break... as the "from axis" is numbered wrongly...
-        slice_ = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, self.facets)])
+        if self._rank == 1:
+            mylabel = "ext_facets"
+        else:
+            assert self._rank == 2
+            mylabel = "int_facets"
+        slice_ = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, self.facets, label=mylabel)], label=self.mesh.name)
         return self.mesh.points[slice_]
         # size = self.classes
         # if isinstance(self.mesh, ExtrudedMeshTopology):
@@ -340,8 +350,10 @@ class _Facets(object):
             _, indices, _ = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
             # breakpoint()
             # FIXME, specific labels here
-            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({self.mesh.topology.facet_label: len(indices)}, self.mesh.topology.name)]), data=indices)
-            subset = op3.Slice(self.mesh.name, [op3.Subset(self.mesh.facet_label, indices_dat)])
+            mylabel = "ext_facets" if self._rank == 1 else "int_facets"
+            indices_dat = op3.HierarchicalArray(op3.AxisTree.from_iterable([op3.Axis({mylabel: len(indices)}, self.mesh.topology.name)]), data=indices)
+
+            subset = op3.Slice(self.mesh.name, [op3.Subset(mylabel, indices_dat)])
         else:
             raise NotImplementedError
             subset = self._null_subset
@@ -645,7 +657,7 @@ class AbstractMeshTopology(abc.ABC):
             #       point numbers (so they must be saved under different mesh names
             #       even though they are conceptually the same).
             # The name set here almost uniquely identifies a distribution, but
-            # there is no gurantee that it really does or it continues to do so
+            # there is no guarantee that it really does or it continues to do so
             # there are lots of parameters that can change distributions.
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
@@ -888,17 +900,17 @@ class AbstractMeshTopology(abc.ABC):
         """
         pass
 
-    def closure(self, index, ordering=ClosureOrdering.PLEX, col=False):
+    def closure(self, index, ordering=ClosureOrdering.PLEX):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)
 
         if ordering == ClosureOrdering.PLEX:
-            return self._plex_closure(index) if not col else self._plex_closure1(index)
+            return self._plex_closure(index)
         elif ordering == ClosureOrdering.FIAT:
             # target_paths = tuple(index.iterset.target_paths.values())
             # if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
-            return self._fiat_closure(index) if not col else self._fiat_closure1(index)
+            return self._fiat_closure(index)
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
 
@@ -908,67 +920,130 @@ class AbstractMeshTopology(abc.ABC):
     def support(self, index):
         return self._support(index)
 
-    def exterior_facet_support(self, facet):
-        return self._exterior_facet_support(facet)
+    # TODO this is copied from _star, refactor
+    @cached_property
+    def _support(self):
+        supports = {}
+        for dim, item in enumerate(self._support_dats):
+            if dim == self.dimension:
+                continue
+            map_dim, map_dat = op3.utils.just_one(item.items())
+            supports[freeze({self.name: str(dim)})] = [
+                op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+            ]
 
-    def interior_facet_support(self, facet):
-        return self._interior_facet_support(facet)
+        # add exterior and interior facets
+        supports[freeze({self.name: "ext_facets"})] = [
+            op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1),
+        ]
+        supports[freeze({self.name: "int_facets"})] = [
+            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat),
+        ]
+
+        return op3.Map(supports)
 
     @cached_property
-    def _exterior_facet_support(self):
-        facet_key = pmap({self.name: self.facet_label})
-        facet_support_map = op3.utils.just_one(
-            self._support.connectivity[facet_key]
-        )
+    def _support_dats(self):
+        def support_func(pt):
+            return self.topology_dm.getSupport(pt)
 
-        ext_facets_axes = op3.AxisTree.from_iterable([len(self._exterior_facets), 1])
-        ext_facets_dat = op3.HierarchicalArray(ext_facets_axes, data=self._exterior_facets)
-        ext_facets_slice = op3.Slice(self.name, [op3.Subset(self.facet_label, ext_facets_dat)])
-        ext_facet_support_dat = facet_support_map.array[ext_facets_slice]
-        return op3.Map({
-            facet_key: [
-                op3.TabulatedMapComponent(
-                    self.name, self.cell_label, ext_facet_support_dat, arity=1
+        supports = []
+        for dim in range(self.dimension+1):
+            # cells have no support
+            if dim == self.dimension:
+                supports.append({})
+                continue
+
+            map_data, sizes = self._memoize_map(support_func, dim)
+
+            # only the next dimension has entries
+            map_dim = dim + 1
+            size = sizes[map_dim]
+            data = map_data[map_dim]
+
+            # supports should only target a single dimension
+            op3.utils.debug_assert(
+                lambda: all(
+                    (s == 0).all() for d, s in enumerate(sizes) if d != map_dim
                 )
-            ],
-        })
+            )
+
+            outer_axis = self.points[str(dim)].root
+            size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
+            inner_axis = op3.Axis(size_dat)
+            map_axes = op3.AxisTree.from_nest(
+                {outer_axis: inner_axis}
+            )
+            map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="support")
+            supports.append({map_dim: map_dat})
+        return tuple(supports)
 
     @cached_property
-    def _interior_facet_support(self):
-        facet_key = pmap({self.name: self.facet_label})
-        facet_support_map = op3.utils.just_one(
-            self._support.connectivity[facet_key]
+    def _exterior_facet_support_dat(self):
+        facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
+
+        next_facets = len(self._exterior_facets)
+        # ext_facets_axes = op3.Axis(next_facets)
+        # ext_facets_dat = op3.HierarchicalArray(ext_facets_axes, data=self._exterior_facets)
+
+        # ext_facets_subset = op3.Slice(
+        #     self.name,
+        #     [op3.Subset(self.facet_label, ext_facets_dat, label="ext_facets")],
+        #     label=self.name,
+        # )
+
+        ext_facet_support_axes = op3.AxisTree.from_iterable(
+            (op3.Axis({"ext_facets": next_facets}, self.name), 1))
+        ext_facet_support_dat = op3.HierarchicalArray(
+            ext_facet_support_axes, dtype=IntType
+        )
+        for fi, ext_facet in enumerate(self._exterior_facets):
+            cell = facet_support_dat.get_value([ext_facet, 0])
+            ext_facet_support_dat.set_value([fi, 0], cell)
+
+        return ext_facet_support_dat
+
+        return facet_support_dat[ext_facets_subset]
+
+    @cached_property
+    def _interior_facet_support_dat(self):
+        facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
+
+        nint_facets = len(self._interior_facets)
+        # int_facets_axes = op3.Axis(nint_facets)
+        # int_facets_dat = op3.HierarchicalArray(int_facets_axes, data=self._interior_facets)
+
+        int_facet_support_axes = op3.AxisTree.from_iterable(
+            (op3.Axis({"int_facets": nint_facets}, self.name), 2))
+        int_facet_support_dat = op3.HierarchicalArray(
+            int_facet_support_axes, dtype=IntType
         )
 
-        int_facets_axes = op3.Axis(len(self._interior_facets))
-        int_facets_dat = op3.HierarchicalArray(int_facets_axes, data=self._interior_facets)
-        int_facets_slice = op3.Slice(self.name, [op3.Subset(self.facet_label, int_facets_dat)])
-        int_facet_support_dat = facet_support_map.array[int_facets_slice]
-        return op3.Map({
-            facet_key: [
-                op3.TabulatedMapComponent(
-                    self.name, self.cell_label, int_facet_support_dat, arity=2
-                )
-            ],
-        })
+        # int_facets_subset = op3.Slice(
+        #     self.name,
+        #     [op3.Subset(self.facet_label, int_facets_dat, label="int_facets")],
+        #     label=self.name,
+        # )
+
+        # this is bad because it doesn't know that it's a fixed size now...
+        # old = facet_support_dat[int_facets_subset]
+
+        for fi, int_facet in enumerate(self._interior_facets):
+            for ci in range(2):
+                cell = facet_support_dat.get_value([int_facet, ci])
+                int_facet_support_dat.set_value([fi, ci], cell)
+
+        return int_facet_support_dat
 
     @cached_property
     def _plex_closure(self):
         return self._closure_map(ClosureOrdering.PLEX)
 
     @cached_property
-    def _plex_closure1(self):
-        return self._closure_map(ClosureOrdering.PLEX, True)
-
-    @cached_property
     def _fiat_closure(self):
         return self._closure_map(ClosureOrdering.FIAT)
 
-    @cached_property
-    def _fiat_closure1(self):
-        return self._closure_map(ClosureOrdering.FIAT, True)
-
-    def _closure_map(self, ordering, col=False):
+    def _closure_map(self, ordering):
         if ordering == ClosureOrdering.PLEX:
             dims = range(self.dimension+1)
         else:
@@ -982,7 +1057,7 @@ class AbstractMeshTopology(abc.ABC):
             # closures are, for now, always a constant size
             assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
 
-            numbering = None
+            numbering = None  # TODO delete
             if ordering == ClosureOrdering.FIAT:
                 # TODO If the plex is oriented at instantiation, these methods
                 # can be avoided and the default below used.
@@ -996,27 +1071,6 @@ class AbstractMeshTopology(abc.ABC):
                         closure_data, closure_sizes
                     )
 
-                    # Tensor product cells have a different entity ordering. For quads
-                    # we have to renumber from:
-                    #
-                    #     1---7---3
-                    #     |       |
-                    #     4   8   5
-                    #     |       |
-                    #     0---6---2
-                    #
-                    # To:
-                    #
-                    #     1---7---4
-                    #     |       |
-                    #     2   8   5
-                    #     |       |
-                    #     0---6---3
-                    # numbering = np.asarray(
-                    #     [0, 1, 4, 2, 3, 5, 6, 7, 8],
-                    #     dtype=utils.IntType
-                    # )
-                    # no longer do this here, doesn't work for higher order
                     numbering = None
                 else:
                     # If we are passing the closure to TSFC then we need to transform the
@@ -1034,8 +1088,6 @@ class AbstractMeshTopology(abc.ABC):
 
                 target_axis = self.name
                 target_dim = str(map_dim)
-                if col:
-                    target_axis += "1"
 
                 outer_axis = self.points[str(dim)].root
                 inner_axis = op3.Axis(size)
@@ -1043,7 +1095,7 @@ class AbstractMeshTopology(abc.ABC):
                     {outer_axis: inner_axis}
                 )
                 map_dat = op3.HierarchicalArray(
-                    map_axes, data=data.flatten(), prefix="map"
+                    map_axes, data=data.flatten(), prefix="closure"
                 )
                 map_components.append(
                     # testing
@@ -1052,8 +1104,7 @@ class AbstractMeshTopology(abc.ABC):
                 )
             closures[freeze({self.name: str(dim)})] = map_components
 
-        name = "closure" if not col else "closure1"
-        return op3.Map(closures, numbering=numbering, name=name)
+        return op3.Map(closures, numbering=numbering, name="closure")
 
     def _reorder_closure_fiat_simplex(self, closure_data, closure_sizes):
         return dmcommon.closure_ordering(self, closure_data, closure_sizes)
@@ -1113,46 +1164,6 @@ class AbstractMeshTopology(abc.ABC):
             stars[freeze({self.name: str(dim)})] = map_components
 
         return op3.Map(stars)
-
-    # TODO this is copied from _star, refactor
-    @cached_property
-    def _support(self):
-        def support_func(pt):
-            return self.topology_dm.getSupport(pt)
-
-        supports = {}
-        for dim in range(self.dimension+1):
-            # cells have no support
-            if dim == self.dimension:
-                continue
-
-            map_data, sizes = self._memoize_map(support_func, dim)
-
-            # only the next dimension has entries
-            map_dim = dim + 1
-            size = sizes[map_dim]
-            data = map_data[map_dim]
-
-            op3.utils.debug_assert(
-                lambda: all(
-                    (s == 0).all()
-                    for d, s in enumerate(sizes)
-                    if d != map_dim
-                )
-            )
-
-            outer_axis = self.points[str(dim)].root
-            size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
-            inner_axis = op3.Axis(size_dat)
-            map_axes = op3.AxisTree.from_nest(
-                {outer_axis: inner_axis}
-            )
-            map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="map")
-            supports[freeze({self.name: str(dim)})] = [
-                op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
-            ]
-
-        return op3.Map(supports)
 
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
         """Create a PETSc Section describing a function space.

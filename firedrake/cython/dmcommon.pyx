@@ -12,6 +12,7 @@ from libc.string cimport memset
 from libc.stdlib cimport qsort
 from tsfc.finatinterface import as_fiat_cell
 from pyrsistent import pmap
+import pyop3 as op3
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -273,7 +274,7 @@ def local_facet_number(mesh, facet_type):
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_numbering
         np.ndarray[PetscInt, ndim=1, mode="c"] facet_numbering
         np.ndarray[PetscInt, ndim=2, mode="c"] closure_facets
-        np.ndarray[PetscInt, ndim=2, mode="c"] facet_number
+        # np.ndarray[PetscInt, ndim=2, mode="c"] facet_number
 
     plex = mesh.topology_dm
     cell_numbering = mesh.points.component_numbering(mesh.cell_label)
@@ -313,6 +314,7 @@ def local_facet_number(mesh, facet_type):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:
                     facet_number[fi, ci] = closure_fi
                     break
+
     return facet_number
 
 # TODO this can now be removed

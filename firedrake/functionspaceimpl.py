@@ -531,7 +531,9 @@ class FunctionSpace:
             axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
             axes1 = axes1.add_subtree(subaxes1, axes1.root, str(tdim))
         self.axes = axes.set_up()
-        self.axes1 = axes1.set_up()
+
+        # no longer required
+        # self.axes1 = axes1.set_up()
 
     # def set_shared_data(self):
     #     element = self.ufl_element()

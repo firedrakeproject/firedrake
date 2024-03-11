@@ -1,6 +1,9 @@
 import pytest
 import numpy as np
+
 from firedrake import *
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 
 @pytest.fixture(params=[False, True])
@@ -19,6 +22,7 @@ def dg_trial_test():
     # Interior facet tests hard code order in which cells were
     # numbered, so don't reorder this mesh.
     m = UnitSquareMesh(1, 1, reorder=False)
+
     V = FunctionSpace(m, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -101,11 +105,13 @@ def test_vector_bilinear_exterior_facet_integral():
     assert np.allclose(values, 0.0)
 
 
+# currently I pass whenever the lhs and rhs are the same
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
-                         [(('+', ), ('+', )),
-                          (('+', ), ('-', )),
-                          (('-', ), ('+', )),
+                         [(('+',), ('+',)),
+                          (('+',), ('-',)),
+                          (('-',), ('+',)),
+                          (('-',), ('-',)),
                           (('-', '+'), ('+', '+')),
                           (('-', '+'), ('-', '+')),
                           (('-', '+'), ('+', '-')),

@@ -375,9 +375,9 @@ def _(
         # (see https://github.com/firedrakeproject/firedrake/pull/3332)
         indexed = array[plex._fiat_closure(index)]
     elif integral_type == "exterior_facet":
-        indexed = array[plex._fiat_closure(plex.exterior_facet_support(index))]
+        indexed = array[plex._fiat_closure(plex.support(index))]
     elif integral_type == "interior_facet":
-        indexed = array[plex._fiat_closure(plex.interior_facet_support(index))]
+        indexed = array[plex._fiat_closure(plex.support(index))]
     else:
         raise NotImplementedError
 
@@ -445,14 +445,11 @@ def _(
     mat: op3.PetscMat,
     Vrow: WithGeometry,
     Vcol: WithGeometry,
-    cell: op3.LoopIndex,
+    index: op3.LoopIndex,
     integral_type: str
 ):
     if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
         raise NotImplementedError("TODO")
-
-    if integral_type != "cell":
-        raise NotImplementedError
 
     plex = op3.utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
 
@@ -461,8 +458,18 @@ def _(
     # about by the mesh topology and instead be handled here. This
     # would probably require an oriented mesh
     # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-    rmap = plex._fiat_closure(cell)
-    cmap = plex._fiat_closure1(cell)
+    if integral_type == "cell":
+        rmap = cmap = plex._fiat_closure(index)
+
+    # TODO plex.support *should* work but it is suboptimally efficient because it
+    # thinks things are ragged.
+    elif integral_type == "exterior_facet":
+        # rmap = cmap = plex._fiat_closure(plex.exterior_facet_support(index))
+        rmap = cmap = plex._fiat_closure(plex.support(index))
+    elif integral_type == "interior_facet":
+        rmap = cmap = plex._fiat_closure(plex.support(index))
+    else:
+        raise NotImplementedError
     indexed = mat[rmap, cmap]
 
     # Indexing an array with a loop index makes it "context sensitive" since
@@ -478,6 +485,32 @@ def _(
 
     axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
     axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="1")
+
+    if integral_type in {"exterior_facet", "interior_facet"}:
+        # Add the top-level bit too
+        facet_axis0 = cf_indexed.raxes.root
+        axes0 = op3.PartialAxisTree(facet_axis0).add_subtree(axes0, facet_axis0, facet_axis0.component)
+        axes0 = axes0.set_up()
+
+        key = facet_axis0.id, facet_axis0.component.label
+        facet_target_paths0 = {key: {facet_axis0.label: facet_axis0.component.label}}
+        facet_index_exprs0 = {key: {facet_axis0.label: op3.AxisVariable(facet_axis0.label)}}
+
+        target_paths0.update(facet_target_paths0)
+        index_exprs0.update(facet_index_exprs0)
+
+        ###
+
+        facet_axis1 = cf_indexed.caxes.root
+        axes1 = op3.PartialAxisTree(facet_axis1).add_subtree(axes1, facet_axis1, facet_axis1.component)
+        axes1 = axes1.set_up()
+
+        key = facet_axis1.id, facet_axis1.component.label
+        facet_target_paths1 = {key: {facet_axis1.label: facet_axis1.component.label}}
+        facet_index_exprs1 = {key: {facet_axis1.label: op3.AxisVariable(facet_axis1.label)}}
+
+        target_paths1.update(facet_target_paths1)
+        index_exprs1.update(facet_index_exprs1)
 
     tensor_axes = op3.PartialAxisTree(axes0.parent_to_children)
     for leaf in axes0.leaves:
@@ -543,13 +576,13 @@ def _tensorify_axes(V, suffix=""):
 
     which would have a data layout like:
 
-        +----+----+----+----#----+----+----+----#----+
-        | v0 | v1 | v2 | v3 # e0 | e1 | e2 | e3 # c0 |
-        +----+----+----+----#----+----+----+----#----+
+        ╔═══════════════════╦═══════════════════╦════╗
+        ║ v0 │ v1 │ v2 │ v3 ║ e0 │ e1 │ e2 │ e3 ║ c0 ║
+        ╚═══════════════════╩═══════════════════╩════╝
              /                 /                   \
-         +-----+      +-----+-----+     +-----+-----+-----+-----+
-         | dof |      | dof | dof |     | dof | dof | dof | dof |
-         +-----+      +-----+-----+     +-----+-----+-----+-----+
+         ╔═════╗      ╔═══════════╗     ╔═══════════════════════╗
+         ║ dof ║      ║ dof │ dof ║     ║ dof │ dof │ dof │ dof ║
+         ╚═════╝      ╚═══════════╝     ╚═══════════════════════╝
 
     But it's a tensor product of intervals:
 
@@ -563,24 +596,25 @@ def _tensorify_axes(V, suffix=""):
 
     so it actually has a data layout like:
 
-                        +----+----#----+
-                        | v0 | v1 # e0 |
-                        +----+----#----+
+                        ╔═════════╦════╗
+                        ║ v0 │ v1 ║ e0 ║
+                        ╚═════════╩════╝
                          /            \
-                   +-----+          +-----+-----+
-                   | dof |          | dof | dof |
-                   +-----+          +-----+-----+
+                   ╔═════╗          ╔═══════════╗
+                   ║ dof ║          ║ dof │ dof ║
+                   ╚═════╝          ╚═══════════╝
                       |                   |
-              +----+----#----+     +----+----#----+
-              | v0 | v1 # e0 |     | v0 | v1 # e0 |
-              +----+----#----+     +----+----#----+
+              ╔═════════╦════╗     ╔═════════╦════╗
+              ║ v0 │ v1 ║ e0 ║     ║ v0 │ v1 ║ e0 ║
+              ╚═════════╩════╝     ╚═════════╩════╝
               /           |             |         \
-       +-----+      +-----+-----+    +-----+    +-----+-----+
-       | dof |      | dof | dof |    | dof |    | dof | dof |
-       +-----+      +-----+-----+    +-----+    +-----+-----+
+       ╔═════╗      ╔═══════════╗    ╔═════╗    ╔═══════════╗
+       ║ dof ║      ║ dof │ dof ║    ║ dof ║    ║ dof │ dof ║
+       ╚═════╝      ╚═══════════╝    ╚═════╝    ╚═══════════╝
 
     We therefore want a temporary that is in the tensor-product form, but we
     need to be able to fill it from the "flat" closure that DMPlex gives us.
+
     """
     subelem_axess = []
     subelems = V.finat_element.product.factors

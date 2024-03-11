@@ -342,14 +342,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     raise NotImplementedError
 
                 def adjacency(pt):
-                    return topology.closure(topology.star(pt), col=True)
+                    return topology.closure(topology.star(pt))
 
                 test_arg, trial_arg = self._form.arguments()
                 mymat = op3.PetscMat(
                     topology.points,
                     adjacency,
                     test_arg.function_space().axes,
-                    trial_arg.function_space().axes1,
+                    trial_arg.function_space().axes,
                 )
 
                 return matrix.Matrix(self._form, self._bcs, self._mat_type, mymat, options_prefix=self._options_prefix)
@@ -1352,14 +1352,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         test, trial = self._form.arguments()
 
         def adjacency(pt):
-            return topology.closure(topology.star(pt), col=True)
+            return topology.closure(topology.star(pt))
 
         test_arg, trial_arg = self._form.arguments()
         mymat = op3.PetscMat(
             topology.points,
             adjacency,
             test.function_space().axes,
-            trial.function_space().axes1,
+            trial.function_space().axes,
         )
 
         return matrix.Matrix(self._form, self._bcs, self._mat_type, mymat, options_prefix=self._options_prefix)

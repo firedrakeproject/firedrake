@@ -910,7 +910,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
-        argfs_map = source_mesh.topology._fiat_closure1
+        argfs_map = source_mesh.topology._fiat_closure
         vom_onto_other_vom = (
             isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
@@ -944,13 +944,13 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         else:
             def adjacency(pt):
                 # return argfs_map(target_mesh.topology.star(pt))
-                return source_mesh.topology.closure(target_mesh.topology.star(pt), col=True)
+                return source_mesh.topology.closure(target_mesh.topology.star(pt))
 
             tensor = op3.PetscMat(
                 target_mesh.topology.points,
                 adjacency,
                 V.axes,
-                argfs.axes1,
+                argfs.axes,
             )
             # sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
             #                         ((V.cell_node_map(), argfs_map),),
