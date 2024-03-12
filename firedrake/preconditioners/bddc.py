@@ -37,11 +37,23 @@ class BDDCPC(PCBase):
 
         ctx = get_appctx(dm)
         bcs = tuple(ctx._problem.bcs)
-        if len(bcs) > 0:
-            bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
-            V.dof_dset.lgmap.apply(bc_nodes, result=bc_nodes)
-            bndr = PETSc.IS().createGeneral(bc_nodes, comm=pc.comm)
-            bddcpc.setBDDCDirichletBoundaries(bndr)
+        if V.extruded:
+            boundary_nodes = numpy.unique(numpy.concatenate(list(map(V.boundary_nodes, ("on_boundary", "top", "bottom")))))
+        else:
+            boundary_nodes = V.boundary_nodes("on_boundary")
+        if len(bcs) == 0:
+            dir_nodes = numpy.empty(0, dtype=boundary_nodes.dtype)
+        else:
+            dir_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
+        neu_nodes = numpy.setdiff1d(boundary_nodes, dir_nodes)
+
+        V.dof_dset.lgmap.apply(dir_nodes, result=dir_nodes)
+        dir_bndr = PETSc.IS().createGeneral(dir_nodes, comm=pc.comm)
+        bddcpc.setBDDCDirichletBoundaries(dir_bndr)
+
+        V.dof_dset.lgmap.apply(neu_nodes, result=neu_nodes)
+        neu_bndr = PETSc.IS().createGeneral(neu_nodes, comm=pc.comm)
+        bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space

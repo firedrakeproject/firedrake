@@ -61,7 +61,7 @@ Citations().add("Brubeck2022b", """
 __all__ = ("FDMPC", "PoissonFDMPC")
 
 
-def local_to_cell(V, val):
+def broken_function(V, val):
     W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
@@ -78,7 +78,7 @@ def local_to_cell(V, val):
 def mask_local_indices(V, lgmap, repeated=False):
     mask = lgmap.indices
     if repeated:
-        w = local_to_cell(V, mask)
+        w = broken_function(V, mask)
         V = w.function_space()
         mask = w.dat.data_ro_with_halos
     indices = numpy.arange(len(mask), dtype=PETSc.IntType)
@@ -738,12 +738,12 @@ class FDMPC(PCBase):
         for Vsub in self.V:
             lgmap = Vsub.dof_dset.lgmap
             if self.allow_repeated:
-                indices = local_to_cell(Vsub, lgmap.indices).dat.data_ro
+                indices = broken_function(Vsub, lgmap.indices).dat.data_ro
             else:
                 indices = lgmap.indices.copy()
                 local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = local_to_cell(Vsub, local_indices)
-                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map.dat.data_ro), assume_unique=True)
+                cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
+                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
                 indices[ghost] = -1
             lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
         return lgmaps
