@@ -337,7 +337,7 @@ class FDMPC(PCBase):
         def sub_nullspace(nsp, iset):
             if not nsp.handle or iset is None:
                 return nsp
-            vectors = [vec.getSubVector(iset) for vec in nsp.getVecs()]
+            vectors = [vec.getSubVector(iset).copy() for vec in nsp.getVecs()]
             for v in vectors:
                 v.normalize()
             return PETSc.NullSpace().create(constant=nsp.hasConstant(),
@@ -882,8 +882,6 @@ class ElementKernel:
                     return PETSC_SUCCESS;
                 }""")
         if mat_type != "matfree":
-            select_cols = """for (PetscInt j = ai[i]; j < ai[i + 1]; j++) indices[j] -= (indices[j] < rindices[i]) * (indices[j] + 1);"""
-            select_cols = ""
             code += dedent("""
                 static inline PetscErrorCode MatSetValuesLocalSparse(const Mat A, const Mat B,
                                                                      const PetscInt *restrict rindices,
