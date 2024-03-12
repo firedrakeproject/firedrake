@@ -31,7 +31,7 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
-        if V.ufl_element().variant() == "fdm":
+        if V.ufl_element().variant() == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
             # Disable computation of disconected components of subdomain interfaces
             opts["pc_bddc_use_local_mat_graph"] = False
 

@@ -61,10 +61,14 @@ Citations().add("Brubeck2022b", """
 __all__ = ("FDMPC", "PoissonFDMPC")
 
 
-def get_broken_indices(V, indices):
+def get_insert_mode(Vrow, Vcol):
+    return PETSc.InsertMode.ADD_VALUES
+
+
+def local_to_cell(V, val):
     W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
-    w = Function(W, dtype=indices.dtype)
-    v = Function(V, val=indices)
+    w = Function(W, dtype=val.dtype)
+    v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"
     instructions = """
     for i
@@ -75,10 +79,10 @@ def get_broken_indices(V, indices):
     return w
 
 
-def mask_local_indices(V, lgmap, broken=False):
+def mask_local_indices(V, lgmap, repeated=False):
     mask = lgmap.indices
-    if broken:
-        w = get_broken_indices(V, mask)
+    if repeated:
+        w = local_to_cell(V, mask)
         V = w.function_space()
         mask = w.dat.data_ro_with_halos
     indices = numpy.arange(len(mask), dtype=PETSc.IntType)
@@ -201,6 +205,7 @@ class FDMPC(PCBase):
         # Assemble the FDM preconditioner with sparse local matrices
         self.V = V_fdm
         self.mat_type = pmat_type
+        self.allow_repeated = pmat_type == "is"
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
         self._assemble_P()
@@ -255,9 +260,8 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
 
         # Create data structures needed for assembly
-        broken = pmat_type == "is"
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
-        self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], broken) for Vsub in V}
+        self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], self.allow_repeated) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
         Pmats = {}
@@ -284,7 +288,6 @@ class FDMPC(PCBase):
                 Amat, Pmats = self.condense(Amat, J, bcs, fcp, pc_type=interior_pc_type)
 
         diagonal_terms = []
-        addv = PETSc.InsertMode.ADD_VALUES
         # Loop over all pairs of subspaces
         for Vrow, Vcol in product(V, V):
             if (Vrow, Vcol) in Pmats:
@@ -296,11 +299,14 @@ class FDMPC(PCBase):
 
             # Preallocate and assemble the FDM auxiliary sparse operator
             on_diag = Vrow == Vcol
-            P = self.setup_block(Vrow, Vcol, addv)
-            if pmat_type == "is":
-                self.set_values(P, Vrow, Vcol, addv, mat_type="preallocator")
-                # populate diagonal entries
+            P = self.setup_block(Vrow, Vcol)
+            addv = self.insert_mode[Vrow, Vcol]
+
+            assemble_sparsity = P.getType() == "is"
+            if assemble_sparsity:
+                self.set_values(P, Vrow, Vcol, mat_type="preallocator")
                 if on_diag:
+                    # populate diagonal entries
                     i = numpy.arange(P.getLGMap()[0].getSize(), dtype=PETSc.IntType)[:, None]
                     v = numpy.ones(i.shape, dtype=PETSc.ScalarType)
                     P.setValuesLocalRCV(i, i, v, addv=addv)
@@ -308,11 +314,11 @@ class FDMPC(PCBase):
 
             # append callables to zero entries, insert element matrices, and apply BCs
             assembly_callables.append(P.zeroEntries)
-            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol, addv))
+            assembly_callables.append(partial(self.set_values, P, Vrow, Vcol))
             if on_diag:
                 own = Vrow.dof_dset.layout_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
-                if pmat_type == "is":
+                if assemble_sparsity:
                     Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
                     assembly_callables.append(P.assemble)
                     assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
@@ -714,25 +720,39 @@ class FDMPC(PCBase):
         return element_kernels
 
     @cached_property
+    def insert_mode(self):
+        is_dg = {}
+        for Vsub in self.V:
+            element = Vsub.finat_element
+            is_dg[Vsub] = element.entity_dofs() == element.entity_closure_dofs()
+
+        insert_mode = {}
+        for Vrow, Vcol in product(self.V, self.V):
+            addv = PETSc.InsertMode.ADD_VALUES
+            if is_dg[Vrow] or is_dg[Vcol]:
+                addv = PETSc.InsertMode.INSERT
+            insert_mode[Vrow, Vcol] = addv
+        return insert_mode
+
+    @cached_property
     def assembly_lgmaps(self):
         if self.mat_type != "is":
             return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        broken = True
         lgmaps = {}
         for Vsub in self.V:
             lgmap = Vsub.dof_dset.lgmap
-            if broken:
-                indices = get_broken_indices(Vsub, lgmap.indices).dat.data_ro
+            if self.allow_repeated:
+                indices = local_to_cell(Vsub, lgmap.indices).dat.data_ro
             else:
                 indices = lgmap.indices.copy()
                 local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = get_broken_indices(Vsub, local_indices)
+                cell_node_map = local_to_cell(Vsub, local_indices)
                 ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map.dat.data_ro), assume_unique=True)
                 indices[ghost] = -1
             lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
         return lgmaps
 
-    def setup_block(self, Vrow, Vcol, addv):
+    def setup_block(self, Vrow, Vcol):
         # Preallocate the auxiliary sparse operator
         sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
@@ -743,13 +763,13 @@ class FDMPC(PCBase):
         preallocator = PETSc.Mat().create(comm=self.comm)
         preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
         preallocator.setSizes(sizes)
-        preallocator.setISAllowRepeated(True)
+        preallocator.setISAllowRepeated(self.allow_repeated)
         preallocator.setLGMap(rmap, cmap)
         preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
         if ptype.endswith("sbaij"):
             preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
         preallocator.setUp()
-        self.set_values(preallocator, Vrow, Vcol, addv, mat_type=ptype)
+        self.set_values(preallocator, Vrow, Vcol)
         preallocator.assemble()
         dnz, onz = get_preallocation(preallocator, sizes[0][0])
         if on_diag:
@@ -758,7 +778,7 @@ class FDMPC(PCBase):
         P = PETSc.Mat().create(comm=self.comm)
         P.setType(ptype)
         P.setSizes(sizes)
-        P.setISAllowRepeated(True)
+        P.setISAllowRepeated(self.allow_repeated)
         P.setLGMap(rmap, cmap)
         P.setPreallocationNNZ((dnz, onz))
 
@@ -774,7 +794,7 @@ class FDMPC(PCBase):
         return P
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, mat_type=None):
+    def set_values(self, A, Vrow, Vcol, mat_type=None):
         """Assemble the auxiliary operator in the FDM basis using sparse
         reference tensors and diagonal mass matrices.
 
@@ -786,18 +806,15 @@ class FDMPC(PCBase):
             The test space.
         Vcol : FunctionSpace
             The trial space.
-        addv : PETSc.Mat.InsertMode
-            Flag indicating if we want to insert or add matrix values.
-        mat_type : PETSc.Mat.Type
-            The matrix type of auxiliary operator. This only used when ``A`` is a preallocator
-            to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
         key = (Vrow.ufl_element(), Vcol.ufl_element())
         on_diag = Vrow == Vcol
+        if mat_type is None:
+            mat_type = A.getType()
         try:
             assembler = self.assemblers[key]
         except KeyError:
-            mat_type = mat_type or A.getType()
+            addv = self.insert_mode[Vrow, Vcol]
             spaces = (Vrow,) if on_diag else (Vrow, Vcol)
             indices_acc = tuple(self.indices_acc[V] for V in spaces)
             coefficients = self.coefficients["cell"]
@@ -810,7 +827,7 @@ class FDMPC(PCBase):
                                     coefficients_acc,
                                     *indices_acc)
             self.assemblers.setdefault(key, assembler)
-        if A.getType() == "preallocator" or mat_type == "preallocator":
+        if mat_type == "preallocator":
             key = key + ("preallocator",)
             try:
                 assembler = self.assemblers[key]
@@ -883,14 +900,13 @@ class ElementKernel:
                     for (PetscInt i = 0; i < m; i++) {
                         istart = ai[i];
                         ncols = ai[i + 1] - istart;
-                        %(select_cols)s
                         PetscCall(MatSetValuesLocal(A, 1, &rindices[i], ncols, &indices[istart], &vals[istart], addv));
                     }
                     PetscCall(MatSeqAIJRestoreArrayRead(B, &vals));
                     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
                     PetscCall(PetscFree(indices));
                     return PETSC_SUCCESS;
-                }""" % {"select_cols": select_cols if mat_type.endswith("sbaij") else ""})
+                }""")
         code += self.code % dict(self.rules, name=self.name,
                                  indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
                                  rows=indices[0], cols=indices[-1], addv=addv)
@@ -1912,7 +1928,7 @@ class PoissonFDMPC(FDMPC):
         return Afdm, Dfdm, bdof, axes_shifts
 
     @PETSc.Log.EventDecorator("FDMSetValues")
-    def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
+    def set_values(self, A, Vrow, Vcol, mat_type=None):
         """Assemble the stiffness matrix in the FDM basis using Kronecker
         products of interval matrices.
 
@@ -1924,8 +1940,6 @@ class PoissonFDMPC(FDMPC):
             The test space.
         Vcol : FunctionSpace
             The trial space.
-        addv : PETSc.Mat.InsertMode
-            Flag indicating if we want to insert or add matrix values.
         mat_type : PETSc.Mat.Type
             The matrix type of auxiliary operator. This only used when ``A`` is a preallocator
             to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
@@ -1934,6 +1948,9 @@ class PoissonFDMPC(FDMPC):
         set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
+        addv = PETSc.InsertMode.ADD_VALUES
+        if mat_type is None:
+            mat_type = A.getType()
 
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             # Be careful not to create new arrays
