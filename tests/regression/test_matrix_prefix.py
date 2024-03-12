@@ -30,7 +30,6 @@ def test_matrix_prefix_solver(options_prefix):
     pc = solver.snes.ksp.pc
     factor = pc.getFactorMatrix()
     assert factor.getType() == DEFAULT_DIRECT_SOLVER
-    # ~ assert factor.getMumpsIcntl(24) == 1
 
     for A in pc.getOperators():
         pfx = A.getOptionsPrefix()
@@ -75,4 +74,3 @@ def test_matrix_prefix_solver_assembled_pc(options_prefix):
     assembled = python.pc
     factor = assembled.getFactorMatrix()
     assert factor.getType() == DEFAULT_DIRECT_SOLVER
-    # ~ assert factor.getMumpsIcntl(24) == 1
