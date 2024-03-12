@@ -710,13 +710,15 @@ class FunctionSpace(object):
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
 
-    def entity_node_map(self, integral_type):
-        r"""Return entity node map.
+    def entity_node_map(self, integral_type, base_mesh=None):
+        r"""Return entity node map rebased on ``base_mesh``.
 
         Parameters
         ----------
         integral_type : str
             Integral type.
+        base_mesh : MeshTopology
+            Base mesh topology.
 
         Returns
         -------
@@ -742,7 +744,11 @@ class FunctionSpace(object):
             self_map = self.interior_facet_node_map()
         else:
             raise ValueError(f"Unknown integral_type: {integral_type}")
-        return self_map
+        if base_mesh is None or base_mesh is self.mesh():
+            return self_map
+        else:
+            dim = self.mesh().topology_dm.getDimension()
+            return op2.ComposedMap(self_map, self.mesh().trans_mesh_entity_map(base_mesh, dim))
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -1019,13 +1025,15 @@ class MixedFunctionSpace(object):
         composed."""
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
-    def entity_node_map(self, integral_type):
-        r"""Return entity node map.
+    def entity_node_map(self, integral_type, base_mesh=None):
+        r"""Return entity node map rebased on ``base_mesh``.
 
         Parameters
         ----------
         integral_type : str
             Integral type.
+        base_mesh : MeshTopology
+            Base mesh topology.
 
         Returns
         -------
@@ -1033,7 +1041,8 @@ class MixedFunctionSpace(object):
             Entity node map.
 
         """
-        return op2.MixedMap(s.entity_node_map(integral_type) for s in self._spaces)
+        # TODO: map integral_type in general.
+        return op2.MixedMap(s.entity_node_map(integral_type, base_mesh=base_mesh) for s in self._spaces)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
@@ -1225,7 +1234,7 @@ class RealFunctionSpace(FunctionSpace):
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
-    def entity_node_map(self, integral_type):
+    def entity_node_map(self, integral_type, base_mesh=None):
         return None
 
     def cell_node_map(self, bcs=None):
