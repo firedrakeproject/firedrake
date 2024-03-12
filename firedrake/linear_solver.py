@@ -57,6 +57,8 @@ class LinearSolver(OptionsManager):
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        A.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
+        # todo: add offload to solver parameters - how? prefix?
+
         self.A = A
         self.comm = A.comm
         self._comm = internal_comm(self.comm, self)
@@ -181,19 +183,20 @@ class LinearSolver(OptionsManager):
         else:
             acc = x.dat.vec_wo
 
-        if "cu" in self.A.petscmat.type: #todo: cuda or cu?
-            with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
-                b_cu = PETSc.Vec()
-                b_cu.createCUDAWithArrays(rhs)  
-                u = PETSc.Vec()
-                u.createCUDAWithArrays(solution)
-                self.ksp.solve(b_cu, u)
-                u.getArray()
+        # if "cu" in self.A.petscmat.type:  # todo: cuda or cu?
+        #     with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
+        #         b_cu = PETSc.Vec()
+        #         b_cu.createCUDAWithArrays(rhs)
+        #         u = PETSc.Vec()
+        #         u.createCUDAWithArrays(solution)
+        #         self.ksp.solve(b_cu, u)
+        #         u.getArray()
                 
-        else:
+        # else:
+        # instead: preconditioner
 
-            with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
-                self.ksp.solve(rhs, solution)
+        with self.inserted_options(), b.dat.vec_ro as rhs, acc as solution, dmhooks.add_hooks(self.ksp.dm, self):
+            self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()
         if r < 0:
