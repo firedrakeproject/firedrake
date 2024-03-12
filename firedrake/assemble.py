@@ -1622,77 +1622,37 @@ class _GlobalKernelBuilder:
         # TODO Make singledispatchmethod with Python 3.8
         return _as_global_kernel_arg(tsfc_arg, self)
 
-    def _get_map_arg(self, finat_element, boundary_set):
-        """Get the appropriate map argument for the given FInAT element.
-
-        :arg finat_element: A FInAT element.
-        :returns: A :class:`op2.MapKernelArg` instance corresponding to
-            the given FInAT element. This function uses a cache to ensure
-            that PyOP2 knows when it can reuse maps.
-        """
-        key = self._get_map_id(finat_element), boundary_set
-
-        try:
-            return self._map_arg_cache[key]
-        except KeyError:
-            pass
-
-        shape = finat_element.index_shape
-        if isinstance(finat_element, finat.TensorFiniteElement):
-            shape = shape[:-len(finat_element._shape)]
-        arity = numpy.prod(shape, dtype=int)
-        if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-            arity *= 2
-
-        if self._mesh.extruded:
-            offset = tuple(eutils.calculate_dof_offset(finat_element))
-            # for interior facet integrals we double the size of the offset array
-            if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-                offset += offset
-        else:
-            offset = None
-        if self._mesh.extruded_periodic:
-            offset_quotient = eutils.calculate_dof_offset_quotient(finat_element)
-            if offset_quotient is not None:
-                offset_quotient = tuple(offset_quotient)
-                if self._integral_type in {"interior_facet", "interior_facet_vert"}:
-                    offset_quotient += offset_quotient
-        else:
-            offset_quotient = None
-
-        map_arg = op2.MapKernelArg(arity, offset, offset_quotient)
-        self._map_arg_cache[key] = map_arg
-        return map_arg
-
     def _get_dim(self, finat_element):
         if isinstance(finat_element, finat.TensorFiniteElement):
             return finat_element._shape
         else:
             return (1,)
 
-    def _make_dat_global_kernel_arg(self, finat_element, boundary_set, index=None):
+    def _make_dat_global_kernel_arg(self, V, index=None):
+        finat_element = create_element(V.ufl_element())
+        map_arg = V.topological.entity_node_map(self._integral_type)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
-            subargs = tuple(self._make_dat_global_kernel_arg(subelem.element, boundary_set)
-                            for subelem in finat_element.elements)
+            subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
+                            for Vsub in V)
             return op2.MixedDatKernelArg(subargs)
         else:
             dim = self._get_dim(finat_element)
-            map_arg = self._get_map_arg(finat_element, boundary_set)
             return op2.DatKernelArg(dim, map_arg, index)
 
-    def _make_mat_global_kernel_arg(self, relem, celem, rbset, cbset):
+    def _make_mat_global_kernel_arg(self, Vrow, Vcol):
+        relem, celem = (create_element(V.ufl_element()) for V in [Vrow, Vcol])
         if any(isinstance(e, finat.EnrichedElement) and e.is_mixed for e in {relem, celem}):
-            subargs = tuple(self._make_mat_global_kernel_arg(rel.element, cel.element, rbset, cbset)
-                            for rel, cel in product(relem.elements, celem.elements))
+            subargs = tuple(self._make_mat_global_kernel_arg(Vrow_sub, Vcol_sub)
+                            for Vrow_sub, Vcol_sub in product(Vrow, Vcol))
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
+            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._integral_type)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
-            map_args = self._get_map_arg(relem, rbset), self._get_map_arg(celem, cbset)
-            return op2.MatKernelArg((((rdim, cdim),),), map_args, unroll=self._unroll)
+            return op2.MatKernelArg((((rdim, cdim),),), (rmap_arg, cmap_arg), unroll=self._unroll)
 
     @staticmethod
     def _get_map_id(finat_element):
@@ -1728,29 +1688,24 @@ def _as_global_kernel_arg_output(_, self):
         if V.ufl_element().family() == "Real":
             return op2.GlobalKernelArg((1,))
         else:
-            return self._make_dat_global_kernel_arg(create_element(V.ufl_element()), V.boundary_set)
+            return self._make_dat_global_kernel_arg(V)
     elif rank == 2:
         if all(V.ufl_element().family() == "Real" for V in Vs):
             return op2.GlobalKernelArg((1,))
-        elif any(V.ufl_element().family() == "Real" for V in Vs):
-            for V in Vs:
-                if V.ufl_element().family() != "Real":
-                    el = create_element(V.ufl_element())
-                    boundary_set = V.boundary_set
-                    break
-            return self._make_dat_global_kernel_arg(el, boundary_set)
+        elif Vs[0].ufl_element().family() == "Real":
+            return self._make_dat_global_kernel_arg(Vs[1])
+        elif Vs[1].ufl_element().family() == "Real":
+            return self._make_dat_global_kernel_arg(Vs[0])
         else:
-            rel, cel = (create_element(V.ufl_element()) for V in Vs)
-            rbset, cbset = (V.boundary_set for V in Vs)
-            return self._make_mat_global_kernel_arg(rel, cel, rbset, cbset)
+            return self._make_mat_global_kernel_arg(Vs[0], Vs[1])
     else:
         raise AssertionError
 
 
 @_as_global_kernel_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_global_kernel_arg_coordinates(_, self):
-    finat_element = create_element(self._mesh.ufl_coordinate_element())
-    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
+    V = self._mesh.coordinates.function_space()
+    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
@@ -1767,8 +1722,7 @@ def _as_global_kernel_arg_coefficient(_, self):
     if ufl_element.family() == "Real":
         return op2.GlobalKernelArg((ufl_element.value_size,))
     else:
-        finat_element = create_element(ufl_element)
-        return self._make_dat_global_kernel_arg(finat_element, V.boundary_set, index)
+        return self._make_dat_global_kernel_arg(V, index=index)
 
 
 @_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
@@ -1780,10 +1734,8 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
 def _as_global_kernel_arg_cell_sizes(_, self):
-    # this mirrors tsfc.kernel_interface.firedrake_loopy.KernelBuilder.set_cell_sizes
-    ufl_element = finat.ufl.FiniteElement("P", self._mesh.ufl_cell(), 1)
-    finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
+    V = self._mesh.cell_sizes.function_space()
+    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -1807,10 +1759,8 @@ def _as_global_kernel_arg_cell_facet(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
 def _as_global_kernel_arg_cell_orientations(_, self):
-    # this mirrors firedrake.mesh.MeshGeometry.init_cell_orientations
-    ufl_element = finat.ufl.FiniteElement("DG", cell=self._mesh.ufl_cell(), degree=0)
-    finat_element = create_element(ufl_element)
-    return self._make_dat_global_kernel_arg(finat_element, self._mesh.coordinates.function_space().boundary_set)
+    V = self._mesh.cell_orientations().function_space()
+    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(LayerCountKernelArg)
