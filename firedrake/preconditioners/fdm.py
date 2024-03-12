@@ -61,10 +61,6 @@ Citations().add("Brubeck2022b", """
 __all__ = ("FDMPC", "PoissonFDMPC")
 
 
-def get_insert_mode(Vrow, Vcol):
-    return PETSc.InsertMode.ADD_VALUES
-
-
 def local_to_cell(V, val):
     W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
     w = Function(W, dtype=val.dtype)
