@@ -18,14 +18,14 @@ These notebooks are maintained in the Firedrake repository, so all the
 material is available in your Firedrake installation source
 directory.  If you installed in ``Documents/firedrake``, then the
 notebooks are in the directory
-``Documents/firedrake/src/firedrake/docs/notebooks``.  
+``Documents/firedrake/src/firedrake/docs/notebooks``.
 
 Running the notebooks on Google Colab
 -------------------------------------
 
 Thanks to the excellent `FEM on
 Colab <https://fem-on-colab.github.io/index.html>`__ by `Francesco
-Ballerin <https://www.francescoballarin.it>`__, you can run the notebooks on
+Ballarin <https://www.francescoballarin.it>`__, you can run the notebooks on
 Google Colab through your web browser, without installing Firedrake.
 
 We also provide links to non-interactive renderings of the notebooks using
@@ -170,5 +170,4 @@ notebook builds up a multigrid solver for an elliptic problem
 specifically designed for solving very large problems using Firedrake on
 HPC. You can run this notebook yourself `on Colab
 <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/12-HPC_demo.ipynb>`__
-
 
