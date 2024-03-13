@@ -1953,14 +1953,6 @@ else:
         build_update_script()
         os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
 
-    # If petsc built mpich then we now need to set the compiler environment variables.
-    if not compiler_env:
-        compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
-        cc = os.path.join(compilerbin, "mpicc")
-        cxx = os.path.join(compilerbin, "mpicxx")
-        f90 = os.path.join(compilerbin, "mpif90")
-        compiler_env = create_compiler_env(cc, cxx, f90)
-
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
@@ -2029,6 +2021,15 @@ else:
         if not args.honour_petsc_dir:
             os.environ["PETSC_DIR"] = petsc_dir
             os.environ["PETSC_ARCH"] = petsc_arch
+
+        # If petsc built mpich then we now need to set the compiler environment variables.
+        if not compiler_env:
+            compilerbin = os.path.join(petsc_dir, petsc_arch, "bin")
+            cc = os.path.join(compilerbin, "mpicc")
+            cxx = os.path.join(compilerbin, "mpicxx")
+            f90 = os.path.join(compilerbin, "mpif90")
+            mpiexec = os.path.join(compilerbin, "mpiexec")
+            compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
     link_env = {
