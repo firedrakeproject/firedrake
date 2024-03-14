@@ -13,3 +13,4 @@ from firedrake.preconditioners.fdm import *          # noqa: F401
 from firedrake.preconditioners.hiptmair import *     # noqa: F401
 from firedrake.preconditioners.facet_split import *  # noqa: F401
 from firedrake.preconditioners.bddc import *         # noqa: F401
+from firedrake.preconditioners.offload import *      # noqa: F401
