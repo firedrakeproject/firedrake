@@ -915,8 +915,138 @@ class AbstractMeshTopology(abc.ABC):
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
 
+    @cached_property
+    def _plex_closure(self):
+        return self._closure_map(ClosureOrdering.PLEX)
+
+    @cached_property
+    def _fiat_closure(self):
+        return self._closure_map(ClosureOrdering.FIAT)
+
+    def _closure_map(self, ordering):
+        if ordering == ClosureOrdering.PLEX:
+            dims = range(self.dimension+1)
+        else:
+            assert ordering == ClosureOrdering.FIAT
+            # FIAT ordering is only valid for cell closures
+            dims = (self.dimension,)
+
+        closures = {}
+        for dim in dims:
+            closure_data, closure_sizes = self._memoize_closures(dim)
+            # closures are, for now, always a constant size
+            assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
+
+            numbering = None  # TODO delete
+            if ordering == ClosureOrdering.FIAT:
+                # TODO If the plex is oriented at instantiation, these methods
+                # can be avoided and the default below used.
+                # See https://github.com/firedrakeproject/firedrake/pull/3332.
+                if self.ufl_cell().is_simplex():
+                    closure_data = self._reorder_closure_fiat_simplex(
+                        closure_data, closure_sizes
+                    )
+                elif self.ufl_cell().cellname() == "quadrilateral":
+                    closure_data = self._reorder_closure_fiat_quad(
+                        closure_data, closure_sizes
+                    )
+
+                    numbering = None
+                else:
+                    # If we are passing the closure to TSFC then we need to transform the
+                    # maps to deliver data in the canonical ordering declared by FIAT.
+                    raise NotImplementedError(
+                        "Need to transform closures to agree with FIAT"
+                    )
+
+            map_components = []
+            for map_dim, (size, data) in enumerate(
+                checked_zip(closure_sizes, closure_data)
+            ):
+                if size == 0:
+                    continue
+
+                target_axis = self.name
+                target_dim = str(map_dim)
+
+                outer_axis = self.points[str(dim)].root
+                inner_axis = op3.Axis(size)
+                map_axes = op3.AxisTree.from_nest(
+                    {outer_axis: inner_axis}
+                )
+                map_dat = op3.HierarchicalArray(
+                    map_axes, data=data.flatten(), prefix="closure"
+                )
+                map_components.append(
+                    # testing
+                    # op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
+                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
+                )
+            closures[freeze({self.name: str(dim)})] = map_components
+
+        return op3.Map(closures, numbering=numbering, name="closure")
+
+    def _reorder_closure_fiat_simplex(self, closure_data, closure_sizes):
+        return dmcommon.closure_ordering(self, closure_data, closure_sizes)
+
+    def _reorder_closure_fiat_quad(self, closure_data, closure_sizes):
+        from firedrake_citations import Citations
+
+        Citations().register("Homolya2016")
+        Citations().register("McRae2016")
+
+        cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
+        facet_orientations = dmcommon.quadrilateral_facet_orientations(
+            self, cell_ranks
+        )
+        cell_orientations = dmcommon.orientations_facet2cell(
+            self, cell_ranks, facet_orientations,
+        )
+        dmcommon.exchange_cell_orientations(
+            self, cell_orientations
+        )
+
+        # cell_orientations = np.array([2, 7], dtype=IntType)
+        # cell_orientations = np.array([3, 8], dtype=IntType)
+        # cell_orientations = np.array([4, 7], dtype=IntType)
+        # cell_orientations = np.array([5, 8], dtype=IntType)
+        # breakpoint()
+
+        return dmcommon.quadrilateral_closure_ordering(
+            self, cell_orientations
+        )
+
     def star(self, index):
         return self._star(index)
+
+    @cached_property
+    def _star(self):
+        def star_func(pt):
+            return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
+
+        stars = {}
+        for dim in range(self.dimension+1):
+            map_data, sizes = self._memoize_map(star_func, dim)
+            # stars are ragged
+            assert all(isinstance(s, np.ndarray) for s in sizes)
+
+            map_components = []
+            for map_dim, (size, data) in enumerate(
+                checked_zip(sizes, map_data)
+            ):
+                outer_axis = self.points[str(dim)].root
+                size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
+                inner_axis = op3.Axis(size_dat)
+                map_axes = op3.AxisTree.from_nest(
+                    {outer_axis: inner_axis}
+                )
+                map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="map")
+                map_components.append(
+                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+                )
+            stars[freeze({self.name: str(dim)})] = map_components
+
+        return op3.Map(stars)
 
     def support(self, index):
         return self._support(index)
@@ -1034,136 +1164,86 @@ class AbstractMeshTopology(abc.ABC):
 
         return int_facet_support_dat
 
-    @cached_property
-    def _plex_closure(self):
-        return self._closure_map(ClosureOrdering.PLEX)
+    def _cell_integral_map(self, cell: op3.LoopIndex):
+        """
+        Probably not useful anymore...
 
-    @cached_property
-    def _fiat_closure(self):
-        return self._closure_map(ClosureOrdering.FIAT)
+        cell:
+            ┌───────┬───────┬───────┐
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            ├──────╴o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            │       o   *   o       │
+            │       │       │       │
+            ├──────╴o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            └───────┴───────┴───────┘
 
-    def _closure_map(self, ordering):
-        if ordering == ClosureOrdering.PLEX:
-            dims = range(self.dimension+1)
-        else:
-            assert ordering == ClosureOrdering.FIAT
-            # FIAT ordering is only valid for cell closures
-            dims = (self.dimension,)
+        vertex:
 
-        closures = {}
-        for dim in dims:
-            closure_data, closure_sizes = self._memoize_closures(dim)
-            # closures are, for now, always a constant size
-            assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
+            ┌───────┬───────┬───────┐
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            o   o   o   o   o       │
+            │       │       │       │
+            o╶─╴o╶─╴*╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            o   o   o   o   o       │
+            │       │       │       │
+            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┘
 
-            numbering = None  # TODO delete
-            if ordering == ClosureOrdering.FIAT:
-                # TODO If the plex is oriented at instantiation, these methods
-                # can be avoided and the default below used.
-                # See https://github.com/firedrakeproject/firedrake/pull/3332.
-                if self.ufl_cell().is_simplex():
-                    closure_data = self._reorder_closure_fiat_simplex(
-                        closure_data, closure_sizes
-                    )
-                elif self.ufl_cell().cellname() == "quadrilateral":
-                    closure_data = self._reorder_closure_fiat_quad(
-                        closure_data, closure_sizes
-                    )
+        """
+        # TODO: Or self._fiat_closure? Tidy up.
+        return self.closure(cell)
 
-                    numbering = None
-                else:
-                    # If we are passing the closure to TSFC then we need to transform the
-                    # maps to deliver data in the canonical ordering declared by FIAT.
-                    raise NotImplementedError(
-                        "Need to transform closures to agree with FIAT"
-                    )
+    def _facet_integral_map(self, facet: op3.LoopIndex):
+        """
 
-            map_components = []
-            for map_dim, (size, data) in enumerate(
-                checked_zip(closure_sizes, closure_data)
-            ):
-                if size == 0:
-                    continue
+        Probably not needed anymore...
 
-                target_axis = self.name
-                target_dim = str(map_dim)
+        cell:
 
-                outer_axis = self.points[str(dim)].root
-                inner_axis = op3.Axis(size)
-                map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: inner_axis}
-                )
-                map_dat = op3.HierarchicalArray(
-                    map_axes, data=data.flatten(), prefix="closure"
-                )
-                map_components.append(
-                    # testing
-                    # op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
-                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
-                )
-            closures[freeze({self.name: str(dim)})] = map_components
+            ┌───────┬───────┬───────┐
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            ├───────o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            │       o   *   o       │
+            │       │       │       │
+            ├──────╴o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            └───────┴───────┴───────┘
 
-        return op3.Map(closures, numbering=numbering, name="closure")
+        vertex:
 
-    def _reorder_closure_fiat_simplex(self, closure_data, closure_sizes):
-        return dmcommon.closure_ordering(self, closure_data, closure_sizes)
+            ┌───────┬───────┬───────┐
+            │       │       │       │
+            │       │       │       │
+            │       │       │       │
+            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┤
+            │       │       │       │
+            o   o   o   o   o       │
+            │       │       │       │
+            o╶─╴o╶─╴o╶─╴o╶─╴o╶─╴o╶─╴o
+            │       │       │       │
+            o   o   o   o   o   o   o
+            │       │       │       │
+            o╶─╴o╶─╴*╶─╴o╶─╴o╶─╴o╶─╴o
 
-    def _reorder_closure_fiat_quad(self, closure_data, closure_sizes):
-        from firedrake_citations import Citations
+        """
+        return self.closure(self.support(facet))
 
-        Citations().register("Homolya2016")
-        Citations().register("McRae2016")
-
-        cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
-        facet_orientations = dmcommon.quadrilateral_facet_orientations(
-            self, cell_ranks
-        )
-        cell_orientations = dmcommon.orientations_facet2cell(
-            self, cell_ranks, facet_orientations,
-        )
-        dmcommon.exchange_cell_orientations(
-            self, cell_orientations
-        )
-
-        # cell_orientations = np.array([2, 7], dtype=IntType)
-        # cell_orientations = np.array([3, 8], dtype=IntType)
-        # cell_orientations = np.array([4, 7], dtype=IntType)
-        # cell_orientations = np.array([5, 8], dtype=IntType)
-        # breakpoint()
-
-        return dmcommon.quadrilateral_closure_ordering(
-            self, cell_orientations
-        )
-
-    @cached_property
-    def _star(self):
-        def star_func(pt):
-            return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
-
-        stars = {}
-        for dim in range(self.dimension+1):
-            map_data, sizes = self._memoize_map(star_func, dim)
-            # stars are ragged
-            assert all(isinstance(s, np.ndarray) for s in sizes)
-
-            map_components = []
-            for map_dim, (size, data) in enumerate(
-                checked_zip(sizes, map_data)
-            ):
-                outer_axis = self.points[str(dim)].root
-                size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
-                inner_axis = op3.Axis(size_dat)
-                map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: inner_axis}
-                )
-                map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="map")
-                map_components.append(
-                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
-                )
-            stars[freeze({self.name: str(dim)})] = map_components
-
-        return op3.Map(stars)
-
+    # delete?
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
         """Create a PETSc Section describing a function space.
 
@@ -1175,6 +1255,7 @@ class AbstractMeshTopology(abc.ABC):
         """
         return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
 
+    # delete?
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
 
@@ -1183,6 +1264,7 @@ class AbstractMeshTopology(abc.ABC):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
+    # delete?
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 

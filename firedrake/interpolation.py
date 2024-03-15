@@ -942,6 +942,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
+            # I'm convinced that this isn't right, probably need an extra source -> target map
             def adjacency(pt):
                 # return argfs_map(target_mesh.topology.star(pt))
                 return source_mesh.topology.closure(target_mesh.topology.star(pt))

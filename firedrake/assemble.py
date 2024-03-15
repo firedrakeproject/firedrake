@@ -335,6 +335,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            options_prefix=self._options_prefix,
                                            appctx=self._appctx).allocate()
             else:
+                raise NotImplementedError("Reuse ExplicitMatrixAssembler bits")
+                # TODO: I'm a bit confused why this allocation needs to exist here
                 topology = self._form.ufl_domain().topology
 
                 # TODO handle different mat types
@@ -1343,118 +1345,141 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self._allocation_integral_types = allocation_integral_types
 
     def allocate(self):
-        # TODO handle different mat types
-        if self._mat_type != "aij":
-            raise NotImplementedError
-
-        topology = self._form.ufl_domain().topology
-
         test, trial = self._form.arguments()
-
-        def adjacency(pt):
-            return topology.closure(topology.star(pt))
-
-        test_arg, trial_arg = self._form.arguments()
-        mymat = op3.PetscMat(
-            topology.points,
-            adjacency,
+        sparsity = self._make_sparsity(
+            test,
+            trial,
+            self._mat_type,
+            self._sub_mat_type,
+            self._make_maps_and_regions(),
+        )
+        mat = op3.PetscMat(
             test.function_space().axes,
             trial.function_space().axes,
+            sparsity,
+        )
+        return matrix.Matrix(
+            self._form,
+            self._bcs,
+            self._mat_type,
+            mat,
+            options_prefix=self._options_prefix
         )
 
-        return matrix.Matrix(self._form, self._bcs, self._mat_type, mymat, options_prefix=self._options_prefix)
-        # sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial,
-        #                                                   self._mat_type,
-        #                                                   self._sub_mat_type,
-        #                                                   self._make_maps_and_regions())
-        # return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-        #                      options_prefix=self._options_prefix)
+    @staticmethod
+    def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
+        # TODO handle different mat types
+        if mat_type != "aij":
+            raise NotImplementedError
 
-    # @staticmethod
-    # def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
-    #     assert mat_type != "matfree"
-    #     nest = mat_type == "nest"
-    #     if nest:
-    #         baij = sub_mat_type == "baij"
-    #     else:
-    #         baij = mat_type == "baij"
-    #     if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
-    #         raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
-    #     try:
-    #         sparsity = op2.Sparsity((test.function_space().dof_dset,
-    #                                  trial.function_space().dof_dset),
-    #                                 maps_and_regions,
-    #                                 nest=nest,
-    #                                 block_sparse=baij)
-    #     except SparsityFormatError:
-    #         raise ValueError("Monolithic matrix assembly not supported for systems "
-    #                          "with R-space blocks")
-    #     return sparsity
-    #
-    # def _make_maps_and_regions(self):
-    #     test, trial = self._form.arguments()
-    #     if self._allocation_integral_types is not None:
-    #         return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self._allocation_integral_types)
-    #     elif any(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels):
-    #         # Handle special cases: slate or split=False
-    #         assert all(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels)
-    #         allocation_integral_types = set(local_kernel.kinfo.integral_type
-    #                                         for local_kernel in self._all_local_kernels)
-    #         return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
-    #     else:
-    #         maps_and_regions = defaultdict(lambda: defaultdict(set))
-    #         for local_kernel in self._all_local_kernels:
-    #             i, j = local_kernel.indices
-    #             # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-    #             get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[local_kernel.kinfo.integral_type]
-    #             rmap_ = get_map(test).split[i] if get_map(test) is not None else None
-    #             cmap_ = get_map(trial).split[j] if get_map(trial) is not None else None
-    #             maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
-    #         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
-    #                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
-    #
-    # @staticmethod
-    # def _make_maps_and_regions_default(test, trial, allocation_integral_types):
-    #     # Make maps using outer-product of the component maps
-    #     # using the given allocation_integral_types.
-    #     if allocation_integral_types is None:
-    #         raise ValueError("allocation_integral_types can not be None")
-    #     maps_and_regions = defaultdict(lambda: defaultdict(set))
-    #     # Use outer product of component maps.
-    #     for integral_type in allocation_integral_types:
-    #         get_map, region = ExplicitMatrixAssembler.integral_type_op2_map[integral_type]
-    #         for i, rmap_ in enumerate(get_map(test)):
-    #             for j, cmap_ in enumerate(get_map(trial)):
-    #                 maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
-    #     return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
-    #             for block_indices, map_pair_to_region_set in maps_and_regions.items()}
-    #
-    # @classmethod
-    # @property
-    # def integral_type_op2_map(cls):
-    #     try:
-    #         return cls._integral_type_op2_map
-    #     except AttributeError:
-    #         get_cell_map = operator.methodcaller("cell_node_map")
-    #         get_extf_map = operator.methodcaller("exterior_facet_node_map")
-    #         get_intf_map = operator.methodcaller("interior_facet_node_map")
-    #         cls._integral_type_op2_map = {"cell": (get_cell_map, op2.ALL),
-    #                                       "exterior_facet_bottom": (get_cell_map, op2.ON_BOTTOM),
-    #                                       "exterior_facet_top": (get_cell_map, op2.ON_TOP),
-    #                                       "interior_facet_horiz": (get_cell_map, op2.ON_INTERIOR_FACETS),
-    #                                       "exterior_facet": (get_extf_map, op2.ALL),
-    #                                       "exterior_facet_vert": (get_extf_map, op2.ALL),
-    #                                       "interior_facet": (get_intf_map, op2.ALL),
-    #                                       "interior_facet_vert": (get_intf_map, op2.ALL)}
-    #         return cls._integral_type_op2_map
-    #
-    #     if len(self.trial_function_space) > 1:
-    #         bccol = tuple(bc for bc in bcs
-    #                       if bc.function_space_index() == col
-    #                       and isinstance(bc, DirichletBC))
-    #     else:
-    #         bccol = tuple(bc for bc in bcs if isinstance(bc, DirichletBC))
-    #     return bcrow, bccol
+        assert mat_type != "matfree"
+        nest = mat_type == "nest"
+        if nest:
+            raise NotImplementedError
+        if nest:
+            baij = sub_mat_type == "baij"
+        else:
+            baij = mat_type == "baij"
+        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
+            # Is this overly restrictive?
+            raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+
+        sparsity = op3.PetscMatPreallocator(
+            test.function_space().axes, trial.function_space().axes
+        )
+
+        # Pretend that we are doing assembly by looping over the right
+        # iteration sets and using the right maps.
+        for iterset, map_, indices in maps_and_regions:
+            if indices not in {(0, 0), (None, None)}:
+                raise NotImplementedError("Mixed")
+
+            op3.do_loop(
+                p := iterset.index(),
+                sparsity[map_(p), map_(p)].assign(666),
+            )
+
+        sparsity.assemble()
+        return sparsity
+
+    def _make_maps_and_regions(self):
+        test, trial = self._form.arguments()
+        if self._allocation_integral_types is not None:
+            return ExplicitMatrixAssembler._make_maps_and_regions_default(
+                test, trial, self._allocation_integral_types
+            )
+
+        elif op3.utils.strictly_all(
+            lk.indices == (None, None) for lk in self._all_local_kernels
+        ):
+            # Handle special cases: slate or split=False
+            allocation_integral_types = {
+                local_kernel.kinfo.integral_type
+                for local_kernel in self._all_local_kernels
+            }
+            return ExplicitMatrixAssembler._make_maps_and_regions_default(
+                test, trial, allocation_integral_types
+            )
+
+        else:
+            # TODO: Very similar code to _make_maps_and_regions_default
+            mesh = op3.utils.single_valued(a.ufl_domain() for a in {test, trial})
+            plex = mesh.topology
+
+            loops = []
+            for local_kernel in self._all_local_kernels:
+                if local_kernel.kinfo.integral_type == "cell":
+                    iterset = plex.cells
+
+                    def map_(cell):
+                        return plex.closure(cell)
+                elif local_kernel.kinfo.integral_type == "exterior_facet":
+                    iterset = plex.exterior_facets.set
+
+                    def map_(facet):
+                        return plex.closure(plex.support(facet))
+                else:
+                    assert local_kernel.kinfo.integral_type == "interior_facet"
+                    iterset = plex.interior_facets.set
+
+                    def map_(facet):
+                        return plex.closure(plex.support(facet))
+
+                loop = (iterset, map_, local_kernel.indices)
+                loops.append(loop)
+            return tuple(loops)
+
+    @staticmethod
+    def _make_maps_and_regions_default(test, trial, allocation_integral_types):
+        assert allocation_integral_types is not None
+
+        mesh = op3.utils.single_valued(a.ufl_domain() for a in {test, trial})
+        plex = mesh.topology
+
+        # NOTE: We do not inspect subdomains here so the "full" sparsity is
+        # allocated even when we might not use all of it. This increases
+        # reusability.
+        loops = []
+        for integral_type in allocation_integral_types:
+            if integral_type == "cell":
+                iterset = plex.cells
+
+                def map_(cell):
+                    return plex.closure(cell)
+            elif integral_type == "exterior_facet":
+                iterset = plex.exterior_facets.set
+
+                def map_(facet):
+                    return plex.closure(plex.support(facet))
+            else:
+                assert integral_type == "interior_facet"
+                iterset = plex.interior_facets.set
+
+                def map_(facet):
+                    return plex.closure(plex.support(facet))
+
+            loops.append((iterset, map_))
+        return tuple(loops)
 
     @cached_property
     def _all_local_kernels(self):
