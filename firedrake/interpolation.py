@@ -942,26 +942,19 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            # I'm convinced that this isn't right, probably need an extra source -> target map
-            def adjacency(pt):
-                # return argfs_map(target_mesh.topology.star(pt))
-                return source_mesh.topology.closure(target_mesh.topology.star(pt))
-
-            tensor = op3.PetscMat(
-                target_mesh.topology.points,
-                adjacency,
-                V.axes,
-                argfs.axes,
+            sparsity = op3.PetscMatPreallocator(V.axes, argfs.axes)
+            # Pretend that we are assembling the operator to populate the sparsity.
+            target_plex = target_mesh.topology
+            op3.do_loop(
+                c := target_plex.cells.index(),
+                sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666),
             )
-            # sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
-            #                         ((V.cell_node_map(), argfs_map),),
-            #                         name="%s_%s_sparsity" % (V.name, argfs.name),
-            #                         nest=False,
-            #                         block_sparse=True)
-            # tensor = op2.Mat(sparsity)
+            tensor = op3.PetscMat(V.axes, argfs.axes, sparsity)
         f = tensor
     else:
-        raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
+        raise ValueError(
+            f"Cannot interpolate an expression with {len(arguments)} arguments"
+        )
 
     if vom_onto_other_vom:
         # To interpolate between vertex-only meshes we use a PETSc SF
