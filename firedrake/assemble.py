@@ -1028,19 +1028,24 @@ class ParloopFormAssembler(FormAssembler):
     def parloops(self, tensor):
         loops = []
         if hasattr(self, "_parloops"):
-            raise NotImplementedError("Need to track the old tensor so it can be replaced")
+            assert hasattr(self, "_tensor_name")
             for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
-                data = _FormHandler.index_tensor(tensor, self._form, lknl.indices, self.diagonal)
-
+                data = _FormHandler.index_tensor(
+                    tensor, self._form, lknl.indices, self.diagonal
+                )
+                data = self._as_pyop3_type(data)
                 loops.append(functools.partial(parloop, **{self._tensor_name: data}))
         else:
             # Make parloops for one concrete output tensor and cache them.
-            # TODO: Make parloops only with some symbolic information of the output tensor.
             self._parloops = tuple(
                 parloop_builder.build(tensor)
                 for parloop_builder in self.parloop_builders
             )
             loops = self._parloops
+
+            # Save the original tensor name because this will be used to replace
+            # the argument in subsequent calls.
+            self._tensor_name = self._as_pyop3_type(tensor).name
         return loops
 
     @cached_property
