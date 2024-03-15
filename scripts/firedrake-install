@@ -710,8 +710,7 @@ def get_minimal_petsc_packages():
     # Parallel mesh partitioner
     pkgs.add("ptscotch")
     # Sparse direct solver
-    pkgs.add("scalapack")  # Needed for mumps
-    pkgs.add("mumps")
+    pkgs.add("superlu_dist")
     return pkgs
 
 
