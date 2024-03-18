@@ -192,7 +192,7 @@ def matrix_funptr(form, state):
         statearg = statedat(op2.READ, state_entity_node_map)
 
         mesh = all_meshes[kinfo.domain_number]  # integration domain
-        coord_meshes = [all_meshes[i] for i in kinfo.domain_numbers]  # coordinate meshes
+        coord_meshes = [all_meshes[i] for i in kinfo.active_domain_numbers.coordinates]  # coordinate meshes
         for coord_mesh in coord_meshes:
             arg = coord_mesh.coordinates.dat(op2.READ, get_map(coord_mesh.coordinates))  #compose!
             args.append(arg)
@@ -288,7 +288,7 @@ def residual_funptr(form, state):
         args.append(arg)
 
         mesh = all_meshes[kinfo.domain_number]
-        coord_meshes = [all_meshes[i] for i in kinfo.domain_numbers]
+        coord_meshes = [all_meshes[i] for i in kinfo.active_domain_numbers.coordinates]
         for coord_mesh in coord_meshes:
             arg = coord_mesh.coordinates.dat(op2.READ, get_map(coord_mesh.coordinates))  #compose!
             args.append(arg)
@@ -524,7 +524,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
     all_meshes = collect_domains_in_form(form)
     mesh = all_meshes[kernel.kinfo.domain_number]
-    coord_meshes = [all_meshes[i] for i in kernel.kinfo.domain_numbers]
+    coord_meshes = [all_meshes[i] for i in kernel.kinfo.active_domain_numbers.coordinates]
     coeffs = [coord_mesh.coordinates for coord_mesh in coord_meshes]
     if kernel.kinfo.oriented:
         coeffs.append(mesh.cell_orientations())

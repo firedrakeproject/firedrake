@@ -133,7 +133,7 @@ class LocalLoopyKernelBuilder:
         """
 
         kernel_data = []
-        for coord_domain_number in kinfo.domain_numbers:
+        for coord_domain_number in kinfo.active_domain_numbers.coordinates:
             if coord_domain_number != 0:
                 raise ValueError("Slate currently only supports single domain")
             kernel_data.append((mesh.coordinates, self.coordinates_arg_name))

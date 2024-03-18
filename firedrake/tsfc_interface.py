@@ -23,6 +23,7 @@ from tsfc import compile_form as tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 from tsfc.driver import collect_domains_in_form
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
 from pyop2 import op2
 from pyop2.caching import Cached
@@ -44,7 +45,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
-                                     "domain_numbers",
+                                     "active_domain_numbers",
                                      "coefficient_numbers",
                                      "constant_numbers",
                                      "needs_cell_facets",
@@ -154,7 +155,7 @@ class TSFCKernel(Cached):
         kernels = []
         for kernel in tree:
             domain_number = domain_number_map[kernel.domain_number]
-            domain_numbers = tuple(domain_number_map[dn] for dn in kernel.domain_numbers)
+            active_domain_numbers = ActiveDomainNumbers(*(tuple(domain_number_map[dn] for dn in dn_tuple) for dn_tuple in kernel.active_domain_numbers))
             # Individual kernels do not have to use all of the coefficients
             # provided by the (split) form. Here we combine the numberings
             # of (kernel coefficients -> split form coefficients) and
@@ -178,7 +179,7 @@ class TSFCKernel(Cached):
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=domain_number,
-                                      domain_numbers=domain_numbers,
+                                      active_domain_numbers=active_domain_numbers,
                                       coefficient_numbers=coefficient_numbers_per_kernel,
                                       constant_numbers=constant_numbers_per_kernel,
                                       needs_cell_facets=False,

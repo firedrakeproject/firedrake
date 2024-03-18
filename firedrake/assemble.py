@@ -2084,7 +2084,7 @@ class _FormHandler:
     def iter_active_coordinates(form, kinfo):
         """Yield the form coordinates referenced in ``kinfo``."""
         all_meshes = collect_domains_in_form(form)
-        for i in kinfo.domain_numbers:
+        for i in kinfo.active_domain_numbers.coordinates:
             yield all_meshes[i].coordinates
 
     @staticmethod
