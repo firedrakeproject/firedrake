@@ -1572,6 +1572,7 @@ class _GlobalKernelBuilder:
         self._unroll = unroll
 
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
@@ -1588,6 +1589,7 @@ class _GlobalKernelBuilder:
 
         # we should use up all of the coefficients and constants
         assert_empty(self._active_coordinates)
+        assert_empty(self._active_cell_orientations)
         assert_empty(self._active_coefficients)
         assert_empty(self._constants)
 
@@ -1725,6 +1727,12 @@ def _as_global_kernel_arg_coordinates(_, self):
     return self._make_dat_global_kernel_arg(V)
 
 
+@_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
+def _as_global_kernel_arg_cell_orientations(_, self):
+    c = next(self._active_cell_orientations)
+    V = c.function_space()
+    return self._make_dat_global_kernel_arg(V)
+
 @_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
 def _as_global_kernel_arg_coefficient(_, self):
     coeff = next(self._active_coefficients)
@@ -1772,12 +1780,6 @@ def _as_global_kernel_arg_cell_facet(_, self):
     else:
         num_facets = self._mesh.ufl_cell().num_facets()
     return op2.DatKernelArg((num_facets, 2))
-
-
-@_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_global_kernel_arg_cell_orientations(_, self):
-    V = self._mesh.cell_orientations().function_space()
-    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(LayerCountKernelArg)
@@ -2086,6 +2088,13 @@ class _FormHandler:
         all_meshes = collect_domains_in_form(form)
         for i in kinfo.active_domain_numbers.coordinates:
             yield all_meshes[i].coordinates
+
+    @staticmethod
+    def iter_active_cell_orientations(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = collect_domains_in_form(form)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            yield all_meshes[i].cell_orientations()
 
     @staticmethod
     def iter_active_coefficients(form, kinfo):

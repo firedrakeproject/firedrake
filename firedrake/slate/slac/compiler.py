@@ -185,10 +185,10 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=builder.bag.needs_cell_orientations,
                        subdomain_id=("otherwise",),
                        domain_number=0,
-                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, )),
+                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ),
+                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else ()),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,

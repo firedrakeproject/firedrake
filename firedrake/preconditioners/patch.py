@@ -192,12 +192,12 @@ def matrix_funptr(form, state):
         statearg = statedat(op2.READ, state_entity_node_map)
 
         mesh = all_meshes[kinfo.domain_number]  # integration domain
-        coord_meshes = [all_meshes[i] for i in kinfo.active_domain_numbers.coordinates]  # coordinate meshes
-        for coord_mesh in coord_meshes:
-            arg = coord_mesh.coordinates.dat(op2.READ, get_map(coord_mesh.coordinates))  #compose!
+        for i in kinfo.active_domain_numbers.coordinates:
+            c = all_meshes[i].coordinates
+            arg = c.dat(op2.READ, get_map(c))  #compose!
             args.append(arg)
-        if kinfo.oriented:
-            c = mesh.cell_orientations()
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
@@ -288,13 +288,12 @@ def residual_funptr(form, state):
         args.append(arg)
 
         mesh = all_meshes[kinfo.domain_number]
-        coord_meshes = [all_meshes[i] for i in kinfo.active_domain_numbers.coordinates]
-        for coord_mesh in coord_meshes:
-            arg = coord_mesh.coordinates.dat(op2.READ, get_map(coord_mesh.coordinates))  #compose!
+        for i in kinfo.active_domain_numbers.coordinates:
+            c = all_meshes[i].coordinates
+            arg = c.dat(op2.READ, get_map(c))  #compose!
             args.append(arg)
-
-        if kinfo.oriented:
-            c = mesh.cell_orientations()
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
@@ -524,10 +523,9 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
     all_meshes = collect_domains_in_form(form)
     mesh = all_meshes[kernel.kinfo.domain_number]
-    coord_meshes = [all_meshes[i] for i in kernel.kinfo.active_domain_numbers.coordinates]
-    coeffs = [coord_mesh.coordinates for coord_mesh in coord_meshes]
-    if kernel.kinfo.oriented:
-        coeffs.append(mesh.cell_orientations())
+    coeffs = []
+    coeffs.extend([all_meshes[i].coordinates for i in kernel.kinfo.active_domain_numbers.coordinates])
+    coeffs.extend([all_meshes[i].cell_orientations() for i in kernel.kinfo.active_domain_numbers.cell_orientations])
     if kernel.kinfo.needs_cell_sizes:
         coeffs.append(mesh.cell_sizes)
     for n, indices in kernel.kinfo.coefficient_numbers:

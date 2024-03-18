@@ -42,7 +42,6 @@ tsfc_default_parameters["scalar_type_c"] = utils.ScalarType_c
 KernelInfo = collections.namedtuple("KernelInfo",
                                     ["kernel",
                                      "integral_type",
-                                     "oriented",
                                      "subdomain_id",
                                      "domain_number",
                                      "active_domain_numbers",
@@ -176,7 +175,6 @@ class TSFCKernel(Cached):
                                                  events=events)
             kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
-                                      oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=domain_number,
                                       active_domain_numbers=active_domain_numbers,
