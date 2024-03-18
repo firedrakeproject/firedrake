@@ -188,12 +188,12 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        subdomain_id=("otherwise",),
                        domain_number=0,
                        active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ),
-                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else ()),
+                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else (),
+                                                                 cell_sizes=(0, ) if builder.bag.needs_cell_sizes else ()),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
-                       needs_cell_sizes=builder.bag.needs_cell_sizes,
                        arguments=arguments,
                        events=events)
 

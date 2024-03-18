@@ -1573,6 +1573,7 @@ class _GlobalKernelBuilder:
 
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
@@ -1590,6 +1591,7 @@ class _GlobalKernelBuilder:
         # we should use up all of the coefficients and constants
         assert_empty(self._active_coordinates)
         assert_empty(self._active_cell_orientations)
+        assert_empty(self._active_cell_sizes)
         assert_empty(self._active_coefficients)
         assert_empty(self._constants)
 
@@ -1733,6 +1735,14 @@ def _as_global_kernel_arg_cell_orientations(_, self):
     V = c.function_space()
     return self._make_dat_global_kernel_arg(V)
 
+
+@_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
+def _as_global_kernel_arg_cell_sizes(_, self):
+    c = next(self._active_cell_sizes)
+    V = c.function_space()
+    return self._make_dat_global_kernel_arg(V)
+
+
 @_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
 def _as_global_kernel_arg_coefficient(_, self):
     coeff = next(self._active_coefficients)
@@ -1755,12 +1765,6 @@ def _as_global_kernel_arg_constant(_, self):
     const = next(self._constants)
     value_size = numpy.prod(const.ufl_shape, dtype=int)
     return op2.GlobalKernelArg((value_size,))
-
-
-@_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
-def _as_global_kernel_arg_cell_sizes(_, self):
-    V = self._mesh.cell_sizes.function_space()
-    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -1816,6 +1820,8 @@ class ParloopBuilder:
         self._bcs = bcs
 
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
@@ -2023,6 +2029,20 @@ def _as_parloop_arg_coordinates(_, self):
     return op2.DatParloopArg(func.dat, map_)
 
 
+@_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
+def _as_parloop_arg_cell_orientations(_, self):
+    func = next(self._active_cell_orientations)
+    map_ = self._get_map(func.function_space())  #Compose!
+    return op2.DatParloopArg(func.dat, map_)
+
+
+@_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
+def _as_parloop_arg_cell_sizes(_, self):
+    func = next(self._active_cell_sizes)
+    map_ = self._get_map(func.function_space())  #Compose!
+    return op2.DatParloopArg(func.dat, map_)
+
+
 @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
 def _as_parloop_arg_coefficient(arg, self):
     coeff = next(self._active_coefficients)
@@ -2037,20 +2057,6 @@ def _as_parloop_arg_coefficient(arg, self):
 def _as_parloop_arg_constant(arg, self):
     const = next(self._constants)
     return op2.GlobalParloopArg(const.dat)
-
-
-@_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_parloop_arg_cell_orientations(_, self):
-    func = self._mesh.cell_orientations()
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
-
-
-@_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
-def _as_parloop_arg_cell_sizes(_, self):
-    func = self._mesh.cell_sizes
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
 
 
 @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -2095,6 +2101,13 @@ class _FormHandler:
         all_meshes = collect_domains_in_form(form)
         for i in kinfo.active_domain_numbers.cell_orientations:
             yield all_meshes[i].cell_orientations()
+
+    @staticmethod
+    def iter_active_cell_sizes(form, kinfo):
+        """Yield the form cell sizes referenced in ``kinfo``."""
+        all_meshes = collect_domains_in_form(form)
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            yield all_meshes[i].cell_sizes
 
     @staticmethod
     def iter_active_coefficients(form, kinfo):

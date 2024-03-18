@@ -200,8 +200,8 @@ def matrix_funptr(form, state):
             c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        if kinfo.needs_cell_sizes:
-            c = mesh.cell_sizes
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -296,8 +296,8 @@ def residual_funptr(form, state):
             c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        if kinfo.needs_cell_sizes:
-            c = mesh.cell_sizes
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -526,8 +526,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
     coeffs = []
     coeffs.extend([all_meshes[i].coordinates for i in kernel.kinfo.active_domain_numbers.coordinates])
     coeffs.extend([all_meshes[i].cell_orientations() for i in kernel.kinfo.active_domain_numbers.cell_orientations])
-    if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(mesh.cell_sizes)
+    coeffs.extend([all_meshes[i].cell_sizes for i in kernel.kinfo.active_domain_numbers.cell_sizes])
     for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:

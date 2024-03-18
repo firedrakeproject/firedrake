@@ -144,7 +144,9 @@ class LocalLoopyKernelBuilder:
             self.bag.needs_cell_orientations = True
             kernel_data.append((mesh.cell_orientations(), self.cell_orientations_arg_name))
 
-        if kinfo.needs_cell_sizes:
+        for cell_size_domain_number in kinfo.active_domain_numbers.cell_sizes:
+            if cell_size_domain_number != 0:
+                raise ValueError("Slate currently only supports single domain")
             self.bag.needs_cell_sizes = True
             kernel_data.append((mesh.cell_sizes, self.cell_sizes_arg_name))
 
