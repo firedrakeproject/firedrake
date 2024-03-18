@@ -123,7 +123,11 @@ class CoordinatelessFunction(ufl.Coefficient):
         nspaces = len(self.function_space())
         if nspaces > 1:
             return tuple(
-                CoordinatelessFunction(V, self.dat[str(i)], name=f"{self.name()}[{i}]")
+                CoordinatelessFunction(
+                    V,
+                    self.dat[op3.ScalarIndex("field", str(i), 0)],
+                    name=f"{self.name()}[{i}]"
+                )
                 for i, V in enumerate(self.function_space())
             )
         else:

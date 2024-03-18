@@ -1925,15 +1925,14 @@ class _FormHandler:
     def index_tensor(tensor, form, indices, diagonal):
         """Return the (indexed) pyop3 data structure tied to ``tensor``."""
         is_indexed = op3.utils.strictly_all(i is not None for i in indices)
-        index_str = tuple(str(i) for i in indices)
 
         rank = len(form.arguments())
         if rank == 0:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             is_mixed = type(tensor.ufl_element()) is finat.ufl.MixedElement
-            # return tensor.dat[index_str] if is_mixed and is_indexed else tensor.dat
-            return tensor[index_str] if is_mixed and is_indexed else tensor
+            index, = indices
+            return tensor.subfunctions[index] if is_mixed and is_indexed else tensor
         elif rank == 2:
             is_mixed = any(
                 type(arg.ufl_element()) is finat.ufl.MixedElement

@@ -74,7 +74,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
-class WithGeometryBase(object):
+class WithGeometryBase:
     r"""Attach geometric information to a :class:`~.FunctionSpace`.
 
     Function spaces on meshes with different geometry but the same
@@ -520,20 +520,13 @@ class FunctionSpace:
         self.finat_element = create_element(element)
 
         axes = op3.PartialAxisTree(mesh.points)
-        axes1 = op3.PartialAxisTree(mesh.points.copy(label=mesh.points.label+"1"))
         for tdim, edofs in self.finat_element.entity_dofs().items():
             ndofs = single_valued(len(d) for d in edofs.values())
             subaxes = op3.PartialAxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-            subaxes1 = op3.PartialAxisTree(op3.Axis({"XXX": ndofs}, "dof1"))
             for i, dim in enumerate(self.shape):
                 subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
-                subaxes1 = subaxes1.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}1"), *subaxes1.leaf)
             axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
-            axes1 = axes1.add_subtree(subaxes1, axes1.root, str(tdim))
         self.axes = axes.set_up()
-
-        # no longer required
-        # self.axes1 = axes1.set_up()
 
     # def set_shared_data(self):
     #     element = self.ufl_element()
@@ -944,7 +937,7 @@ class MixedFunctionSpace:
         # TODO I think .layout may be a better name
         # TODO it would be nice for function spaces to have default names so they could
         # be used to distinguish bits here
-        root = op3.Axis({str(i): 1 for i, _ in enumerate(spaces)})
+        root = op3.Axis({str(i): 1 for i, _ in enumerate(spaces)}, "field")
         axes = op3.PartialAxisTree(root)
         for i, space in enumerate(spaces):
             axes = axes.add_subtree(space.axes, root, str(i), uniquify=True)

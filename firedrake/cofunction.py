@@ -4,6 +4,7 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
+import pyop3 as op3
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
@@ -68,10 +69,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self._label = "a cofunction"
 
         if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+        if isinstance(val, op3.HierarchicalArray):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -106,10 +105,18 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
-        if self.function_space().ufl_element() is finat.MixedElement:
-            raise NotImplementedError
-            return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
+        nspaces = len(self.function_space())
+        if nspaces > 1:
+            return tuple(
+                type(self)(
+                    V,
+                    self.dat[op3.ScalarIndex("field", str(i), 0)],
+                    name=f"{self.name()}[{i}]"
+                )
+                for i, V in enumerate(self.function_space())
+            )
         else:
+            assert nspaces == 1
             return (self,)
 
     @FunctionMixin._ad_annotate_subfunctions

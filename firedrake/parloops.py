@@ -20,7 +20,7 @@ from ufl.domain import join_domains
 from firedrake import constant
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
-from firedrake.functionspaceimpl import WithGeometry
+from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
@@ -373,21 +373,21 @@ def _(
         # about by the mesh topology and instead be handled here. This
         # would probably require an oriented mesh
         # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-        indexed = array[plex._fiat_closure(index)]
-    elif integral_type == "exterior_facet":
-        indexed = array[plex._fiat_closure(plex.support(index))]
-    elif integral_type == "interior_facet":
-        indexed = array[plex._fiat_closure(plex.support(index))]
+        # indexed = array.getitem(plex._fiat_closure(index), strict=True)
+        pack_indices = _cell_integral_pack_indices(V, index)
+    elif integral_type in {"exterior_facet", "interior_facet"}:
+        # indexed = array.getitem(plex._fiat_closure(plex.support(index)), strict=True)
+        pack_indices = _facet_integral_pack_map(V)
+    # elif integral_type == "interior_facet":
+    #     pack_map = _facet_integral_pack_map(V)
+        # indexed = array.getitem(plex._fiat_closure(plex.support(index)), strict=True)
     else:
         raise NotImplementedError
 
-    # Indexing an array with a loop index makes it "context sensitive" since
-    # the index could be over multiple entities (e.g. all mesh points). Here
-    # we know we are only looping over cells so the context is trivial.
-    cf_indexed = op3.utils.just_one(indexed.context_map.values())
+    indexed = array.getitem(pack_indices, strict=True)
 
     if plex.ufl_cell().is_simplex():
-        return cf_indexed
+        return indexed
 
     if plex.ufl_cell() != ufl.quadrilateral:
         raise NotImplementedError
@@ -398,7 +398,7 @@ def _(
     # _tensorify_axes, could they be combined/made more similar?
     if integral_type in {"exterior_facet", "interior_facet"}:
         # Add the top-level bit too
-        facet_axis = cf_indexed.axes.root
+        facet_axis = indexed.axes.root
         tensor_axes = op3.PartialAxisTree(facet_axis).add_subtree(tensor_axes, facet_axis, facet_axis.component)
         tensor_axes = tensor_axes.set_up()
 
@@ -411,9 +411,9 @@ def _(
 
     from pyop3.itree.tree import _compose_bits
     tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
-        cf_indexed.axes,
-        cf_indexed.target_paths,
-        cf_indexed.index_exprs,
+        indexed.axes,
+        indexed.target_paths,
+        indexed.index_exprs,
         None,
         tensor_axes,
         target_paths,
@@ -421,23 +421,23 @@ def _(
         {},
     )
 
-    cf_indexed_tensor = op3.HierarchicalArray(
+    indexed_tensor = op3.HierarchicalArray(
         tensor_axes,
         target_paths=tensor_target_paths,
         index_exprs=tensor_index_exprs,
-        layouts=cf_indexed.layouts,
-        data=cf_indexed.buffer,
-        name=cf_indexed.name,
+        layouts=indexed.layouts,
+        data=indexed.buffer,
+        name=indexed.name,
     )
 
     # Create the temporary that will be passed to the local kernel
     packed = op3.HierarchicalArray(
         tensor_axes,
-        data=op3.NullBuffer(cf_indexed.dtype),
+        data=op3.NullBuffer(indexed.dtype),
         prefix="t",
     )
 
-    return op3.Pack(cf_indexed_tensor, packed)
+    return op3.Pack(indexed_tensor, packed)
 
 
 @pack_pyop3_tensor.register
@@ -454,17 +454,9 @@ def _(
     plex = op3.utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
 
     # First collect the DoFs in the cell closure in FIAT order.
-    # TODO ideally the FIAT permutation would not need to be known
-    # about by the mesh topology and instead be handled here. This
-    # would probably require an oriented mesh
-    # (see https://github.com/firedrakeproject/firedrake/pull/3332)
     if integral_type == "cell":
         rmap = cmap = plex._fiat_closure(index)
-
-    # TODO plex.support *should* work but it is suboptimally efficient because it
-    # thinks things are ragged.
     elif integral_type == "exterior_facet":
-        # rmap = cmap = plex._fiat_closure(plex.exterior_facet_support(index))
         rmap = cmap = plex._fiat_closure(plex.support(index))
     elif integral_type == "interior_facet":
         rmap = cmap = plex._fiat_closure(plex.support(index))
@@ -549,6 +541,60 @@ def _(
     )
 
     return op3.Pack(cf_indexed_tensor, packed)
+
+
+def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
+    plex = V.ufl_domain().topology
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(cell): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
+    return _with_shape_indices(V, indices)
+
+
+def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree):
+    is_mixed = isinstance(V.topological, MixedFunctionSpace)
+
+    if is_mixed:
+        spaces = V.topological._spaces
+        trees = (indices,) * len(spaces)
+    else:
+        spaces = (V.topological,)
+        trees = (indices,)
+
+    # Add tensor shape innermost, this applies to cells, edges etc equally
+    trees_ = []
+    for space, tree in zip(spaces, trees):
+        if space.shape:
+            tensor_slices = tuple(
+                op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX")])
+                for i, dim in enumerate(space.shape)
+            )
+            tensor_indices = op3.IndexTree.from_iterable(tensor_slices)
+
+            for leaf in tree.leaves:
+                tree = tree.add_subtree(tensor_indices, *leaf, uniquify_ids=True)
+
+        trees_.append(tree)
+    trees = tuple(trees_)
+
+    # outer mixed bit
+    if is_mixed:
+        field_indices = op3.IndexTree(
+            op3.Slice(
+                "field",
+                [op3.AffineSliceComponent(str(i)) for i, _ in enumerate(spaces)]
+            )
+        )
+        tree = field_indices
+        for leaf, subtree in op3.utils.checked_zip(field_indices.leaves, trees):
+            tree = tree.add_subtree(subtree, *leaf, uniquify_ids=True)
+    else:
+        tree = op3.utils.just_one(trees)
+
+    return tree
 
 
 def _tensorify_axes(V, suffix=""):
