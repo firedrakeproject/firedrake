@@ -2369,8 +2369,8 @@ def plex_renumbering(PETSc.DM plex,
     CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &labels[0]))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &labels[1]))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &labels[2]))
-    for l in range(3):
-        CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
+    for idx in range(3):
+        CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
     entity_classes = entity_classes.astype(IntType)
 
     # Get boundary points (if the boundary_set exists) and count each type
@@ -2390,13 +2390,13 @@ def plex_renumbering(PETSc.DM plex,
             for i in range(n):
                 p = points[i]
                 if not PetscBTLookup(seen_boundary, p):
-                    for l in range(3):
-                        CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
+                    for idx in range(3):
+                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
                         if has_point:
                             PetscBTSet(seen_boundary, p)
-                            if l == 1:
+                            if idx == 1:
                                 constrained_owned += 1
-                            elif l == 0:
+                            elif idx == 0:
                                 constrained_core += 1
                             break
     

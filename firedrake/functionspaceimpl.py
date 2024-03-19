@@ -419,7 +419,7 @@ class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
         super(WithGeometry, self).__init__(mesh, element,
                                            component=component,
                                            cargo=cargo)
-                                    
+
     def dual(self):
         return FiredrakeDualSpace.create(self.topological, self.mesh())
 
