@@ -250,7 +250,7 @@ with a value of 1.5 km/s.
 
 
 
-.. image:: c_guess.png
+.. image:: c_initial.png
 
 
 The function ``J`` computes the functional :math:`J` by solving the wave
