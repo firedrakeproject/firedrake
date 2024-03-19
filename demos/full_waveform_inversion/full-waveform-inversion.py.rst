@@ -215,14 +215,6 @@ acoustic wave equation.
         u_sol_sources.append(u_sol_receivers)
 
 
-
-.. parsed-literal::
-
-    Computing syntetic receiver data for source 1 of 3
-    Computing syntetic receiver data for source 2 of 3
-    Computing syntetic receiver data for source 3 of 3
-
-
 Next, we execute an FWI problem, which involves the following steps:
 
 1. Set the initial guess for the parameter :math:`c`;
@@ -381,59 +373,6 @@ sources (``J_total``) and the adjoint-based gradient ``dJ_total``.
     c_predicted = Function(V)
     c_predicted.dat.data[:] = result_data.x
     plot_function(c_predicted, "c_predicted.png")
-
-
-.. parsed-literal::
-
-    RUNNING THE L-BFGS-B CODE
-    
-               * * *
-    
-    Machine precision = 2.220D-16
-     N =         6561     M =           10
-    
-    At X0      6561 variables are exactly at the bounds
-    
-    At iterate    0    f=  8.41974D-03    |proj g|=  5.59467D-04
-    
-    At iterate    1    f=  8.41387D-03    |proj g|=  5.58420D-04
-    
-    At iterate    2    f=  5.44952D-03    |proj g|=  1.70957D-04
-    
-    At iterate    3    f=  4.52806D-03    |proj g|=  8.86311D-05
-    
-    At iterate    4    f=  3.23313D-03    |proj g|=  3.05439D-05
-    
-    At iterate    5    f=  1.62177D-03    |proj g|=  2.75074D-05
-    
-    At iterate    6    f=  1.08476D-03    |proj g|=  2.12412D-05
-    
-    At iterate    7    f=  9.06440D-04    |proj g|=  2.67692D-05
-    
-    At iterate    8    f=  7.54850D-04    |proj g|=  1.39000D-05
-    
-    At iterate    9    f=  6.32525D-04    |proj g|=  1.22143D-05
-    
-    At iterate   10    f=  5.25063D-04    |proj g|=  1.26051D-05
-    
-               * * *
-    
-    Tit   = total number of iterations
-    Tnf   = total number of function evaluations
-    Tnint = total number of segments explored during Cauchy searches
-    Skip  = number of BFGS updates skipped
-    Nact  = number of active bounds at final generalized Cauchy point
-    Projg = norm of the final projected gradient
-    F     = final function value
-    
-               * * *
-    
-       N    Tit     Tnf  Tnint  Skip  Nact     Projg        F
-     6561     10     11   1763     0  3220   1.261D-05   5.251D-04
-      F =   5.2506309235864925E-004
-    
-    STOP: TOTAL NO. of ITERATIONS REACHED LIMIT                 
-
 
 
 .. image:: c_computed.png
