@@ -14,7 +14,7 @@ Cost function
 
 FWI consists of a local optimisation, where the goal is to minimise the
 misfit between observed and predicted seismogram data. Following
-Tarantola (1984) [1], the misfit function can be measured by the
+:cite:`Tarantola:1984`, the misfit function can be measured by the
 :math:`L^2` norm, which can written as follows, in a continuous space:
 
 .. math::
@@ -46,7 +46,7 @@ of waves and is usually described by a `Ricker
 Wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__. The
 acoustic wave equation should satisfy the initial conditions
 :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We are employing
-no-reflective absorbing boundary condition [2]:
+no-reflective absorbing boundary condition :cite:`Clayton:1977`:
 
 .. math::  \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, \forall \mathbf{x} \, \in \partial \Omega 
 
@@ -70,31 +70,6 @@ follows.
     from firedrake import *
     
     def wave_equation_solver(c, source_function, dt, V):
-        """Solve the acoustic wave equation in 2D.
-    
-        Parameters
-        ----------
-        c : firedrake.Function
-            The pressure wave velocity
-        source_function : firedrake.Function
-            A function modelling the source wave.
-        dt : float
-            The time step.
-        V : firedrake.FunctionSpace
-            The function space where the solution lives.
-    
-        Returns
-        -------
-        firedrake.LinearVariationalSolver, firedrake.Function, firedrake.Function, firedrake.Function
-            Return the linear variational solver and the functions for the solution at time `n+1`, `n` and `n-1`.
-            These outputs are going to be used in a time loop.
-        
-        Notes
-        -----
-        Additional details about this wave equation solver, including the discretisation and the
-        linear variational problem, please refer this 
-        `documentation link <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
-        """
         u = TrialFunction(V)
         v = TestFunction(V)
     
@@ -102,7 +77,7 @@ follows.
         u_n = Function(V) # timestep n
         u_nm1 = Function(V) # timestep n-1
     
-        # quadrature rule for lumped mass matrix
+        # Quadrature rule for lumped mass matrix.
         quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "KMV")
         dudt2 =  (1 / (c * c)) * (u - 2.0 * u_n + u_nm1) / Constant(dt**2) * v * dx(scheme=quad_rule)
         nf =  (1 / c) * ((u_n - u_nm1) / dt) * v * ds
@@ -129,31 +104,10 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
 
 .. code:: ipython3
 
-    import numpy as np
     from firedrake.__future__ import Interpolator
     
-    def forcing(parent_mesh, delta_loc, V):
-        """Build a forcing term for the wave equation.
-    
-        Parameters
-        ----------
-        parent_mesh : firedrake.Mesh
-            The mesh where the forcing term is defined.
-        delta_loc : tuple
-            The location of the forcing term.
-        V : firedrake.FunctionSpace
-            The function space where the forcing term lives.
-    
-        Returns
-        -------
-        firedrake.Interpolator, firedrake.Function
-            Return the interpolator and the source wave function.
-    
-        Notes
-        -----
-        Additional details :func:`~.VertexOnlyMesh` as feature for pointing evaluation are found in the Firedrake documentation.
-        """
-        vom_mesh = VertexOnlyMesh(parent_mesh, delta_loc)
+    def wave_source_term(mesh, delta_loc, V):
+        vom_mesh = VertexOnlyMesh(mesh, delta_loc)
         vom_space = FunctionSpace(vom_mesh, "DG", 0)
         forcing_point = assemble(Constant(1.0)*TestFunction(vom_space)*dx)
         interp = Interpolator(TestFunction(V), vom_space)
@@ -166,22 +120,6 @@ given by the following code:
 .. code:: ipython3
 
     def ricker_wavelet(t, fs, amp=1000.0):
-        """Ricker wavelet.
-    
-        Parameters
-        ----------
-        t : float
-            Time.
-        fs : float
-            Frequency peak of the wavelet.
-        amp : float, optional
-            Amplitude of the wavelet.
-    
-        Returns
-        -------
-        float
-            The value of the wavelet at time `t`.
-        """
         ts = 1.5
         t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
         return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
@@ -200,15 +138,15 @@ setup to execute the acoust wave equation, and the FWI.
 
 .. code:: ipython3
 
-    %matplotlib inline
     from firedrake.pyplot import tricontourf
     import matplotlib.pyplot as plt
+    import numpy as np
     Lx, Lz = 1.0, 1.0
     num_receivers = 10
     num_sources = 3
     model = {
-        "source_locations": np.linspace((0.3, 0.15), (0.7, 0.15), num_sources),
-        "receiver_locations": np.linspace((0.2, 0.8), (0.8, 0.8), num_receivers),
+        "source_locations": np.linspace((0.3, 0.05), (0.7, 0.05), num_sources),
+        "receiver_locations": np.linspace((0.2, 0.85), (0.8, 0.85), num_receivers),
         "mesh": UnitSquareMesh(80, 80),
         "dt": 0.002,  # time step
         "final_time": 1.0,  # final time
@@ -227,10 +165,14 @@ setup to execute the acoust wave equation, and the FWI.
             plt.savefig(filename)
         
 
-A synthetic pressure wave velocity is used here to emulate a true
-pressure velocity model, :math:`c_{true}`. For the sake of simplicity,
-we consider :math:`c_{true}` consisting of a circle in the center of the
-domain as shown in the next code cell.
+FWI seeks to estimate the pressure wave velocity based on the observed
+data stored at the receivers. The observed data is subject to influences
+of the subsurface medium while waves propagate from the source. In the
+current example, we emulate these data by solving the wave equation with
+a known pressure wave velocity model, i.e., a synthetic pressure wave
+velocity referred to as the true velocity model (:math:`c_{true}`). For
+the sake of simplicity, we consider :math:`c_{true}` consisting of a
+circle in the centre of the domain, as shown in the coming code cell.
 
 .. code:: ipython3
 
@@ -241,7 +183,7 @@ domain as shown in the next code cell.
 
 
 
-.. image:: 13-full-waveform-inversion_10_0.png
+.. image:: c_true.png
 
 
 We now get the synthetic data recorded on the receivers by executing the
@@ -259,7 +201,7 @@ acoustic wave equation.
     
     for sn in range(num_sources):
         print(f"Computing syntetic receiver data for source {sn+1} of {num_sources}")
-        interpolator_sources, forcing_point = forcing(model["mesh"], [model["source_locations"][sn]], V)
+        interpolator_sources, forcing_point = wave_source_term(model["mesh"], [model["source_locations"][sn]], V)
         u_sol_receivers = []
         for t in range(int(model["final_time"] / model["dt"]) + 1):
             forcing_point.dat.data_wo[:] = ricker_wavelet(t * model["dt"], model["frequency_peak"])
@@ -267,7 +209,6 @@ acoustic wave equation.
             solver.solve()
             u_nm1.assign(u_n)
             u_n.assign(u_np1)
-    
             # Interpolate the solution at the receiver locations and store the result.
             # This data will be used in the inversion to compute the functional.
             u_sol_receivers.append(assemble(interpolator_receivers.interpolate()))
@@ -282,25 +223,34 @@ acoustic wave equation.
     Computing syntetic receiver data for source 3 of 3
 
 
-Next, we execute an FWI problem, which involves the following steps: 1.
-Set the initial guess for the parameter :math:`c`; 2. Solve the wave
-equation with the initial guess for the parameter :math:`c`; 3. Compute
-the functional :math:`J`; 4. Compute the gradient of the functional
-:math:`J` with respect to the parameter :math:`c`; 5. Update the
-parameter :math:`c` using a gradient-based optimization method; 6.
-Repeat steps 2-5 until the stopping criterion is satisfied.
+Next, we execute an FWI problem, which involves the following steps:
+
+1. Set the initial guess for the parameter :math:`c`;
+
+2. Solve the wave equation with the initial guess for the parameter
+   :math:`c`;
+
+3. Compute the functional :math:`J`;
+
+4. Compute the gradient of the functional :math:`J` with respect to the
+   parameter :math:`c`;
+
+5. Update the parameter :math:`c` using a gradient-based optimization
+   method;
+
+6. Repeat steps 2-5 until the stopping criterion is satisfied.
 
 The initial guess for the parameter :math:`c` is set as a constant field
 with a value of 1.5 km/s.
 
 .. code:: ipython3
 
-    c_guess = Function(V).assign(1.5)
+    c_guess = Function(V).interpolate(1.5)
     plot_function(c_guess, "c_guess.png")
 
 
 
-.. image:: 13-full-waveform-inversion_15_0.png
+.. image:: c_guess.png
 
 
 The function ``J`` computes the functional :math:`J` by solving the wave
@@ -314,25 +264,6 @@ Checkpointing can be employed when setting ``checkpointing=True``.
     from firedrake.adjoint import *
     
     def J(c_guess, true_receiver, source_location, checkpointing=False):
-        """Functional to be minimised.
-    
-        Parameters
-        ----------
-        c_guess : firedrake.Function
-            The guess of the wave velocity.
-        true_receiver : list
-            The true receiver data.
-        source_location : list
-            The source location.
-        checkpointing : bool, optional
-            If True, enable checkpointing.
-    
-        Returns
-        -------
-        float, numpy.ndarray
-            The value of the functional and the gradient of the functional with
-            respect to the wave velocity `c_guess`.
-        """
         continue_annotation()
         tape = get_working_tape()
         total_steps = int(model["final_time"] / model["dt"]) + 1
@@ -343,7 +274,7 @@ Checkpointing can be employed when setting ``checkpointing=True``.
         V = FunctionSpace(model["mesh"], "KMV", 1)
         source_function = Function(V)
         solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, source_function, model["dt"], V)
-        interpolator_sources, forcing_point = forcing(model["mesh"], source_location, V)
+        interpolator_sources, forcing_point = wave_source_term(model["mesh"], source_location, V)
         P0DG = FunctionSpace(receiver_mesh, "DG", 0)
         interpolator_receivers = Interpolator(u_np1, P0DG)
         J_val = 0.0
@@ -359,13 +290,22 @@ Checkpointing can be employed when setting ``checkpointing=True``.
         return J_val
 
 Coming code cells show the execution of the FWI solver with automated
-adjoint and checkpointing. The input for ``fwi`` is the initial guess
-``c_guess``. ``fwi`` returns the function ``J_total`` and the
-adjoint-based gradient ``dJ_total`` for the optimisation process. The
-optimisation method employed here is the
-`L-BFGS-B <https://epubs.siam.org/doi/10.1137/0916069>`__ method.
+adjoint and checkpointing methods used to manage the memory usage.
 
-So, let us execute an FWI with automated adjoint and checkpointing!
+Checkpointing approaches store only the state required to restart the
+forward calculation from a limited set of steps. As the adjoint
+calculation progresses, the forward computation is progressively rerun
+from the latest available stored state up to the current adjoint step.
+This enables less forward state to be stored, at the expense of a higher
+computational cost as forward steps are run more than once.
+
+FWI is computationally intensive in memory since computing adjoint
+requires forward data storage, which is expensive in terms of memory for
+more realistic computations. Therefore, checkpointing is required method
+to handle the memory usage.
+
+In the current example, we are employing the ``checkpointing``, storing
+100 steps in memory.
 
 .. code:: ipython3
 
@@ -374,16 +314,12 @@ So, let us execute an FWI with automated adjoint and checkpointing!
     # Let us choose how many steps we want to keep in memory.
     checkpoint_in_memory = 100
 
-.. container:: alert alert-block alert-info
-
-   Note: Checkpointing approaches store only the state required to
-   restart the forward calculation from a limited set of steps, which is
-   ``checkpoint_in_memory=10`` in this example. As the adjoint
-   calculation progresses, the forward computation is progressively
-   rerun from the latest available stored state up to the current
-   adjoint step. This enables less forward state to be stored, at the
-   expense of a higher computational cost as forward steps are run more
-   than once.
+We now execute the ``fwi`` with the initial guess velocity model
+``c_guess``. ``fwi`` returns the sum of functional associated to every
+sources (``J_total``) and the adjoint-based gradient ``dJ_total``.
+``J_total`` and ``dJ_total`` are required to update the parameter
+``c_guess`` using the
+`L-BFGS-B <https://epubs.siam.org/doi/10.1137/0916069>`__ method.
 
 .. code:: ipython3
 
@@ -414,7 +350,6 @@ So, let us execute an FWI with automated adjoint and checkpointing!
         dJ_total = Function(V)
         num_sources = len(model["source_locations"])
         for sn in range(num_sources):
-            print(f"Running source {sn + 1} of {len(model['source_locations'])}")
             if iteration == 0:
                 c_guess = Function(V)
                 c_guess.dat.data_wo[:] = c_guess_data
@@ -442,7 +377,7 @@ So, let us execute an FWI with automated adjoint and checkpointing!
     result_data = scipy_minimize(run_fwi, c_guess.dat.data[:], method='L-BFGS-B',
                                  jac=True, tol=1e-15, bounds=bounds,
                                  options={"disp": True, "eps": 1e-15,
-                                          "gtol": 1e-15, "maxiter": 20})
+                                          "gtol": 1e-15, "maxiter": 10})
     c_predicted = Function(V)
     c_predicted.dat.data[:] = result_data.x
     plot_function(c_predicted, "c_predicted.png")
@@ -450,85 +385,58 @@ So, let us execute an FWI with automated adjoint and checkpointing!
 
 .. parsed-literal::
 
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
     RUNNING THE L-BFGS-B CODE
     
                * * *
     
-    Running source 1 of 3
     Machine precision = 2.220D-16
      N =         6561     M =           10
     
     At X0      6561 variables are exactly at the bounds
     
-    At iterate    0    f=  1.07349D-02    |proj g|=  7.03718D-04
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    0    f=  8.41974D-03    |proj g|=  5.59467D-04
     
-    At iterate    1    f=  1.07270D-02    |proj g|=  7.02162D-04
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    1    f=  8.41387D-03    |proj g|=  5.58420D-04
     
-    At iterate    2    f=  7.14668D-03    |proj g|=  2.25360D-04
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    2    f=  5.44952D-03    |proj g|=  1.70957D-04
     
-    At iterate    3    f=  6.08188D-03    |proj g|=  1.21729D-04
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    3    f=  4.52806D-03    |proj g|=  8.86311D-05
     
-    At iterate    4    f=  4.56590D-03    |proj g|=  4.37679D-05
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    4    f=  3.23313D-03    |proj g|=  3.05439D-05
     
-    At iterate    5    f=  2.10365D-03    |proj g|=  4.15568D-05
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    5    f=  1.62177D-03    |proj g|=  2.75074D-05
     
-    Running source 1 of 3
-    At iterate    6    f=  1.36813D-03    |proj g|=  2.75833D-05
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    6    f=  1.08476D-03    |proj g|=  2.12412D-05
     
-    Running source 1 of 3
-    At iterate    7    f=  1.01685D-03    |proj g|=  2.64483D-05
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    7    f=  9.06440D-04    |proj g|=  2.67692D-05
     
-    At iterate    8    f=  7.76458D-04    |proj g|=  2.47595D-05
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    8    f=  7.54850D-04    |proj g|=  1.39000D-05
     
-    Running source 1 of 3
-    At iterate    9    f=  6.95994D-04    |proj g|=  2.00217D-05
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate    9    f=  6.32525D-04    |proj g|=  1.22143D-05
     
-    At iterate   10    f=  5.91586D-04    |proj g|=  1.10091D-05
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    At iterate   10    f=  5.25063D-04    |proj g|=  1.26051D-05
     
-    At iterate   11    f=  4.79457D-04    |proj g|=  6.40314D-06
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+               * * *
     
-    At iterate   12    f=  4.11523D-04    |proj g|=  4.90067D-06
-    Running source 1 of 3
-    Running source 2 of 3
-    Running source 3 of 3
+    Tit   = total number of iterations
+    Tnf   = total number of function evaluations
+    Tnint = total number of segments explored during Cauchy searches
+    Skip  = number of BFGS updates skipped
+    Nact  = number of active bounds at final generalized Cauchy point
+    Projg = norm of the final projected gradient
+    F     = final function value
     
-    Running source 1 of 3
-    At iterate   13    f=  3.72089D-04    |proj g|=  5.32565D-06
+               * * *
+    
+       N    Tit     Tnf  Tnint  Skip  Nact     Projg        F
+     6561     10     11   1763     0  3220   1.261D-05   5.251D-04
+      F =   5.2506309235864925E-004
+    
+    STOP: TOTAL NO. of ITERATIONS REACHED LIMIT                 
+
+
+
+.. image:: c_computed.png
 
 
 Below we have the functional values with respect to the number of
@@ -544,19 +452,14 @@ iterations.
 
 
 
-.. image:: 13-full-waveform-inversion_23_0.png
+.. image:: cost_function.png
 
 
-We are using twenty iterations. You can change the number of iterations.
-You just need to change the ``max_iter`` in ``scipy minimize`` method.
+We are using only ten iterations. You can change the number of
+iterations. You just need to change the ``max_iter`` in
+``scipy minimize`` method.
 
-References
-----------
+.. rubric:: References
 
-[1] Tarantola, Albert. Inversion of seismic reflection data in the
-acoustic approximation. Geophysics 49.8: 1259-1266.
-https://doi.org/10.1190/1.1441754, 1984.
-
-[2] Clayton, R. and Engquist, B.: Absorbing boundary conditions for
-acoustic and elastic wave equations, B. Seismol. Soc. Am., 67,
-1529-1540, https://doi.org/10.1785/BSSA0670061529, 1977.
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
