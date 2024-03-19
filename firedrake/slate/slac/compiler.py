@@ -187,7 +187,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
                        subdomain_id=("otherwise",),
                        domain_number=0,
-                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ),
+                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ) if builder.bag.needs_coordinates else (),
                                                                  cell_orientations=(0, ) if builder.bag.needs_cell_orientations else (),
                                                                  cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
                                                                  exterior_facets=(),

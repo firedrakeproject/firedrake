@@ -445,7 +445,10 @@ class LocalLoopyKernelBuilder:
                         if subdomain_id != "otherwise":
                             raise NotImplementedError("No subdomain markers for cells yet")
                     elif self.is_integral_type(integral_type, "facet_integral"):
-                        if kinfo.active_domain_numbers._asdict()[kinfo.integral_type + 's'] != ():
+                        if kinfo.active_domain_numbers._asdict()[{"exterior_facet": "exterior_facets",
+                                                                  "exterior_facet_vert": "exterior_facets",
+                                                                  "interior_facet": "interior_facets",
+                                                                  "interior_facet_vert": "interior_facets"}[kinfo.integral_type]] != ():
                             predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo, subdomain_id)
                             reads.append(facet_arg)
                             inames_dep.append(fidx[0].name)
