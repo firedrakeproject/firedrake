@@ -12,7 +12,7 @@ def solver_parameters(solver_type):
                       "pc_type": "mg",
                       "pc_mg_type": "full",
                       "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 2,
+                      "mg_levels_ksp_max_it": 3,
                       "mg_levels_pc_type": "jacobi"}
     elif solver_type == "mgmatfree":
         parameters = {"snes_type": "ksponly",
@@ -25,7 +25,7 @@ def solver_parameters(solver_type):
                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                       "mg_coarse_assembled_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 2,
+                      "mg_levels_ksp_max_it": 3,
                       "mg_levels_pc_type": "jacobi"}
     elif solver_type == "fas":
         parameters = {"snes_type": "fas",
@@ -57,7 +57,7 @@ def solver_parameters(solver_type):
                       "npc_fas_coarse_snes_linesearch_type": "basic",
                       "npc_fas_levels_snes_type": "ksponly",
                       "npc_fas_levels_ksp_type": "chebyshev",
-                      "npc_fas_levels_ksp_max_it": 2,
+                      "npc_fas_levels_ksp_max_it": 3,
                       "npc_fas_levels_pc_type": "jacobi",
                       "npc_fas_levels_ksp_convergence_test": "skip",
                       "npc_snes_max_it": 1,

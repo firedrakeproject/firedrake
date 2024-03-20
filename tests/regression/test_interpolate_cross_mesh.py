@@ -108,6 +108,9 @@ def parameters(request):
         m_src.coordinates.dat.data[:] *= 2
         m_src.coordinates.dat.data[:] -= 1
         m_dest = CircleManifoldMesh(1000, degree=2)  # note degree!
+        # ~ # Function.at often gets conflicting answers across boundaries for this
+        # ~ # mesh, so we lower the tolerance a bit for this test
+        # ~ m_dest.tolerance = 0.1
         coords = np.array(
             [
                 [0, 1],

@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.mark.skipcomplex
@@ -184,7 +185,7 @@ def test_not_aligned():
                          "mg_coarse_pc_type": "python",
                          "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                          "mg_coarse_assembled_pc_type": "lu",
-                         "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
+                         "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
                          "ksp_monitor": None}
     appctx = {}
     appctx["x_plus_y"] = lambda z: z[0]+z[1]
