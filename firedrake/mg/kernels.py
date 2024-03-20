@@ -546,6 +546,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
+                                argument_integral_types=("cell", ),
                                 coefficients=(),
                                 coefficient_numbers=())
 
