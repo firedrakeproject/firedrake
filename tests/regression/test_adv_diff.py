@@ -89,6 +89,8 @@ def test_adv_diff_parallel():
     run_adv_diff()
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def run_adv_diff_on_quadrilaterals():
     import numpy as np
     diff = np.array([adv_diff(i, quadrilateral=True) for i in range(5, 8)])
