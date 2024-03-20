@@ -544,7 +544,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
     info = TSFCIntegralDataInfo(domain=Vc.mesh(),
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
-                                domain_integral_type_map={Vc.mesh(): "cell"},
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
