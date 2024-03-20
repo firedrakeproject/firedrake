@@ -3,6 +3,7 @@ from firedrake.preconditioners.patch import bcdofs
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from ufl import inner, div, dx, HCurl, HDiv
 from pyop2.utils import as_tuple
 import numpy
@@ -57,11 +58,19 @@ class BDDCPC(PCBase):
 
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
+        if V.shape == ():
+            make_function_space = FunctionSpace
+        elif len(V.shape) == 1:
+            make_function_space = VectorFunctionSpace
+        else:
+            make_function_space = TensorFunctionSpace
+
         if sobolev_space == HCurl:
             gradient = appctx.get("discrete_gradient", None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-                Q = V.reconstruct(family="Lagrange")
+                from firedrake.preconditioners.hiptmair import curl_to_grad
+                Q = make_function_space(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
             bddcpc.setBDDCDiscreteGradient(gradient)
 
@@ -70,8 +79,8 @@ class BDDCPC(PCBase):
             if B is None:
                 from firedrake.assemble import assemble
                 degree = max(as_tuple(V.ufl_element().degree()))
-                Q = V.reconstruct(family="DG", degree=degree-1, variant=None)
-                b = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
+                Q = make_function_space(V.mesh(), "DG", degree-1)
+                b = inner(div(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
                 B = assemble(b, mat_type="matfree")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
 
