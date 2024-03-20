@@ -115,6 +115,9 @@ def test_firedrake_Poisson_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 def test_firedrake_Poisson_netgen_parallel():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
@@ -389,6 +392,9 @@ def test_firedrake_Adaptivity_netgen_parallel():
     assert error_estimators[-1] < 0.05
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 @pytest.mark.skipcomplex
 def test_alfeld_stokes_netgen():

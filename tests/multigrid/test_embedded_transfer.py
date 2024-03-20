@@ -113,7 +113,10 @@ def test_riesz(V, solver, use_averaging):
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplexnoslate
+@pytest.mark.skipmumps
 def test_riesz_parallel(V, solver, use_averaging):
     test_riesz(V, solver, use_averaging)

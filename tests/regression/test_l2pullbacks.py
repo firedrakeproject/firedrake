@@ -94,17 +94,21 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
 
 
 # helmholtz mixed on plane
-
-@pytest.mark.parametrize(('family', 'degree', 'celltype', 'action', 'threshold'),
-                         [('RT', 1, 'tri', False, 1.9),
-                          ('RT', 2, 'tri', False, 2.9),
-                          ('BDM', 1, 'tri', False, 1.87),
-                          ('BDM', 2, 'tri', False, 2.9),
-                          ('BDFM', 2, 'tri', False, 2.9),
-                          ('RTCF', 1, 'quad', False, 1.9),
-                          ('RTCF', 2, 'quad', False, 2.9),
-                          ('RT', 2, 'tri', True, 2.9),
-                          ('BDM', 2, 'tri', True, 2.9)])
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.parametrize(
+    ('family', 'degree', 'celltype', 'action', 'threshold'),
+    [
+        ('RT', 1, 'tri', False, 1.9),
+        pytest.param('RT', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),
+        ('BDM', 1, 'tri', False, 1.87),
+        pytest.param('BDM', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),
+        ('BDFM', 2, 'tri', False, 2.9),
+        ('RTCF', 1, 'quad', False, 1.9),
+        ('RTCF', 2, 'quad', False, 2.9),
+        pytest.param('RT', 2, 'tri', True, 2.9, marks=pytest.mark.skipmumps),
+        ('BDM', 2, 'tri', True, 2.9)
+    ]
+)
 def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action, threshold):
     diff = np.array([helmholtz_mixed(r, 'planar-' + celltype, family, degree, useaction=action) for r in range(3, 6)])
     print("l2 error norms:", diff)
@@ -114,25 +118,35 @@ def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action,
 
 
 # helmholtz mixed on sphere
-
-@pytest.mark.parametrize(('family', 'degree', 'celltype', 'md', 'action', 'threshold'),
-                         [('RT', 1, 'tri', 1, False, 1.9),
-                          ('RT', 2, 'tri', 1, False, 1.9),
-                          ('RT', 2, 'tri', 2, False, 2.9),
-                          ('BDM', 1, 'tri', 1, False, 1.88),
-                          pytest.param('BDM', 2, 'tri', 1, False, 1.9, marks=pytest.mark.skipcomplex(
-                              reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
-                          )),
-                          ('BDM', 2, 'tri', 2, False, 2.9),
-                          ('BDFM', 2, 'tri', 1, False, 1.9),
-                          ('BDFM', 2, 'tri', 2, False, 2.9),
-                          ('RTCF', 1, 'quad', 1, False, 1.67),
-                          ('RTCF', 2, 'quad', 1, False, 1.9),
-                          ('RTCF', 2, 'quad', 2, False, 2.9),
-                          ('RT', 2, 'tri', 1, True, 1.9),
-                          pytest.param('BDM', 2, 'tri', 1, True, 1.9, marks=pytest.mark.skipcomplex(
-                              reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
-                          ))])
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.parametrize(
+    ('family', 'degree', 'celltype', 'md', 'action', 'threshold'),
+    [
+        ('RT', 1, 'tri', 1, False, 1.9),
+        pytest.param('RT', 2, 'tri', 1, False, 1.9, marks=pytest.mark.skipmumps),
+        ('RT', 2, 'tri', 2, False, 2.9),
+        ('BDM', 1, 'tri', 1, False, 1.88),
+        pytest.param('BDM', 2, 'tri', 1, False, 1.9, marks=[
+            pytest.mark.skipcomplex(
+                reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
+            ),
+            pytest.mark.skipmumps
+        ]),
+        ('BDM', 2, 'tri', 2, False, 2.9),
+        ('BDFM', 2, 'tri', 1, False, 1.9),
+        ('BDFM', 2, 'tri', 2, False, 2.9),
+        ('RTCF', 1, 'quad', 1, False, 1.67),
+        ('RTCF', 2, 'quad', 1, False, 1.9),
+        ('RTCF', 2, 'quad', 2, False, 2.9),
+        pytest.param('RT', 2, 'tri', 1, True, 1.9, marks=pytest.mark.skipmums),
+        pytest.param('BDM', 2, 'tri', 1, True, 1.9, marks=[
+            pytest.mark.skipcomplex(
+                reason="See https://github.com/firedrakeproject/firedrake/issues/2125"
+            ),
+            pytest.mark.skipmumps
+        ])
+    ]
+)
 def test_firedrake_helmholtz_mixed_l2pullbacks_sphere(family, degree, celltype, md, action, threshold):
     diff = np.array([helmholtz_mixed(r, 'spherical-' + celltype, family, degree, meshd=md, useaction=action) for r in range(2, 5)])
     print("l2 error norms:", diff)

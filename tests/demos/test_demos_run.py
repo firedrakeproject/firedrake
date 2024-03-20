@@ -101,6 +101,10 @@ def test_demo_runs(py_file, env):
             "ngsPETSc",
             reason="ngsPETSc unavailable, skipping Netgen test."
         )
+        if "mumps" not in get_external_packages():
+            # NB: This shouldn't be necessary see
+            # https://github.com/firedrakeproject/firedrake/issues/3463
+            pytest.skip("MUMPS not installed with PETSc")
 
     if basename(py_file) in VTK_DEMOS:
         try:
