@@ -100,13 +100,13 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
     [
         ('RT', 1, 'tri', False, 1.9),
         pytest.param('RT', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),
-        ('BDM', 1, 'tri', False, 1.87),
+        pytest.param('BDM', 1, 'tri', False, 1.87, marks=pytest.mark.skipmumps),
         pytest.param('BDM', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),
         ('BDFM', 2, 'tri', False, 2.9),
         ('RTCF', 1, 'quad', False, 1.9),
         ('RTCF', 2, 'quad', False, 2.9),
         pytest.param('RT', 2, 'tri', True, 2.9, marks=pytest.mark.skipmumps),
-        ('BDM', 2, 'tri', True, 2.9)
+        pytest.param('BDM', 2, 'tri', True, 2.9, marks=pytest.mark.skipmumps)
     ]
 )
 def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action, threshold):
@@ -138,7 +138,7 @@ def test_firedrake_helmholtz_mixed_l2pullbacks(family, degree, celltype, action,
         ('RTCF', 1, 'quad', 1, False, 1.67),
         ('RTCF', 2, 'quad', 1, False, 1.9),
         ('RTCF', 2, 'quad', 2, False, 2.9),
-        pytest.param('RT', 2, 'tri', 1, True, 1.9, marks=pytest.mark.skipmums),
+        pytest.param('RT', 2, 'tri', 1, True, 1.9, marks=pytest.mark.skipmumps),
         pytest.param('BDM', 2, 'tri', 1, True, 1.9, marks=[
             pytest.mark.skipcomplex(
                 reason="See https://github.com/firedrakeproject/firedrake/issues/2125"

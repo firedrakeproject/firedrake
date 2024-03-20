@@ -58,6 +58,8 @@ def test_firedrake_helmholtz_serial():
     run_firedrake_helmholtz()
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.skipreal
 @pytest.mark.parallel
 def test_firedrake_helmholtz_parallel():
