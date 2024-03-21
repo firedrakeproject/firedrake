@@ -377,11 +377,7 @@ def _(
         # indexed = array.getitem(plex._fiat_closure(index), strict=True)
         pack_indices = _cell_integral_pack_indices(V, index)
     elif integral_type in {"exterior_facet", "interior_facet"}:
-        # indexed = array.getitem(plex._fiat_closure(plex.support(index)), strict=True)
-        pack_indices = _facet_integral_pack_map(V)
-    # elif integral_type == "interior_facet":
-    #     pack_map = _facet_integral_pack_map(V)
-        # indexed = array.getitem(plex._fiat_closure(plex.support(index)), strict=True)
+        pack_indices = _facet_integral_pack_indices(V, index)
     else:
         raise NotImplementedError
 
@@ -403,7 +399,7 @@ def _(
     mynodemap.update(mychildren)
     myindextree = op3.IndexTree(mynodemap)
 
-    myindextree = _with_shape_indices(V, myindextree)
+    myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
     return indexed.getitem(myindextree, strict=True)
 
     breakpoint()
@@ -470,14 +466,14 @@ def _(
 
     # First collect the DoFs in the cell closure in FIAT order.
     if integral_type == "cell":
-        rmap = cmap = plex._fiat_closure(index)
-    elif integral_type == "exterior_facet":
-        rmap = cmap = plex._fiat_closure(plex.support(index))
-    elif integral_type == "interior_facet":
-        rmap = cmap = plex._fiat_closure(plex.support(index))
+        rmap = _cell_integral_pack_indices(Vrow, index)
+        cmap = _cell_integral_pack_indices(Vcol, index)
+    elif integral_type in {"exterior_facet", "interior_facet"}:
+        rmap = _facet_integral_pack_indices(Vrow, index)
+        cmap = _facet_integral_pack_indices(Vcol, index)
     else:
         raise NotImplementedError
-    indexed = mat[rmap, cmap]
+    indexed = mat.getitem((rmap, cmap), strict=True)
 
     # Indexing an array with a loop index makes it "context sensitive" since
     # the index could be over multiple entities (e.g. all mesh points). Here
@@ -498,7 +494,7 @@ def _(
     mynodemap = {None: (myroot,)}
     mynodemap.update(mychildren)
     myindextree0 = op3.IndexTree(mynodemap)
-    myindextree0 = _with_shape_indices(Vrow, myindextree0)
+    myindextree0 = _with_shape_indices(Vrow, myindextree0, integral_type in {"exterior_facet", "interior_facet"})
 
     axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
     myslices = _indexify_tensor_axes(axes1, target_paths1, index_exprs1, suffix="_col")
@@ -507,7 +503,7 @@ def _(
     mynodemap = {None: (myroot,)}
     mynodemap.update(mychildren)
     myindextree1 = op3.IndexTree(mynodemap)
-    myindextree1 = _with_shape_indices(Vcol, myindextree1)
+    myindextree1 = _with_shape_indices(Vcol, myindextree1, integral_type in {"exterior_facet", "interior_facet"})
 
     myindextree = myindextree0
     for leaf in myindextree0.leaves:
@@ -593,7 +589,19 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
     return _with_shape_indices(V, indices)
 
 
-def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree):
+def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
+    plex = V.ufl_domain().topology
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(plex.support(facet)): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
+    # don't add support as an extra axis here, done already
+    return _with_shape_indices(V, indices, and_support=False)
+
+
+def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=False):
     is_mixed = isinstance(V.topological, MixedFunctionSpace)
 
     if is_mixed:
@@ -618,6 +626,24 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree):
 
         trees_.append(tree)
     trees = tuple(trees_)
+
+    if and_support:
+        # FIXME: Currently assume that facet axis is inside the mixed one, this may
+        # be wrong.
+        if is_mixed:
+            raise NotImplementedError("Might break")
+
+        support_indices = op3.IndexTree(
+            op3.Slice(
+                "support",
+                [op3.AffineSliceComponent("XXX")],
+            )
+        )
+        trees_ = []
+        for subtree in trees:
+            tree = support_indices.add_subtree(subtree, *support_indices.leaf)
+            trees_.append(tree)
+        trees = tuple(trees_)
 
     # outer mixed bit
     if is_mixed:

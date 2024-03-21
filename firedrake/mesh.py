@@ -1065,13 +1065,13 @@ class AbstractMeshTopology(abc.ABC):
 
         # add exterior and interior facets
         supports[freeze({self.name: "ext_facets"})] = [
-            op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1),
+            op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1, label="XXX"),
         ]
         supports[freeze({self.name: "int_facets"})] = [
-            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat, arity=2),
+            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat, arity=2, label="XXX"),
         ]
 
-        return op3.Map(supports)
+        return op3.Map(supports, name="support")
 
     @cached_property
     def _support_dats(self):
