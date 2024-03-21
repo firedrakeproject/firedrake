@@ -115,8 +115,13 @@ class BCBase(object):
         subset_data_per_dim = {
             dim: [] for dim in range(tdim + 1)
         }
-        # NOTE: Is this parsing correct?
-        subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+
+        if isinstance(self.sub_domain, str):
+            subdomain_ids = ((self.sub_domain,),)
+        else:
+            # bit convoluted
+            subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+
         for subdomain_id in subdomain_ids:
             # subdomain_id is of one of the following formats:
             # facet: (i,)

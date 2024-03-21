@@ -97,3 +97,37 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)
+
+
+if __name__ == "__main__":
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = RectangleMesh(5, 5, 2, 3, distribution_parameters=distribution)
+
+    # just scalar for now
+    V = FunctionSpace(mesh, "CG", 1)
+
+    shape = V.ufl_element().value_shape
+    rhs = numpy.full(shape, 1, dtype=float)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(grad(u), grad(v))*dx
+    L = inner(Constant(rhs), v)*dx
+    bcs = DirichletBC(V, zero(V.ufl_element().value_shape), "on_boundary")
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(
+        problem,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "cg",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.preconditioners.mypatch.PCPatchAttempt",
+            "ksp_monitor": None
+        },
+    )
+
+    solver.solve()

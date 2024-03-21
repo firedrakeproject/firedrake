@@ -1636,7 +1636,7 @@ class MeshTopology(AbstractMeshTopology):
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
     def subdomain_points(self, subdomain_id):
-        if subdomain_id == "on_boundary":
+        if subdomain_id == ("on_boundary",):
             label = "exterior_facets"
             label_values = (1,)
         else:

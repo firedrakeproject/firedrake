@@ -10,6 +10,7 @@ import finat
 import loopy
 import numpy as np
 import pyop3 as op3
+from pyop3.axtree.tree import ExpressionEvaluator
 import ufl
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
@@ -394,9 +395,23 @@ def _(
 
     tensor_axes, target_paths, index_exprs = _tensorify_axes(V)
 
+    myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
+
+    myroot = op3.Slice("closure", [idx for idx, _ in myslices])
+    mychildren = {myroot.id: [idx for _, idx in myslices]}
+    mynodemap = {None: (myroot,)}
+    mynodemap.update(mychildren)
+    myindextree = op3.IndexTree(mynodemap)
+
+    myindextree = _with_shape_indices(V, myindextree)
+    return indexed.getitem(myindextree, strict=True)
+
+    breakpoint()
+
     # NOTE: this is very similar to how we deal with shape inside
     # _tensorify_axes, could they be combined/made more similar?
     if integral_type in {"exterior_facet", "interior_facet"}:
+        raise NotImplementedError
         # Add the top-level bit too
         facet_axis = indexed.axes.root
         tensor_axes = op3.PartialAxisTree(facet_axis).add_subtree(tensor_axes, facet_axis, facet_axis.component)
@@ -475,8 +490,32 @@ def _(
     if plex.ufl_cell() != ufl.quadrilateral:
         raise NotImplementedError
 
-    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
-    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="1")
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
+
+    myslices = _indexify_tensor_axes(axes0, target_paths0, index_exprs0, suffix="_row")
+    myroot = op3.Slice("closure_row", [idx for idx, _ in myslices])
+    mychildren = {myroot.id: [idx for _, idx in myslices]}
+    mynodemap = {None: (myroot,)}
+    mynodemap.update(mychildren)
+    myindextree0 = op3.IndexTree(mynodemap)
+    myindextree0 = _with_shape_indices(Vrow, myindextree0)
+
+    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
+    myslices = _indexify_tensor_axes(axes1, target_paths1, index_exprs1, suffix="_col")
+    myroot = op3.Slice("closure_col", [idx for idx, _ in myslices])
+    mychildren = {myroot.id: [idx for _, idx in myslices]}
+    mynodemap = {None: (myroot,)}
+    mynodemap.update(mychildren)
+    myindextree1 = op3.IndexTree(mynodemap)
+    myindextree1 = _with_shape_indices(Vcol, myindextree1)
+
+    myindextree = myindextree0
+    for leaf in myindextree0.leaves:
+        myindextree = myindextree.add_subtree(myindextree1, *leaf, uniquify_ids=True)
+
+    return cf_indexed.getitem(myindextree, strict=True)
+
+    ### OLD CODE
 
     if integral_type in {"exterior_facet", "interior_facet"}:
         # Add the top-level bit too
@@ -685,29 +724,72 @@ def _tensorify_axes(V, suffix=""):
 
     tensor_axes = _build_rec(subelem_axess)
 
-    shape_target_paths = {None: {}}
-    shape_index_exprs = {None: {}}
-    if V.shape:
-        shape_axes = []
-        for i, s in enumerate(V.shape):
-            axis_label = f"dim{i}" + suffix
-            cpt_label = "XXX"
-            shape_axes.append(op3.Axis({cpt_label: s}, axis_label))
-            shape_target_paths[None][axis_label] = cpt_label
-            shape_index_exprs[None][axis_label] = op3.AxisVariable(axis_label)
-
-        shape_axes = op3.AxisTree.from_iterable(shape_axes)
-        for leaf in tensor_axes.leaves:
-            tensor_axes = tensor_axes.add_subtree(shape_axes, *leaf, uniquify_ids=True)
-
     tensor_axes = tensor_axes.set_up()
 
     tensor_target_paths = _build_target_paths(tensor_axes, suffix=suffix)
-    tensor_target_paths.update(shape_target_paths)
     tensor_index_exprs = _tensor_product_index_exprs(tensor_axes)
-    tensor_index_exprs.update(shape_index_exprs)
 
     return tensor_axes, tensor_target_paths, tensor_index_exprs
+
+
+def _indexify_tensor_axes(
+    axes,
+    target_paths,
+    index_exprs,
+    *,
+    axis=None,
+    indices=None,
+    suffix="",
+):
+    """Convert a tensor-product axis tree into a series of slices."""
+    if axis is None:
+        assert indices is None
+        axis = axes.root
+        indices = pmap()
+
+    index_trees = []
+    for component in axis.components:
+        for ci in range(component.count):
+            indices_ = indices | {axis.label: ci}
+
+            if subaxis := axes.child(axis, component):
+                subindex_trees = _indexify_tensor_axes(
+                    axes,
+                    target_paths,
+                    index_exprs,
+                    axis=subaxis,
+                    indices=indices_,
+                    suffix=suffix,
+                )
+                index_trees.extend(subindex_trees)
+            else:
+                target_path = target_paths[axis.id, component.label]
+                index_expr = index_exprs[axis.id, component.label]
+
+                target_indices = {}
+                evaluator = ExpressionEvaluator(indices_, ())
+                for ax, expr in index_expr.items():
+                    target_indices[ax] = evaluator(expr)
+
+                index_tree = (
+                    op3.AffineSliceComponent(
+                        target_path["closure"+suffix],
+                        target_indices["closure"],
+                        target_indices["closure"]+1
+                    ),
+                    op3.Slice(
+                        "dof"+suffix,
+                        [
+                            op3.AffineSliceComponent(
+                                target_path["dof"+suffix],
+                                target_indices["dof"],
+                                target_indices["dof"]+1,
+                            )
+                        ],
+                    ),
+                )
+                index_trees.append(index_tree)
+    return tuple(index_trees)
 
 
 # this is easy, the target path is just summing things up!

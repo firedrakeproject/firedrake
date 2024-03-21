@@ -126,8 +126,8 @@ class ImplicitMatrixContext(object):
             self._ybc = cofunction.Cofunction(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
-        trial_vec = trial_space.dof_dset.layout_vec
-        test_vec = test_space.dof_dset.layout_vec
+        trial_vec = trial_space.template_vec
+        test_vec = test_space.template_vec
         self.col_sizes = trial_vec.getSizes()
         self.row_sizes = test_vec.getSizes()
 
