@@ -273,8 +273,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         work = self._work
         with problem.u.dat.vec as u:
             u.copy(work)
-            print(u.getSizes())
-            print(work.getSizes())
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)

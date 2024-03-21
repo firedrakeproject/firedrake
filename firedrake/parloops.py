@@ -402,54 +402,6 @@ def _(
     myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
     return indexed.getitem(myindextree, strict=True)
 
-    breakpoint()
-
-    # NOTE: this is very similar to how we deal with shape inside
-    # _tensorify_axes, could they be combined/made more similar?
-    if integral_type in {"exterior_facet", "interior_facet"}:
-        raise NotImplementedError
-        # Add the top-level bit too
-        facet_axis = indexed.axes.root
-        tensor_axes = op3.PartialAxisTree(facet_axis).add_subtree(tensor_axes, facet_axis, facet_axis.component)
-        tensor_axes = tensor_axes.set_up()
-
-        key = facet_axis.id, facet_axis.component.label
-        facet_target_paths = {key: {facet_axis.label: facet_axis.component.label}}
-        facet_index_exprs = {key: {facet_axis.label: op3.AxisVariable(facet_axis.label)}}
-
-        target_paths.update(facet_target_paths)
-        index_exprs.update(facet_index_exprs)
-
-    from pyop3.itree.tree import _compose_bits
-    tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
-        indexed.axes,
-        indexed.target_paths,
-        indexed.index_exprs,
-        None,
-        tensor_axes,
-        target_paths,
-        index_exprs,
-        {},
-    )
-
-    indexed_tensor = op3.HierarchicalArray(
-        tensor_axes,
-        target_paths=tensor_target_paths,
-        index_exprs=tensor_index_exprs,
-        layouts=indexed.layouts,
-        data=indexed.buffer,
-        name=indexed.name,
-    )
-
-    # Create the temporary that will be passed to the local kernel
-    packed = op3.HierarchicalArray(
-        tensor_axes,
-        data=op3.NullBuffer(indexed.dtype),
-        prefix="t",
-    )
-
-    return op3.Pack(indexed_tensor, packed)
-
 
 @pack_pyop3_tensor.register
 def _(
@@ -510,72 +462,6 @@ def _(
         myindextree = myindextree.add_subtree(myindextree1, *leaf, uniquify_ids=True)
 
     return cf_indexed.getitem(myindextree, strict=True)
-
-    ### OLD CODE
-
-    if integral_type in {"exterior_facet", "interior_facet"}:
-        # Add the top-level bit too
-        facet_axis0 = cf_indexed.raxes.root
-        axes0 = op3.PartialAxisTree(facet_axis0).add_subtree(axes0, facet_axis0, facet_axis0.component)
-        axes0 = axes0.set_up()
-
-        key = facet_axis0.id, facet_axis0.component.label
-        facet_target_paths0 = {key: {facet_axis0.label: facet_axis0.component.label}}
-        facet_index_exprs0 = {key: {facet_axis0.label: op3.AxisVariable(facet_axis0.label)}}
-
-        target_paths0.update(facet_target_paths0)
-        index_exprs0.update(facet_index_exprs0)
-
-        ###
-
-        facet_axis1 = cf_indexed.caxes.root
-        axes1 = op3.PartialAxisTree(facet_axis1).add_subtree(axes1, facet_axis1, facet_axis1.component)
-        axes1 = axes1.set_up()
-
-        key = facet_axis1.id, facet_axis1.component.label
-        facet_target_paths1 = {key: {facet_axis1.label: facet_axis1.component.label}}
-        facet_index_exprs1 = {key: {facet_axis1.label: op3.AxisVariable(facet_axis1.label)}}
-
-        target_paths1.update(facet_target_paths1)
-        index_exprs1.update(facet_index_exprs1)
-
-    tensor_axes = op3.PartialAxisTree(axes0.parent_to_children)
-    for leaf in axes0.leaves:
-        tensor_axes = tensor_axes.add_subtree(axes1, *leaf, uniquify_ids=True)
-    tensor_axes = tensor_axes.set_up()
-
-    target_paths = op3.utils.merge_dicts([target_paths0, target_paths1])
-    index_exprs = op3.utils.merge_dicts([index_exprs0, index_exprs1])
-
-    from pyop3.itree.tree import _compose_bits
-    tensor_target_paths, tensor_index_exprs, _ = _compose_bits(
-        cf_indexed.axes,
-        cf_indexed.target_paths,
-        cf_indexed.index_exprs,
-        None,
-        tensor_axes,
-        target_paths,
-        index_exprs,
-        {},
-    )
-
-    cf_indexed_tensor = op3.HierarchicalArray(
-        tensor_axes,
-        target_paths=tensor_target_paths,
-        index_exprs=tensor_index_exprs,
-        layouts=cf_indexed.layouts,
-        data=cf_indexed.buffer,
-        name=cf_indexed.name,
-    )
-
-    # Create the temporary that will be passed to the local kernel
-    packed = op3.HierarchicalArray(
-        tensor_axes,
-        data=op3.NullBuffer(cf_indexed.dtype),
-        kernel_prefix="t",
-    )
-
-    return op3.Pack(cf_indexed_tensor, packed)
 
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
