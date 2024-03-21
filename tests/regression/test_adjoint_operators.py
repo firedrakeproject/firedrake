@@ -774,6 +774,9 @@ def test_assign_function():
     assert taylor_test(rf, uic, h) > 1.9
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_3325():
     # See https://github.com/firedrakeproject/firedrake/issues/3325

@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER, DEFAULT_DIRECT_SOLVER_PARAMETERS
 import pytest
 
 
@@ -7,11 +8,11 @@ import pytest
                           "",
                           "foo"])
 def test_matrix_prefix_solver(options_prefix):
-    parameters = {"ksp_type": "preonly",
-                  "pc_type": "lu",
-                  "pc_factor_mat_solver_type": "mumps",
-                  "mat_mumps_icntl_14": 200,
-                  "mat_mumps_icntl_24": 1}
+    parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+    }
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "P", 1)
     u = TrialFunction(V)
@@ -28,8 +29,7 @@ def test_matrix_prefix_solver(options_prefix):
 
     pc = solver.snes.ksp.pc
     factor = pc.getFactorMatrix()
-    assert factor.getType() == "mumps"
-    assert factor.getMumpsIcntl(24) == 1
+    assert factor.getType() == DEFAULT_DIRECT_SOLVER
 
     for A in pc.getOperators():
         pfx = A.getOptionsPrefix()
@@ -50,9 +50,7 @@ def test_matrix_prefix_solver_assembled_pc(options_prefix):
         "pc_python_type": "firedrake.AssembledPC",
         "assembled": {
             "pc_type": "lu",
-            "pc_factor_mat_solver_type": "mumps",
-            "mat_mumps_icntl_14": 200,
-            "mat_mumps_icntl_24": 1
+            "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
         }
     }
     mesh = UnitSquareMesh(1, 1)
@@ -75,5 +73,4 @@ def test_matrix_prefix_solver_assembled_pc(options_prefix):
     assert isinstance(python, AssembledPC)
     assembled = python.pc
     factor = assembled.getFactorMatrix()
-    assert factor.getType() == "mumps"
-    assert factor.getMumpsIcntl(24) == 1
+    assert factor.getType() == DEFAULT_DIRECT_SOLVER

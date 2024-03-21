@@ -64,6 +64,9 @@ def test_firedrake_helmholtz_serial():
     run_firedrake_helmholtz()
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 def test_firedrake_helmholtz_parallel():
     run_firedrake_helmholtz()
@@ -92,6 +95,9 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()

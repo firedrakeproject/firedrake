@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.mesh import MeshTopology, MeshGeometry
 import gc
+import pytest
 
 
 def howmany(cls):
@@ -14,6 +15,9 @@ def howmany(cls):
     return n
 
 
+# NB: This shouldn't be necessary see
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def test_meshes_collected():
     before = howmany((MeshTopology, MeshGeometry))
 

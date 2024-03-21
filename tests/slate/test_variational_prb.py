@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from itertools import product
 
 
@@ -42,16 +43,19 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
 
     L = inner(f, w)*dx
 
-    params = {'mat_type': 'matfree',
-              'pmat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': elimination,
-              'condensed_field': {'ksp_type': 'preonly',
-                                  'pc_type': 'lu',
-                                  'pc_factor_mat_solver_type': 'mumps',
-                                  'mat_mumps_icntl_14': 200}}
+    params = {
+        'mat_type': 'matfree',
+        'pmat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.SCPC',
+        'pc_sc_eliminate_fields': elimination,
+        'condensed_field': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor': DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        }
+    }
 
     if nested:
         params['condensed_field']['localsolve'] = {'ksp_type': 'preonly',
@@ -82,10 +86,7 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
 
     t = Function(T)
     lvp = LinearVariationalProblem(S, r_lambda, t)
-    solver = LinearVariationalSolver(lvp, solver_parameters={'ksp_type': 'preonly',
-                                                             'pc_type': 'lu',
-                                                             'pc_factor_mat_solver_type': 'mumps',
-                                                             'mat_mumps_icntl_14': 200})
+    solver = LinearVariationalSolver(lvp)
     solver.solve()
 
     assert np.allclose(uhat_ref.dat.data, t.dat.data, rtol=1.E-12)

@@ -10,6 +10,11 @@ a fieldsplit within another fieldsplit.
 """
 import pytest
 from firedrake import *
+from firedrake.petsc import get_external_packages
+
+for package in ["mumps", "superlu_dist"]:
+    if package not in get_external_packages():
+        pytest.skip(f"{package} not installed with PETSc", allow_module_level=True)
 
 
 def BoundaryConditions(mesh):

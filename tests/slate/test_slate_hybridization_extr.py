@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.mark.parametrize('quad', [False, True])
@@ -39,13 +40,18 @@ def test_hybrid_extr_helmholtz(quad):
     a = inner(sigma, tau)*dx + inner(u, v)*dx + inner(div(sigma), v)*dx - inner(u, div(tau))*dx
     L = inner(f, v)*dx
     w = Function(W)
-    params = {'mat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization': {'ksp_type': 'preonly',
-                                'pc_type': 'lu',
-                                'pc_factor_mat_solver_type': 'mumps'}}
+    params = {
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.HybridizationPC',
+        'hybridization': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': DEFAULT_DIRECT_SOLVER
+        }
+    }
+
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.subfunctions
 
