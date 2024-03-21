@@ -66,11 +66,11 @@ class BDDCPC(PCBase):
             make_function_space = TensorFunctionSpace
 
         tdim = V.mesh().topological_dimension()
+        degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
             B = appctx.get("divergence_mat", None)
             if B is None:
                 from firedrake.assemble import assemble
-                degree = max(as_tuple(V.ufl_element().degree()))
                 d = {HCurl: curl, HDiv: div}[sobolev_space]
                 Q = make_function_space(V.mesh(), "DG", degree-1)
                 b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
@@ -78,15 +78,12 @@ class BDDCPC(PCBase):
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
             gradient = appctx.get("discrete_gradient", None)
-            order = None
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
                 Q = make_function_space(V.mesh(), curl_to_grad(V.ufl_element()))
-                order = max(as_tuple(V.ufl_element().degree()))
-                # gradient = tabulate_exterior_derivative(Q, V)
-                gradient = tabulate_exterior_derivative(Q.reconstruct(variant=None), V.reconstruct(variant=None))
-            bddcpc.setBDDCDiscreteGradient(gradient, order=order)
+                gradient = tabulate_exterior_derivative(Q, V)
+            bddcpc.setBDDCDiscreteGradient(gradient, order=degree)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
