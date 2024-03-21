@@ -98,7 +98,7 @@ def helmholtz_mixed(r, meshtype, family, hdegree, vdegree=None, meshd=None, usea
 @pytest.mark.parametrize(
     ('family', 'degree', 'celltype', 'action', 'threshold'),
     [
-        ('RT', 1, 'tri', False, 1.9),
+        pytest.param('RT', 1, 'tri', False, 1.9, marks=pytest.mark.skipmumps),
         pytest.param('RT', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),
         pytest.param('BDM', 1, 'tri', False, 1.87, marks=pytest.mark.skipmumps),
         pytest.param('BDM', 2, 'tri', False, 2.9, marks=pytest.mark.skipmumps),

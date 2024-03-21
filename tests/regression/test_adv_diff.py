@@ -98,6 +98,8 @@ def run_adv_diff_on_quadrilaterals():
     assert all(convergence > [1.8, 1.95])
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def test_adv_diff_on_quadrilaterals_serial():
     run_adv_diff_on_quadrilaterals()
 
