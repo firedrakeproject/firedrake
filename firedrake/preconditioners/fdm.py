@@ -125,6 +125,12 @@ class FDMPC(PCBase):
         use_amat = options.getBool("pc_use_amat", True)
         use_static_condensation = options.getBool("static_condensation", False)
         pmat_type = options.getString("mat_type", PETSc.Mat.Type.AIJ)
+        self.mat_type = pmat_type
+
+        allow_repeated = False
+        if pmat_type == "is":
+            allow_repeated = options.getBool("mat_is_allow_repeated", True)
+        self.allow_repeated = allow_repeated
 
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters") or {}
@@ -200,8 +206,6 @@ class FDMPC(PCBase):
 
         # Assemble the FDM preconditioner with sparse local matrices
         self.V = V_fdm
-        self.mat_type = pmat_type
-        self.allow_repeated = pmat_type == "is"
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
         self._assemble_P()
