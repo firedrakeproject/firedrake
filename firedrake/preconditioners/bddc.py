@@ -4,7 +4,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from ufl import inner, div, dx, HCurl, HDiv
+from ufl import curl, div, HCurl, HDiv, inner, dx
 from pyop2.utils import as_tuple
 import numpy
 
@@ -65,7 +65,18 @@ class BDDCPC(PCBase):
         else:
             make_function_space = TensorFunctionSpace
 
-        if sobolev_space == HCurl:
+        tdim = V.mesh().topological_dimension()
+        if tdim >= 2 and V.finat_element.formdegree == tdim-1:
+            B = appctx.get("divergence_mat", None)
+            if B is None:
+                from firedrake.assemble import assemble
+                degree = max(as_tuple(V.ufl_element().degree()))
+                d = {HCurl: curl, HDiv: div}[sobolev_space]
+                Q = make_function_space(V.mesh(), "DG", degree-1)
+                b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
+                B = assemble(b, mat_type="matfree")
+            bddcpc.setBDDCDivergenceMat(B.petscmat)
+        elif sobolev_space == HCurl:
             gradient = appctx.get("discrete_gradient", None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
@@ -73,16 +84,6 @@ class BDDCPC(PCBase):
                 Q = make_function_space(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
             bddcpc.setBDDCDiscreteGradient(gradient)
-
-        elif sobolev_space == HDiv:
-            B = appctx.get("divergence_mat", None)
-            if B is None:
-                from firedrake.assemble import assemble
-                degree = max(as_tuple(V.ufl_element().degree()))
-                Q = make_function_space(V.mesh(), "DG", degree-1)
-                b = inner(div(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
-                B = assemble(b, mat_type="matfree")
-            bddcpc.setBDDCDivergenceMat(B.petscmat)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
