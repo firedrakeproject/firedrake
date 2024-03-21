@@ -23,6 +23,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed")
+    config.addinivalue_line(
+        "markers",
+        "skipvtk: mark as skipped if vtk is not installed")
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -51,6 +54,13 @@ def pytest_collection_modifyitems(session, config, items):
     except ImportError:
         netgen_installed = False
 
+    try:
+        from firedrake.output import VTKFile
+        del VTKFile
+        vtk_installed = True
+    except ImportError:
+        vtk_installed = False
+
     for item in items:
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
@@ -72,6 +82,10 @@ def pytest_collection_modifyitems(session, config, items):
         if not netgen_installed:
             if item.get_closest_marker("skipnetgen") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Netgen and ngsPETSc are installed"))
+
+        if not vtk_installed:
+            if item.get_closest_marker("skipvtk") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless VTK is installed"))
 
 
 @pytest.fixture(scope="module", autouse=True)

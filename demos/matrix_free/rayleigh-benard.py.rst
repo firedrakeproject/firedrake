@@ -11,6 +11,7 @@ the Navier-Stokes part, and piecewise linear elements for the
 temperature. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
 
   N = 128
 
@@ -241,7 +242,7 @@ Finally, we'll output the results for visualisation. ::
   p.rename("Pressure")
   T.rename("Temperature")
 
-  File("benard.pvd").write(u, p, T)
+  VTKFile("benard.pvd").write(u, p, T)
 
 A runnable python script implementing this demo file is available
 :demo:`here <rayleigh-benard.py>`.

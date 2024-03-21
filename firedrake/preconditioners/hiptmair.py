@@ -32,7 +32,7 @@ class TwoLevelPC(PCBase):
         raise NotImplementedError
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -47,15 +47,10 @@ class TwoLevelPC(PCBase):
         coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
-        self.coarse_op = allocate_matrix(coarse_operator,
-                                         bcs=coarse_space_bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=coarse_mat_type,
-                                         options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
-                                                    form_compiler_parameters=fcp,
-                                                    bcs=coarse_space_bcs).assemble
-        self._assemble_coarse_op()
+        form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
+        self.coarse_op = form_assembler.allocate()
+        self._assemble_coarse_op = form_assembler.assemble
+        self._assemble_coarse_op(tensor=self.coarse_op)
         coarse_opmat = self.coarse_op.petscmat
 
         # We set up a PCMG object that uses the constructed interpolation
@@ -103,7 +98,7 @@ class TwoLevelPC(PCBase):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
-        self._assemble_coarse_op()
+        self._assemble_coarse_op(tensor=self.coarse_op)
         self.pc.setUp()
 
     def apply(self, pc, X, Y):
