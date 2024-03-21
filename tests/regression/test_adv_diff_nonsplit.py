@@ -61,6 +61,8 @@ def run_adv_diff():
     assert all(convergence > [1.8, 1.95])
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def test_adv_diff_serial():
     run_adv_diff()
 
@@ -70,6 +72,8 @@ def test_adv_diff_parallel():
     run_adv_diff()
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def run_adv_diff_on_quadrilaterals():
     import numpy as np
     diff = np.array([adv_diff(i, quadrilateral=True) for i in range(5, 8)])
@@ -77,6 +81,8 @@ def run_adv_diff_on_quadrilaterals():
     assert all(convergence > [1.8, 1.95])
 
 
+# https://github.com/firedrakeproject/firedrake/issues/3463
+@pytest.mark.skipmumps
 def test_adv_diff_on_quadrilaterals_serial():
     run_adv_diff_on_quadrilaterals()
 
