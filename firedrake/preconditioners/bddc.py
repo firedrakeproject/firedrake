@@ -78,12 +78,15 @@ class BDDCPC(PCBase):
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
             gradient = appctx.get("discrete_gradient", None)
+            order = None
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
                 Q = make_function_space(V.mesh(), curl_to_grad(V.ufl_element()))
-                gradient = tabulate_exterior_derivative(Q, V)
-            bddcpc.setBDDCDiscreteGradient(gradient)
+                order = max(as_tuple(V.ufl_element().degree()))
+                # gradient = tabulate_exterior_derivative(Q, V)
+                gradient = tabulate_exterior_derivative(Q.reconstruct(variant=None), V.reconstruct(variant=None))
+            bddcpc.setBDDCDiscreteGradient(gradient, order=order)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
