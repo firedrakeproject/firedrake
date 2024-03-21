@@ -95,7 +95,7 @@ class WithGeometryBase(object):
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
 
-        super().__init__(mesh, element)
+        super().__init__(mesh, element, label=cargo.topological._label or "")
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
@@ -466,6 +466,9 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
+
+    boundary_set = frozenset()
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
@@ -490,7 +493,8 @@ class FunctionSpace(object):
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
+        self._label = ""
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -615,6 +619,9 @@ class FunctionSpace(object):
         r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
         return self._ufl_function_space
 
+    def label(self):
+        return self._label
+
     def __len__(self):
         return 1
 
@@ -683,7 +690,7 @@ class FunctionSpace(object):
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.dof_dset.layout_vec.getSize()
-
+    
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
@@ -1151,6 +1158,78 @@ class RealFunctionSpace(FunctionSpace):
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
         return None
+
+
+class RestrictedFunctionSpace(FunctionSpace):
+    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+        label = ""
+        for boundary_domain in boundary_set:
+            label += str(boundary_domain)
+        self.boundary_set = frozenset(boundary_set)
+        super().__init__(function_space._mesh.topology,
+                         function_space.ufl_element(), function_space.name)
+        self._label = label
+        self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
+                                                     function_space.ufl_element(),
+                                                     label=self._label)
+        self.function_space = function_space
+        self.name = name or (function_space.name or "Restricted" + "_"
+                             + "_".join(sorted(
+                                        [str(i) for i in self.boundary_set])))
+
+    def set_shared_data(self):
+        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
+        self._shared_data = sdata
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        # check not all are constrained 
+        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+        if self.comm.allreduce(unconstrained_dofs) == 0:
+            raise ValueError("All degrees of freedom are constrained.")
+        self.finat_element = create_element(self.ufl_element())
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
+
+    def __eq__(self, other):
+        if not isinstance(other, RestrictedFunctionSpace):
+            return False
+        return self.function_space == other.function_space and \
+            self.boundary_set == other.boundary_set
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((self.function_space.mesh(), self.function_space.dof_dset,
+                     self.function_space.ufl_element(), self.boundary_set))
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
+
+    def __str__(self):
+        return self.__repr__()
+
+    @utils.cached_property
+    def dof_count(self):
+        node_count = self.node_count
+        for sub_domain in self.boundary_set:
+            node_count -= len(self._shared_data.boundary_nodes(self, sub_domain))
+        return node_count*self.value_size
+
+    def local_to_global_map(self, bcs, lgmap=None):
+        return lgmap or self.dof_dset.lgmap
 
 
 @dataclass

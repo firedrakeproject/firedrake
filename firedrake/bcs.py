@@ -2,6 +2,7 @@
 import numpy as np
 
 import functools
+import numbers
 import itertools
 
 import ufl
