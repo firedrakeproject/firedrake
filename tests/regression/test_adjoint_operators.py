@@ -823,6 +823,6 @@ def test_cofunction_subfunctions_with_adjoint():
     f.sub(1).assign(Cofunction(DG.dual()).interpolate(point_source))
     solve(a == f, w, bcs=[bc0, bc1])
     sigma, u = w.subfunctions
-    J = assemble(dot(u, u)*dx)
+    J = assemble(dot(w, w)*dx)
     rf = ReducedFunctional(J, Control(k))
     assert taylor_test(rf, k, Function(DG).assign(1.0)) > 1.9
