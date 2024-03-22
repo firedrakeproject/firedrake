@@ -825,4 +825,4 @@ def test_cofunction_subfunctions_with_adjoint():
     sigma, u = w.subfunctions
     J = assemble(dot(u, u)*dx)
     rf = ReducedFunctional(J, Control(k))
-    assert taylor_test(rf, k, Function(DG).assign(1.0))
+    assert taylor_test(rf, k, Function(DG).assign(1.0)) > 1.9
