@@ -18,6 +18,9 @@ cimport numpy as np
 cimport mpi4py.MPI as MPI
 cimport petsc4py.PETSc as PETSc
 
+# debug
+from libc.stdio cimport printf
+
 np.import_array()
 
 include "petschdr.pxi"
@@ -1102,6 +1105,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
 
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
                                           np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure,
+                                          np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure_sub,
                                           PetscInt cell,
                                           PetscInt e,
                                           PetscInt *fiat_cone,
@@ -1137,7 +1141,26 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         raise RuntimeError("FIAT entity cone size != plex point cone size")
     offset = entity_cone_map_offset[e]
     for i in range(coneSize):
-        fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
+        fiat_cone[i] = cell_closure_sub[cell, entity_cone_map[offset + i]]
+
+    # print("check: ", cell_closure_sub[cell])
+    #
+    # print(p)
+    # printf("FIAT: ")
+    # for i in range(coneSize):
+    #     printf("%d, ", fiat_cone[i])
+    # printf("\n")
+
+    # printf("check: ")
+    # for i in range(coneSize):
+    #     printf("%d, ", cell_closure_sub[cell, i])
+    # printf("\n")
+
+    # printf("plex: ")
+    # for i in range(coneSize):
+    #     printf("%d, ", cone[i])
+    # printf("\n")
+
     if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
@@ -1163,7 +1186,9 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
 @cython.wraparound(False)
 @cython.cdivision(True)
 def entity_orientations(mesh,
-                        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure):
+                        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure,
+                        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure_sub,
+                        mydim):
     """Compute entity orientations.
 
     :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
@@ -1192,19 +1217,27 @@ def entity_orientations(mesh,
 
     # Make entity-cone map for the FIAT cell.
     def make_entity_cone_lists(fiat_cell):
-        _dim = fiat_cell.get_dimension()
+        # _dim = fiat_cell.get_dimension()
         _connectivity = fiat_cell.connectivity
         _list = []
-        _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
+        # _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
+        _offset_list = []
         _offset = 0
         _n = 0  # num. of entities up to dimension = _d
-        for _d in range(_dim):
-            _n1 = len(_offset_list)
-            for _conn in _connectivity[(_d + 1, _d)]:
-                _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
-                _offset_list.append(_offset)
-                _offset += len(_conn)
-            _n = _n1
+        # for _d in range(_dim):
+        #     _n1 = len(_offset_list)
+        #     for _conn in _connectivity[(_d + 1, _d)]:
+        #         _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
+        #         _offset_list.append(_offset)
+        #         _offset += len(_conn)
+        #     _n = _n1
+        _d = mydim
+        _n1 = len(_offset_list)
+        for _conn in _connectivity[(_d + 1, _d)]:
+            _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
+            _offset_list.append(_offset)
+            _offset += len(_conn)
+        _n = _n1
         _offset_list.append(_offset)
         return _list, _offset_list
 
@@ -1216,7 +1249,7 @@ def entity_orientations(mesh,
         entity_cone_map[i] = entity_cone_list[i]
     for i in range(len(entity_cone_list_offset)):
         entity_cone_map_offset[i] = entity_cone_list_offset[i]
-    #
+
     dm = mesh.topology_dm
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]
@@ -1229,7 +1262,7 @@ def entity_orientations(mesh,
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell, e,
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell_closure_sub, cell, e,
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,

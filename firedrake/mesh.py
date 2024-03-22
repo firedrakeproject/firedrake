@@ -953,11 +953,8 @@ class AbstractMeshTopology(abc.ABC):
 
                     numbering = None
                 else:
-                    # If we are passing the closure to TSFC then we need to transform the
-                    # maps to deliver data in the canonical ordering declared by FIAT.
-                    raise NotImplementedError(
-                        "Need to transform closures to agree with FIAT"
-                    )
+                    assert self.ufl_cell().cellname() == "hexahedron"
+                    closure_data = self._reorder_closure_fiat_hex(closure_data)
 
             map_components = []
             for map_dim, (size, data) in enumerate(
@@ -1006,15 +1003,53 @@ class AbstractMeshTopology(abc.ABC):
             self, cell_orientations
         )
 
-        # cell_orientations = np.array([2, 7], dtype=IntType)
-        # cell_orientations = np.array([3, 8], dtype=IntType)
-        # cell_orientations = np.array([4, 7], dtype=IntType)
-        # cell_orientations = np.array([5, 8], dtype=IntType)
-        # breakpoint()
-
         return dmcommon.quadrilateral_closure_ordering(
             self, cell_orientations
         )
+
+    def _reorder_closure_fiat_hex(self, plex_closures):
+        # TODO: Move back to Cython
+        fiat_closures = tuple(
+            np.empty_like(plex_closures[d]) for d in range(self.dimension+1)
+        )
+
+        for ci in range(self.num_cells()):
+            # vertices
+            fiat_closures[0][ci, 0] = plex_closures[0][ci, 0]  # [19]
+            fiat_closures[0][ci, 1] = plex_closures[0][ci, 4]  # [23]
+            fiat_closures[0][ci, 2] = plex_closures[0][ci, 1]  # [20]
+            fiat_closures[0][ci, 3] = plex_closures[0][ci, 7]  # [26]
+            fiat_closures[0][ci, 4] = plex_closures[0][ci, 3]  # [22]
+            fiat_closures[0][ci, 5] = plex_closures[0][ci, 5]  # [24]
+            fiat_closures[0][ci, 6] = plex_closures[0][ci, 2]  # [21]
+            fiat_closures[0][ci, 7] = plex_closures[0][ci, 6]  # [25]
+
+            # edges
+            fiat_closures[1][ci, 0] = plex_closures[1][ci, 9]   # [16]
+            fiat_closures[1][ci, 1] = plex_closures[1][ci, 10]  # [17]
+            fiat_closures[1][ci, 2] = plex_closures[1][ci, 8]   # [15]
+            fiat_closures[1][ci, 3] = plex_closures[1][ci, 11]  # [18]
+            fiat_closures[1][ci, 4] = plex_closures[1][ci, 0]   # [7]
+            fiat_closures[1][ci, 5] = plex_closures[1][ci, 7]   # [14]
+            fiat_closures[1][ci, 6] = plex_closures[1][ci, 2]   # [9]
+            fiat_closures[1][ci, 7] = plex_closures[1][ci, 5]   # [12]
+            fiat_closures[1][ci, 8] = plex_closures[1][ci, 3]   # [10]
+            fiat_closures[1][ci, 9] = plex_closures[1][ci, 4]   # [11]
+            fiat_closures[1][ci, 10] = plex_closures[1][ci, 1]  # [8]
+            fiat_closures[1][ci, 11] = plex_closures[1][ci, 6]  # [13]
+
+            # faces
+            fiat_closures[2][ci, 0] = plex_closures[2][ci, 5]  # [6]
+            fiat_closures[2][ci, 1] = plex_closures[2][ci, 4]  # [5]
+            fiat_closures[2][ci, 2] = plex_closures[2][ci, 2]  # [3]
+            fiat_closures[2][ci, 3] = plex_closures[2][ci, 3]  # [4]
+            fiat_closures[2][ci, 4] = plex_closures[2][ci, 0]  # [1]
+            fiat_closures[2][ci, 5] = plex_closures[2][ci, 1]  # [2]
+
+            # cell
+            fiat_closures[3][ci, 0] = plex_closures[3][ci, 0]  # [0]
+
+        return fiat_closures
 
     def star(self, index):
         return self._star(index)
@@ -1750,7 +1785,26 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
-        return dmcommon.entity_orientations(self, self.cell_closure)
+        # FIXME: Do not do this here, cache
+        # FIXME: Will only work for non-renumbered meshes
+        closure_data, closure_sizes = self._memoize_closures(self.dimension)
+
+        for dim, cl_data in enumerate(closure_data):
+            # FIXME: Do not prematurely renumber
+            cidx = self.points.component_index(str(dim))
+            offset = self.points._component_offsets[cidx]
+            closure_data[dim][...] += offset
+
+        closure_data = self._reorder_closure_fiat_hex(closure_data)
+
+        orientations = [None] * (self.dimension+1)
+
+        # vertices cannot have orientation
+        orientations[0] = np.zeros_like(closure_data[0])
+
+        for dim in range(1, self.dimension+1):
+            orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
+        return orientations
 
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):

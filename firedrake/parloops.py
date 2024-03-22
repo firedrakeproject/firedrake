@@ -386,9 +386,6 @@ def _(
     if plex.ufl_cell().is_simplex():
         return indexed
 
-    if plex.ufl_cell() != ufl.quadrilateral:
-        raise NotImplementedError
-
     tensor_axes, target_paths, index_exprs = _tensorify_axes(V)
 
     myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
@@ -434,9 +431,6 @@ def _(
 
     if plex.ufl_cell().is_simplex():
         return cf_indexed
-
-    if plex.ufl_cell() != ufl.quadrilateral:
-        raise NotImplementedError
 
     axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
 
