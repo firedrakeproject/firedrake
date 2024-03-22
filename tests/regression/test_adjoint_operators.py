@@ -798,3 +798,13 @@ def test_3325():
 
     constraint = UFLInequalityConstraint(-inner(g, g)*ds(4), control)
     minimize(Jhat, method="SLSQP", constraints=constraint)
+
+
+def test_cofunction_subfunctions_with_adjoint():
+    # See https://github.com/firedrakeproject/firedrake/issues/3469
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+    uf = Cofunction(W.dual())
+    uf.sub(1)
