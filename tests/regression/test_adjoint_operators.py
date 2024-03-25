@@ -800,7 +800,7 @@ def test_3325():
     minimize(Jhat, method="SLSQP", constraints=constraint)
 
 
-@pytest.mark.skipcomplex # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_cofunction_with_adjoint():
     # See https://github.com/firedrakeproject/firedrake/issues/3469
     # See https://github.com/firedrakeproject/firedrake/issues/3464
