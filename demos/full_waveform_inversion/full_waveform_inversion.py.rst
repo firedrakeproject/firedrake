@@ -19,8 +19,7 @@ misfit between observed and predicted seismogram data. Following
 
 .. math::
 
-
-       J(u, u^{obs}) = \sum_{r=0}^{N-1} \int_\Omega \left(u(c,\mathbf{x},t)- u^{obs}(c, \mathbf{x},t)\right)^2 \delta(\mathbf{x} - \mathbf{x}_r) \, dx
+    J(u, u^{obs}) = \sum_{r=0}^{N-1} \int_\Omega \left(u(c,\mathbf{x},t)- u^{obs}(c, \mathbf{x},t)\right)^2 \delta(\mathbf{x} - \mathbf{x}_r) \, dx
 
 where :math:`u = u(c, \mathbf{x},t)` and
 :math:`u_{obs} = u_{obs}(c,\mathbf{x},t)`, are respectively the computed
@@ -35,8 +34,7 @@ The predicted data is modeled here by an acoustic wave equation,
 
 .. math::
 
-
-       \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t) \tag{2}
+    \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t) \tag{2}
 
 where :math:`c(\mathbf{x}):\Omega\rightarrow \mathbb{R}` is the pressure
 wave velocity, which is assumed here a piecewise-constant and positive.
@@ -48,21 +46,20 @@ acoustic wave equation should satisfy the initial conditions
 :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We are employing
 no-reflective absorbing boundary condition :cite:`Clayton:1977`:
 
-.. math::  \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, \forall \mathbf{x} \, \in \partial \Omega 
+.. math::  
+
+    \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, \forall \mathbf{x} \, \in \partial \Omega 
 
 To solve the wave equation, we consider the following weak form over the
 domain :math:`\Omega`:
 
 .. math::
 
-
-       \int_{\Omega} \left(\frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right) \, dx = \int_{\Omega} f v \, dx,
+    \int_{\Omega} \left(\frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right) \, dx = \int_{\Omega} f v \, dx,
 
 for an arbitrary test function :math:`v\in V`, where :math:`V` is a
 function space. The weak form implementation in Firedrake is written as
-follows.
-
-.. code:: ipython3
+follows.::
 
     import finat
     import warnings
@@ -95,14 +92,11 @@ and it is given by:
 
 .. math::
 
-
-       f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)
+    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)
 
 where :math:`r(t)` is the `Ricker
 wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
-:math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function.
-
-.. code:: ipython3
+:math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function.::
 
     from firedrake.__future__ import Interpolator
     
@@ -115,9 +109,7 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
 
 The implementation of `Ricker
 wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is
-given by the following code:
-
-.. code:: ipython3
+given by the following code::
 
     def ricker_wavelet(t, fs, amp=1000.0):
         ts = 1.5
@@ -134,9 +126,7 @@ bottom of the domain, respectively
 
 We create a ``model`` dictionary containing the parameters necessary to
 solve the wave equation. The ``model`` dictionary contains the basic
-setup to execute the acoust wave equation, and the FWI.
-
-.. code:: ipython3
+setup to execute the acoust wave equation, and the FWI.::
 
     from firedrake.pyplot import tricontourf
     import matplotlib.pyplot as plt
@@ -172,9 +162,7 @@ current example, we emulate these data by solving the wave equation with
 a known pressure wave velocity model, i.e., a synthetic pressure wave
 velocity referred to as the true velocity model (:math:`c_{true}`). For
 the sake of simplicity, we consider :math:`c_{true}` consisting of a
-circle in the centre of the domain, as shown in the coming code cell.
-
-.. code:: ipython3
+circle in the centre of the domain, as shown in the coming code cell.::
 
     V = FunctionSpace(model["mesh"], "KMV", 1)
     x, z = SpatialCoordinate(model["mesh"])
@@ -182,14 +170,10 @@ circle in the centre of the domain, as shown in the coming code cell.
     plot_function(c_true, "c_true.png")
 
 
-
 .. image:: c_true.png
 
-
 We now get the synthetic data recorded on the receivers by executing the
-acoustic wave equation.
-
-.. code:: ipython3
+acoustic wave equation.::
 
     receiver_mesh =  VertexOnlyMesh(model["mesh"], model["receiver_locations"])
     P0DG = FunctionSpace(receiver_mesh, "DG", 0)
@@ -233,13 +217,10 @@ Next, we execute an FWI problem, which involves the following steps:
 6. Repeat steps 2-5 until the stopping criterion is satisfied.
 
 The initial guess for the parameter :math:`c` is set as a constant field
-with a value of 1.5 km/s.
-
-.. code:: ipython3
+with a value of 1.5 km/s.::
 
     c_guess = Function(V).interpolate(1.5)
     plot_function(c_guess, "c_guess.png")
-
 
 
 .. image:: c_initial.png
@@ -248,9 +229,7 @@ with a value of 1.5 km/s.
 The function ``J`` computes the functional :math:`J` by solving the wave
 equation using the guess pressure wave velocity ``c_guess``.
 
-Checkpointing can be employed when setting ``checkpointing=True``.
-
-.. code:: ipython3
+Checkpointing can be employed when setting ``checkpointing=True``.::
 
     from checkpoint_schedules import Revolve
     from firedrake.adjoint import *
@@ -297,9 +276,7 @@ more realistic computations. Therefore, checkpointing is required method
 to handle the memory usage.
 
 In the current example, we are employing the ``checkpointing``, storing
-100 steps in memory.
-
-.. code:: ipython3
+100 steps in memory.::
 
     # Let us use the checkpointing in FWI!
     checkpointing = True
@@ -311,9 +288,7 @@ We now execute the ``fwi`` with the initial guess velocity model
 sources (``J_total``) and the adjoint-based gradient ``dJ_total``.
 ``J_total`` and ``dJ_total`` are required to update the parameter
 ``c_guess`` using the
-`L-BFGS-B <https://epubs.siam.org/doi/10.1137/0916069>`__ method.
-
-.. code:: ipython3
+`L-BFGS-B <https://epubs.siam.org/doi/10.1137/0916069>`__ method.::
 
     from scipy.optimize import minimize as scipy_minimize
     
@@ -379,9 +354,7 @@ sources (``J_total``) and the adjoint-based gradient ``dJ_total``.
 
 
 Below we have the functional values with respect to the number of
-iterations.
-
-.. code:: ipython3
+iterations::
 
     plt.plot(range(len(functional_history)), functional_history, "o-")
     plt.xlabel("Iterations")
