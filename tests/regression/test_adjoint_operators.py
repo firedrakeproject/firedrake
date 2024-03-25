@@ -800,28 +800,11 @@ def test_3325():
     minimize(Jhat, method="SLSQP", constraints=constraint)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_cofunction_with_adjoint():
+def test_cofunction_subfunctions_with_adjoint():
     # See https://github.com/firedrakeproject/firedrake/issues/3469
-    # See https://github.com/firedrakeproject/firedrake/issues/3464
-    # Testing subfunctions and assign in adjoint.
     mesh = UnitSquareMesh(2, 2)
-    BDM = FunctionSpace(mesh, "BDM", 1)
-    DG = FunctionSpace(mesh, "DG", 0)
-    W = BDM * DG
-    sigma, u = TrialFunctions(W)
-    tau, v = TestFunctions(W)
-    k = Function(DG).assign(1.0)
-    x, y = SpatialCoordinate(mesh)
-    bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
-    bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
-    w = Function(W)
-    a = (dot(sigma, tau) + (dot(div(tau), u))) * dx + k * div(sigma)*v*dx
-    vom_space = FunctionSpace(VertexOnlyMesh(mesh, [[0.5, 0.5]]), "DG", 0)
-    point_source = assemble(Constant(1.0) * TestFunction(vom_space)*dx)
-    f = Cofunction(W.dual())
-    f.sub(1).assign(Cofunction(DG.dual()).interpolate(point_source))
-    solve(a == f, w, bcs=[bc0, bc1])
-    J = assemble(dot(w, w)*dx)
-    rf = ReducedFunctional(J, Control(k))
-    assert taylor_test(rf, k, Function(DG).assign(1.0)) > 1.9
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+    uf = Cofunction(W.dual())
+    uf.sub(1)

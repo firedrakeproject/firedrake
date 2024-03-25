@@ -31,8 +31,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -56,7 +55,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self, V.ufl_function_space(), count=count)
+        ufl.Cofunction.__init__(self, V.ufl_function_space())
 
         # User comm
         self.comm = V.comm
@@ -169,7 +168,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.assign(0, subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_assign
+    @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
