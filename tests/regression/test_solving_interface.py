@@ -238,3 +238,24 @@ def test_solve_cofunction_rhs():
     Aw = assemble(action(a, w))
     assert isinstance(Aw, Cofunction)
     assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)
+
+
+def test_linear_solver_check_spaces():
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
+    A = assemble(a)
+
+    L = Cofunction(V.dual())
+    L.vector()[:] = 1.
+
+    Lf = L.riesz_representation(riesz_map="l2")
+
+    w = Function(V)
+    solve(A, w, L)
+
+    with pytest.raises(ValueError):
+        solve(A, w, Lf)
