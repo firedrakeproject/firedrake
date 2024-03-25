@@ -45,6 +45,10 @@ firedrake_apps = {
               "git+ssh://bitbucket.org/pefarrell/fascd.git@master#egg=fascd"),
     "defcon": ("""Deflated continuation algorithm for bifurcation analysis. https://bitbucket.org/pefarrell/defcon""",
                "git+ssh://bitbucket.org/pefarrell/defcon.git@master#egg=defcon"),
+    "gadopt": ("""Geodynamic Adjoint Optimization Platform. http://g-adopt.github.io""",
+               "git+ssh://github.com/g-adopt/g-adopt.git@master#egg=gadopt"),
+    "asQ": ("""ParaDiag parallel-in-time methods. http://firedrakeproject.org/asQ""",
+            "git+ssh://github.com/firedrakeproject/asQ.git@master#egg=asQ"),
 }
 
 
@@ -332,6 +336,8 @@ honoured.""",
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
                         help="Install NGSolve/Netgen and ngsPETSc.")
+    parser.add_argument("--no-vtk", action="store_true",
+                        help="Do not install VTK into the Firedrake virtualenv")
 
     args = parser.parse_args()
 
@@ -1822,25 +1828,20 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install_wrap(package.split(), {})
 
-    # "Temporary" workaround for missing VTK wheel on Python 3.11
-    if sys.version_info[:2] == (3, 11):
-        # Update source when release is no longer a draft
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20221116/"
-        if osname == "Darwin":
-            if arch == "arm64":
-                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_arm64.whl "
-            elif arch == "x86_64":
-                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_x86_64.whl"
-            else:
-                log.error("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
-                raise InstallError("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
-        elif osname == "Linux":
-            source += "vtk-9.2.2.dev0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-        else:
-            log.error("Cannot install VTK for Python 3.11: unknown operating system  {0}.".format(osname))
-            raise InstallError("Cannot install VTK for Python 3.11: unknown operating system {0}.".format(osname))
-        log.info("Pip installing VTK for Python 3.11 to venv")
-        run_pip_install([source])
+    # numpy requires old setuptools (+wheel)
+    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
+    log.info("Installing numpy==1.24 due to performance regression")
+    # https://github.com/inducer/pytential/issues/211
+    run_pip_install(["numpy==1.24"])
+    log.info("Updating setuptools and wheel to latest versions")
+    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "wheel"])
+
+    # Install VTK
+    if not args.no_vtk:
+        log.info("Pip installing VTK to venv")
+        run_pip_install_wrap(["vtk>=9.0.1"], {})
+
     if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
         run_pip(["install", "lazy-object-proxy==1.4.*"])
@@ -1887,20 +1888,13 @@ if mode == "install":
     with environment(**compiler_env, **link_env):
         run_pip_install(["--no-cache-dir", "mpi4py"])
 
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
-    log.info("Installing numpy==1.24 due to performance regression")
-    # https://github.com/inducer/pytential/issues/211
-    run_pip_install(["numpy==1.24"])
-    log.info("Updating setuptools and wheel to latest versions")
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "wheel"])
-
     for p in packages:
         pip_requirements(p, compiler_env)
 
     # FIAT requires recursivenodes, but does not include a requirements.txt
     run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with environment(**compiler_env):
         build_and_install_h5py()
@@ -2024,6 +2018,7 @@ else:
             cc = os.path.join(compilerbin, "mpicc")
             cxx = os.path.join(compilerbin, "mpicxx")
             f90 = os.path.join(compilerbin, "mpif90")
+            mpiexec = os.path.join(compilerbin, "mpiexec")
             compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
@@ -2041,6 +2036,11 @@ else:
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
+
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with pipargs("--no-deps"):
         if args.rebuild or update_petsc or update_petsc4py:

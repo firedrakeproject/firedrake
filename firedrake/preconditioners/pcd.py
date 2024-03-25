@@ -42,7 +42,7 @@ class PCDPC(PCBase):
     def initialize(self, pc):
         from firedrake import (TrialFunction, TestFunction, dx, inner,
                                grad, split, Constant, parameters)
-        from firedrake.assemble import allocate_matrix, assemble, TwoFormAssembler
+        from firedrake.assemble import assemble, get_assembler
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         prefix = pc.getOptionsPrefix() + "pcd_"
@@ -111,17 +111,15 @@ class PCDPC(PCBase):
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re
-        self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
-                                  mat_type=self.Fp_mat_type,
-                                  options_prefix=prefix + "Fp_")
-        self._assemble_Fp = TwoFormAssembler(fp, tensor=self.Fp,
-                                             form_compiler_parameters=context.fc_params).assemble
-        self._assemble_Fp()
+        form_assembler = get_assembler(fp, bcs=None, form_compiler_parameters=context.fc_params, mat_type=self.Fp_mat_type, options_prefix=prefix + "Fp_")
+        self.Fp = form_assembler.allocate()
+        self._assemble_Fp = form_assembler.assemble
+        self._assemble_Fp(tensor=self.Fp)
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]
 
     def update(self, pc):
-        self._assemble_Fp()
+        self._assemble_Fp(tensor=self.Fp)
 
     def apply(self, pc, x, y):
         a, b = self.workspace

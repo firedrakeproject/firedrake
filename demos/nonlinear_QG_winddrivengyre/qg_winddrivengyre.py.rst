@@ -138,6 +138,7 @@ Now that we know the weak form we are now ready to solve this using Firedrake!
 First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
   from firedrake.petsc import PETSc
   import numpy as np
   import ufl
@@ -239,7 +240,7 @@ we can plot it using the :func:`tripcolor <firedrake.pyplot.tripcolor>` function
   except Exception as e:
       warning("Cannot show figure. Error msg '%s'" % e)
 
-  file = File('Nonlinear Streamfunction.pvd')
+  file = VTKFile('Nonlinear Streamfunction.pvd')
   file.write(psi_non)
 
 We can also see the difference between the linear solution and the
@@ -261,7 +262,7 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   except Exception as e:
       warning("Cannot show figure. Error msg '%s'" % e)
 
-  file = File('Difference between Linear and Nonlinear Streamfunction.pvd')
+  file = VTKFile('Difference between Linear and Nonlinear Streamfunction.pvd')
   file.write(difference)
 
 Below is a plot of the linear solution to the QG wind-driven Stommel gyre.

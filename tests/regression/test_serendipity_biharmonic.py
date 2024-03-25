@@ -39,8 +39,9 @@ def test_serendipity_biharmonic():
     errors = []
     for N in [10, 20, 40]:
         errors.append(error(N))
+    errors = numpy.array(errors)
 
-    convergence_orders = lambda x: numpy.log2(numpy.array(x)[:-1] / numpy.array(x)[1:])
+    convergence_orders = lambda x: numpy.log2(x[:-1] / x[1:])
     conv = convergence_orders(errors)
 
     assert all(conv >= 2)

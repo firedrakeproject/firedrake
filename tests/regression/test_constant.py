@@ -1,4 +1,6 @@
 from firedrake import *
+from ufl.formatting.ufl2unicode import ufl2unicode
+from ufl.classes import IntValue
 import numpy as np
 import pytest
 
@@ -239,3 +241,42 @@ def test_constant_subclasses_are_correctly_numbered():
 
     assert const2.count() == const1.count() + 1
     assert const3.count() == const1.count() + 2
+
+
+def test_derivative_wrt_constant():
+    mesh = UnitIntervalMesh(5)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    c = Constant(5)
+    f = Function(V).assign(7)
+    solution_a = Function(V)
+    solution_b = Function(V)
+
+    a = (c**2)*inner(u, v) * dx
+    L = inner(f, v) * dx
+    solve(a == L, solution_a)
+
+    d = derivative(a, c, IntValue(1))
+    solve(d == L, solution_b)
+
+    assert np.allclose(solution_b.dat.data_ro, float(c)/2*solution_a.dat.data_ro)
+
+
+def test_constant_ufl2unicode():
+    mesh = UnitIntervalMesh(1)
+    a = Constant(1.0, name="a")
+    b = Constant(2.0, name="b")
+    F = a * a * b * b * dx(mesh)
+    _ = ufl2unicode(F)
+
+    dFda = derivative(F, u=a)
+    dFdb = derivative(F, u=b)
+    _ = ufl2unicode(dFda)
+    _ = ufl2unicode(dFdb)
+
+    dFda_du = derivative(F, u=a, du=ufl.classes.IntValue(1))
+    dFdb_du = derivative(F, u=b, du=ufl.classes.IntValue(1))
+    _ = ufl2unicode(dFda_du)
+    _ = ufl2unicode(dFdb_du)

@@ -15,19 +15,21 @@ library of matplotlib (an optional dependency of firedrake)
 Creating output files
 ~~~~~~~~~~~~~~~~~~~~~
 
-Output for visualisation purposes is managed with a :class:`~.File`
-object.  To create one, we just need to pass the name of the output
-file on disk.  The file Firedrake creates is in PVD_ and therefore the
-requested file name must end in ``.pvd``.
+Output for visualisation purposes is managed with a :class:`~.VTKFile` object.
+To create one, first import the class from `firedrake.output, then we just need
+to pass the name of the output file on disk. The file Firedrake creates is in
+PVD_ and therefore the requested file name must end in ``.pvd``.
 
 .. code-block:: python3
 
-   outfile = File("output.pvd")
-   # The following raises an error
-   badfile = File("output.vtu")
+   from firedrake.output import VTKFile
 
-To save functions to the :class:`~.File` we use the
-:meth:`~.File.write` method.
+   outfile = VTKFile("output.pvd")
+   # The following raises an error
+   badfile = VTKFile("output.vtu")
+
+To save functions to the :class:`~.VTKFile` we use the
+:meth:`~.VTKFile.write` method.
 
 .. code-block:: python3
 
@@ -36,7 +38,7 @@ To save functions to the :class:`~.File` we use the
    f = Function(V)
    f.interpolate(sin(SpatialCoordinate(mesh)[0]))
 
-   outfile = File("output.pvd")
+   outfile = VTKFile("output.pvd")
    outfile.write(f)
 
 .. note::
@@ -52,13 +54,13 @@ Saving time-dependent data
 
 Often, we have a time-dependent simulation and would like to save the
 same function at multiple timesteps.  This is straightforward, we must
-create the output :class:`~.File` outside the time loop and call
-:meth:`~.File.write` inside.
+create the output :class:`~.VTKFile` outside the time loop and call
+:meth:`~.VTKFile.write` inside.
 
 .. code-block:: python3
 
    ...
-   outfile = File("timesteps.pvd")
+   outfile = VTKFile("timesteps.pvd")
 
    while t < T:
        ...
@@ -68,14 +70,14 @@ create the output :class:`~.File` outside the time loop and call
 
 The PVD_ data format supports specifying the timestep value for
 time-dependent data.  We do not have to provide it to
-:meth:`~.File.write`, by default an integer counter is used that is
-incremented by 1 each time :meth:`~.File.write` is called.  It is
+:meth:`~.VTKFile.write`, by default an integer counter is used that is
+incremented by 1 each time :meth:`~.VTKFile.write` is called.  It is
 possible to override this by passing the keyword argument ``time``.
 
 .. code-block:: python3
 
    ...
-   outfile = File("timesteps.pvd")
+   outfile = VTKFile("timesteps.pvd")
 
    while t < T:
        ...
@@ -96,7 +98,7 @@ other than these spaces we must transform the data to this
 format first. One option is to do so by hand before outputting.
 Either by :doc:`interpolating <interpolation>` or else :func:`projecting <firedrake.projection.project>`
 the :doc:`mesh coordinates <mesh-coordinates>` and then the field. Since this is
-such a common operation, the :class:`~.File` object is set up to manage these
+such a common operation, the :class:`~.VTKFile` object is set up to manage these
 operations automatically, we just need to choose whether we want data to be
 interpolated or projected. The default is to use interpolation.  For example,
 assume we wish to output a vector-valued function that lives in an :math:`H(\operatorname{div})`
@@ -107,14 +109,14 @@ space. If we want it to be interpolated in the output file we can use
    V = FunctionSpace(mesh, "RT", 2)
    f = Function(V)
    ...
-   outfile = File("output.pvd")
+   outfile = VTKFile("output.pvd")
    outfile.write(f)
 
 If instead we want projection, we use
 
 .. code-block:: python3
 
-   projected = File("proj_output.pvd", project_output=True)
+   projected = VTKFile("proj_output.pvd", project_output=True)
    projected.write(f)
 
 .. note::
@@ -122,13 +124,13 @@ If instead we want projection, we use
    This feature requires Paraview version 5.5.0 or better. If you must use an
    older version of Paraview, you must manually interpolate mesh coordinates
    and field coordinates to a piecewise linear function space, represented
-   with either a Lagrange (H1) or discontinuous Lagrange (L2) basis. The :class:`~.File`
+   with either a Lagrange (H1) or discontinuous Lagrange (L2) basis. The :class:`~.VTKFile`
    is also setup to manage this issue. For instance, we can force the output
    to be discontinuous piecewise linears via
 
    .. code-block:: python3
 
-      projected = File("proj_output.pvd", target_degree=1, target_continuity=H1)
+      projected = VTKFile("proj_output.pvd", target_degree=1, target_continuity=H1)
       projected.write(f)
 
 
@@ -192,14 +194,14 @@ pressure in a fluids models.  This is possible either by having a
 separate output file for each field, or by saving multiple fields to
 the same output file.  The latter may be more convenient for
 subsequent analysis.  To do this, we just need to pass multiple
-:class:`~.Function`\s to :meth:`~.File.write`.
+:class:`~.Function`\s to :meth:`~.VTKFile.write`.
 
 .. code-block:: python3
 
    u = Function(V, name="Velocity")
    p = Function(P, name="Pressure")
 
-   outfile = File("output.pvd")
+   outfile = VTKFile("output.pvd")
 
    outfile.write(u, p, time=0)
 
@@ -219,7 +221,7 @@ subsequent analysis.  To do this, we just need to pass multiple
       u = Function(V, name="Velocity")
       p = Function(P, name="Pressure")
 
-      outfile = File("output.pvd")
+      outfile = VTKFile("output.pvd")
 
       outfile.write(u, p, time=0)
       ...

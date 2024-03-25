@@ -2325,7 +2325,8 @@ values from f.)"""
                     str(libspatialindex_so),
                     f"-Wl,-rpath,{sys.prefix}/lib",
                     lsi_runpath
-                ]
+                ],
+                comm=self.comm
             )
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),

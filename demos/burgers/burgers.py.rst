@@ -19,7 +19,7 @@ the viscosity term by parts:
 
 .. math::
 
-   \int_\Omega\frac{\partial u}{\partial t}\cdot v + 
+   \int_\Omega\frac{\partial u}{\partial t}\cdot v +
    ((u\cdot\nabla) u)\cdot v + \nu\nabla u\cdot\nabla v \ \mathrm d x = 0.
 
 The boundary condition has been used to discard the surface
@@ -28,12 +28,13 @@ stability we elect to use a backward Euler discretisation:
 
 .. math::
 
-   \int_\Omega\frac{u^{n+1}-u^n}{dt}\cdot v + 
+   \int_\Omega\frac{u^{n+1}-u^n}{dt}\cdot v +
    ((u^{n+1}\cdot\nabla) u^{n+1})\cdot v + \nu\nabla u^{n+1}\cdot\nabla v \ \mathrm d x = 0.
 
 We can now proceed to set up the problem. We choose a resolution and set up a square mesh::
 
   from firedrake import *
+  from firedrake.output import VTKFile
   n = 30
   mesh = UnitSquareMesh(n, n)
 
@@ -76,7 +77,7 @@ system's evolution::
   timestep = 1.0/n
 
 Here we finally get to define the residual of the equation. In the advection
-term we need to contract the test function :math:`v` with 
+term we need to contract the test function :math:`v` with
 :math:`(u\cdot\nabla)u`, which is the derivative of the velocity in the
 direction :math:`u`. This directional derivative can be written as
 ``dot(u,nabla_grad(u))`` since ``nabla_grad(u)[i,j]``:math:`=\partial_i u_j`.
@@ -89,15 +90,15 @@ is differentiated by the nonlinear solver::
 
 We now create an object for output visualisation::
 
-  outfile = File("burgers.pvd")
+  outfile = VTKFile("burgers.pvd")
 
 Output only supports visualisation of linear fields (either P1, or
 P1DG).  In this example we project to a linear space by hand.  Another
-option is to let the :class:`~.File` object manage the decimation.  It
+option is to let the :class:`~.VTKFile` object manage the decimation.  It
 supports both interpolation to linears (the default) or projection (by
-passing ``project_output=True`` when creating the :class:`~.File`).
-Outputting data is carried out using the :meth:`~.File.write` method
-of :class:`~.File` objects::
+passing ``project_output=True`` when creating the :class:`~.VTKFile`).
+Outputting data is carried out using the :meth:`~.VTKFile.write` method
+of :class:`~.VTKFile` objects::
 
   outfile.write(project(u, V_out, name="Velocity"))
 
@@ -112,5 +113,5 @@ which amount to applying a full LU decomposition as a preconditioner. ::
       u_.assign(u)
       t += timestep
       outfile.write(project(u, V_out, name="Velocity"))
-    
+
 A python script version of this demo can be found :demo:`here <burgers.py>`.

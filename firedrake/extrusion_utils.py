@@ -168,7 +168,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         _dd = _get_arity_axis_inames('_d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(_dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'c3', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
+        if tdim == 1:
+            domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'k', 'l'), (base_coord_dim, ) * 4 + (2, )))
+        else:
+            domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'c3', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
         # Formula for normal, n
         n_1_1 = """
         n[0] = -bc[1, 1] + bc[0, 1]
