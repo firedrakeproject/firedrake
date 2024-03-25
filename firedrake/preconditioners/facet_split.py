@@ -2,6 +2,7 @@ from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
 from pyop2.utils import as_tuple
+from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -39,9 +40,8 @@ class FacetSplitPC(PCBase):
         return self._permutation_cache[key]
 
     def initialize(self, pc):
-        from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
-        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import get_assembler
+        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -65,14 +65,6 @@ class FacetSplitPC(PCBase):
 
         V = a.arguments()[-1].function_space()
         assert len(V) == 1, "Interior-facet decomposition of mixed elements is not supported"
-
-        def restrict(ele, restriction_domain):
-            if isinstance(ele, VectorElement):
-                return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
-            elif isinstance(ele, TensorElement):
-                return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
-            else:
-                return RestrictedElement(ele, restriction_domain)
 
         # W = V[interior] * V[facet]
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
@@ -201,28 +193,38 @@ class FacetSplitPC(PCBase):
                 self.perm.destroy()
 
 
-def split_dofs(elem):
+def restrict(ele, restriction_domain):
+    if isinstance(ele, VectorElement):
+        return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
+    elif isinstance(ele, TensorElement):
+        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+    else:
+        return RestrictedElement(ele, restriction_domain)
+
+
+def split_dofs(elem, dim=None):
     """ Split DOFs into interior and facet DOF, where facets are sorted by entity.
     """
+    if dim is None:
+        dim = elem.cell.get_spatial_dimension()
     entity_dofs = elem.entity_dofs()
-    ndim = elem.cell.get_spatial_dimension()
     edofs = [[], []]
     for key in sorted(entity_dofs.keys()):
         vals = entity_dofs[key]
         edim = sum(as_tuple(key))
         for k in sorted(vals.keys()):
-            edofs[edim < ndim].extend(sorted(vals[k]))
+            edofs[edim < dim].extend(sorted(vals[k]))
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
-def restricted_dofs(celem, felem):
+def restricted_dofs(celem, felem, dim=None):
     """ Find which DOFs from felem are on celem
     :arg celem: the restricted :class:`finat.FiniteElement`
     :arg felem: the unrestricted :class:`finat.FiniteElement`
     :returns: :class:`numpy.array` with indices of felem that correspond to celem
     """
-    csplit = split_dofs(celem)
-    fsplit = split_dofs(felem)
+    csplit = split_dofs(celem, dim=dim)
+    fsplit = split_dofs(felem, dim=dim)
     if len(csplit[0]) and len(csplit[1]):
         csplit = [numpy.concatenate(csplit)]
         fsplit = [numpy.concatenate(fsplit)]

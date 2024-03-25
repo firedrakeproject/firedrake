@@ -1,10 +1,12 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
+from firedrake.preconditioners.facet_split import restrict, restricted_dofs
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from ufl import curl, div, HCurl, HDiv, inner, dx
+from pyop2 import op2, PermutedMap
 from pyop2.utils import as_tuple
 import numpy
 
@@ -58,12 +60,6 @@ class BDDCPC(PCBase):
 
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
-        if V.shape == ():
-            make_function_space = FunctionSpace
-        elif len(V.shape) == 1:
-            make_function_space = VectorFunctionSpace
-        else:
-            make_function_space = TensorFunctionSpace
 
         tdim = V.mesh().topological_dimension()
         degree = max(as_tuple(V.ufl_element().degree()))
@@ -72,6 +68,12 @@ class BDDCPC(PCBase):
             if B is None:
                 from firedrake.assemble import assemble
                 d = {HCurl: curl, HDiv: div}[sobolev_space]
+                if V.shape == ():
+                    make_function_space = FunctionSpace
+                elif len(V.shape) == 1:
+                    make_function_space = VectorFunctionSpace
+                else:
+                    make_function_space = TensorFunctionSpace
                 Q = make_function_space(V.mesh(), "DG", degree-1)
                 b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
                 B = assemble(b, mat_type="matfree")
@@ -81,9 +83,12 @@ class BDDCPC(PCBase):
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
-                Q = make_function_space(V.mesh(), curl_to_grad(V.ufl_element()))
+                Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
-            bddcpc.setBDDCDiscreteGradient(gradient, order=degree)
+                vertices = get_vertex_dofs(Q)
+                vertices.view()
+
+            bddcpc.setBDDCDiscreteGradient(gradient)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
@@ -99,3 +104,26 @@ class BDDCPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         self.pc.applyTranspose(x, y)
+
+
+def get_vertex_dofs(V):
+    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "vertex"))
+    val = numpy.arange(0, V.dof_count, dtype=PETSc.IntType)
+    vdat = V.make_dat(val=val)
+    wdat = W.make_dat(val=numpy.full((W.dof_count,), -1, dtype=PETSc.IntType))
+
+    p1_dofs = restricted_dofs(W.finat_element, V.finat_element, dim=1)
+    Vsize = V.finat_element.space_dimension() * V.value_size
+    Wsize = W.finat_element.space_dimension() * W.value_size
+    eperm = numpy.concatenate([p1_dofs, numpy.setdiff1d(numpy.arange(0, Vsize, dtype=PETSc.IntType), p1_dofs)])
+    pmap = PermutedMap(V.cell_node_map(), eperm)
+    kernel_code = f"""
+    void vertex_dofs(PetscInt *restrict w, const PetscInt *restrict v) {{
+        for (PetscInt i=0; i<{Wsize}; i++) w[i] = v[i];
+    }}"""
+    kernel = op2.Kernel(kernel_code, "vertex_dofs", requires_zeroed_output_arguments=False)
+    op2.par_loop(kernel, V.mesh().cell_set, wdat(op2.WRITE, W.cell_node_map()), vdat(op2.READ, pmap))
+    indices = wdat.data_ro
+    V.dof_dset.lgmap.apply(indices, result=indices)
+    vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
+    return vertex_dofs

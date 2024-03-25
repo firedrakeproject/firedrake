@@ -780,6 +780,11 @@ class FDMPC(PCBase):
         P.setSizes(sizes)
         P.setISAllowRepeated(self.allow_repeated)
         P.setLGMap(rmap, cmap)
+        if on_diag and ptype == "is" and self.allow_repeated:
+            bsize = Vrow.finat_element.space_dimension() * Vrow.value_size
+            local_mat = P.getISLocalMat()
+            nblocks = local_mat.getSize()[0] // bsize
+            local_mat.setVariableBlockSizes([bsize] * nblocks)
         P.setPreallocationNNZ((dnz, onz))
 
         if not (ptype.endswith("sbaij") or ptype == "is"):
