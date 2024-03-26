@@ -8,6 +8,7 @@ import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, GeometricQuantity
+from ufl.domain import extract_unique_domain
 
 import gem
 import gem.impero_utils as impero_utils
@@ -219,7 +220,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
-        domain = expression.ufl_domain()
+        domain = extract_unique_domain(expression)
     assert domain is not None
 
     # Collect required coefficients and determine numbering

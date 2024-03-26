@@ -1,11 +1,11 @@
 import numpy
 import pytest
 
-from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
-                 TestFunction, TrialFunction, TensorProductCell,
-                 EnrichedElement, HCurlElement, HDivElement,
-                 TensorProductElement, dx, action, interval, triangle,
+from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
+                 TensorProductCell, dx, action, interval, triangle,
                  quadrilateral, curl, dot, div, grad)
+from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
+                       TensorProductElement, HCurlElement, HDivElement)
 
 from tsfc import compile_form
 
