@@ -174,6 +174,7 @@ def test_submesh_solve_cell_cell_mixed_vector(dim, simplex):
     a = inner(u0, v0) * dx0 + inner(u0 - u1, v1) * dx1
     L = inner(SpatialCoordinate(mesh), v0) * dx0
     solution = Function(V)
+    print(repr(solution))
     solve(a == L, solution)
     s0, s1 = split(solution)
     x = SpatialCoordinate(subm)

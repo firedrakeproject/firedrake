@@ -22,8 +22,6 @@ def test_submesh_assemble_mixed_scalar():
     v0, v1 = split(v)
     dx0 = Measure("cell", domain=mesh)
     dx1 = Measure("cell", domain=subm)
-    print(mesh)
-    print(subm)
     a = inner(u1, v0) * dx0(999) + inner(u0, v1) * dx1
     A = assemble(a, mat_type="nest")
     assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1])  # bc nodes
