@@ -87,13 +87,13 @@ class BDDCPC(PCBase):
                 corners = get_vertex_dofs(Q)
                 gradient.compose('_elements_corners', corners)
                 grad_args = (gradient,)
-                grad_kwargs = {'order' : degree}
+                grad_kwargs = {'order': degree}
             else:
                 try:
-                  grad_args, grad_kwargs = gradient
-                except:
-                  grad_args = (gradient,)
-                  grad_kwargs = dict()
+                    grad_args, grad_kwargs = gradient
+                except ValueError:
+                    grad_args = (gradient,)
+                    grad_kwargs = dict()
 
             bddcpc.setBDDCDiscreteGradient(*grad_args, **grad_kwargs)
 
