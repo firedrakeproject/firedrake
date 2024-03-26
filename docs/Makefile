@@ -65,7 +65,7 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
+	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.jou ../demos/*/*.e ../demos/*/*.png source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
 
 reset_notebooks:
@@ -100,7 +100,7 @@ buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 html: apidoc buildhtml
-	cp source/demos/*.py source/demos/*.geo source/demos/*.msh $(BUILDDIR)/html/demos
+	cp source/demos/*.py source/demos/*.geo source/demos/*.msh source/demos/*.jou $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 

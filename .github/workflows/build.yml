@@ -72,6 +72,7 @@ jobs:
             --disable-ssh \
             --documentation-dependencies \
             --tinyasm \
+            --with-exodus \
             --torch \
             --netgen \
             --slepc \
