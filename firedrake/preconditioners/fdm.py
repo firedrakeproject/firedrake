@@ -208,6 +208,7 @@ class FDMPC(PCBase):
         self.V = V_fdm
         Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
+        self.assembly_callables.append(partial(Pmat.viewFromOptions, "-pmat_view", fdmpc))
         self._assemble_P()
 
         fdmpc.setOperators(A=Amat, P=Pmat)

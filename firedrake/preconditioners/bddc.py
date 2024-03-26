@@ -84,9 +84,18 @@ class BDDCPC(PCBase):
                 from firedrake.preconditioners.hiptmair import curl_to_grad
                 Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
-                vertices = get_vertex_dofs(Q)
+                corners = get_vertex_dofs(Q)
+                gradient.compose('_elements_corners', corners)
+                grad_args = (gradient,)
+                grad_kwargs = {'order' : degree}
+            else:
+                try:
+                  grad_args, grad_kwargs = gradient
+                except:
+                  grad_args = (gradient,)
+                  grad_kwargs = dict()
 
-            bddcpc.setBDDCDiscreteGradient(gradient)
+            bddcpc.setBDDCDiscreteGradient(*grad_args, **grad_kwargs)
 
         bddcpc.setFromOptions()
         self.pc = bddcpc
