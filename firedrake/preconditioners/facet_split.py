@@ -32,7 +32,7 @@ class FacetSplitPC(PCBase):
     def get_permutation(self, V, W):
         key = (V, W)
         if key not in self._permutation_cache:
-            indices = get_permutation_map(V, W)
+            indices = restricted_local_dofs(V, W)
             if V._comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
                 self._permutation_cache[key] = None
             else:
@@ -237,10 +237,19 @@ def restricted_dofs(celem, felem, dim=None):
     return fsplit[k][perm]
 
 
-def get_permutation_map(V, W):
-    perm = numpy.full((V.dof_count,), -1, dtype=PETSc.IntType)
-    vdat = V.make_dat(val=perm)
+def copy_kernel(size):
+    kernel_code = f"""
+    void copy(PetscInt *restrict y, const PetscInt *restrict x) {{
+        for (PetscInt i=0; i<{size}; i++) y[i] = x[i];
+    }}"""
+    return op2.Kernel(kernel_code, "copy", requires_zeroed_output_arguments=False)
 
+
+def reference_space_dimension(V):
+    return sum(Vsub.finat_element.space_dimension() * Vsub.value_size for Vsub in V)
+
+
+def get_permutation_map(V, W):
     offset = 0
     wdats = []
     for Wsub in W:
@@ -248,14 +257,29 @@ def get_permutation_map(V, W):
         wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
     wdat = op2.MixedDat(wdats)
-    size = sum(Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W)
+    vdat = V.make_dat(val=numpy.full((V.dof_count,), -1, dtype=PETSc.IntType))
+
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
-
-    kernel_code = f"""
-    void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
-        for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
-    }}"""
-    kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set, vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
+    size = reference_space_dimension(V)
+    op2.par_loop(copy_kernel(size), V.mesh().cell_set, vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
     return vdat.data_ro
+
+
+def restricted_local_dofs(V, W):
+    vdat = V.make_dat(val=numpy.arange(0, V.dof_count, dtype=PETSc.IntType))
+    wdat = W.make_dat(val=numpy.full((W.dof_count,), -1, dtype=PETSc.IntType))
+
+    Vsize = reference_space_dimension(V)
+    Wsize = reference_space_dimension(W)
+    edofs = W[len(W)-1].finat_element.entity_dofs()
+    wdim = 0
+    for dim in sorted(edofs):
+        if any(len(edofs[dim][entity]) > 0 for entity in edofs[dim]):
+            wdim = sum(as_tuple(dim)) + 1
+
+    eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element, dim=wdim) for Wsub in W])
+    eperm = numpy.concatenate([eperm, numpy.setdiff1d(numpy.arange(0, Vsize, dtype=PETSc.IntType), eperm)])
+    pmap = PermutedMap(V.cell_node_map(), eperm)
+    op2.par_loop(copy_kernel(Wsize), V.mesh().cell_set, wdat(op2.WRITE, W.cell_node_map()), vdat(op2.READ, pmap))
+    return wdat.data_ro

@@ -1,12 +1,11 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.facet_split import restrict, restricted_dofs
+from firedrake.preconditioners.facet_split import restrict, restricted_local_dofs
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from ufl import curl, div, HCurl, HDiv, inner, dx
-from pyop2 import op2, PermutedMap
 from pyop2.utils import as_tuple
 import numpy
 
@@ -86,7 +85,6 @@ class BDDCPC(PCBase):
                 Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
                 vertices = get_vertex_dofs(Q)
-                vertices.view()
 
             bddcpc.setBDDCDiscreteGradient(gradient)
 
@@ -108,22 +106,7 @@ class BDDCPC(PCBase):
 
 def get_vertex_dofs(V):
     W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "vertex"))
-    val = numpy.arange(0, V.dof_count, dtype=PETSc.IntType)
-    vdat = V.make_dat(val=val)
-    wdat = W.make_dat(val=numpy.full((W.dof_count,), -1, dtype=PETSc.IntType))
-
-    p1_dofs = restricted_dofs(W.finat_element, V.finat_element, dim=1)
-    Vsize = V.finat_element.space_dimension() * V.value_size
-    Wsize = W.finat_element.space_dimension() * W.value_size
-    eperm = numpy.concatenate([p1_dofs, numpy.setdiff1d(numpy.arange(0, Vsize, dtype=PETSc.IntType), p1_dofs)])
-    pmap = PermutedMap(V.cell_node_map(), eperm)
-    kernel_code = f"""
-    void vertex_dofs(PetscInt *restrict w, const PetscInt *restrict v) {{
-        for (PetscInt i=0; i<{Wsize}; i++) w[i] = v[i];
-    }}"""
-    kernel = op2.Kernel(kernel_code, "vertex_dofs", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set, wdat(op2.WRITE, W.cell_node_map()), vdat(op2.READ, pmap))
-    indices = wdat.data_ro
+    indices = restricted_local_dofs(V, W)
     V.dof_dset.lgmap.apply(indices, result=indices)
     vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
     return vertex_dofs
