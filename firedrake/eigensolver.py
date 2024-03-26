@@ -1,9 +1,12 @@
 """Specify and solve finite element eigenproblems."""
 from firedrake.assemble import assemble
+from firedrake.bcs import DirichletBC
 from firedrake.function import Function
+from firedrake.functionspaceimpl import RestrictedFunctionSpace
 from firedrake import utils
 from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
+from ufl import replace
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -39,7 +42,7 @@ class LinearEigenproblem():
     amount. It is the user's responsibility to ensure that the shift is not
     close to an actual eigenvalue of the system.
     """
-    def __init__(self, A, M=None, bcs=None, bc_shift=0.0):
+    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=False):
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
@@ -54,9 +57,20 @@ class LinearEigenproblem():
         else:
             from ufl import inner, dx
             self.M = inner(u, v) * dx
+
         self.output_space = u.function_space()
         self.bcs = bcs
         self.bc_shift = bc_shift
+        self.restrict = restrict
+
+        if restrict and bcs:  # assumed u and v in the same space here 
+            V_res = RestrictedFunctionSpace(u.function_space(), boundary_set=set([bc.sub_domain for bc in bcs]))
+            u_res = TrialFunction(V_res)
+            v_res = TestFunction(V_res)
+            self.M = replace(M, {u: u_res, v: v_res})
+            self.A = replace(A, {u: u_res, v: v_res})
+            self.bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            self.restricted_space = V_res 
 
     def dirichlet_bcs(self):
         """Return an iterator over the Dirichlet boundary conditions."""
@@ -188,7 +202,13 @@ class LinearEigensolver(OptionsManager):
         """
         eigenmodes_real = Function(self._problem.output_space)  # fn of V
         eigenmodes_imag = Function(self._problem.output_space)
+        if self._problem.restrict:
+            eigenmodes_real = Function(self._problem.restricted_space)
+            eigenmodes_imag = Function(self._problem.restricted_space)
         with eigenmodes_real.dat.vec_wo as vr:
             with eigenmodes_imag.dat.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
+        if self._problem.restrict:
+            eigenmodes_real = Function(self._problem.output_space).interpolate(eigenmodes_real)
+            eigenmodes_imag = Function(self._problem.output_space).interpolate(eigenmodes_imag)
         return eigenmodes_real, eigenmodes_imag  # returns Firedrake fns
