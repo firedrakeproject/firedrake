@@ -10,6 +10,8 @@ solving numerically a wave equation with a forcing term representing a
 source of wave emission.
 
 *This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__*
+
+
 Cost function
 -------------
 
