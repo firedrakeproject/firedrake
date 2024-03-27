@@ -1567,7 +1567,7 @@ class _GlobalKernelBuilder:
         self._form = form
         self._indices, self._kinfo = local_knl
         self._subdomain_id = subdomain_id
-        self._all_integer_subdomain_ids = all_integer_subdomain_ids.get(self._kinfo.integral_type, None)
+        self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._diagonal = diagonal
         self._unroll = unroll
 
@@ -1634,7 +1634,7 @@ class _GlobalKernelBuilder:
         if self._subdomain_id == "everywhere":
             return False
         elif self._subdomain_id == "otherwise":
-            return self._all_integer_subdomain_ids is not None
+            return self._all_integer_subdomain_ids.get(self._kinfo.integral_type, None) is not None
         else:
             return True
 
@@ -1773,14 +1773,24 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
 def _as_global_kernel_arg_exterior_facet(_, self):
-    _ = next(self._active_exterior_facets)
-    return op2.DatKernelArg((1,))
+    mesh, _ = next(self._active_exterior_facets)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((1,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+        return op2.DatKernelArg((1,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(kernel_args.InteriorFacetKernelArg)
 def _as_global_kernel_arg_interior_facet(_, self):
-    _ = next(self._active_interior_facets)
-    return op2.DatKernelArg((2,))
+    mesh, _ = next(self._active_interior_facets)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((2,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+        return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(CellFacetKernelArg)
@@ -2074,7 +2084,7 @@ def _as_parloop_arg_exterior_facet(_, self):
         m = None
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "exterior_facets"
+        assert integral_type == "exterior_facet"
     return op2.DatParloopArg(local_facet_dat, m)
 
 
@@ -2085,7 +2095,7 @@ def _as_parloop_arg_interior_facet(_, self):
         m = None
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facets"
+        assert integral_type == "interior_facet"
     return op2.DatParloopArg(local_facet_dat, m)
 
 

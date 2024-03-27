@@ -4,7 +4,7 @@ from firedrake import *
 from firedrake.cython import dmcommon
 
 
-def test_submesh_assemble_mixed_scalar():
+def test_submesh_assemble_mixed_scalar_cell_integral():
     dim = 2
     mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
     x, y = SpatialCoordinate(mesh)
@@ -34,3 +34,41 @@ def test_submesh_assemble_mixed_scalar():
                     [1./18., 1./36., 1./18., 1./9. , 0., 0.]])
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
+
+
+def test_submesh_assemble_mixed_scalar_facet_integral():
+    dim = 2
+    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    DQ0 = FunctionSpace(mesh, "DQ", 0)
+    indicator_function = Function(DQ0).interpolate(conditional(x > 1., 1, 0))
+    mesh.mark_entities(indicator_function, 999)
+    subm = Submesh(mesh, dmcommon.CELL_SETS_LABEL, 999, mesh.topological_dimension())
+    subm.init()
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(subm, "CG", 1)
+    V = V0 * V1
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u0, u1 = split(u)
+    v0, v1 = split(v)
+    dS0 = Measure("dS", domain=mesh)
+    ds1 = Measure("ds", domain=subm)
+    a_p = inner(u1('|'), v0('+')) * dS0
+    A_p = assemble(a_p, mat_type="nest")
+    print(A_p.M[0][0].values)
+    print(A_p.M[0][1].values)
+    print(A_p.M[1][0].values)
+    print(A_p.M[1][1].values)
+    b_p = inner(u1('|'), v0('+')) * ds1(5)
+    B_p = assemble(b_p, mat_type="nest")
+    print(B_p.M[0][0].values)
+    print(B_p.M[0][1].values)
+    print(B_p.M[1][0].values)
+    print(B_p.M[1][1].values)
+    b_m = inner(u1('|'), v0('-')) * ds1(5)
+    B_m = assemble(b_m, mat_type="nest")
+    print(B_m.M[0][0].values)
+    print(B_m.M[0][1].values)
+    print(B_m.M[1][0].values)
+    print(B_m.M[1][1].values)
