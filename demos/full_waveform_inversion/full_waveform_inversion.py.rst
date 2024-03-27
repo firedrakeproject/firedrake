@@ -9,12 +9,13 @@ case. The latter consists of predicted data, which is obtained by
 solving numerically a wave equation with a forcing term representing a
 source of wave emission.
 
+*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__*
 Cost function
 -------------
 
 FWI consists of a local optimisation, where the goal is to minimise the
 misfit between observed and predicted seismogram data. Following
-Tarantola (1984) [1], the misfit function can be measured by the
+:cite:`Tarantola:1984`, the misfit function can be measured by the
 :math:`L^2` norm, which can written as follows, in a continuous space:
 
 .. math::
@@ -46,7 +47,7 @@ of waves and is usually described by a `Ricker
 Wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__. The
 acoustic wave equation should satisfy the initial conditions
 :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We are employing
-no-reflective absorbing boundary condition [2]:
+no-reflective absorbing boundary condition :cite:`Engquist:1977`:
 
 .. math::  \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, \forall \mathbf{x} \, \in \partial \Omega 
 
@@ -60,18 +61,14 @@ domain :math:`\Omega`:
 
 for an arbitrary test function :math:`v\in V`, where :math:`V` is a
 function space. The weak form implementation in Firedrake is written as
-follows.
+follows. You can find more details about the wave equation with mass lumping on this
+`link <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`__.
 
 .. code:: ipython3
 
     import finat
     import matplotlib.pyplot as plt
     import numpy as np
-    from scipy.optimize import minimize as scipy_minimize
-    import os
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["PETSC_DIR"] = "/opt/petsc/firedrake"
-    os.environ["PETSC_ARCH"] = "full-opt"
     from firedrake import *
     from firedrake.__future__ import Interpolator, interpolate
     from firedrake.pyplot import tricontourf
@@ -282,13 +279,8 @@ package.
 
     J_hat.derivative()
 
-References
-----------
+.. rubric:: References
 
-[1] Tarantola, Albert. Inversion of seismic reflection data in the
-acoustic approximation. Geophysics 49.8: 1259-1266.
-https://doi.org/10.1190/1.1441754, 1984.
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
 
-[2] Clayton, R. and Engquist, B.: Absorbing boundary conditions for
-acoustic and elastic wave equations, B. Seismol. Soc. Am., 67,
-1529-1540, https://doi.org/10.1785/BSSA0670061529, 1977.
