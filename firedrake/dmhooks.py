@@ -94,8 +94,6 @@ def set_function_space(dm, V):
     element = V.ufl_element()
 
     info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
-    #TODO
-    info = (lambda: mesh, element, tuple(reversed(indices)), (V.name, names))
     dm.setAttr("__fs_info__", info)
 
 
