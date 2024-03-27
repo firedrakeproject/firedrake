@@ -3,6 +3,7 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
+from pyadjoint.tape import stop_annotating
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
@@ -31,8 +32,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -56,7 +56,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self, V.ufl_function_space(), count=count)
+        ufl.Cofunction.__init__(self, V.ufl_function_space())
 
         # User comm
         self.comm = V.comm
@@ -169,7 +169,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.assign(0, subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_assign
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
@@ -190,10 +189,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
+            with stop_annotating(modifies=(self,)):
+                self.dat.zero(subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
+            self.block_variable = expr.block_variable
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
