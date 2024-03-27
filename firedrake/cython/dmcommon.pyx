@@ -3481,6 +3481,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
     point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
     point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
     n = 0
+    # ilocal == NULL if local leaf points are [0, 1, 2, ...).
     for i in range(nleaves):
         p = ilocal[i] if ilocal != NULL else i
         CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
