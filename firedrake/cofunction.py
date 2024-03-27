@@ -168,8 +168,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.assign(0, subset=subset)
 
     @PETSc.Log.EventDecorator()
-    # @FunctionMixin._ad_not_implemented
-    @FunctionMixin._ad_annotate_assign
+    @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
