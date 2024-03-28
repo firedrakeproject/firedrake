@@ -43,7 +43,7 @@ from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
-
+from firedrake.mesh import MixedMeshGeometry
 
 @PETSc.Log.EventDecorator()
 def get_function_space(dm):
@@ -53,8 +53,11 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref, element, indices, (name, names) = info
-    mesh = meshref()
+    meshref_tuple, element, indices, (name, names) = info
+    if len(meshref_tuple) == 1:
+        mesh = meshref_tuple[0]()
+    else:
+        mesh = MixedMeshGeometry(*(meshref() for meshref in meshref_tuple))
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
     V = firedrake.FunctionSpace(mesh, element, name=name)
@@ -93,7 +96,7 @@ def set_function_space(dm, V):
         names = tuple(V_.name for V_ in V)
     element = V.ufl_element()
 
-    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names))
     dm.setAttr("__fs_info__", info)
 
 
