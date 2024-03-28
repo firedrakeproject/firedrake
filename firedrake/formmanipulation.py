@@ -9,6 +9,7 @@ from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
+from tsfc.ufl_utils import remove_indices
 
 
 class ExtractSubBlock(MultiFunction):
@@ -169,6 +170,7 @@ def split_form(form, diagonal=False):
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
+        f = remove_indices(f)
         if len(f.integrals()) > 0:
             if diagonal:
                 i, j = idx

@@ -69,6 +69,14 @@ def coarsen_mesh(mesh, self, coefficient_mapping=None):
     return hierarchy[level - 1]
 
 
+@coarsen.register(ufl.MixedMesh)
+def coarsen_mesh(mesh, self, coefficient_mapping=None):
+    hierarchy, level = utils.get_level(mesh[0])
+    if hierarchy is None:
+        raise CoarseningError("No mesh hierarchy available")
+    return mesh.hierarchy[level - 1]
+
+
 @coarsen.register(ufl.BaseForm)
 @coarsen.register(ufl.classes.Expr)
 def coarse_expr(expr, self, coefficient_mapping=None):
@@ -132,7 +140,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
         return V._coarse
 
     V_fine = V
-    mesh_coarse = self(V_fine.mesh(), self)
+    # Handle MixedFunctionSpace : V_fine.reconstruct requires MixedMesh.
+    fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()
+    mesh_coarse = self(fine_mesh, self)
     name = f"coarse_{V.name}" if V.name else None
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine

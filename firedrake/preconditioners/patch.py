@@ -17,6 +17,7 @@ from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.driver import collect_domains_in_form
 import weakref
 
 import ctypes
@@ -148,6 +149,7 @@ def matrix_funptr(form, state):
 
     kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
+    all_meshes = collect_domains_in_form(form)
     cell_kernels = []
     int_facet_kernels = []
     for kernel in kernels:
@@ -189,15 +191,17 @@ def matrix_funptr(form, state):
                                         values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
 
-        mesh = form.ufl_domains()[kinfo.domain_number]
-        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        args.append(arg)
-        if kinfo.oriented:
-            c = mesh.cell_orientations()
+        mesh = all_meshes[kinfo.domain_number]  # integration domain
+        for i in kinfo.active_domain_numbers.coordinates:
+            c = all_meshes[i].coordinates
+            arg = c.dat(op2.READ, get_map(c))  #compose!
+            args.append(arg)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        if kinfo.needs_cell_sizes:
-            c = mesh.cell_sizes
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -242,6 +246,7 @@ def residual_funptr(form, state):
 
     kernels = compile_form(form, "subspace_form", split=False, interface=interface)
 
+    all_meshes = collect_domains_in_form(form)
     cell_kernels = []
     int_facet_kernels = []
     for kernel in kernels:
@@ -282,16 +287,17 @@ def residual_funptr(form, state):
         arg = dat(op2.INC, entity_node_map)
         args.append(arg)
 
-        mesh = form.ufl_domains()[kinfo.domain_number]
-        arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
-        args.append(arg)
-
-        if kinfo.oriented:
-            c = mesh.cell_orientations()
+        mesh = all_meshes[kinfo.domain_number]
+        for i in kinfo.active_domain_numbers.coordinates:
+            c = all_meshes[i].coordinates
+            arg = c.dat(op2.READ, get_map(c))  #compose!
+            args.append(arg)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            c = all_meshes[i].cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
-        if kinfo.needs_cell_sizes:
-            c = mesh.cell_sizes
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            c = all_meshes[i].cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -515,12 +521,12 @@ def load_c_function(code, name, comm):
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
-    mesh = form.ufl_domains()[kernel.kinfo.domain_number]
-    coeffs = [mesh.coordinates]
-    if kernel.kinfo.oriented:
-        coeffs.append(mesh.cell_orientations())
-    if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(mesh.cell_sizes)
+    all_meshes = collect_domains_in_form(form)
+    mesh = all_meshes[kernel.kinfo.domain_number]
+    coeffs = []
+    coeffs.extend([all_meshes[i].coordinates for i in kernel.kinfo.active_domain_numbers.coordinates])
+    coeffs.extend([all_meshes[i].cell_orientations() for i in kernel.kinfo.active_domain_numbers.cell_orientations])
+    coeffs.extend([all_meshes[i].cell_sizes for i in kernel.kinfo.active_domain_numbers.cell_sizes])
     for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:
@@ -540,7 +546,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
             map_args.append(None)
         else:
             data_args.extend(c.dat._kernel_args_)
-        map_ = get_map(c)
+        map_ = get_map(c)  #compose!
         if map_ is not None:
             for k in map_._kernel_args_:
                 if k not in seen:

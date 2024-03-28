@@ -86,7 +86,7 @@ class HybridizationPC(SCBase):
             except TypeError:
                 tdegree = W.ufl_element().degree() - 1
 
-        TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
+        TraceSpace = FunctionSpace(mesh[self.vidx], "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
         broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
