@@ -166,7 +166,7 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
             # Let FIAT handle the general case
-            lmbda = finat.Lagrange
+            lmbda = partial(finat.Lagrange, variant=kind)
     elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
                               "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
         lmbda = partial(lmbda, variant=element.variant())
@@ -189,7 +189,7 @@ def convert_finiteelement(element, **kwargs):
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
             # Let FIAT handle the general case
-            lmbda = finat.DiscontinuousLagrange
+            lmbda = partial(finat.DiscontinuousLagrange, variant=kind)
     elif element.family() == ["DPC", "DPC L2"]:
         if element.cell.geometric_dimension() == 2:
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
