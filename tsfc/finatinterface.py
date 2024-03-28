@@ -144,9 +144,7 @@ def convert_finiteelement(element, **kwargs):
         kind = 'spectral'  # default variant
 
     if element.family() == "Lagrange":
-        if kind == 'equispaced':
-            lmbda = finat.Lagrange
-        elif kind == 'spectral':
+        if kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
         elif kind == 'integral':
             lmbda = finat.IntegratedLegendre
@@ -167,14 +165,13 @@ def convert_finiteelement(element, **kwargs):
             deps = {"shift_axes", "restriction"}
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
-            raise ValueError("Variant %r not supported on %s" % (kind, element.cell))
+            # Let FIAT handle the general case
+            lmbda = finat.Lagrange
     elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
                               "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
         lmbda = partial(lmbda, variant=element.variant())
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
-        if kind == 'equispaced':
-            lmbda = finat.DiscontinuousLagrange
-        elif kind == 'spectral':
+        if kind == 'spectral':
             lmbda = finat.GaussLegendre
         elif kind == 'integral':
             lmbda = finat.Legendre
@@ -191,7 +188,8 @@ def convert_finiteelement(element, **kwargs):
             deps = {"shift_axes", "restriction"}
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
-            raise ValueError("Variant %r not supported on %s" % (kind, element.cell))
+            # Let FIAT handle the general case
+            lmbda = finat.DiscontinuousLagrange
     elif element.family() == ["DPC", "DPC L2"]:
         if element.cell.geometric_dimension() == 2:
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
