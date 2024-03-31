@@ -717,9 +717,6 @@ def get_minimal_petsc_packages():
     if not options["complex"]:
         # AMG
         pkgs.add("hypre")
-    if options["petsc_int_type"] == "int32":
-        # Serial mesh partitioner
-        pkgs.add("chaco")
     return pkgs
 
 
