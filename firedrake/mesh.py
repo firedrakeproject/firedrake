@@ -1263,15 +1263,12 @@ class MeshTopology(AbstractMeshTopology):
                         raise ValueError("Unable to use 'parmetis': Firedrake is not "
                                          "installed with 'parmetis'.")
             else:
-                if IntType.itemsize == 8 or plex.isDistributed():
-                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
-                    # Chaco does not work on distributed meshes.
-                    if get_config().get("options", {}).get("with_parmetis", False):
-                        partitioner_type = "parmetis"
-                    else:
-                        partitioner_type = "ptscotch"
+                # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
+                # Chaco does not work on distributed meshes.
+                if get_config().get("options", {}).get("with_parmetis", False):
+                    partitioner_type = "parmetis"
                 else:
-                    partitioner_type = "chaco"
+                    partitioner_type = "ptscotch"
             partitioner.setType({"chaco": partitioner.Type.CHACO,
                                  "ptscotch": partitioner.Type.PTSCOTCH,
                                  "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
