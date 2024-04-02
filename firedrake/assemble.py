@@ -1361,7 +1361,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             self._sub_mat_type,
             self._make_maps_and_regions(),
         )
-        mat = op3.PetscMat(
+        mat = op3.PetscMatAIJ.from_sparsity(
             test.function_space().axes,
             trial.function_space().axes,
             sparsity,

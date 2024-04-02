@@ -949,7 +949,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 c := target_plex.cells.index(),
                 sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666),
             )
-            tensor = op3.PetscMat(V.axes, argfs.axes, sparsity)
+            tensor = op3.PetscMatAIJ.from_sparsity(V.axes, argfs.axes, sparsity)
         f = tensor
     else:
         raise ValueError(

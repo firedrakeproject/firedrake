@@ -1806,6 +1806,18 @@ class MeshTopology(AbstractMeshTopology):
             orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
         return orientations
 
+    @utils.cached_property
+    def entity_orientations_dat(self):
+        dats = []
+        for dim in range(self.dimension+1):
+            closure_map = self._fiat_closure.connectivity[pmap({self.name: self.cell_label})][dim]
+            axes = op3.AxisTree.from_iterable((op3.Axis({self.cell_label: self.num_cells()}, self.name), op3.Axis({str(dim): closure_map.arity}, "closure")))
+            dat = op3.HierarchicalArray(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
+            # if dat.name == "ornt_2":
+            #     breakpoint()
+            dats.append(dat)
+        return tuple(dats)
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:

@@ -11,6 +11,7 @@ import loopy
 import numpy as np
 import pyop3 as op3
 from pyop3.axtree.tree import ExpressionEvaluator
+from pyop3.array.harray import ArrayVar
 import ufl
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
@@ -386,7 +387,42 @@ def _(
     if plex.ufl_cell().is_simplex():
         return indexed
 
-    tensor_axes, target_paths, index_exprs = _tensorify_axes(V)
+    if plex.ufl_cell() == ufl.hexahedron:
+        if integral_type != "cell":
+            raise NotImplementedError
+        # indexed by dim and orientation
+        perms = _entity_permutations(V)
+        mytree = _orientations(plex, perms, index)
+        mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
+
+        indexed = indexed.getitem(mytree, strict=True)
+
+    tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V)
+    tensor_axes = _with_shape_axes(V, tensor_axes, integral_type in {"exterior_facet", "interior_facet"})
+
+    # taken from harray.getitem
+    from pyop3.itree.tree import _compose_bits
+
+    target_paths, index_exprs, _ = _compose_bits(
+        indexed.axes,
+        indexed.target_paths,
+        indexed.index_exprs,
+        None,
+        tensor_axes,
+        ttarget_paths,
+        tindex_exprs,
+        {},
+    )
+
+    return op3.HierarchicalArray(
+        tensor_axes,
+        data=indexed.buffer,
+        max_value=indexed.max_value,
+        target_paths=target_paths,
+        index_exprs=index_exprs,
+        layouts=indexed.layouts,
+        name=indexed.name,
+    )
 
     myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
 
@@ -397,7 +433,9 @@ def _(
     myindextree = op3.IndexTree(mynodemap)
 
     myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
-    return indexed.getitem(myindextree, strict=True)
+    retval = indexed.getitem(myindextree, strict=True)
+    # breakpoint()
+    return retval
 
 
 @pack_pyop3_tensor.register
@@ -432,30 +470,67 @@ def _(
     if plex.ufl_cell().is_simplex():
         return cf_indexed
 
-    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
+    if plex.ufl_cell() is ufl.hexahedron:
+        raise NotImplementedError
+    #     _entity_permutations(Vrow)
 
-    myslices = _indexify_tensor_axes(axes0, target_paths0, index_exprs0, suffix="_row")
-    myroot = op3.Slice("closure_row", [idx for idx, _ in myslices])
-    mychildren = {myroot.id: [idx for _, idx in myslices]}
-    mynodemap = {None: (myroot,)}
-    mynodemap.update(mychildren)
-    myindextree0 = op3.IndexTree(mynodemap)
-    myindextree0 = _with_shape_indices(Vrow, myindextree0, integral_type in {"exterior_facet", "interior_facet"})
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
+    axes0 = _with_shape_axes(Vrow, axes0, integral_type in {"exterior_facet", "interior_facet"})
+
+    # taken from harray.getitem
+    from pyop3.itree.tree import _compose_bits
+
+    target_paths0, index_exprs0, _ = _compose_bits(
+        cf_indexed.raxes,
+        cf_indexed.raxes.target_paths,
+        cf_indexed.raxes.index_exprs,
+        None,
+        axes0,
+        target_paths0,
+        index_exprs0,
+        {},
+    )
+
+    # myslices = _indexify_tensor_axes(axes0, target_paths0, index_exprs0, suffix="_row")
+    # myroot = op3.Slice("closure_row", [idx for idx, _ in myslices])
+    # mychildren = {myroot.id: [idx for _, idx in myslices]}
+    # mynodemap = {None: (myroot,)}
+    # mynodemap.update(mychildren)
+    # myindextree0 = op3.IndexTree(mynodemap)
+    # myindextree0 = _with_shape_indices(Vrow, myindextree0, integral_type in {"exterior_facet", "interior_facet"})
 
     axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
-    myslices = _indexify_tensor_axes(axes1, target_paths1, index_exprs1, suffix="_col")
-    myroot = op3.Slice("closure_col", [idx for idx, _ in myslices])
-    mychildren = {myroot.id: [idx for _, idx in myslices]}
-    mynodemap = {None: (myroot,)}
-    mynodemap.update(mychildren)
-    myindextree1 = op3.IndexTree(mynodemap)
-    myindextree1 = _with_shape_indices(Vcol, myindextree1, integral_type in {"exterior_facet", "interior_facet"})
+    axes1 = _with_shape_axes(Vcol, axes1, integral_type in {"exterior_facet", "interior_facet"})
 
-    myindextree = myindextree0
-    for leaf in myindextree0.leaves:
-        myindextree = myindextree.add_subtree(myindextree1, *leaf, uniquify_ids=True)
+    target_paths1, index_exprs1, _ = _compose_bits(
+        cf_indexed.caxes,
+        cf_indexed.caxes.target_paths,
+        cf_indexed.caxes.index_exprs,
+        None,
+        axes1,
+        target_paths1,
+        index_exprs1,
+        {},
+    )
+    # myslices = _indexify_tensor_axes(axes1, target_paths1, index_exprs1, suffix="_col")
+    # myroot = op3.Slice("closure_col", [idx for idx, _ in myslices])
+    # mychildren = {myroot.id: [idx for _, idx in myslices]}
+    # mynodemap = {None: (myroot,)}
+    # mynodemap.update(mychildren)
+    # myindextree1 = op3.IndexTree(mynodemap)
+    # myindextree1 = _with_shape_indices(Vcol, myindextree1, integral_type in {"exterior_facet", "interior_facet"})
 
-    return cf_indexed.getitem(myindextree, strict=True)
+    return op3.PetscMat(
+        axes0,
+        axes1,
+        mat=cf_indexed.mat,
+        # TODO: Make these attributes of axes0 and axes1 (IndexedAxisTree!)
+        rtarget_paths=target_paths0,
+        rindex_exprs=index_exprs0,
+        ctarget_paths=target_paths1,
+        cindex_exprs=index_exprs1,
+        name=cf_indexed.name,
+    )
 
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
@@ -540,6 +615,70 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
         tree = op3.utils.just_one(trees)
 
     return tree
+
+
+def _with_shape_axes(V, axes, and_support=False):
+    is_mixed = isinstance(V.topological, MixedFunctionSpace)
+
+    axes = op3.PartialAxisTree(axes.parent_to_children)
+
+    if is_mixed:
+        spaces = V.topological._spaces
+        trees = (axes,) * len(spaces)
+    else:
+        spaces = (V.topological,)
+        trees = (axes,)
+
+    # Add tensor shape innermost, this applies to cells, edges etc equally
+    trees_ = []
+    for space, tree in zip(spaces, trees):
+        if space.shape:
+            tensor_slices = tuple(
+                op3.Axis({"XXX": dim}, f"dim{i}")
+                for i, dim in enumerate(space.shape)
+            )
+            tensor_indices = op3.PartialAxisTree.from_iterable(tensor_slices)
+
+            for leaf in tree.leaves:
+                tree = tree.add_subtree(tensor_indices, *leaf, uniquify_ids=True)
+
+        trees_.append(tree)
+    trees = tuple(trees_)
+
+    if and_support:
+        raise NotImplementedError
+        # FIXME: Currently assume that facet axis is inside the mixed one, this may
+        # be wrong.
+        if is_mixed:
+            raise NotImplementedError("Might break")
+
+        support_indices = op3.IndexTree(
+            op3.Slice(
+                "support",
+                [op3.AffineSliceComponent("XXX")],
+            )
+        )
+        trees_ = []
+        for subtree in trees:
+            tree = support_indices.add_subtree(subtree, *support_indices.leaf)
+            trees_.append(tree)
+        trees = tuple(trees_)
+
+    # outer mixed bit
+    if is_mixed:
+        field_indices = op3.PartialAxisTree(
+            op3.Axis(
+                {str(i): 1 for i, _ in enumerate(spaces)},
+                "field",
+            )
+        )
+        tree = field_indices
+        for leaf, subtree in op3.utils.checked_zip(field_indices.leaves, trees):
+            tree = tree.add_subtree(subtree, *leaf, uniquify_ids=True)
+    else:
+        tree = op3.utils.just_one(trees)
+
+    return tree.set_up()
 
 
 def _tensorify_axes(V, suffix=""):
@@ -633,7 +772,7 @@ def _tensorify_axes(V, suffix=""):
     tensor_axes = tensor_axes.set_up()
 
     tensor_target_paths = _build_target_paths(tensor_axes, suffix=suffix)
-    tensor_index_exprs = _tensor_product_index_exprs(tensor_axes)
+    tensor_index_exprs = _tensor_product_index_exprs(tensor_axes, tensor_target_paths)
 
     return tensor_axes, tensor_target_paths, tensor_index_exprs
 
@@ -655,6 +794,7 @@ def _indexify_tensor_axes(
 
     index_trees = []
     for component in axis.components:
+        # This is bad as it unconditionally deconstructs the innermost axis
         for ci in range(component.count):
             indices_ = indices | {axis.label: ci}
 
@@ -726,30 +866,55 @@ def _build_rec(_axess):
     return _axes
 
 
-def _tensor_product_index_exprs(tensor_axes):
+def _tensor_product_index_exprs(tensor_axes, target_paths):
     index_exprs = collections.defaultdict(dict)
 
     # first points
-    leaf_iter = iter(tensor_axes.leaves)
+    # I reckon that this is in the wrong order, edges and faces are interleaved!
     point_axess = _flatten_tensor_axes_points_only(tensor_axes)
-    for point_axes in point_axess.values():
+    ndims = max(point_axess.keys())
+    leaves_per_dim = [[] for _ in range(ndims+1)]
+    for leaf in tensor_axes.leaves:
+        dim = int(target_paths[leaf[0].id, leaf[1]]["closure"])
+        leaves_per_dim[dim].append(leaf)
+
+    leaf_iters = [iter(lvs) for lvs in leaves_per_dim]
+    for dim, point_axes in point_axess.items():
         point_axes = point_axes.set_up()
 
         for pleaf in point_axes.leaves:
             ppath = point_axes.path(*pleaf)
             playout = point_axes.layouts[ppath]
 
-            leaf = next(leaf_iter)
+            leaf = next(leaf_iters[dim])
             index_exprs[leaf[0].id, leaf[1]]["closure"] = playout
-    assert_empty(leaf_iter)
+
+    for leaf_iter in leaf_iters:
+        assert_empty(leaf_iter)
+
+    # leaf_iter = iter(tensor_axes.leaves)
+    # point_axess = _flatten_tensor_axes_points_only(tensor_axes)
+    # for point_axes in point_axess.values():
+    #     point_axes = point_axes.set_up()
+    #
+    #     for pleaf in point_axes.leaves:
+    #         ppath = point_axes.path(*pleaf)
+    #         playout = point_axes.layouts[ppath]
+    #
+    #         leaf = next(leaf_iter)
+    #         index_exprs[leaf[0].id, leaf[1]]["closure"] = playout
+    # assert_empty(leaf_iter)
 
     # then DoFs
     dof_axess = _flatten_tensor_axes_dofs_only(tensor_axes)
     leaf_iter = iter(tensor_axes.leaves)
+
     for dof_axes in dof_axess:
         dpath = dof_axes.path(*dof_axes.leaf)
         dlayout = dof_axes.layouts[dpath]
 
+        # I think that we don't need to do the dim-catching above, this isn't
+        # strictly necessary
         leaf = next(leaf_iter)
         index_exprs[leaf[0].id, leaf[1]]["dof"] = dlayout
     assert_empty(leaf_iter)
@@ -836,3 +1001,88 @@ def _flatten_tensor_axes_dofs_only(tensor_axes, axis=None, is_dof_axis=False, do
                     )
                 )
         return tuple(dof_axess)
+
+
+@functools.cache
+def _entity_permutations(V):
+    mesh = V.mesh().topology
+    elem = V.finat_element
+
+    perm_dats = []
+    for dim in range(mesh.dimension+1):
+        # take the zeroth entry because they are all the same
+        perms = elem.entity_permutations[dim][0]
+        nperms = len(perms)
+        perm_size = len(perms[0])
+        perms_concat = np.empty((nperms, perm_size), dtype=IntType)
+        for ip, perm in perms.items():
+            perms_concat[ip] = perm
+
+        # the inner label needs to match here for codegen to resolve
+        axes = op3.AxisTree.from_iterable([op3.Axis(nperms), op3.Axis({"XXX": perm_size}, "dof")])
+        # dat = op3.HierarchicalArray(axes, data=perms_concat.flatten(), constant=True, prefix=)
+        dat = op3.HierarchicalArray(axes, data=perms_concat.flatten(), prefix="perm")
+        perm_dats.append(dat)
+    return tuple(perm_dats)
+
+
+# FIXME: Get to work for facet integrals
+def _orientations(mesh, perms, cell):
+    pkey = pmap({mesh.name: mesh.cell_label})
+    closure_dats = mesh._fiat_closure.connectivity[pkey]
+    orientations = mesh.entity_orientations_dat
+
+    subsets = []
+    subtrees = []
+    for dim in range(mesh.dimension+1):
+        perms_ = perms[dim]
+
+        # mymap = closure_dats[dim]
+        # for i in range(mymap.arity):
+        #     subset = op3.AffineSliceComponent(mymap.target_component, i, i+1)
+        #     subsets.append(subset)
+        #
+        #     # perm = perms_[orientations[dim][closure_dat[cell, i]]]
+        #     perm = perms_[orientations[dim][cell, i]]
+        #     subtree = op3.Slice("dof", [op3.Subset("XXX", perm)])
+        #     subtrees.append(subtree)
+
+        mymap = closure_dats[dim]
+        subset = op3.AffineSliceComponent(mymap.target_component, label=mymap.target_component)
+        subsets.append(subset)
+
+        # Attempt to not relabel the interior axis, is this the right approach?
+        all_bits = op3.Slice("closure", [op3.AffineSliceComponent(str(dim), label=str(dim))], label="closure")
+        inner_subset = orientations[dim][cell, all_bits]
+
+        # I am struggling to index this...
+        # perm = perms_[inner_subset]
+        (root_label, root_clabel), (leaf_label, leaf_clabel) = op3.utils.just_one(perms_.axes.ordered_leaf_paths)
+
+        source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
+        index_keys = [None] + [
+            (axis.id, cpt) for axis, cpt in source_path.items()
+        ]
+        target_path = op3.utils.merge_dicts(
+            inner_subset.target_paths.get(key, {}) for key in index_keys
+        )
+        myindices = op3.utils.merge_dicts(
+            inner_subset.index_exprs.get(key, {}) for key in index_keys
+        )
+        inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
+        # breakpoint()
+
+        mypermindices = (
+            op3.ScalarIndex(root_label, root_clabel, inner_subset_var),
+            op3.Slice(leaf_label, [op3.AffineSliceComponent(leaf_clabel)]),
+        )
+        perm = perms_[mypermindices]
+
+        subtree = op3.Slice("dof", [op3.Subset("XXX", perm, label="XXX")], label="dof")
+        subtrees.append(subtree)
+
+    myroot = op3.Slice("closure", subsets, label="closure")
+    mychildren = {myroot.id: subtrees}
+    mynodemap = {None: (myroot,)}
+    mynodemap.update(mychildren)
+    return op3.IndexTree(mynodemap)
