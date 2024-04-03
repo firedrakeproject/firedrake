@@ -33,6 +33,9 @@ class LinearEigenproblem():
         The boundary conditions.
     bc_shift: float
         The value to shift the boundary condition eigenvalues by.
+    restrict: boolean
+        If True, replace the function spaces of u and v with their restricted version. 
+        The output space remains unchanged.
 
     Notes
     -----
@@ -64,7 +67,7 @@ class LinearEigenproblem():
         self.bc_shift = bc_shift
         self.restrict = restrict
 
-        if restrict and bcs:  # assumed u and v in the same space here 
+        if restrict and bcs:  # assumed u and v are in the same space here 
             V_res = RestrictedFunctionSpace(self.output_space, boundary_set=set([bc.sub_domain for bc in bcs]))
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)
