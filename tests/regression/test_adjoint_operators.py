@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from numpy.random import rand
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
+from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -823,8 +824,8 @@ def test_assign_cofunction():
 def test_assign_zero_cofunction():
     # This function tests the case where `Cofunction` is assigning `Zero` after
     # initially assigning a non-zero `Cofunction`. The `Tape` is expected to
-    # break since it does not depend on the control variable, resulting in a
-    # `float(rf.derivative()) == 0.0`.
+    # break since the functional does not depend on the control variable,
+    # resulting in a `float(rf.derivative()) == 0.0`.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
