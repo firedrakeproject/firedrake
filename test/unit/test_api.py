@@ -1446,11 +1446,6 @@ class TestMixedMapAPI:
             assert mmap.split[i] == m
         assert mmap.split[:-1] == tuple(mmap)[:-1]
 
-    def test_mixed_map_nonunique_itset(self, m_iterset_toset, m_set_toset):
-        "Map toset should be Set."
-        with pytest.raises(exceptions.MapTypeError):
-            op2.MixedMap((m_iterset_toset, m_set_toset))
-
     def test_mixed_map_iterset(self, mmap):
         "MixedMap iterset should return the common iterset of all Maps."
         for m in mmap:

@@ -78,6 +78,11 @@ class Set:
         # A cache of objects built on top of this set
         self._cache = {}
 
+    @property
+    def indices(self):
+        """Returns iterator."""
+        return range(self.total_size)
+
     @utils.cached_property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""

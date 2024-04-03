@@ -199,7 +199,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         PetscInt[:, ::1] rmap, cmap, tempmap
         PetscInt **rcomposedmaps = NULL
         PetscInt **ccomposedmaps = NULL
-        PetscInt nrcomposedmaps = 0, nccomposedmaps = 0, rset_entry, cset_entry
+        PetscInt nrcomposedmaps, nccomposedmaps, rset_entry, cset_entry
         PetscInt *rvals
         PetscInt *cvals
         PetscInt *roffset
@@ -235,6 +235,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         else:
             rflags.append(set_writeable(pair[0]))  # Memoryviews require writeable buffers
             rmap = pair[0].values_with_halo  # Map values
+            nrcomposedmaps = 0
         if isinstance(pair[1], op2.ComposedMap):
             m = pair[1].flattened_maps[0]
             cflags.append(set_writeable(m))
@@ -243,6 +244,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, iteration_regions, set_d
         else:
             cflags.append(set_writeable(pair[1]))
             cmap = pair[1].values_with_halo
+            nccomposedmaps = 0
         # Handle ComposedMaps
         CHKERR(PetscMalloc2(nrcomposedmaps, &rcomposedmaps, nccomposedmaps, &ccomposedmaps))
         for i in range(nrcomposedmaps):

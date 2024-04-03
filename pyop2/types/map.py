@@ -302,8 +302,6 @@ class MixedMap(Map, caching.ObjectCached):
         if self._initialized:
             return
         self._maps = maps
-        if not all(m is None or m.iterset == self.iterset for m in self._maps):
-            raise ex.MapTypeError("All maps in a MixedMap need to share the same iterset")
         # TODO: Think about different communicators on maps (c.f. MixedSet)
         # TODO: What if all maps are None?
         comms = tuple(m.comm for m in self._maps if m is not None)
@@ -344,7 +342,11 @@ class MixedMap(Map, caching.ObjectCached):
     @utils.cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
-        return functools.reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.iterset, self._maps))
+        s, = set(m.iterset for m in self._maps)
+        if len(s) == 1:
+            return functools.reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.iterset, self._maps))
+        else:
+            raise RuntimeError("Found multiple itersets.")
 
     @utils.cached_property
     def toset(self):
@@ -356,7 +358,11 @@ class MixedMap(Map, caching.ObjectCached):
     def arity(self):
         """Arity of the mapping: total number of toset elements mapped to per
         iterset element."""
-        return sum(m.arity for m in self._maps)
+        s, = set(m.iterset for m in self._maps)
+        if len(s) == 1:
+            return sum(m.arity for m in self._maps)
+        else:
+            raise RuntimeError("Found multiple itersets.")
 
     @utils.cached_property
     def arities(self):
@@ -402,7 +408,7 @@ class MixedMap(Map, caching.ObjectCached):
     @utils.cached_property
     def offset_quotient(self):
         """Offsets quotient."""
-        raise NotImplementedError("offset_quotient not implemented for MixedMap")
+        return tuple(0 if m is None else m.offset_quotient for m in self._maps)
 
     def __iter__(self):
         r"""Yield all :class:`Map`\s when iterated over."""
