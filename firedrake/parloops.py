@@ -414,6 +414,8 @@ def _(
         {},
     )
 
+    # breakpoint()
+
     return op3.HierarchicalArray(
         tensor_axes,
         data=indexed.buffer,
@@ -424,18 +426,18 @@ def _(
         name=indexed.name,
     )
 
-    myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
-
-    myroot = op3.Slice("closure", [idx for idx, _ in myslices])
-    mychildren = {myroot.id: [idx for _, idx in myslices]}
-    mynodemap = {None: (myroot,)}
-    mynodemap.update(mychildren)
-    myindextree = op3.IndexTree(mynodemap)
-
-    myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
-    retval = indexed.getitem(myindextree, strict=True)
-    # breakpoint()
-    return retval
+    # myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
+    #
+    # myroot = op3.Slice("closure", [idx for idx, _ in myslices])
+    # mychildren = {myroot.id: [idx for _, idx in myslices]}
+    # mynodemap = {None: (myroot,)}
+    # mynodemap.update(mychildren)
+    # myindextree = op3.IndexTree(mynodemap)
+    #
+    # myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
+    # retval = indexed.getitem(myindextree, strict=True)
+    # # breakpoint()
+    # return retval
 
 
 @pack_pyop3_tensor.register
@@ -474,7 +476,8 @@ def _(
         raise NotImplementedError
     #     _entity_permutations(Vrow)
 
-    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
+    # axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
     axes0 = _with_shape_axes(Vrow, axes0, integral_type in {"exterior_facet", "interior_facet"})
 
     # taken from harray.getitem
@@ -482,8 +485,8 @@ def _(
 
     target_paths0, index_exprs0, _ = _compose_bits(
         cf_indexed.raxes,
-        cf_indexed.raxes.target_paths,
-        cf_indexed.raxes.index_exprs,
+        cf_indexed.rtarget_paths,
+        cf_indexed.rindex_exprs,
         None,
         axes0,
         target_paths0,
@@ -499,13 +502,14 @@ def _(
     # myindextree0 = op3.IndexTree(mynodemap)
     # myindextree0 = _with_shape_indices(Vrow, myindextree0, integral_type in {"exterior_facet", "interior_facet"})
 
-    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
+    # axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
+    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol)
     axes1 = _with_shape_axes(Vcol, axes1, integral_type in {"exterior_facet", "interior_facet"})
 
     target_paths1, index_exprs1, _ = _compose_bits(
         cf_indexed.caxes,
-        cf_indexed.caxes.target_paths,
-        cf_indexed.caxes.index_exprs,
+        cf_indexed.ctarget_paths,
+        cf_indexed.cindex_exprs,
         None,
         axes1,
         target_paths1,
@@ -527,8 +531,10 @@ def _(
         # TODO: Make these attributes of axes0 and axes1 (IndexedAxisTree!)
         rtarget_paths=target_paths0,
         rindex_exprs=index_exprs0,
+        orig_raxes=cf_indexed.orig_raxes,
         ctarget_paths=target_paths1,
         cindex_exprs=index_exprs1,
+        orig_caxes=cf_indexed.orig_caxes,
         name=cf_indexed.name,
     )
 
