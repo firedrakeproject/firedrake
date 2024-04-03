@@ -160,3 +160,65 @@ def test_restricted_function_space_coord_change(j):
     new_V_restricted = RestrictedFunctionSpace(new_V, name="Restricted", boundary_set=[1])
 
     compare_function_space_assembly(new_mesh, new_V, new_V_restricted, [bc])
+
+
+def test_restricted_mixed_spaces():
+    pass 
+
+
+def compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver):
+    nconv = eigensolver.solve()
+    other_nconv = other_eigensolver.solve() 
+    for i in range(min(nconv, other_nconv)):
+        eval = eigensolver.eigenvalue(i)
+        other_eval = other_eigensolver.eigenvalue(i)
+        assert abs(eval - other_eval) < 1e-10
+        eigenmode_real, eigenmode_imag = eigensolver.eigenfunction(i)
+        other_eigenmode_real, other_eigenmode_imag = eigensolver.eigenfunction(i)
+        if eigensolver._problem.output_space != other_eigensolver._problem.output_space:
+            other_eigenmode_real = Function(eigensolver._problem.output_space).interpolate(other_eigenmode_real)
+            other_eigenmode_imag = Function(eigensolver._problem.output_space).interpolate(other_eigenmode_imag)
+        assert errornorm(eigenmode_real, other_eigenmode_real) < 1e-10
+        assert errornorm(eigenmode_imag, other_eigenmode_imag) < 1e-10
+
+
+def test_restricted_eigenvalue_problem(): 
+    # test if restrict=True gives same result as just putting in functions from restricted space anyways
+    mesh = UnitSquareMesh(1, 1)
+    V  = FunctionSpace(mesh, "CG", 1)
+    V_res = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V, 0, 1)
+    bc_res = DirichletBC(V_res, 0, 1)
+    phi, psi = TestFunction(V), TrialFunction(V)
+    phi_res, psi_res = TestFunction(V_res), TrialFunction(V_res)
+    eigenproblem = LinearEigenproblem(
+            A=phi*psi.dx(0)*dx,
+            M=-inner(grad(psi), grad(phi))*dx - psi*phi*dx,
+            bcs=bc, bc_shift=100, restrict=True)
+    eigensolver = LinearEigensolver(eigenproblem, n_evals=2)
+
+    other_eigenproblem = LinearEigenproblem(
+            A=phi_res*psi_res.dx(0)*dx,
+            M=-inner(grad(psi_res), grad(phi_res))*dx - psi_res*phi_res*dx,
+            bcs=bc_res, bc_shift=100, restrict=False)
+    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
+    compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)
+
+
+def test_restricted_eigenvalue_problem_2():
+    # test if restrict=True gives same non-boundary eigenvalues as restrict=False
+    mesh = UnitSquareMesh(1, 1)
+    V  = FunctionSpace(mesh, "CG", 1)
+    bc = DirichletBC(V, 0, 1)
+    phi, psi = TestFunction(V), TrialFunction(V)
+    eigenproblem = LinearEigenproblem(
+            A=phi*psi.dx(0)*dx,
+            M=-inner(grad(psi), grad(phi))*dx - psi*phi*dx,
+            bcs=bc, bc_shift=100, restrict=False)
+    eigensolver = LinearEigensolver(eigenproblem, n_evals=4)
+    other_eigenproblem = LinearEigenproblem(
+            A=phi*psi.dx(0)*dx,
+            M=-inner(grad(psi), grad(phi))*dx - psi*phi*dx,
+            bcs=bc, bc_shift=100, restrict=True)
+    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
+    compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)
