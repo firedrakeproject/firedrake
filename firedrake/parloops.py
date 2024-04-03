@@ -388,17 +388,18 @@ def _(
         return indexed
 
     if plex.ufl_cell() == ufl.hexahedron:
-        if integral_type != "cell":
-            raise NotImplementedError
-        # indexed by dim and orientation
-        perms = _entity_permutations(V)
-        mytree = _orientations(plex, perms, index)
-        mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
-
-        indexed = indexed.getitem(mytree, strict=True)
+        pass
+        # if integral_type != "cell":
+        #     raise NotImplementedError
+        # # indexed by dim and orientation
+        # perms = _entity_permutations(V)
+        # mytree = _orientations(plex, perms, index)
+        # mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
+        #
+        # indexed = indexed.getitem(mytree, strict=True)
 
     tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V)
-    tensor_axes = _with_shape_axes(V, tensor_axes, integral_type in {"exterior_facet", "interior_facet"})
+    tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
 
     # taken from harray.getitem
     from pyop3.itree.tree import _compose_bits
@@ -478,7 +479,7 @@ def _(
 
     # axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
     axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
-    axes0 = _with_shape_axes(Vrow, axes0, integral_type in {"exterior_facet", "interior_facet"})
+    axes0 = _with_shape_axes(Vrow, axes0, integral_type)
 
     # taken from harray.getitem
     from pyop3.itree.tree import _compose_bits
@@ -504,7 +505,7 @@ def _(
 
     # axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
     axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol)
-    axes1 = _with_shape_axes(Vcol, axes1, integral_type in {"exterior_facet", "interior_facet"})
+    axes1 = _with_shape_axes(Vcol, axes1, integral_type)
 
     target_paths1, index_exprs1, _ = _compose_bits(
         cf_indexed.caxes,
@@ -623,11 +624,12 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
     return tree
 
 
-def _with_shape_axes(V, axes, and_support=False):
-    is_mixed = isinstance(V.topological, MixedFunctionSpace)
-
+def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     axes = op3.PartialAxisTree(axes.parent_to_children)
+    new_target_paths = dict(target_paths)
+    new_index_exprs = dict(index_exprs)
 
+    is_mixed = isinstance(V.topological, MixedFunctionSpace)
     if is_mixed:
         spaces = V.topological._spaces
         trees = (axes,) * len(spaces)
@@ -639,39 +641,40 @@ def _with_shape_axes(V, axes, and_support=False):
     trees_ = []
     for space, tree in zip(spaces, trees):
         if space.shape:
-            tensor_slices = tuple(
-                op3.Axis({"XXX": dim}, f"dim{i}")
-                for i, dim in enumerate(space.shape)
-            )
-            tensor_indices = op3.PartialAxisTree.from_iterable(tensor_slices)
-
             for leaf in tree.leaves:
-                tree = tree.add_subtree(tensor_indices, *leaf, uniquify_ids=True)
+                for i, dim in enumerate(space.shape):
+                    label = f"dim{i}"
+                    subaxis = op3.Axis({"XXX": dim}, label)
+                    tree = tree.add_subaxis(subaxis, *leaf)
+                    new_target_paths[subaxis.id, "XXX"] = pmap({label: "XXX"})
+                    new_index_exprs[subaxis.id, "XXX"] = pmap({label: op3.AxisVariable(label)})
 
         trees_.append(tree)
     trees = tuple(trees_)
 
-    if and_support:
-        raise NotImplementedError
+    if integral_type in {"exterior_facet", "interior_facet"}:
+        arity = {"exterior_facet": 1, "interior_facet": 2}[integral_type]
         # FIXME: Currently assume that facet axis is inside the mixed one, this may
         # be wrong.
         if is_mixed:
             raise NotImplementedError("Might break")
+        else:
+            assert len(trees) == 1
 
-        support_indices = op3.IndexTree(
-            op3.Slice(
-                "support",
-                [op3.AffineSliceComponent("XXX")],
-            )
-        )
+        root = op3.Axis({"XXX": arity}, "support")
+        support_indices = op3.PartialAxisTree(root)
         trees_ = []
         for subtree in trees:
             tree = support_indices.add_subtree(subtree, *support_indices.leaf)
             trees_.append(tree)
+
+        new_target_paths[root.id, "XXX"] = pmap({"support": "XXX"})
+        new_index_exprs[root.id, "XXX"] = pmap({"support": op3.AxisVariable("support")})
         trees = tuple(trees_)
 
     # outer mixed bit
     if is_mixed:
+        raise NotImplementedError("Need to add extra exprs as for shape above")
         field_indices = op3.PartialAxisTree(
             op3.Axis(
                 {str(i): 1 for i, _ in enumerate(spaces)},
@@ -684,7 +687,7 @@ def _with_shape_axes(V, axes, and_support=False):
     else:
         tree = op3.utils.just_one(trees)
 
-    return tree.set_up()
+    return tree.set_up(), freeze(new_target_paths), freeze(new_index_exprs)
 
 
 def _tensorify_axes(V, suffix=""):

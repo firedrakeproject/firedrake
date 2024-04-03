@@ -946,14 +946,14 @@ class AbstractMeshTopology(abc.ABC):
                     closure_data = self._reorder_closure_fiat_simplex(
                         closure_data, closure_sizes
                     )
-                elif self.ufl_cell().cellname() == "quadrilateral":
+                elif self.ufl_cell() == ufl.quadrilateral:
                     closure_data = self._reorder_closure_fiat_quad(
                         closure_data, closure_sizes
                     )
 
                     numbering = None
                 else:
-                    assert self.ufl_cell().cellname() == "hexahedron"
+                    assert self.ufl_cell() == ufl.hexahedron
                     closure_data = self._reorder_closure_fiat_hex(closure_data)
 
             map_components = []
@@ -975,8 +975,6 @@ class AbstractMeshTopology(abc.ABC):
                     map_axes, data=data.flatten(), prefix="closure"
                 )
                 map_components.append(
-                    # testing
-                    # op3.TabulatedMapComponent(target_axis, target_dim, map_dat)
                     op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
                 )
             closures[freeze({self.name: str(dim)})] = map_components
@@ -1048,6 +1046,11 @@ class AbstractMeshTopology(abc.ABC):
 
             # cell
             fiat_closures[3][ci, 0] = plex_closures[3][ci, 0]  # [0]
+
+            # we also need to do a couple of permutations because we are using
+            # the tensor-product numbering instead of the flat numbering
+            fiat_closures[1][ci, [2, 4]] = fiat_closures[1][ci, [4, 2]]
+            fiat_closures[1][ci, [3, 5]] = fiat_closures[1][ci, [5, 3]]
 
         return fiat_closures
 

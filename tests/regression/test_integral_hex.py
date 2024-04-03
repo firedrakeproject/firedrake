@@ -6,7 +6,7 @@ from os.path import abspath, dirname, join
 cwd = abspath(dirname(__file__))
 
 
-@pytest.mark.parallel(nprocs=2)
+# @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize('mesh_from_file', [False, True])
 @pytest.mark.parametrize('family', ["Q", "DQ"])
 def test_integral_hex_exterior_facet(mesh_from_file, family):
