@@ -810,10 +810,28 @@ def test_assign_cofunction():
     b = Constant(1.0) * v * dx
     u0 = Cofunction(V.dual(), name="u0")
     u1 = Cofunction(V.dual(), name="u1")
-    u0.assign(b)
+    u0.assign(assemble(b))
     u1.assign(2 * u0 + b)
     c = Function(V, name="c")
     solve(a == u1, c)
     J = assemble(((c + Constant(1.0)) ** 2) * dx)
     rf = ReducedFunctional(J, Control(c))
     assert taylor_test(rf, c, Function(V).assign(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_assign_zero_cofunction():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = u * v * dx
+    b = Constant(1.0) * v * dx
+    u0 = Cofunction(V.dual(), name="u0")
+    u0.assign(assemble(b))
+    u0.assign(Zero())
+    c = Function(V, name="c")
+    solve(a == u0, c)
+    J = assemble((c*c) * dx)
+    rf = ReducedFunctional(J, Control(c))
+    assert rf.derivative().dat.data_ro.sum() == 0.0
