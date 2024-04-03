@@ -1006,6 +1006,45 @@ class AbstractMeshTopology(abc.ABC):
         )
 
     def _reorder_closure_fiat_hex(self, plex_closures):
+        """
+
+        FInAT (tensor-product) hex numbering:
+
+                  v3╶───╴e11╶─────╴v7            v3╶─────e11─────╴v7
+                  ╱                ╱│            ╱|                │
+                 ╱                ╱ │           ╱ |                │
+               e3       f5      e7  │         e3  |                │
+               ╱                ╱  e5         ╱  e1       f3      e5
+              ╱                ╱    │        ╱    |                │
+            v1╶─────e9──────╴v5     │      v1     |                │
+             │                │ f1  │       │ f0  |                │
+             │                │    v6       │     v2-----e10------v6
+             │                │    ╱        │    /                ╱
+            e0      f2       e4   ╱        e0   /                ╱
+             │                │ e6          │ e2       f4      e6
+             │                │ ╱           │ /                ╱
+             │                │╱            │/                ╱
+            v0╶─────e8──────╴v4            v0╶──────e8─────╴v4
+
+        DMPlex hex numbering:
+
+
+                  v7╶────╴e6╶─────╴v6            v7╶─────╴e6─────╴v6
+                  ╱                ╱│            ╱|                │
+                 ╱                ╱ │           ╱ |                │
+               e7       f1      e5  │         e7  |                │
+               ╱                ╱ e11         ╱ e10       f3     e11
+              ╱                ╱    │        ╱    |                │
+            v4╶─────e4──────╴v5     │      v4     |                │
+             │                │ f4  │       │ f5  |                │
+             │                │    v2       │     v1------e1------v2
+             │                │    ╱        │    /                ╱
+            e9      f2       e8   ╱        e9   /                ╱
+             │                │ e2          │ e0       f0      e2
+             │                │ ╱           │ /                ╱
+             │                │╱            │/                ╱
+            v0╶─────e3──────╴v3            v0╶──────e3─────╴v3
+        """
         # TODO: Move back to Cython
         fiat_closures = tuple(
             np.empty_like(plex_closures[d]) for d in range(self.dimension+1)
@@ -1013,44 +1052,39 @@ class AbstractMeshTopology(abc.ABC):
 
         for ci in range(self.num_cells()):
             # vertices
-            fiat_closures[0][ci, 0] = plex_closures[0][ci, 0]  # [19]
-            fiat_closures[0][ci, 1] = plex_closures[0][ci, 4]  # [23]
-            fiat_closures[0][ci, 2] = plex_closures[0][ci, 1]  # [20]
-            fiat_closures[0][ci, 3] = plex_closures[0][ci, 7]  # [26]
-            fiat_closures[0][ci, 4] = plex_closures[0][ci, 3]  # [22]
-            fiat_closures[0][ci, 5] = plex_closures[0][ci, 5]  # [24]
-            fiat_closures[0][ci, 6] = plex_closures[0][ci, 2]  # [21]
-            fiat_closures[0][ci, 7] = plex_closures[0][ci, 6]  # [25]
+            fiat_closures[0][ci, 0] = plex_closures[0][ci, 0]
+            fiat_closures[0][ci, 1] = plex_closures[0][ci, 4]
+            fiat_closures[0][ci, 2] = plex_closures[0][ci, 1]
+            fiat_closures[0][ci, 3] = plex_closures[0][ci, 7]
+            fiat_closures[0][ci, 4] = plex_closures[0][ci, 3]
+            fiat_closures[0][ci, 5] = plex_closures[0][ci, 5]
+            fiat_closures[0][ci, 6] = plex_closures[0][ci, 2]
+            fiat_closures[0][ci, 7] = plex_closures[0][ci, 6]
 
             # edges
-            fiat_closures[1][ci, 0] = plex_closures[1][ci, 9]   # [16]
-            fiat_closures[1][ci, 1] = plex_closures[1][ci, 10]  # [17]
-            fiat_closures[1][ci, 2] = plex_closures[1][ci, 8]   # [15]
-            fiat_closures[1][ci, 3] = plex_closures[1][ci, 11]  # [18]
-            fiat_closures[1][ci, 4] = plex_closures[1][ci, 0]   # [7]
-            fiat_closures[1][ci, 5] = plex_closures[1][ci, 7]   # [14]
-            fiat_closures[1][ci, 6] = plex_closures[1][ci, 2]   # [9]
-            fiat_closures[1][ci, 7] = plex_closures[1][ci, 5]   # [12]
-            fiat_closures[1][ci, 8] = plex_closures[1][ci, 3]   # [10]
-            fiat_closures[1][ci, 9] = plex_closures[1][ci, 4]   # [11]
-            fiat_closures[1][ci, 10] = plex_closures[1][ci, 1]  # [8]
-            fiat_closures[1][ci, 11] = plex_closures[1][ci, 6]  # [13]
+            fiat_closures[1][ci, 0] = plex_closures[1][ci, 9]
+            fiat_closures[1][ci, 1] = plex_closures[1][ci, 10]
+            fiat_closures[1][ci, 2] = plex_closures[1][ci, 0]
+            fiat_closures[1][ci, 3] = plex_closures[1][ci, 7]
+            fiat_closures[1][ci, 4] = plex_closures[1][ci, 8]
+            fiat_closures[1][ci, 5] = plex_closures[1][ci, 11]
+            fiat_closures[1][ci, 6] = plex_closures[1][ci, 2]
+            fiat_closures[1][ci, 7] = plex_closures[1][ci, 5]
+            fiat_closures[1][ci, 8] = plex_closures[1][ci, 3]
+            fiat_closures[1][ci, 9] = plex_closures[1][ci, 4]
+            fiat_closures[1][ci, 10] = plex_closures[1][ci, 1]
+            fiat_closures[1][ci, 11] = plex_closures[1][ci, 6]
 
             # faces
-            fiat_closures[2][ci, 0] = plex_closures[2][ci, 5]  # [6]
-            fiat_closures[2][ci, 1] = plex_closures[2][ci, 4]  # [5]
-            fiat_closures[2][ci, 2] = plex_closures[2][ci, 2]  # [3]
-            fiat_closures[2][ci, 3] = plex_closures[2][ci, 3]  # [4]
-            fiat_closures[2][ci, 4] = plex_closures[2][ci, 0]  # [1]
-            fiat_closures[2][ci, 5] = plex_closures[2][ci, 1]  # [2]
+            fiat_closures[2][ci, 0] = plex_closures[2][ci, 5]
+            fiat_closures[2][ci, 1] = plex_closures[2][ci, 4]
+            fiat_closures[2][ci, 2] = plex_closures[2][ci, 2]
+            fiat_closures[2][ci, 3] = plex_closures[2][ci, 3]
+            fiat_closures[2][ci, 4] = plex_closures[2][ci, 0]
+            fiat_closures[2][ci, 5] = plex_closures[2][ci, 1]
 
             # cell
-            fiat_closures[3][ci, 0] = plex_closures[3][ci, 0]  # [0]
-
-            # we also need to do a couple of permutations because we are using
-            # the tensor-product numbering instead of the flat numbering
-            fiat_closures[1][ci, [2, 4]] = fiat_closures[1][ci, [4, 2]]
-            fiat_closures[1][ci, [3, 5]] = fiat_closures[1][ci, [5, 3]]
+            fiat_closures[3][ci, 0] = plex_closures[3][ci, 0]
 
         return fiat_closures
 
