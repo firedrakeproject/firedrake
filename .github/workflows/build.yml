@@ -63,7 +63,7 @@ jobs:
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
-            --honour-petsc-dir \
+            # --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
             --mpicxx="$MPICH_DIR"/mpicxx \
             --mpif90="$MPICH_DIR"/mpif90 \
