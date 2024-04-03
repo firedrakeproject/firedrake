@@ -821,17 +821,22 @@ def test_assign_cofunction():
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_assign_zero_cofunction():
+    # This function tests the behavior of a `Cofunction` when assigning zero
+    # after initially assigning a non-zero value. The `Tape` is expected to
+    # break since it does not dependend on the control variable, resulting in a
+    # float(rf.derivative()) == 0.0.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     u = TrialFunction(V)
     a = u * v * dx
-    b = Constant(1.0) * v * dx
+    k = Constant(1.0)
+    b = k * v * dx
     u0 = Cofunction(V.dual(), name="u0")
     u0.assign(assemble(b))
     u0.assign(Zero())
     c = Function(V, name="c")
     solve(a == u0, c)
-    J = assemble((c*c) * dx)
-    rf = ReducedFunctional(J, Control(c))
-    assert rf.derivative().dat.data_ro.sum() == 0.0
+    J = assemble(((c + Constant(1.0)) ** 2) * dx)
+    rf = ReducedFunctional(J, Control(k))
+    assert float(rf.derivative()) == 0.0
