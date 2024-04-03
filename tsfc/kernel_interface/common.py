@@ -304,20 +304,22 @@ def set_quad_rule(params, cell, integral_type, functions):
                            "than tenfold greater than any "
                            "argument/coefficient degree (max %s)",
                            quadrature_degree, max_degree(function_degrees))
-    if params.get("quadrature_rule") == "default":
-        del params["quadrature_rule"]
-    try:
-        quad_rule = params["quadrature_rule"]
-    except KeyError:
+    quad_rule = params.get("quadrature_rule", "default")
+    if isinstance(quad_rule, str):
+        scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
-        finat_elements = set(create_element(f.ufl_element()) for f in functions)
-        print(list(f.degree for f in finat_elements))
-
-        fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
-
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
 
-        quad_rule = make_quadrature(fiat_cells, quadrature_degree, dim=integration_dim)
+        finat_elements = set(create_element(f.ufl_element()) for f in functions)
+        fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
+        max_cell = max(fiat_cells)
+        if all(max_cell >= b for b in fiat_cells):
+            fiat_cell = max_cell
+        else:
+            raise ValueError("Can't find a maximal complex")
+
+        fiat_cell = fiat_cell.construct_subcomplex(integration_dim)
+        quad_rule = make_quadrature(fiat_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
 
     if not isinstance(quad_rule, AbstractQuadratureRule):
