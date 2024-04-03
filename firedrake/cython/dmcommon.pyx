@@ -1143,23 +1143,23 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     for i in range(coneSize):
         fiat_cone[i] = cell_closure_sub[cell, entity_cone_map[offset + i]]
 
-    # print("check: ", cell_closure_sub[cell])
-    #
-    # print(p)
-    # printf("FIAT: ")
-    # for i in range(coneSize):
-    #     printf("%d, ", fiat_cone[i])
-    # printf("\n")
+    print("check: ", cell_closure_sub[cell])
 
-    # printf("check: ")
-    # for i in range(coneSize):
-    #     printf("%d, ", cell_closure_sub[cell, i])
-    # printf("\n")
+    print(p)
+    printf("FIAT: ")
+    for i in range(coneSize):
+        printf("%d, ", fiat_cone[i])
+    printf("\n")
 
-    # printf("plex: ")
-    # for i in range(coneSize):
-    #     printf("%d, ", cone[i])
-    # printf("\n")
+    printf("check: ")
+    for i in range(coneSize):
+        printf("%d, ", cell_closure_sub[cell, i])
+    printf("\n")
+
+    printf("plex: ")
+    for i in range(coneSize):
+        printf("%d, ", cone[i])
+    printf("\n")
 
     if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
@@ -1215,22 +1215,43 @@ def entity_orientations(mesh,
     if type(mesh) is not firedrake.mesh.MeshTopology:
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
 
+    # FIXME: I think that this is the next thing to tackle. The connectivity is now a bit wrong
     # Make entity-cone map for the FIAT cell.
     def make_entity_cone_lists(fiat_cell):
         # _dim = fiat_cell.get_dimension()
-        _connectivity = fiat_cell.connectivity
+        # _connectivity = fiat_cell.connectivity
+
+        # We have to adjust the connectivity here because we are using a tensor-product
+        # numbering instead of a flat numbering. FIAT does not currently support this.
+        # What we have here is fiat_cell.connectivity but swapping edges (2, 3) with (4, 5).
+        _connectivity = {
+            (1, 0): [(0, 1),
+                     (2, 3),
+                     # <swap>
+                     (0, 2),  # was 2
+                     (1, 3),  # was 3
+                     (4, 5),  # was 0
+                     (6, 7),  # was 1
+                     # </swap>
+                     (4, 6),
+                     (5, 7),
+                     (0, 4),
+                     (1, 5),
+                     (2, 6),
+                     (3, 7)],
+            (2, 1): [(0, 1, 2, 3),    # was (0, 1, 4, 5)
+                     (4, 5, 6, 7),    # was (2, 3, 6, 7)
+                     (0, 4, 8, 9),    # was (0, 2, 8, 9)
+                     (1, 5, 10, 11),  # was (1, 3, 10, 11)
+                     (2, 6, 8, 10),   # was (4, 6, 8, 10)
+                     (3, 7, 9, 11)],  # was (5, 7, 9, 11)
+            (3, 2): [(0, 1, 2, 3, 4, 5)],
+        }
+
         _list = []
-        # _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
         _offset_list = []
         _offset = 0
         _n = 0  # num. of entities up to dimension = _d
-        # for _d in range(_dim):
-        #     _n1 = len(_offset_list)
-        #     for _conn in _connectivity[(_d + 1, _d)]:
-        #         _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
-        #         _offset_list.append(_offset)
-        #         _offset += len(_conn)
-        #     _n = _n1
         _d = mydim
         _n1 = len(_offset_list)
         for _conn in _connectivity[(_d + 1, _d)]:

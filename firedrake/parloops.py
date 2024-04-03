@@ -388,15 +388,11 @@ def _(
         return indexed
 
     if plex.ufl_cell() == ufl.hexahedron:
-        pass
-        # if integral_type != "cell":
-        #     raise NotImplementedError
-        # # indexed by dim and orientation
-        # perms = _entity_permutations(V)
-        # mytree = _orientations(plex, perms, index)
-        # mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
-        #
-        # indexed = indexed.getitem(mytree, strict=True)
+        perms = _entity_permutations(V)
+        mytree = _orientations(plex, perms, index, integral_type)
+        mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
+
+        indexed = indexed.getitem(mytree, strict=True)
 
     tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V)
     tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
@@ -1035,8 +1031,7 @@ def _entity_permutations(V):
     return tuple(perm_dats)
 
 
-# FIXME: Get to work for facet integrals
-def _orientations(mesh, perms, cell):
+def _orientations(mesh, perms, cell, integral_type):
     pkey = pmap({mesh.name: mesh.cell_label})
     closure_dats = mesh._fiat_closure.connectivity[pkey]
     orientations = mesh.entity_orientations_dat
@@ -1062,7 +1057,14 @@ def _orientations(mesh, perms, cell):
 
         # Attempt to not relabel the interior axis, is this the right approach?
         all_bits = op3.Slice("closure", [op3.AffineSliceComponent(str(dim), label=str(dim))], label="closure")
-        inner_subset = orientations[dim][cell, all_bits]
+
+        # FIXME (NEXT): If we have interior facets then this index is a facet, not a cell
+        # How do we get the cell from this? Just the support?
+        if integral_type == "cell":
+            inner_subset = orientations[dim][cell, all_bits]
+        else:
+            assert integral_type in {"exterior_facet", "interior_facet"}
+            inner_subset = orientations[dim][mesh.support(cell), all_bits]
 
         # I am struggling to index this...
         # perm = perms_[inner_subset]

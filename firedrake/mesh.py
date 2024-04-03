@@ -1634,6 +1634,10 @@ class MeshTopology(AbstractMeshTopology):
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
+
+        if self.ufl_cell() == ufl.hexahedron and reorder:
+            raise NotImplementedError("TODO: Currently entity_orientations code does not account for renumbering")
+
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
