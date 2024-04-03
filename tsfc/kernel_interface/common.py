@@ -15,7 +15,7 @@ from gem.optimise import remove_componenttensors as prune
 from gem.utils import cached_property
 from numpy import asarray
 from tsfc import fem, ufl_utils
-from tsfc.finatinterface import as_fiat_cell, convert, create_element
+from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
 from ufl.utils.sequences import max_degree
