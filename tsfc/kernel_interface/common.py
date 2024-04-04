@@ -310,7 +310,8 @@ def set_quad_rule(params, cell, integral_type, functions):
         fiat_cell = as_fiat_cell(cell)
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
 
-        finat_elements = set(create_element(f.ufl_element()) for f in functions)
+        finat_elements = set(create_element(f.ufl_element()) for f in functions
+                             if f.ufl_element().family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         max_cell = max(fiat_cells)
         if all(max_cell >= b for b in fiat_cells):
