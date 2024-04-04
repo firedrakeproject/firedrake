@@ -42,16 +42,18 @@ def convergence_test(variant):
             return (u_conv >= 1.9).all() and np.allclose(perr, 0, rtol=1.e-10)
     elif variant == "alfeld":
         def check(uerr, perr):
+            print(uerr, perr)
             return (np.allclose(uerr, 0, rtol=1.e-10)
                     and np.allclose(perr, 0, rtol=1.e-10))
     elif variant == "th":
         def check(uerr, perr):
+            print(uerr, perr)
             return (np.allclose(uerr, 0, rtol=1.e-10)
                     and np.allclose(perr, 0, rtol=1.e-10))
     return check
 
 
-def test_riesz(mh, variant, mixed_element, convergence_test):
+def test_stokes(mh, variant, mixed_element, convergence_test):
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -66,23 +68,21 @@ def test_riesz(mh, variant, mixed_element, convergence_test):
 
         upexact = [x+y, x**2, x]
 
-        a = inner(grad(u), grad(v)) * dx + inner(p, w) * dx
+        a = (inner(grad(u), grad(v)) * dx
+             - inner(p, div(v)) * dx
+             + inner(div(u), w) * dx)
+
         L = a(test, as_vector(upexact))
         bcs = DirichletBC(Z[0], as_vector(upexact[:2]), "on_boundary")
 
+        nullspace = MixedVectorSpaceBasis(
+            Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
+
         uph = Function(Z)
 
-        solve(a == L, uph, bcs=bcs)
+        solve(a == L, uph, bcs=bcs, nullspace=nullspace)
 
         u_err.append(errornorm(as_vector(upexact[:2]), uph.subfunctions[0]))
-        p_err.append(errornorm(upexact[-1], uph.subfunctions[-1]))
+        p_err.append(errornorm(upexact[-1]-assemble(upexact[-1]*dx), uph.subfunctions[-1]))
 
     assert convergence_test(u_err, p_err)
-
-
-if __name__ == "__main__":
-    print(riesz(4, FiniteElement("CG", triangle, 2, "iso"),
-                FiniteElement("CG", triangle, 1)))
-
-    # print(riesz(4, FiniteElement("CG", triangle, 2, "alfeld"),
-    #             FiniteElement("DG", triangle, 1, "alfeld")))
