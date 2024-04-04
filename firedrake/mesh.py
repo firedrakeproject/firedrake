@@ -1637,10 +1637,6 @@ class MeshTopology(AbstractMeshTopology):
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
-
-        if self.ufl_cell() == ufl.hexahedron and reorder:
-            raise NotImplementedError("TODO: Currently entity_orientations code does not account for renumbering")
-
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
@@ -1770,16 +1766,22 @@ class MeshTopology(AbstractMeshTopology):
         for src_dim in range(self.dimension+1):
             src_label = str(src_dim)
             src_renumbering = self.points.component_numbering(src_label)
+            src_strata_offset = self.points.component_offset(src_label)
 
             for dest_dim in range(self.dimension+1):
                 dest_label = str(dest_dim)
                 dest_renumbering = self.points.component_numbering(dest_label)
+                dest_strata_offset = self.points.component_offset(dest_label)
 
                 closure_renum = closures_renum[src_dim][dest_dim]
                 closure_default = closures_default[src_dim][dest_dim]
-                for src_pt, dest_pts in enumerate(closure_default):
-                    src_pt_renum = src_renumbering[src_pt]
-                    closure_renum[src_pt_renum] = dest_renumbering[dest_pts]
+                for src_strata_pt, dest_pts in enumerate(closure_default):
+                    # src_strata_pt = src_pt - src_strata_offset
+                    dest_strata_pts = dest_pts - dest_strata_offset
+
+                    src_pt_renum = src_renumbering[src_strata_pt]
+                    dest_pts_renum = dest_renumbering[dest_strata_pts]
+                    closure_renum[src_pt_renum] = dest_pts_renum
 
         return closures_renum, sizes
 
@@ -1822,15 +1824,20 @@ class MeshTopology(AbstractMeshTopology):
             for d in range(self.dimension+1)
         )
 
+        src_label = str(dim)
+        src_strata_offset = self.points.component_offset(src_label)
+
         for pt in range(pstart, pend):
-            stratum, stratum_pt = self.points.axis_to_component_number(pt)
+            # stratum, stratum_pt = self.points.axis_to_component_number(pt)
+            stratum_pt = pt - src_strata_offset
 
             map_pts = iter(map_func(pt))
             for map_dim in reversed(range(self.dimension+1)):
                 for i in range(sizes[map_dim]):
                     map_pt = next(map_pts)
-                    map_stratum, map_stratum_pt = self.points.axis_to_component_number(map_pt)
-                    map_data[map_dim][stratum_pt, i] = map_stratum_pt
+                    # map_stratum, map_stratum_pt = self.points.axis_to_component_number(map_pt)
+                    # map_data[map_dim][stratum_pt, i] = map_stratum_pt
+                    map_data[map_dim][stratum_pt, i] = map_pt
             utils.assert_empty(map_pts)
         return map_data
 
@@ -1871,15 +1878,10 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
-        # FIXME: Do not do this here, cache
-        # FIXME: Will only work for non-renumbered meshes
-        closure_data, closure_sizes = self._memoize_closures(self.dimension)
-
-        for dim, cl_data in enumerate(closure_data):
-            # FIXME: Do not prematurely renumber
-            cidx = self.points.component_index(str(dim))
-            offset = self.points._component_offsets[cidx]
-            closure_data[dim][...] += offset
+        # TODO: Make _plex_closures_default etc do a zip to make this cleaner
+        _closure_data, _closure_sizes = self._plex_closures_default
+        closure_data = _closure_data[self.dimension]
+        closure_sizes = _closure_sizes[self.dimension]
 
         closure_data = self._reorder_closure_fiat_hex(closure_data)
 
@@ -1890,6 +1892,15 @@ class MeshTopology(AbstractMeshTopology):
 
         for dim in range(1, self.dimension+1):
             orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
+
+        # reorder cells
+        orientations_ = tuple(np.empty_like(o) for o in orientations)
+        cell_renumbering = self.points.component_numbering(self.cell_label)
+        for dim in range(self.dimension+1):
+            for old_pt, new_pt in enumerate(cell_renumbering):
+                orientations_[dim][new_pt] = orientations[dim][old_pt]
+        orientations = orientations_
+
         return orientations
 
     @utils.cached_property
