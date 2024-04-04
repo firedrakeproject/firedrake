@@ -37,7 +37,7 @@ def meshes(variant, base_mesh):
 
 
 @pytest.mark.parametrize("degree", (1, 4,))
-def test_macro_quadrature(degree, variant, meshes):
+def test_macro_quadrature_piecewise(degree, variant, meshes):
     results = []
     for msh, v in zip(meshes, (variant, None)):
         gdim = msh.geometric_dimension()
@@ -46,20 +46,39 @@ def test_macro_quadrature(degree, variant, meshes):
         if variant == "alfeld":
             vol = assemble(1*dx(domain=msh))
             x0 = Constant([(1/vol) * assemble(x[j] * dx) for j in range(gdim)])
-            a = Constant(numpy.arange(1, gdim+1))
-            expr = abs(dot(a, x - x0)) ** degree
+            c = Constant(numpy.arange(1, gdim+1))
+            expr = abs(dot(c, x - x0)) ** degree
         elif variant == "iso":
             vecs = list(map(Constant, numpy.row_stack([numpy.eye(gdim),
                                                        numpy.ones((max(degree-gdim, 0), gdim))])))
-            expr = numpy.prod([abs(dot(a, x)) for a in vecs[:degree]])
+            expr = numpy.prod([abs(dot(c, x)) for c in vecs[:degree]])
         else:
             raise ValueError("Unexpected variant")
 
         Q = FunctionSpace(msh, "DG", 0, variant=v)
         q = TestFunction(Q)
-        c = assemble(inner(q, expr)*dx(degree=degree))
-        with c.dat.vec_ro as cv:
-            result = cv.sum()
+        f = assemble(inner(q, expr)*dx(degree=degree))
+        with f.dat.vec_ro as fv:
+            result = fv.sum()
 
         results.append(result)
+    assert numpy.isclose(*results)
+
+
+@pytest.mark.parametrize("degree", (1, 4,))
+def test_macro_quadrature_monomial(degree, variant, meshes):
+    msh = meshes[0]
+    gdim = msh.geometric_dimension()
+    x = SpatialCoordinate(msh)
+    c = Constant(numpy.arange(1, gdim+1))
+    expr = dot(c, x) ** degree
+    results = [assemble(expr * dx)]
+
+    Q = FunctionSpace(msh, "DG", 0, variant=variant)
+    q = TestFunction(Q)
+    f = assemble(inner(q, expr)*dx(degree=degree))
+    with f.dat.vec_ro as fv:
+        result = fv.sum()
+
+    results.append(result)
     assert numpy.isclose(*results)
