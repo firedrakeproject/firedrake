@@ -28,6 +28,7 @@ from pyop2.mpi import (
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, checked_zip, debug_assert
+from tsfc.finatinterface import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -933,7 +934,9 @@ class AbstractMeshTopology(abc.ABC):
 
         closures = {}
         for dim in dims:
-            closure_data, closure_sizes = self._memoize_closures(dim)
+            _closure_data, _closure_sizes = self._plex_closures_renum
+            closure_data = _closure_data[dim]
+            closure_sizes = _closure_sizes[dim]
             # closures are, for now, always a constant size
             assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
 
@@ -1735,28 +1738,72 @@ class MeshTopology(AbstractMeshTopology):
                 points[dim].append(dim_pt_renum)
         return tuple(np.unique(pts) for pts in points)
 
+    @cached_property
+    def _plex_closures_default(self):
+        # TODO: Provide more detail about the return type
+        """Memoized DMPlex point closures with default numbering.
+
+        Returns
+        -------
+        A tuple of closures per dimension.
+
+        """
+        closures, sizes = [], []
+        for dim in range(self.dimension+1):
+            closures_, sizes_ = self._memoize_closures(dim)
+            closures.append(closures_)
+            sizes.append(sizes_)
+        return tuple(closures), tuple(sizes)
+
+    @cached_property
+    def _plex_closures_renum(self):
+        """Memoized, renumbered, DMPlex point closures.
+
+        See `_plex_closures_default` for more information.
+
+        """
+        closures_default, sizes = self._plex_closures_default
+        closures_renum = tuple(
+            tuple(np.empty_like(cl) for cl in closures)
+            for closures in closures_default
+        )
+        for src_dim in range(self.dimension+1):
+            src_label = str(src_dim)
+            src_renumbering = self.points.component_numbering(src_label)
+
+            for dest_dim in range(self.dimension+1):
+                dest_label = str(dest_dim)
+                dest_renumbering = self.points.component_numbering(dest_label)
+
+                closure_renum = closures_renum[src_dim][dest_dim]
+                closure_default = closures_default[src_dim][dest_dim]
+                for src_pt, dest_pts in enumerate(closure_default):
+                    src_pt_renum = src_renumbering[src_pt]
+                    closure_renum[src_pt_renum] = dest_renumbering[dest_pts]
+
+        return closures_renum, sizes
+
     def _memoize_closures(self, dim):
         def closure_func(pt):
             return self.topology_dm.getTransitiveClosure(pt)[0]
 
-        # Determine the closure size per dimension. For triangles this would be:
+        # Determine the closure size for the given dimension. For triangles
+        # this would be:
         #
-        #     dim == 0 (vertex) : (1, 0, 0)
-        #     dim == 1 (vertex) : (2, 1, 0)
-        #     dim == 2 (vertex) : (3, 3, 1)
+        #     (1, 0, 0) if dim == 0 (vertex)
+        #     (2, 1, 0) if dim == 1 (edge)
+        #     (3, 3, 1) if dim == 2 (cell)
         #
         # NOTE: Here we assume that the mesh has only one cell type.
-        sizes = [0] * (self.dimension+1)
-        # use the closure of the first point of this dimension
-        # to determine the closure sizes for all points
-        # TODO: Would be nicer perhaps to inspect the cell/edge topology
-        stratum_label = str(dim)
-        first_pt = self.points.component_to_axis_number(stratum_label, 0)
-        for map_pt in closure_func(first_pt):
-            map_cpt, _ = self.points.axis_to_component_number(map_pt)
-            map_dim = int(map_cpt.label)
-            sizes[map_dim] += 1
-        sizes = tuple(sizes)
+        sizes = np.zeros(self.dimension+1, dtype=IntType)
+        cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
+        for d in range(dim+1):
+            # This tells us the points with dimension d that lie in the closure
+            # of the different points with dimension dim. We just want to know
+            # how many there are (e.g. each edge is connected to 2 vertices).
+            closures = cell_connectivity[dim, d]
+            size = op3.utils.single_valued(map(len, closures))
+            sizes[d] = size
 
         return self._memoize_map(closure_func, dim, sizes)
 
@@ -1777,15 +1824,13 @@ class MeshTopology(AbstractMeshTopology):
 
         for pt in range(pstart, pend):
             stratum, stratum_pt = self.points.axis_to_component_number(pt)
-            stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
 
             map_pts = iter(map_func(pt))
             for map_dim in reversed(range(self.dimension+1)):
                 for i in range(sizes[map_dim]):
                     map_pt = next(map_pts)
                     map_stratum, map_stratum_pt = self.points.axis_to_component_number(map_pt)
-                    map_stratum_pt_renum = self.points.renumber_point(map_stratum, map_stratum_pt)
-                    map_data[map_dim][stratum_pt_renum, i] = map_stratum_pt_renum
+                    map_data[map_dim][stratum_pt, i] = map_stratum_pt
             utils.assert_empty(map_pts)
         return map_data
 
