@@ -8,6 +8,7 @@ import gem
 import gem.impero_utils as impero_utils
 import numpy
 from FIAT.reference_element import TensorProductCell
+from finat.cell_tools import max_complex
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
@@ -313,14 +314,10 @@ def set_quad_rule(params, cell, integral_type, functions):
         finat_elements = set(create_element(f.ufl_element()) for f in functions
                              if f.ufl_element().family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
-        max_cell = max(fiat_cells)
-        if all(max_cell >= b for b in fiat_cells):
-            fiat_cell = max_cell
-        else:
-            raise ValueError("Can't find a maximal complex")
+        max_cell = max_complex(fiat_cells)
 
         integration_cell = fiat_cell.construct_subcomplex(integration_dim)
-        quad_rule = make_quadrature(fiat_cell, quadrature_degree, scheme=scheme)
+        quad_rule = make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
 
     if not isinstance(quad_rule, AbstractQuadratureRule):
