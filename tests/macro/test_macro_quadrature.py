@@ -6,16 +6,21 @@ from firedrake.mesh import plex_from_cell_list
 
 def alfeld_split(msh):
     dim = msh.geometric_dimension()
-    coords = msh.coordinates.dat.data
+    coords = msh.coordinates.dat.data.reshape((-1, dim))
     coords = numpy.row_stack((coords, numpy.average(coords, 0)))
     cells = [list(map(lambda i: dim+1 if i == j else i, range(dim+1))) for j in range(dim+1)]
     plex = plex_from_cell_list(dim, cells, coords, msh.comm)
     return Mesh(plex)
 
 
-@pytest.fixture
-def base_mesh():
-    return UnitTriangleMesh(0)
+@pytest.fixture(params=(1, 2, 3))
+def base_mesh(request):
+    if request.param == 1:
+        return UnitIntervalMesh(1)
+    elif request.param == 2:
+        return UnitTriangleMesh()
+    elif request.param == 3:
+        return UnitTetrahedronMesh()
 
 
 @pytest.fixture(params=("iso", "alfeld"))
@@ -44,9 +49,8 @@ def test_macro_quadrature(degree, variant, meshes):
             a = Constant(numpy.arange(1, gdim+1))
             expr = abs(dot(a, x - x0)) ** degree
         elif variant == "iso":
-            if gdim == 2:
-                vecs = list(map(Constant, [(1, 0), (0, 1), (1, 1), (1, 0)]))
-
+            vecs = list(map(Constant, numpy.row_stack([numpy.eye(gdim),
+                                                       numpy.ones((max(degree-gdim, 0), gdim))])))
             expr = numpy.prod([abs(dot(a, x)) for a in vecs[:degree]])
         else:
             raise ValueError("Unexpected variant")
