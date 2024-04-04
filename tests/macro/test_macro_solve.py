@@ -78,11 +78,3 @@ def test_riesz(mh, variant, mixed_element, convergence_test):
         p_err.append(errornorm(upexact[-1], uph.subfunctions[-1]))
 
     assert convergence_test(u_err, p_err)
-
-
-if __name__ == "__main__":
-    print(riesz(4, FiniteElement("CG", triangle, 2, "iso"),
-                FiniteElement("CG", triangle, 1)))
-
-    # print(riesz(4, FiniteElement("CG", triangle, 2, "alfeld"),
-    #             FiniteElement("DG", triangle, 1, "alfeld")))
