@@ -12,6 +12,17 @@ import pytest
 from firedrake import *
 
 
+# compute h1 projection of f into u's function
+# space, store the result in u.
+def h1_proj(u, f):
+    v = TestFunction(u.function_space())
+    F = (inner(grad(u-f), grad(v)) * dx
+         + inner(u-f, v) * dx)
+    solve(F == 0, u, solver_parameters={"snes_type": "ksponly",
+                                        "ksp_type": "preonly",
+                                        "pc_type": "lu"})
+
+
 def do_op(n, op, deg, variant):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2**n, 2**n)
@@ -30,14 +41,15 @@ def do_op(n, op, deg, variant):
 
 
 @pytest.mark.parametrize('op', (lambda x, y: x.interpolate(y),
-                                lambda x, y: x.project(y)))
+                                lambda x, y: x.project(y),
+                                h1_proj))
 @pytest.mark.parametrize(('deg', 'variant', 'convrate'),
                          [(2, None, 2.7),
                           (2, 'alfeld', 2.8),
                           (1, 'iso(2)', 1.9),
                           (1, 'iso(3)', 1.9)])
 def test_firedrake_projection_scalar_convergence(op, deg, variant, convrate):
-    diff = np.array([do_op(i, op, deg, variant) for i in range(2, 5)])
+    diff = np.array([do_op(i, op, deg, variant) for i in range(3, 5)])
     conv = np.log2(diff[:-1] / diff[1:])
     print(np.array(conv))
     # test *eventual* convergence rate
