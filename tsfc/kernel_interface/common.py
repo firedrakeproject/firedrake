@@ -309,13 +309,12 @@ def set_quad_rule(params, cell, integral_type, functions):
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
-        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
-
         finat_elements = set(create_element(f.ufl_element()) for f in functions
                              if f.ufl_element().family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
-        max_cell = max_complex(fiat_cells)
+        fiat_cell = max_complex(fiat_cells)
 
+        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         integration_cell = fiat_cell.construct_subcomplex(integration_dim)
         quad_rule = make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
