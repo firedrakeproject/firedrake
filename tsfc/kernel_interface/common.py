@@ -316,7 +316,7 @@ def set_quad_rule(params, cell, integral_type, functions):
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         max_cell = max_complex(fiat_cells)
 
-        integration_cell = fiat_cell.construct_subcomplex(integration_dim)
+        integration_cell = max_cell.construct_subcomplex(integration_dim)
         quad_rule = make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
 
