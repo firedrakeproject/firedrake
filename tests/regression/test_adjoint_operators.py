@@ -802,42 +802,53 @@ def test_3325():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_assign_cofunction():
+@pytest.mark.parametrize("solve_type", ["solve", "linear_variational_solver"])
+def test_assign_cofunction(solve_type):
+    # This function tests the case where `Cofunction` assigns a
+    # `Cofunction` and a BaseForm.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = u * v * dx
+    k = Function(V).assign(1.0)
+    a = k * u * v * dx
     b = Constant(1.0) * v * dx
     u0 = Cofunction(V.dual(), name="u0")
     u1 = Cofunction(V.dual(), name="u1")
     u0.assign(assemble(b))
     u1.assign(2 * u0 + b)
-    c = Function(V, name="c")
-    solve(a == u1, c)
-    J = assemble(((c + Constant(1.0)) ** 2) * dx)
-    rf = ReducedFunctional(J, Control(c))
-    assert taylor_test(rf, c, Function(V).assign(0.1)) > 1.9
+    sol = Function(V, name="sol")
+    if solve_type == "solve":
+        solve(a == u1, sol)
+    if solve_type == "linear_variational_solver":
+        problem = LinearVariationalProblem(lhs(a), rhs(a) + u1, sol)
+        solver = LinearVariationalSolver(problem)
+        solver.solve()
+    J = assemble(((sol + Constant(1.0)) ** 2) * dx)
+    rf = ReducedFunctional(J, Control(k))
+    assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_assign_zero_cofunction():
-    # This function tests the case where `Cofunction` is assigning `Zero` after
-    # initially assigning a non-zero `Cofunction`. The `Tape` is expected to
-    # break since the functional does not depend on the control variable,
-    # resulting in a `float(rf.derivative()) == 0.0`.
+    # It is expected the tape breaks since the functional loses its dependency
+    # on the control after the `Cofunction` assigns Zero.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
     u = TrialFunction(V)
+    k = Function(V).assign(1.0)
     a = u * v * dx
-    k = Constant(1.0)
     b = k * v * dx
     u0 = Cofunction(V.dual(), name="u0")
-    u0.assign(assemble(b))
+    u0.assign(b)
     u0.assign(Zero())
-    c = Function(V, name="c")
-    solve(a == u0, c)
-    J = assemble(((c + Constant(1.0)) ** 2) * dx)
-    rf = ReducedFunctional(J, Control(k))
-    assert float(rf.derivative()) == 0.0
+    sol = Function(V, name="c")
+    solve(a == u0, sol)
+    J = assemble(((sol + Constant(1.0)) ** 2) * dx)
+    with pytest.raises(
+        Exception, match="Invalid data: expected 9 values, got 1!"
+    ):
+        # The tape is expected to break here. If the tape does not break or
+        # breaks with a different error message, then the test has failed.
+        compute_gradient(J, Control(k))
