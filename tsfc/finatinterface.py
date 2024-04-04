@@ -146,8 +146,8 @@ def convert_finiteelement(element, **kwargs):
     if element.family() == "Lagrange":
         if kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
-        elif kind == 'integral':
-            lmbda = finat.IntegratedLegendre
+        elif kind.startswith('integral'):
+            lmbda = partial(finat.IntegratedLegendre, variant=kind)
         elif kind in ['fdm', 'fdm_ipdg'] and is_interval:
             lmbda = finat.FDMLagrange
         elif kind == 'fdm_quadrature' and is_interval:
@@ -173,8 +173,8 @@ def convert_finiteelement(element, **kwargs):
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'spectral':
             lmbda = finat.GaussLegendre
-        elif kind == 'integral':
-            lmbda = finat.Legendre
+        elif kind.startswith('integral'):
+            lmbda = partial(finat.Legendre, variant=kind)
         elif kind in ['fdm', 'fdm_quadrature'] and is_interval:
             lmbda = finat.FDMDiscontinuousLagrange
         elif kind == 'fdm_ipdg' and is_interval:

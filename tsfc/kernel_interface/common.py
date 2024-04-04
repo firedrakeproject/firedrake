@@ -319,7 +319,7 @@ def set_quad_rule(params, cell, integral_type, functions):
         else:
             raise ValueError("Can't find a maximal complex")
 
-        fiat_cell = fiat_cell.construct_subcomplex(integration_dim)
+        integration_cell = fiat_cell.construct_subcomplex(integration_dim)
         quad_rule = make_quadrature(fiat_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
 
