@@ -12,9 +12,21 @@ import pytest
 from firedrake import *
 
 
-# compute h1 projection of f into u's function
-# space, store the result in u.
+def interp(u, f):
+    u.interpolate(f)
+
+
+def proj(u, f):
+    u.project(f)
+
+
+def proj_bc(u, f):
+    u.project(f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
+
+
 def h1_proj(u, f, bcs=None):
+    # compute h1 projection of f into u's function
+    # space, store the result in u.
     v = TestFunction(u.function_space())
     F = (inner(grad(u-f), grad(v)) * dx
          + inner(u-f, v) * dx)
@@ -22,45 +34,36 @@ def h1_proj(u, f, bcs=None):
           bcs=bcs,
           solver_parameters={"snes_type": "ksponly",
                              "ksp_type": "preonly",
-                             "pc_type": "lu"})
+                             "pc_type": "cholesky"})
 
 
 def h1_proj_bc(u, f):
-    h1_proj(u, f, bcs=DirichletBC(u.function_space(),
-                                  f, "on_boundary"))
+    h1_proj(u, f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
 
 
-def proj_bc(u, f):
-    u.project(f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
+@pytest.fixture
+def hierarchy():
+    base_mesh = UnitSquareMesh(2**3, 2**3)
+    return MeshHierarchy(base_mesh, 1)
 
 
-def do_op(n, op, deg, variant):
-    # Create mesh and define function space
-    mesh = UnitSquareMesh(2**n, 2**n)
-
-    el = FiniteElement("CG", triangle, deg, variant=variant)
-    V = FunctionSpace(mesh, el)
-
-    u = Function(V)
-    x, y = SpatialCoordinate(mesh)
-
-    f = sin(x*pi)*sin(2*pi*y)
-
-    op(u, f)
-
-    return sqrt(assemble(inner(u - f, u - f) * dx(degree=2*deg)))
-
-
-@pytest.mark.parametrize('op', (lambda x, y: x.interpolate(y),
-                                lambda x, y: x.project(y),
-                                proj_bc, h1_proj, h1_proj_bc))
+@pytest.mark.parametrize('op', (interp, proj, proj_bc, h1_proj, h1_proj_bc))
 @pytest.mark.parametrize(('deg', 'variant', 'convrate'),
                          [(2, None, 2.7),
                           (2, 'alfeld', 2.8),
                           (1, 'iso(2)', 1.9),
                           (1, 'iso(3)', 1.9)])
-def test_firedrake_projection_scalar_convergence(op, deg, variant, convrate):
-    diff = np.array([do_op(i, op, deg, variant) for i in range(3, 5)])
+def test_projection_scalar_convergence(op, hierarchy, deg, variant, convrate):
+    errors = []
+    for msh in hierarchy:
+        V = FunctionSpace(msh, "CG", degree=deg, variant=variant)
+        u = Function(V)
+        x, y = SpatialCoordinate(msh)
+        f = sin(x*pi)*sin(2*pi*y)
+        op(u, f)
+        errors.append(sqrt(assemble(inner(u - f, u - f) * dx(degree=2*deg))))
+
+    diff = np.array(errors)
     conv = np.log2(diff[:-1] / diff[1:])
     # test *eventual* convergence rate
     assert conv[-1] > convrate
