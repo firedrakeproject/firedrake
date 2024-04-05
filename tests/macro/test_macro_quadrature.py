@@ -37,6 +37,25 @@ def meshes(variant, base_mesh):
 
 
 @pytest.mark.parametrize("degree", (1, 4,))
+def test_macro_quadrature_monomial(degree, variant, meshes):
+    msh = meshes[0]
+    gdim = msh.geometric_dimension()
+    x = SpatialCoordinate(msh)
+    c = Constant(numpy.arange(1, gdim+1))
+    expr = dot(c, x) ** degree
+    results = [assemble(expr * dx)]
+
+    Q = FunctionSpace(msh, "DG", 0, variant=variant)
+    q = TestFunction(Q)
+    f = assemble(inner(expr, q)*dx(degree=degree))
+    with f.dat.vec_ro as fv:
+        result = fv.sum()
+
+    results.append(result)
+    assert numpy.isclose(*results)
+
+
+@pytest.mark.parametrize("degree", (1, 4,))
 def test_macro_quadrature_piecewise(degree, variant, meshes):
     results = []
     for msh, v in zip(meshes, (variant, None)):
@@ -57,28 +76,9 @@ def test_macro_quadrature_piecewise(degree, variant, meshes):
 
         Q = FunctionSpace(msh, "DG", 0, variant=v)
         q = TestFunction(Q)
-        f = assemble(inner(q, expr)*dx(degree=degree))
+        f = assemble(inner(expr, q)*dx(degree=degree))
         with f.dat.vec_ro as fv:
             result = fv.sum()
 
         results.append(result)
-    assert numpy.isclose(*results)
-
-
-@pytest.mark.parametrize("degree", (1, 4,))
-def test_macro_quadrature_monomial(degree, variant, meshes):
-    msh = meshes[0]
-    gdim = msh.geometric_dimension()
-    x = SpatialCoordinate(msh)
-    c = Constant(numpy.arange(1, gdim+1))
-    expr = dot(c, x) ** degree
-    results = [assemble(expr * dx)]
-
-    Q = FunctionSpace(msh, "DG", 0, variant=variant)
-    q = TestFunction(Q)
-    f = assemble(inner(q, expr)*dx(degree=degree))
-    with f.dat.vec_ro as fv:
-        result = fv.sum()
-
-    results.append(result)
     assert numpy.isclose(*results)
