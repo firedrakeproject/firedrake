@@ -1833,14 +1833,7 @@ class ParloopBuilder:
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
 
-            if V.ufl_element().family() == "Real":
-                raise NotImplementedError
-
             return pack_pyop3_tensor(tensor, V, index, self._integral_type)
-            # if V.ufl_element().family() == "Real":
-            #     return tensor, ()
-            # else:
-            #     return tensor[self._get_map(V)(index)]
         elif rank == 2:
             if any(V.ufl_element().family() == "Real" for V in Vs):
                 # see below

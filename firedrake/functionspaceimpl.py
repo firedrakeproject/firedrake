@@ -519,13 +519,29 @@ class FunctionSpace:
 
         self.finat_element = create_element(element)
 
-        axes = op3.PartialAxisTree(mesh.points)
-        for tdim, edofs in self.finat_element.entity_dofs().items():
-            ndofs = single_valued(len(d) for d in edofs.values())
-            subaxes = op3.PartialAxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-            for i, dim in enumerate(self.shape):
-                subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
-            axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+        # This is a hack because RealFunctionSpace inherits from this class
+        # without its own constructor. Perhaps introduce an AbstractFunctionSpace
+        # parent class.
+        if isinstance(self, RealFunctionSpace):
+            if self._comm.size > 1:
+                raise NotImplementedError("Hitting minor issues in layout tabulation")
+            # axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), mesh.topology.name, sf=op3.single_star(self._comm))
+            axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), mesh.topology.name)
+            axes = op3.PartialAxisTree(axis)
+
+            if self.shape:
+                subaxes = op3.PartialAxisTree.from_iterable(
+                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+                )
+                axes = axes.add_subtree(subaxes, axes.root, axes.root.component)
+        else:
+            axes = op3.PartialAxisTree(mesh.points)
+            for tdim, edofs in self.finat_element.entity_dofs().items():
+                ndofs = single_valued(len(d) for d in edofs.values())
+                subaxes = op3.PartialAxisTree(op3.Axis({"XXX": ndofs}, "dof"))
+                for i, dim in enumerate(self.shape):
+                    subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
+                axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
         self.axes = axes.set_up()
 
     # def set_shared_data(self):
@@ -1092,8 +1108,6 @@ class MixedFunctionSpace:
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
-        if val is not None:
-            raise NotImplementedError("TODO")
         if val is not None and val.size != self.axes.size:
             raise ValueError("Provided array has the wrong number of entries")
 
@@ -1291,11 +1305,19 @@ class RealFunctionSpace(FunctionSpace):
     def make_dof_dset(self):
         return op2.GlobalDataSet(self.make_dat())
 
+    # NOTE: This is the same as for mixed spaces and regular spaces
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        raise NotImplementedError
-        return op2.Global(self.value_size, val, valuetype, name, self._comm)
+        if val is not None and val.size != self.axes.size:
+            raise ValueError("Provided array has the wrong number of entries")
+
+        return op3.HierarchicalArray(
+            self.axes,
+            data=val,
+            dtype=valuetype,
+            name=name,
+        )
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."

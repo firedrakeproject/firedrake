@@ -547,23 +547,31 @@ def _(
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     plex = V.ufl_domain().topology
-    indices = op3.IndexTree.from_nest({
-        plex._fiat_closure(cell): [
-            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            for _ in range(plex.dimension+1)
-        ]
-    })
+
+    if V.ufl_element().family() == "Real":
+        indices = op3.IndexTree(op3.ScalarIndex(plex.name, "XXX", 0))
+    else:
+        indices = op3.IndexTree.from_nest({
+            plex._fiat_closure(cell): [
+                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+                for _ in range(plex.dimension+1)
+            ]
+        })
     return _with_shape_indices(V, indices)
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
     plex = V.ufl_domain().topology
-    indices = op3.IndexTree.from_nest({
-        plex._fiat_closure(plex.support(facet)): [
-            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            for _ in range(plex.dimension+1)
-        ]
-    })
+
+    if V.ufl_element().family() == "Real":
+        indices = op3.IndexTree(op3.ScalarIndex(plex.name, "XXX", 0))
+    else:
+        indices = op3.IndexTree.from_nest({
+            plex._fiat_closure(plex.support(facet)): [
+                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+                for _ in range(plex.dimension+1)
+            ]
+        })
     # don't add support as an extra axis here, done already
     return _with_shape_indices(V, indices, and_support=False)
 
