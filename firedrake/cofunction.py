@@ -108,11 +108,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         nspaces = len(self.function_space())
         if nspaces > 1:
             return tuple(
-                type(self)(
-                    V,
-                    self.dat[op3.ScalarIndex("field", str(i), 0)],
-                    name=f"{self.name()}[{i}]"
-                )
+                type(self)(V, self.dat[i], name=f"{self.name()}[{i}]")
                 for i, V in enumerate(self.function_space())
             )
         else:

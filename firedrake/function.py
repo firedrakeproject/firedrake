@@ -114,20 +114,10 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-
-        # NOTE: In parallel, for mixed functions, the halo data is not contiguous
-        # with the owned data so modifying things can be expensive as it is not
-        # a simple view.
-        # TODO: raise a warning when this happens
-
         nspaces = len(self.function_space())
         if nspaces > 1:
             return tuple(
-                CoordinatelessFunction(
-                    V,
-                    self.dat[op3.ScalarIndex("field", str(i), 0)],
-                    name=f"{self.name()}[{i}]"
-                )
+                CoordinatelessFunction(V, self.dat[i], name=f"{self.name()}[{i}]")
                 for i, V in enumerate(self.function_space())
             )
         else:

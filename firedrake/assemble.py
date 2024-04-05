@@ -29,7 +29,7 @@ from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.function import Function
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.parloops import pack_tensor
+from firedrake.parloops import pack_tensor, _with_shape_indices, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1033,7 +1033,6 @@ class ParloopFormAssembler(FormAssembler):
                 data = _FormHandler.index_tensor(
                     tensor, self._form, lknl.indices, self.diagonal
                 )
-                data = self._as_pyop3_type(data)
                 loops.append(functools.partial(parloop, **{self._tensor_name: data}))
         else:
             # Make parloops for one concrete output tensor and cache them.
@@ -1398,14 +1397,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for iterset, map_, indices in maps_and_regions:
-            if indices not in {(0, 0), (None, None)}:
-                raise NotImplementedError("Mixed")
+        for iter_index, rmap, cmap, indices in maps_and_regions:
+            rindex, cindex = indices
+            if rindex is None:
+                rindex = Ellipsis
+            if cindex is None:
+                cindex = Ellipsis
 
-            op3.do_loop(
-                p := iterset.index(),
-                sparsity[map_(p), map_(p)].assign(666),
-            )
+            op3.do_loop(iter_index, sparsity[rindex, cindex][rmap, cmap].assign(666))
 
         sparsity.assemble()
         return sparsity
@@ -1436,24 +1435,42 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             loops = []
             for local_kernel in self._all_local_kernels:
-                if local_kernel.kinfo.integral_type == "cell":
+                integral_type = local_kernel.kinfo.integral_type
+
+                Vrow = test.function_space()
+                Vcol = trial.function_space()
+
+                rindex, cindex = local_kernel.indices
+                if rindex is not None:
+                    Vrow = Vrow[rindex]
+                if cindex is not None:
+                    Vcol = Vcol[cindex]
+
+                if integral_type == "cell":
                     iterset = plex.cells
+                    index = iterset.index()
+                    rmap = _cell_integral_pack_indices(Vrow, index)
+                    cmap = _cell_integral_pack_indices(Vcol, index)
+                elif integral_type in {"exterior_facet", "interior_facet"}:
+                    if integral_type == "exterior_facet":
+                        iterset = plex.exterior_facets.set
+                    else:
+                        assert integral_type == "interior_facet"
+                        iterset = plex.interior_facets.set
 
-                    def map_(cell):
-                        return plex.closure(cell)
-                elif local_kernel.kinfo.integral_type == "exterior_facet":
-                    iterset = plex.exterior_facets.set
+                    index = iterset.index()
+                    rmap = _facet_integral_pack_indices(Vrow, index)
+                    cmap = _facet_integral_pack_indices(Vcol, index)
 
-                    def map_(facet):
-                        return plex.closure(plex.support(facet))
-                else:
-                    assert local_kernel.kinfo.integral_type == "interior_facet"
-                    iterset = plex.interior_facets.set
+                # These maps are technically context-sensitive since they depend
+                # on the loop index, but it is always trivial. However, we still
+                # need to turn our index tree into an index forest for things to
+                # make sense later on.
+                context = pmap({index.id: (index.source_path, index.path)})
+                rmap = {context: rmap}
+                cmap = {context: cmap}
 
-                    def map_(facet):
-                        return plex.closure(plex.support(facet))
-
-                loop = (iterset, map_, local_kernel.indices)
+                loop = (index, rmap, cmap, local_kernel.indices)
                 loops.append(loop)
             return tuple(loops)
 
@@ -1463,6 +1480,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         mesh = op3.utils.single_valued(a.ufl_domain() for a in {test, trial})
         plex = mesh.topology
+        Vrow = test.function_space()
+        Vcol = trial.function_space()
 
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
@@ -1471,22 +1490,30 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         for integral_type in allocation_integral_types:
             if integral_type == "cell":
                 iterset = plex.cells
+                index = iterset.index()
+                rmap = _cell_integral_pack_indices(Vrow, index)
+                cmap = _cell_integral_pack_indices(Vcol, index)
+            elif integral_type in {"exterior_facet", "interior_facet"}:
+                if integral_type == "exterior_facet":
+                    iterset = plex.exterior_facets.set
+                else:
+                    assert integral_type == "interior_facet"
+                    iterset = plex.interior_facets.set
 
-                def map_(cell):
-                    return plex.closure(cell)
-            elif integral_type == "exterior_facet":
-                iterset = plex.exterior_facets.set
+                index = iterset.index()
+                rmap = _facet_integral_pack_indices(Vrow, index)
+                cmap = _facet_integral_pack_indices(Vcol, index)
 
-                def map_(facet):
-                    return plex.closure(plex.support(facet))
-            else:
-                assert integral_type == "interior_facet"
-                iterset = plex.interior_facets.set
+            # These maps are technically context-sensitive since they depend
+            # on the loop index, but it is always trivial. However, we still
+            # need to turn our index tree into an index forest for things to
+            # make sense later on.
+            context = pmap({index.id: (index.source_path, index.path)})
+            rmap = {context: rmap}
+            cmap = {context: cmap}
 
-                def map_(facet):
-                    return plex.closure(plex.support(facet))
-
-            loops.append((iterset, map_))
+            loop = (index, rmap, cmap, (None, None))
+            loops.append(loop)
         return tuple(loops)
 
     @cached_property
@@ -1805,27 +1832,35 @@ class ParloopBuilder:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
-            return pack_tensor(tensor, index, self._integral_type)
+
+            if V.ufl_element().family() == "Real":
+                raise NotImplementedError
+
+            return pack_pyop3_tensor(tensor, V, index, self._integral_type)
             # if V.ufl_element().family() == "Real":
             #     return tensor, ()
             # else:
             #     return tensor[self._get_map(V)(index)]
         elif rank == 2:
-            return pack_tensor(tensor, index, self._integral_type)
-            raise NotImplementedError
-            rmap, cmap = [self._get_map(V) for V in Vs]
+            if any(V.ufl_element().family() == "Real" for V in Vs):
+                # see below
+                raise NotImplementedError
 
-            if all(V.ufl_element().family() == "Real" for V in Vs):
-                assert rmap is None and cmap is None
-                return tensor.handle.getPythonContext().global_
-            elif any(V.ufl_element().family() == "Real" for V in Vs):
-                m = rmap or cmap
-                return tensor.handle.getPythonContext().dat[m(index)]
-            else:
-                if self._lgmaps:
-                    raise NotImplementedError
-                # return tensor[rmap(index), cmap(index)], lgmaps=self._lgmaps)
-                return tensor[rmap(index), cmap(index)]
+            return pack_pyop3_tensor(tensor, *Vs, index, self._integral_type)
+
+            # rmap, cmap = [self._get_map(V) for V in Vs]
+            #
+            # if all(V.ufl_element().family() == "Real" for V in Vs):
+            #     assert rmap is None and cmap is None
+            #     return tensor.handle.getPythonContext().global_
+            # elif any(V.ufl_element().family() == "Real" for V in Vs):
+            #     m = rmap or cmap
+            #     return tensor.handle.getPythonContext().dat[m(index)]
+            # else:
+            #     if self._lgmaps:
+            #         raise NotImplementedError
+            #     # return tensor[rmap(index), cmap(index)], lgmaps=self._lgmaps)
+            #     return tensor[rmap(index), cmap(index)]
         else:
             raise AssertionError
 
@@ -1919,28 +1954,27 @@ class _FormHandler:
         """Return the function spaces of the form's arguments, indexed
         if necessary.
         """
-        if op3.utils.strictly_all(i is None for i in indices):
-            return tuple(a.ufl_function_space() for a in form.arguments())
-        else:
-            return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
+        spaces = []
+        for index, arg in zip(indices, form.arguments()):
+            space = arg.ufl_function_space()
+            if index is not None:
+                space = space[index]
+            spaces.append(space)
+        return tuple(spaces)
 
     @staticmethod
     def index_tensor(tensor, form, indices, diagonal):
         """Return the (indexed) pyop3 data structure tied to ``tensor``."""
-        is_indexed = op3.utils.strictly_all(i is not None for i in indices)
+        indices = tuple(i if i is not None else Ellipsis for i in indices)
 
         rank = len(form.arguments())
         if rank == 0:
+            assert len(indices) == 0
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
-            is_mixed = type(tensor.ufl_element()) is finat.ufl.MixedElement
             index, = indices
-            return tensor.subfunctions[index] if is_mixed and is_indexed else tensor
+            return tensor.dat[index]
         elif rank == 2:
-            is_mixed = any(
-                type(arg.ufl_element()) is finat.ufl.MixedElement
-                for arg in tensor.a.arguments()
-            )
-            return tensor.M[index_str] if is_mixed and is_indexed else tensor
+            return tensor.M[indices]
         else:
             raise AssertionError

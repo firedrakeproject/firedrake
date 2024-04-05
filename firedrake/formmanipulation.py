@@ -170,6 +170,12 @@ def split_form(form, diagonal=False):
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
         if len(f.integrals()) > 0:
+            # Set any non-mixed components to None, rather than zero
+            idx = tuple(
+                x if shape[i] > 1 else None
+                for i, x in enumerate(idx)
+            )
+
             if diagonal:
                 i, j = idx
                 if i != j:

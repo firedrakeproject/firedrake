@@ -459,6 +459,15 @@ def _(
         cmap = _facet_integral_pack_indices(Vcol, index)
     else:
         raise NotImplementedError
+
+    # FIXME: These maps are technically context-sensitive since they depend
+    # on the loop index, but it is always trivial. However, we turn the index
+    # tree into a forest here because that is what pyop3 "should" be doing
+    # internally.
+    context = pmap({index.id: (index.source_path, index.path)})
+    rmap = {context: rmap}
+    cmap = {context: cmap}
+
     indexed = mat.getitem((rmap, cmap), strict=True)
 
     # Indexing an array with a loop index makes it "context sensitive" since

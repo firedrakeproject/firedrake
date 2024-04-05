@@ -937,10 +937,16 @@ class MixedFunctionSpace:
         # TODO I think .layout may be a better name
         # TODO it would be nice for function spaces to have default names so they could
         # be used to distinguish bits here
-        root = op3.Axis({str(i): 1 for i, _ in enumerate(spaces)}, "field")
+        # The fields of a mixed space are marked as "unit" because they are guaranteed
+        # to have a size of 1 and we want the axis to go away when we put axes["0"],
+        # for example.
+        root = op3.Axis(
+            [op3.AxisComponent(1, i, unit=True) for i, _ in enumerate(spaces)],
+            "field",
+        )
         axes = op3.PartialAxisTree(root)
         for i, space in enumerate(spaces):
-            axes = axes.add_subtree(space.axes, root, str(i), uniquify=True)
+            axes = axes.add_subtree(space.axes, root, i, uniquify=True)
         self.axes = axes.set_up()
 
         self.comm = mesh.comm
