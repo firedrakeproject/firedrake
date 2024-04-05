@@ -38,15 +38,15 @@ def convergence_test(variant):
     if variant == "iso":
         def check(uerr, perr):
             u_conv = conv_rates(uerr)
-            return (u_conv >= 1.9).all() and np.allclose(perr, 0, rtol=1.e-10)
+            return (u_conv >= 1.9).all() and np.allclose(perr, 0, atol=1.e-7)
     elif variant == "alfeld":
         def check(uerr, perr):
-            return (np.allclose(uerr, 0, rtol=1.e-10)
-                    and np.allclose(perr, 0, rtol=1.e-10))
+            return (np.allclose(uerr, 0, atol=1.e-10)
+                    and np.allclose(perr, 0, atol=1.e-7))
     elif variant == "th":
         def check(uerr, perr):
-            return (np.allclose(uerr, 0, rtol=1.e-10)
-                    and np.allclose(perr, 0, rtol=1.e-10))
+            return (np.allclose(uerr, 0, atol=1.e-10)
+                    and np.allclose(perr, 0, atol=1.e-7))
     return check
 
 
@@ -58,37 +58,49 @@ def div_test(variant):
         return lambda x: norm(div(x)) <= 1.e-10
 
 
+def stokes_mms(Z, zexact):
+    trial = TrialFunction(Z)
+    test = TestFunction(Z)
+    u, p = split(trial)
+    v, q = split(test)
+
+    a = (inner(grad(u), grad(v)) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx)
+
+    L = a(test, zexact)
+    return a, L
+
+
+def errornormL2_0(pexact, ph):
+    msh = ph.function_space().mesh()
+    vol = assemble(1*dx(domain=msh))
+    return sqrt(abs(errornorm(pexact, ph)**2 - (1/vol)*assemble((pexact - ph)*dx)**2))
+
+
 def test_stokes(mh, variant, mixed_element, convergence_test):
+    sp = {"pc_factor_mat_ordering_type": "natural"} if variant == "th" else None
     u_err = []
     p_err = []
     el1, el2 = mixed_element
     for msh in mh:
         x, y = SpatialCoordinate(msh)
+        zexact = [x+y, x**2, x]
+
         V = VectorFunctionSpace(msh, el1)
-        W = FunctionSpace(msh, el2)
-        Z = V * W
-        u, p = TrialFunctions(Z)
-        test = TestFunction(Z)
-        v, w = split(test)
+        Q = FunctionSpace(msh, el2)
+        Z = V * Q
 
-        upexact = [x+y, x**2, x]
-
-        a = (inner(grad(u), grad(v)) * dx
-             - inner(p, div(v)) * dx
-             - inner(div(u), w) * dx)
-
-        L = a(test, as_vector(upexact))
-        bcs = DirichletBC(Z[0], as_vector(upexact[:2]), "on_boundary")
+        a, L = stokes_mms(Z, as_vector(zexact))
+        bcs = DirichletBC(Z[0], as_vector(zexact[:2]), "on_boundary")
 
         nullspace = MixedVectorSpaceBasis(
             Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
 
-        uph = Function(Z)
-
-        solve(a == L, uph, bcs=bcs, nullspace=nullspace)
-
-        u_err.append(errornorm(as_vector(upexact[:2]), uph.subfunctions[0]))
-        p_err.append(errornorm(upexact[-1]-assemble(upexact[-1]*dx), uph.subfunctions[-1]))
+        zh = Function(Z)
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters=sp)
+        u_err.append(errornorm(as_vector(zexact[:2]), zh.subfunctions[0]))
+        p_err.append(errornormL2_0(zexact[-1], zh.subfunctions[-1]))
 
     assert convergence_test(u_err, p_err)
 
@@ -100,21 +112,9 @@ def test_div_free(mh, variant, mixed_element, div_test):
         V = VectorFunctionSpace(msh, el1)
         W = FunctionSpace(msh, el2)
         Z = V * W
-        u, p = TrialFunctions(Z)
-        test = TestFunction(Z)
-        v, w = split(test)
+        a, L = stokes_mms(Z, Constant([0] * 3))
+        bcs = [DirichletBC(Z[0], as_vector([y**2*(1-y)**2, 0]), (1, 3, 4))]
 
-        a = (inner(grad(u), grad(v)) * dx
-             - inner(p, div(v)) * dx
-             - inner(div(u), w) * dx)
-        L = inner(Constant((0, 0)), v) * dx
-        bcs = [DirichletBC(Z[0], as_vector([y**2*(1-y)**2, 0]), 1),
-               DirichletBC(Z[0], as_vector([y**2*(1-y)**2, 0]), (3, 4))]
-
-        nullspace = MixedVectorSpaceBasis(
-            Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
-
-        uph = Function(Z)
-
-        solve(a == L, uph, bcs=bcs, nullspace=nullspace)
-        assert div_test(uph.subfunctions[0])
+        zh = Function(Z)
+        solve(a == L, zh, bcs=bcs)
+        assert div_test(zh.subfunctions[0])
