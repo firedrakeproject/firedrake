@@ -75,7 +75,7 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
 
         a = (inner(grad(u), grad(v)) * dx
              - inner(p, div(v)) * dx
-             + inner(div(u), w) * dx)
+             - inner(div(u), w) * dx)
 
         L = a(test, as_vector(upexact))
         bcs = DirichletBC(Z[0], as_vector(upexact[:2]), "on_boundary")
@@ -106,7 +106,7 @@ def test_div_free(mh, variant, mixed_element, div_test):
 
         a = (inner(grad(u), grad(v)) * dx
              - inner(p, div(v)) * dx
-             + inner(div(u), w) * dx)
+             - inner(div(u), w) * dx)
         L = inner(Constant((0, 0)), v) * dx
         bcs = [DirichletBC(Z[0], as_vector([y**2*(1-y)**2, 0]), 1),
                DirichletBC(Z[0], as_vector([y**2*(1-y)**2, 0]), (3, 4))]
