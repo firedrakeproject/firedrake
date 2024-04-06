@@ -37,17 +37,16 @@ def conv_rates(x):
 def convergence_test(variant):
     if variant == "iso":
         def check(uerr, perr):
-            print(uerr, perr)
             u_conv = conv_rates(uerr)
-            return (u_conv >= 1.9).all() and np.allclose(perr, 0, rtol=1.e-10)
+            return (u_conv >= 1.9).all() and np.allclose(perr, 0, atol=1.e-10)
     elif variant == "alfeld":
         def check(uerr, perr):
-            return (np.allclose(uerr, 0, rtol=1.e-10)
-                    and np.allclose(perr, 0, rtol=1.e-10))
+            return (np.allclose(uerr, 0, atol=1.e-10)
+                    and np.allclose(perr, 0, atol=1.e-10))
     elif variant == "th":
         def check(uerr, perr):
-            return (np.allclose(uerr, 0, rtol=1.e-10)
-                    and np.allclose(perr, 0, rtol=1.e-10))
+            return (np.allclose(uerr, 0, atol=1.e-10)
+                    and np.allclose(perr, 0, atol=1.e-10))
     return check
 
 
