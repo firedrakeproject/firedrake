@@ -632,7 +632,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
             if isinstance(coeff,
-                          (firedrake.Coefficient, firedrake.Constant)):
+                          (firedrake.Coefficient, firedrake.Constant,
+                           firedrake.Cofunction)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
                     assign_map[form_ad_count_map[coeff_count]] = \
@@ -714,6 +715,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
             dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
             return dFdm
+        elif isinstance(c, firedrake.Cofunction):
+            raise NotImplementedError(
+                "Cofunction as a dependency is not supported."
+            )
 
         # dFdm_cache works with original variables, not block saved outputs.
         if c in self._dFdm_cache:

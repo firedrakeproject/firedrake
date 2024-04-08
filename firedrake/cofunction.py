@@ -195,6 +195,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             self.block_variable = expr.block_variable
+            # Keep `self.block_variable` output identity consistent with `self`.
+            self.block_variable.output._count = self.count()
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):

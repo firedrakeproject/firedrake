@@ -815,9 +815,9 @@ def test_assign_cofunction(solve_type):
     b = Constant(1.0) * v * dx
     u0 = Cofunction(V.dual(), name="u0")
     u1 = Cofunction(V.dual(), name="u1")
+    sol = Function(V, name="sol")
     u0.assign(assemble(b))
     u1.assign(2 * u0 + b)
-    sol = Function(V, name="sol")
     if solve_type == "solve":
         solve(a == u1, sol)
     if solve_type == "linear_variational_solver":
@@ -826,6 +826,7 @@ def test_assign_cofunction(solve_type):
         solver.solve()
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
     rf = ReducedFunctional(J, Control(k))
+    assert rf(k) == J
     assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
 
 
