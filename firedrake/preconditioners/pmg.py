@@ -377,7 +377,9 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False), None
+        interpolation = self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False)
+        rscale = interpolation.createVecRight()
+        return interpolation, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -439,7 +441,7 @@ class PMGPC(PCBase, PMGBase):
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
+        ppc.setOptionsPrefix(pc.getOptionsPrefix() + self._prefix)
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
@@ -452,7 +454,7 @@ class PMGPC(PCBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+        opts = PETSc.Options(pc.getOptionsPrefix() + self._prefix)
         opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
 
         return ppc
@@ -473,7 +475,7 @@ class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
-        psnes.setOptionsPrefix(snes.getOptionsPrefix() + "pfas_")
+        psnes.setOptionsPrefix(snes.getOptionsPrefix() + self._prefix)
         psnes.setType("fas")
         psnes.setDM(pdm)
         psnes.setTolerances(max_it=1)
@@ -495,7 +497,7 @@ class PMGSNES(SNESBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+        opts = PETSc.Options(snes.getOptionsPrefix() + self._prefix)
         opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
         opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
 
