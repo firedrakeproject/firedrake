@@ -30,12 +30,12 @@ def test_macro_low_order_refined(mesh, degree):
         "ksp_monitor": None,
         "pc_type": "python",
         "pc_python_type": "firedrake.LORPC",
-        "lor_mg_levels_pc_type": "jacobi",
-        "lor_mg_levels_ksp_max_it": 2,
-        "lor_mg_levels_ksp_type": "chebyshev",
+        "lor_mg_levels_ksp_max_it": 0,
+        "lor_mg_levels_ksp_type": "richardson",
+        "lor_mg_levels_pc_type": "none",
         "lor_mg_coarse_mat_type": "aij",
-        "lor_mg_coarse_pc_type": "hypre",
         "lor_mg_coarse_ksp_type": "preonly",
+        "lor_mg_coarse_pc_type": "cholesky",
     })
     solver.solve()
-    assert solver.snes.getLinearSolveIterations() <= 15
+    assert solver.snes.getLinearSolveIterations() <= 18

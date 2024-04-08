@@ -39,8 +39,6 @@ def convergence_test(variant):
         def check(uerr, perr):
             u_conv = conv_rates(uerr)
             p_conv = conv_rates(perr)
-            print(u_conv)
-            print(p_conv)
             return (u_conv >= 1.9).all() and (p_conv >= 1.8).all()
     elif variant == "alfeld":
         def check(uerr, perr):
@@ -82,7 +80,10 @@ def errornormL2_0(pexact, ph):
 
 
 def test_stokes(mh, variant, mixed_element, convergence_test):
-    sp = {"pc_factor_mat_ordering_type": "natural"} if variant == "th" else None
+    sp = {"pc_factor_mat_ordering_type": "natural",
+            "ksp_monitor": None,
+            "ksp_type": "gmres",
+            }# if variant == "th" else None
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -99,6 +100,7 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
 
         nullspace = MixedVectorSpaceBasis(
             Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
+        nullspace = None
 
         zh = Function(Z)
         solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters=sp)
@@ -116,7 +118,7 @@ def test_div_free(mh, variant, mixed_element, div_test):
         W = FunctionSpace(msh, el2)
         Z = V * W
         a, L = stokes_mms(Z, Constant([0] * 4))
-        bcs = [DirichletBC(Z[0], as_vector([y**2*(1-y)**2*z*(1-z), 0, 0]), (1, 3, 4, 5, 6))]
+        bcs = [DirichletBC(Z[0], as_vector([y*(1-y)*z*(1-z), 0, 0]), (1, 3, 4, 5, 6))]
 
         zh = Function(Z)
         solve(a == L, zh, bcs=bcs)
