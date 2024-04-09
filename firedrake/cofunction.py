@@ -200,8 +200,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable to write down c += B where c is a Cofunction and B an appropriate BaseForm object.
-            # If the annotation is enabled, the following operation  will results in assemble block on the
+            # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
+            # If annotation is enabled, the following operation will result in an assemble block on the
             # Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
             return self.assign(assembled_expr, subset=subset)
