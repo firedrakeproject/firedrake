@@ -715,10 +715,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
             dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
             return dFdm
-        elif isinstance(c, firedrake.Cofunction):
-            raise NotImplementedError(
-                "Cofunction as a dependency is not supported."
-            )
 
         # dFdm_cache works with original variables, not block saved outputs.
         if c in self._dFdm_cache:

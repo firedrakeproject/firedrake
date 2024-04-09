@@ -186,6 +186,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
+
+        Notes
+        -----
+        Cofunction assignment is annoted for automatic differentiation.
+        The operation annoted here is the `Assembly` operation, where the
+        b
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
@@ -200,8 +206,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable to write down c += B where c is a Cofunction
-            # and B an appropriate BaseForm object
+            # Enable to write down c += B where c is a Cofunction and B an appropriate BaseForm object.
+            # If the annotation is enabled, the following operation  will results in assemble block on the
+            # Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
             return self.assign(assembled_expr, subset=subset)
 

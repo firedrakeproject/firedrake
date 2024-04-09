@@ -804,8 +804,9 @@ def test_3325():
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parametrize("solve_type", ["solve", "linear_variational_solver"])
 def test_assign_cofunction(solve_type):
-    # This function tests the case where `Cofunction` assigns a
-    # `Cofunction` and a BaseForm.
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
+    # This function tests the case where Cofunction assigns a
+    # Cofunction and a BaseForm.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
@@ -832,8 +833,9 @@ def test_assign_cofunction(solve_type):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_assign_zero_cofunction():
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
     # It is expected the tape breaks since the functional loses its dependency
-    # on the control after the `Cofunction` assigns Zero.
+    # on the control after the Cofunction assigns Zero.
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     v = TestFunction(V)
@@ -851,5 +853,5 @@ def test_assign_zero_cofunction():
         Exception, match="Invalid data: expected 9 values, got 1!"
     ):
         # The tape is expected to break here. If the tape does not break or
-        # breaks with a different error message, then the test has failed.
+        # breaks with a different error message, then this test fails.
         compute_gradient(J, Control(k))
