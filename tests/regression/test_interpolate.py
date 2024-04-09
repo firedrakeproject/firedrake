@@ -372,8 +372,7 @@ def test_adjoint_quads():
 
     v = conj(TestFunction(P2))
     u_P1 = assemble(conj(TestFunction(P1)) * dx)
-    interpolator = Interpolator(TestFunction(P1), P2)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(P1), assemble(v * dx)))
 
     assert np.allclose(u_P1.dat.data, v_adj.dat.data)
 
@@ -385,8 +384,7 @@ def test_adjoint_dg():
 
     v = conj(TestFunction(dg1))
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
-    interpolator = Interpolator(TestFunction(cg1), dg1)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(cg1), assemble(v * dx)))
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
