@@ -849,9 +849,6 @@ def test_assign_zero_cofunction():
     sol = Function(V, name="c")
     solve(a == u0, sol)
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
-    with pytest.raises(
-        Exception, match="Invalid data: expected 9 values, got 1!"
-    ):
-        # The tape is expected to break here. If the tape does not break or
-        # breaks with a different error message, then this test fails.
-        compute_gradient(J, Control(k))
+    # The zero assignment should break the tape and hence cause a zero
+    # gradient.
+    assert all(compute_gradient(J, Control(k)).dat.data_ro == 0.0)
