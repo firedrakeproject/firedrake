@@ -388,6 +388,23 @@ def test_adjoint_dg():
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
 
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_function_cofunction(degree):
+    mesh = UnitSquareMesh(10, 10)
+    Pkp1 = FunctionSpace(mesh, "CG", degree+1)
+    Pk = FunctionSpace(mesh, "CG", degree)
+
+    v1 = conj(TestFunction(Pkp1))
+    x = SpatialCoordinate(mesh)
+    f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1])), Pk)
+
+    fhat = assemble(f*v1*dx)
+    norm_i = assemble(interpolate(f, fhat))
+    norm = assemble(f*f*dx)
+
+    assert np.allclose(norm_i, norm)
+
+
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
