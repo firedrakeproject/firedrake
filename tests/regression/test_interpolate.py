@@ -359,8 +359,7 @@ def test_adjoint_Pk(degree):
 
     v = conj(TestFunction(Pkp1))
     u_Pk = assemble(conj(TestFunction(Pk)) * dx)
-    interpolator = Interpolator(TestFunction(Pk), Pkp1)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
 
