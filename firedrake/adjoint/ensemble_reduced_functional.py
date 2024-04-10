@@ -13,9 +13,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        
         if isinstance(local_functional, float): 
-            total_functional = self.ensemble.ensemble_comm.allreduce(np.array([local_functional]), op=MPI.SUM)[0]
+            total_functional = self.ensemble.comm.allreduce(sendobj=local_functional, op=MPI.SUM)
         elif isinstance(local_functional, firedrake.Function):
             total_functional = firedrake.Function(local_functional.function_space())
             total_functional = self.ensemble.allreduce(local_functional, total_functional)
