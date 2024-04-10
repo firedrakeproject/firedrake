@@ -439,7 +439,7 @@ def _(
 
 @pack_pyop3_tensor.register
 def _(
-    mat: op3.PetscMat,
+    mat: op3.Mat,
     Vrow: WithGeometry,
     Vcol: WithGeometry,
     index: op3.LoopIndex,
@@ -484,7 +484,7 @@ def _(
 
     # axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
     axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
-    axes0 = _with_shape_axes(Vrow, axes0, integral_type)
+    axes0, target_paths0, index_exprs0 = _with_shape_axes(Vrow, axes0, target_paths0, index_exprs0, integral_type)
 
     # taken from harray.getitem
     from pyop3.itree.tree import _compose_bits
@@ -510,7 +510,7 @@ def _(
 
     # axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
     axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol)
-    axes1 = _with_shape_axes(Vcol, axes1, integral_type)
+    axes1, target_paths1, index_exprs1 = _with_shape_axes(Vcol, axes1, target_paths1, index_exprs1, integral_type)
 
     target_paths1, index_exprs1, _ = _compose_bits(
         cf_indexed.caxes,
@@ -530,9 +530,10 @@ def _(
     # myindextree1 = op3.IndexTree(mynodemap)
     # myindextree1 = _with_shape_indices(Vcol, myindextree1, integral_type in {"exterior_facet", "interior_facet"})
 
-    return op3.PetscMat(
+    return op3.Mat(
         axes0,
         axes1,
+        mat_type=cf_indexed.mat_type,
         mat=cf_indexed.mat,
         # TODO: Make these attributes of axes0 and axes1 (IndexedAxisTree!)
         rtarget_paths=target_paths0,
@@ -549,7 +550,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
     plex = V.ufl_domain().topology
 
     if V.ufl_element().family() == "Real":
-        indices = op3.IndexTree(op3.ScalarIndex(plex.name, "XXX", 0))
+        indices = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
     else:
         indices = op3.IndexTree.from_nest({
             plex._fiat_closure(cell): [

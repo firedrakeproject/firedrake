@@ -526,7 +526,9 @@ class FunctionSpace:
             if self._comm.size > 1:
                 raise NotImplementedError("Hitting minor issues in layout tabulation")
             # axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), mesh.topology.name, sf=op3.single_star(self._comm))
-            axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), mesh.topology.name)
+            # it is important to mark as unit here so we can distinguish row and column
+            # matrices.
+            axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
             axes = op3.PartialAxisTree(axis)
 
             if self.shape:

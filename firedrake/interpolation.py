@@ -942,14 +942,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            sparsity = op3.PetscMatPreallocator(V.axes, argfs.axes)
+            sparsity = op3.Sparsity(V.axes, argfs.axes)
             # Pretend that we are assembling the operator to populate the sparsity.
             target_plex = target_mesh.topology
             op3.do_loop(
                 c := target_plex.cells.index(),
                 sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666),
             )
-            tensor = op3.PetscMatAIJ.from_sparsity(V.axes, argfs.axes, sparsity)
+            tensor = op3.Mat.from_sparsity(sparsity)
         f = tensor
     else:
         raise ValueError(

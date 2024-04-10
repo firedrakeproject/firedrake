@@ -1303,18 +1303,38 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         Tuple of validated/default ``mat_type`` and ``sub_mat_type``.
 
     """
+    has_real_subspace = any(
+        _is_real_space(V) for arg in arguments for V in arg.function_space()
+    )
+
     if mat_type is None:
-        mat_type = parameters.parameters["default_matrix_type"]
-        if any(V.ufl_element().family() == "Real"
-               for arg in arguments
-               for V in arg.function_space()):
+        if has_real_subspace:
             mat_type = "nest"
-    if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
-        raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
+        else:
+            mat_type = parameters.parameters["default_matrix_type"]
+
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
+
+    if has_real_subspace and mat_type != "nest":
+        raise ValueError
     if sub_mat_type not in {"aij", "baij"}:
-        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
+        raise ValueError(
+            f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')"
+        )
+
+    if mat_type == "nest":
+        mat_type = {}
+        test, trial = arguments
+        for test_subspace in test.function_space():
+            for trial_subspace in trial.function_space():
+                subspace_key = test_subspace.index, trial_subspace.index
+                if any(_is_real_space(s) for s in {test_subspace, trial_subspace}):
+                    mat_type[subspace_key] = "dat"
+                else:
+                    mat_type[subspace_key] = sub_mat_type
+
+    # sub_mat_type no longer used after this
     return mat_type, sub_mat_type
 
 
@@ -1343,9 +1363,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
                  allocation_integral_types=None):
+        # The previous API was that the user would specify mat_type and sub_mat_type, now
+        # mat_type can be a dict so convert to that here.
+        # NOTE: This function is called in TwoFormAssembler, should it be?
+        # mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
+
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_type = mat_type
-        self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
         self._appctx = appctx
         self.weight = weight
@@ -1357,42 +1381,28 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             test,
             trial,
             self._mat_type,
-            self._sub_mat_type,
             self._make_maps_and_regions(),
         )
-        mat = op3.PetscMatAIJ.from_sparsity(
-            test.function_space().axes,
-            trial.function_space().axes,
-            sparsity,
-        )
+        mat = op3.Mat.from_sparsity(sparsity)
         return matrix.Matrix(
             self._form,
             self._bcs,
+            # shouldn't be needed!
             self._mat_type,
             mat,
             options_prefix=self._options_prefix
         )
 
     @staticmethod
-    def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
-        # TODO handle different mat types
-        if mat_type != "aij":
-            raise NotImplementedError
-
-        assert mat_type != "matfree"
-        nest = mat_type == "nest"
-        if nest:
-            raise NotImplementedError
-        if nest:
-            baij = sub_mat_type == "baij"
-        else:
-            baij = mat_type == "baij"
+    def _make_sparsity(test, trial, mat_type, maps_and_regions):
+        # Is this overly restrictive?
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
-            # Is this overly restrictive?
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        sparsity = op3.PetscMatPreallocator(
-            test.function_space().axes, trial.function_space().axes
+        sparsity = op3.Sparsity(
+            test.function_space().axes,
+            trial.function_space().axes,
+            mat_type=mat_type
         )
 
         # Pretend that we are doing assembly by looping over the right
@@ -1555,15 +1565,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # is ignored by PyOP2 in this case.
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
-                if j != index and s.ufl_element().family() == "Real":
+                if j != index and _is_real_space(s):
                     self._apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
-                if i != index and s.ufl_element().family() == "Real":
+                if i != index and _is_real_space(s):
                     self._apply_bcs_mat_real_block(op2tensor, i, index, component, bc.node_set)
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
-                if s.ufl_element().family() == "Real":
+                if _is_real_space(s):
                     self._apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
@@ -1835,41 +1845,44 @@ class ParloopBuilder:
 
             return pack_pyop3_tensor(tensor, V, index, self._integral_type)
         elif rank == 2:
-            if any(V.ufl_element().family() == "Real" for V in Vs):
-                # see below
-                raise NotImplementedError
+            if all(_is_real_space(V) for V in Vs):
+                just_one = op3.utils.just_one
+                ridx, cidx = map(just_one, just_one(tensor.nest_labels))
+                if ridx is None:
+                    ridx = 0
+                if cidx is None:
+                    cidx = 0
 
-            return pack_pyop3_tensor(tensor, *Vs, index, self._integral_type)
+                submat = tensor.mat.getNestSubMatrix(ridx, cidx)
+                return submat.getPythonContext().dat
+            elif any(_is_real_space(V) for V in Vs):
+                just_one = op3.utils.just_one
+                ridx, cidx = map(just_one, just_one(tensor.nest_labels))
+                if ridx is None:
+                    ridx = 0
+                if cidx is None:
+                    cidx = 0
 
-            # rmap, cmap = [self._get_map(V) for V in Vs]
-            #
-            # if all(V.ufl_element().family() == "Real" for V in Vs):
-            #     assert rmap is None and cmap is None
-            #     return tensor.handle.getPythonContext().global_
-            # elif any(V.ufl_element().family() == "Real" for V in Vs):
-            #     m = rmap or cmap
-            #     return tensor.handle.getPythonContext().dat[m(index)]
-            # else:
-            #     if self._lgmaps:
-            #         raise NotImplementedError
-            #     # return tensor[rmap(index), cmap(index)], lgmaps=self._lgmaps)
-            #     return tensor[rmap(index), cmap(index)]
+                submat = tensor.mat.getNestSubMatrix(ridx, cidx)
+
+                V, = [V for V in Vs if V.ufl_element().family() != "Real"]
+                dat = submat.getPythonContext().dat
+                return pack_pyop3_tensor(dat, V, index, self._integral_type)
+            else:
+                if self.collect_lgmaps() is not None:
+                    raise NotImplementedError
+                return pack_pyop3_tensor(tensor, *Vs, index, self._integral_type)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        retval = pack_tensor(self._mesh.coordinates, index, self._integral_type)
-        # breakpoint()
-        return retval
+        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        if coeff.ufl_element().family() == "Real":
-            return coeff.dat
-        else:
-            return pack_tensor(coeff, index, self._integral_type)
+        return pack_tensor(coeff, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -1971,3 +1984,7 @@ class _FormHandler:
             return tensor.M[indices]
         else:
             raise AssertionError
+
+
+def _is_real_space(space):
+    return space.ufl_element().family() == "Real"

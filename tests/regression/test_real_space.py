@@ -64,15 +64,12 @@ def test_real_mixed_one_form_assembly():
 
     mfs = cgfs*rfs
     v, q = TestFunctions(mfs)
-
     A = assemble(conj(v) * dx + q * dx)
 
     qq = TestFunction(rfs)
-
     AA = assemble(qq * dx)
 
-    np.testing.assert_almost_equal(A.dat.data[1],
-                                   AA.dat.data)
+    assert np.allclose(A.dat[1].data, AA.dat.data)
 
 
 @pytest.mark.skipcomplex
@@ -92,15 +89,17 @@ def test_real_mixed_two_form_assembly():
     uu = TrialFunction(cgfs)
 
     m00 = assemble(inner(uu, vv) * dx)
-    np.testing.assert_almost_equal(m00.M.values,
-                                   m.M.blocks[0][0].values)
+    assert np.allclose(m00.M.values,
+                       m.M[0, 0].values)
+
     m01 = assemble(uu * qq * dx)
-    np.testing.assert_almost_equal(m01.M.values.T,
-                                   m.M.blocks[0][1].values)
-    np.testing.assert_almost_equal(m01.M.values,
-                                   m.M.blocks[1][0].values)
-    np.testing.assert_almost_equal(np.array([[1.]]),
-                                   m.M.blocks[1][1].values)
+    assert np.allclose(m01.M.values.T,
+                       m.M[0, 1].values)
+    assert np.allclose(m01.M.values,
+                       m.M[1, 0].values)
+
+    assert np.allclose(np.array([[1.]]),
+                       m.M[1, 1].values)
 
 
 @pytest.mark.skipcomplex
