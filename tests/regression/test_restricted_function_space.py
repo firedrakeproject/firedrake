@@ -185,7 +185,7 @@ def compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver):
 def test_restricted_eigenvalue_problem(): 
     # test if restrict=True gives same result as just putting in functions from restricted space anyways
     mesh = UnitSquareMesh(1, 1)
-    V  = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     V_res = RestrictedFunctionSpace(V, boundary_set=[1])
     bc = DirichletBC(V, 0, 1)
     bc_res = DirichletBC(V_res, 0, 1)
@@ -213,12 +213,10 @@ def test_restricted_eigenvalue_problem_2():
     phi, psi = TestFunction(V), TrialFunction(V)
     eigenproblem = LinearEigenproblem(
             A=phi*psi.dx(0)*dx,
-            M=-inner(grad(psi), grad(phi))*dx - psi*phi*dx,
             bcs=bc, bc_shift=100, restrict=False)
     eigensolver = LinearEigensolver(eigenproblem, n_evals=4)
     other_eigenproblem = LinearEigenproblem(
             A=phi*psi.dx(0)*dx,
-            M=-inner(grad(psi), grad(phi))*dx - psi*phi*dx,
             bcs=bc, bc_shift=100, restrict=True)
     other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
     compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)
