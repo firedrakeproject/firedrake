@@ -69,9 +69,14 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             V_res = RestrictedFunctionSpace(V, boundary_set=set([bc.sub_domain for bc in bcs]))
             bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
             u = Function(V_res).interpolate(u)
-            F_arg, = F.arguments()
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-            F = replace(F, {F_arg: v_res})
+            F_arg, = F.arguments()
+            F_coefs = F.coefficients()
+            replace_dict = {F_arg: v_res}
+            for coef in F_coefs:
+                replace_dict[coef] = ufl.Coefficient(V_res.ufl_function_space())
+
+            F = replace(F, replace_dict)
             if J:
                 v_arg, u_arg = J.arguments()
                 J = replace(J, {v_arg: v_res, u_arg: u_res})
