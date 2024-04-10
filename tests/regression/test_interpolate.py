@@ -396,7 +396,7 @@ def test_function_cofunction(degree):
 
     v1 = conj(TestFunction(Pkp1))
     x = SpatialCoordinate(mesh)
-    f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1])), Pk)
+    f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1]), Pk))
 
     fhat = assemble(f*v1*dx)
     norm_i = assemble(interpolate(f, fhat))
