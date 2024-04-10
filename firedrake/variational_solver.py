@@ -5,8 +5,12 @@ from contextlib import ExitStack
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake import function
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.function import Function
+from firedrake.functionspace import RestrictedFunctionSpace
+from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from ufl import replace
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -44,7 +48,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False):
+                 is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -58,6 +62,23 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
         """
+        V = u.function_space()
+        self.output_space = V
+
+        if restrict and bcs:
+            V_res = RestrictedFunctionSpace(V, boundary_set=set([bc.sub_domain for bc in bcs]))
+            bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            u = Function(V_res).interpolate(u)
+            F_arg, = F.arguments()
+            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
+            F = replace(F, {F_arg: v_res})
+            if J:
+                v_arg, u_arg = J.arguments()
+                J = replace(J, {v_arg: v_res, u_arg: u_res})
+            if Jp:
+                v_arg, u_arg = Jp.arguments()
+                Jp = replace(Jp, {v_arg: v_res, u_arg: u_res})
+            self.restricted_space = V_res
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
@@ -68,6 +89,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.u = u
         self.F = F
         self.Jp = Jp
+        self.restrict = restrict
         if not isinstance(self.u, function.Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
         # Use the user-provided Jacobian. If none is provided, derive
@@ -283,6 +305,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
             work.copy(u)
         self._setup = True
+        if problem.restrict:
+            u = Function(problem.output_space).interpolate(u)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
@@ -296,7 +320,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False):
+                 constant_jacobian=False, restrict=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -326,7 +350,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True)
+                                                       is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
 
 

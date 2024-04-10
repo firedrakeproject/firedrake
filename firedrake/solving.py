@@ -138,7 +138,7 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix = _extract_args(*args, **kwargs)
+        options_prefix, restrict = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(u, (function.Function, vector.Vector)):
@@ -153,7 +153,8 @@ def _solve_varproblem(*args, **kwargs):
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.BaseForm):
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              form_compiler_parameters=form_compiler_parameters)
+                                              form_compiler_parameters=form_compiler_parameters, 
+                                              restrict=restrict)
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
@@ -169,7 +170,8 @@ def _solve_varproblem(*args, **kwargs):
             raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
-                                                 form_compiler_parameters=form_compiler_parameters)
+                                                 form_compiler_parameters=form_compiler_parameters, 
+                                                 restrict=restrict)
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
@@ -278,7 +280,7 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx"]
+                    "options_prefix", "appctx", "restrict"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -321,9 +323,11 @@ def _extract_args(*args, **kwargs):
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
+    restrict = kwargs.get("restrict", False)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
+        solver_parameters, nullspace, nullspace_T, near_nullspace, \
+        options_prefix, restrict
 
 
 def _extract_bcs(bcs):
