@@ -5,6 +5,7 @@ We solve the Navier-Stokes equations using Taylor-Hood elements.  The
 example is that of a lid-driven cavity. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
 
   N = 64
 
@@ -134,7 +135,7 @@ And finally we write the results to a file for visualisation. ::
   u.rename("Velocity")
   p.rename("Pressure")
 
-  File("cavity.pvd").write(u, p)
+  VTKFile("cavity.pvd").write(u, p)
 
 A runnable python script implementing this demo file is available
 :demo:`here <navier_stokes.py>`.

@@ -49,7 +49,7 @@ def test_volume(stepdata):
         mh = OpenCascadeMeshHierarchy(stepfile, element_size=h, levels=3, cache=False, verbose=False)
         v_true = get_volume(stepfile)
     except ImportError:
-        pytest.skip(msg="OpenCascade unavailable, skipping test")
+        pytest.skip(reason="OpenCascade unavailable, skipping test")
 
     print("True volume for %s: %s" % (os.path.basename(stepfile), v_true))
     err = compute_err(mh, v_true)
@@ -67,7 +67,7 @@ def test_area(order):
     try:
         mh = OpenCascadeMeshHierarchy(stepfile, element_size=h, levels=3, cache=False, verbose=False, order=order)
     except ImportError:
-        pytest.skip(msg="OpenCascade unavailable, skipping test")
+        pytest.skip(reason="OpenCascade unavailable, skipping test")
     from math import pi
     a_true = pi/4
     print("True ara for %s: %s" % (os.path.basename(stepfile), a_true))

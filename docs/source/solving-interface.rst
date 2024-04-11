@@ -26,6 +26,8 @@ of type :py:class:`~.DirichletBC`, ``bc``.
 Now that we have all the pieces of our variational problem, we can
 move forward to solving it.
 
+.. _solve_var_problem:
+
 Solving the variational problem
 -------------------------------
 

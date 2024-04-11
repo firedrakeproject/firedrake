@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from firedrake.petsc import PETSc
 import pytest
 import numpy as np
@@ -171,7 +172,7 @@ def test_near_nullspace(tmpdir):
     n1 = Constant((0, 1))
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
-    n_interp = [interpolate(n, V) for n in ns]
+    n_interp = [assemble(interpolate(n, V)) for n in ns]
     nsp = VectorSpaceBasis(vecs=n_interp)
     nsp.orthonormalize()
 
@@ -257,8 +258,9 @@ def test_nullspace_mixed_multiple_components():
             'ksp_type': 'fgmres',
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-7',
             'ksp_monitor': None,
         }
@@ -287,10 +289,12 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
+@pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 def test_near_nullspace_mixed(aux_pc):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
+    # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
     PETSc.Sys.popErrorHandler()
     n = 64
     mesh = UnitSquareMesh(n, n)
@@ -361,8 +365,9 @@ def test_near_nullspace_mixed(aux_pc):
             'ksp_converged_reason': None,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.MassInvPC',
-            'Mp_ksp_type': 'cg',
-            'Mp_pc_type': 'sor',
+            'Mp_pc_type': 'ksp',
+            'Mp_ksp_ksp_type': 'cg',
+            'Mp_ksp_pc_type': 'sor',
             'ksp_rtol': '1e-5',
             'ksp_monitor': None,
         }
@@ -382,5 +387,5 @@ def test_near_nullspace_mixed(aux_pc):
     assert ksp_inner.getConvergedReason() > 0
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
-    # currently ~22 vs. >45-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 25
+    # currently ~22 (25 on 2 cores) vs. >45-ish for with/without near nullspace
+    assert ksp_inner.getIterationNumber() < 27

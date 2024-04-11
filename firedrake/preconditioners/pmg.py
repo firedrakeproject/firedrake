@@ -13,6 +13,7 @@ from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import cached
+from pyop2.utils import as_tuple
 
 import firedrake
 import finat
@@ -386,22 +387,7 @@ class PMGBase(PCSNESBase):
     @staticmethod
     def max_degree(ele):
         """Return the maximum degree of a :class:`finat.ufl.finiteelement.FiniteElement`"""
-        if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            return PMGBase.max_degree(ele._sub_element)
-        elif isinstance(ele, (finat.ufl.MixedElement, finat.ufl.TensorProductElement)):
-            return max(PMGBase.max_degree(sub) for sub in ele.sub_elements)
-        elif isinstance(ele, finat.ufl.EnrichedElement):
-            return max(PMGBase.max_degree(sub) for sub in ele._elements)
-        elif isinstance(ele, finat.ufl.WithMapping):
-            return PMGBase.max_degree(ele.wrapee)
-        elif isinstance(ele, (finat.ufl.HDivElement, finat.ufl.HCurlElement, finat.ufl.BrokenElement, finat.ufl.RestrictedElement)):
-            return PMGBase.max_degree(ele._element)
-        else:
-            degree = ele.degree()
-            try:
-                return max(degree)
-            except TypeError:
-                return degree
+        return max(as_tuple(ele.degree()))
 
     @staticmethod
     def reconstruct_degree(ele, degree):
@@ -591,8 +577,8 @@ def hash_fiat_element(element):
     return (family, element.ref_el, degree, restriction)
 
 
-def generate_key_evaluate_dual(source, target, alpha=tuple()):
-    return hash_fiat_element(source) + hash_fiat_element(target) + (alpha,)
+def generate_key_evaluate_dual(source, target, derivative=None):
+    return hash_fiat_element(source) + hash_fiat_element(target) + (derivative,)
 
 
 def get_readonly_view(arr):
@@ -602,19 +588,40 @@ def get_readonly_view(arr):
 
 
 @cached({}, key=generate_key_evaluate_dual)
-def evaluate_dual(source, target, alpha=tuple()):
+def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
-       on the (derivative of order alpha of the) basis functions of the source
-       element."""
+    on the (derivative of the) basis functions of the source element.
+
+    Parameters
+    ----------
+    source :
+        A :class:`FIAT.CiarletElement` to interpolate.
+    target :
+        A :class:`FIAT.CiarletElement` defining the interpolation space.
+    derivative : ``str`` or ``None``
+        An optional differential operator to apply on the source expression,
+        (currently only "grad" is supported).
+
+    Returns
+    -------
+    A read-only :class:`numpy.ndarray` with the evaluation of the target
+    dual basis on the (derivative of the) source primal basis.
+    """
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
     B = numpy.transpose(primal.get_coeffs())
-    if sum(alpha) != 0:
+    if derivative == "grad":
         dmats = primal.get_dmats()
+        assert len(dmats) == 1
+        alpha = (1,)
         for i in range(len(alpha)):
             for j in range(alpha[i]):
                 B = numpy.dot(dmats[i], B)
+    elif derivative in ("curl", "div"):
+        raise NotImplementedError(f"Dual evaluation of {derivative} is not yet implemented.")
+    elif derivative is not None:
+        raise ValueError(f"Invalid derivaitve type {derivative}.")
     return get_readonly_view(numpy.dot(A, B))
 
 
@@ -1528,8 +1535,10 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
         Pk = Pk.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
-                      (Pk.cell_node_map(),
-                       P1.cell_node_map()))
+                      {(i, j): [(rmap, cmap, None)]
+                          for i, rmap in enumerate(Pk.cell_node_map())
+                          for j, cmap in enumerate(P1.cell_node_map())
+                          if i == j})
     mat = op2.Mat(sp, PETSc.ScalarType)
     mesh = Pk.mesh()
 

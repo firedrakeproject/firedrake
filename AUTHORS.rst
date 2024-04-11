@@ -68,6 +68,8 @@ Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
 
+Daiane I. Dolci...............<https://www.imperial.ac.uk/people/d.dolci>
+
 Patrick E. Farrell............<https://pefarrell.org>
 
 Simon W. Funke................<http://www.simonfunke.com>

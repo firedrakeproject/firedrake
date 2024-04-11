@@ -8,6 +8,13 @@
 Firedrake events
 ----------------
 
+Firedrake '24
+~~~~~~~~~~~~~
+
+The eighth Firedrake user and developer workshop will be held
+between 16-18 September 2024 at the University of Oxford. For more
+information see :doc:`the workshop page <firedrake_24>`.
+
 Firedrake '23
 ~~~~~~~~~~~~~
 
@@ -18,8 +25,8 @@ information see :doc:`the workshop page <firedrake_23>`.
 PETSc4py documentation sprint
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Firedrakers and collaborators will be meeting to finally document PETSc4py in
-Faversham, Kent from 27-31 March 2023. Stay tuned for updates.
+Firedrakers and collaborators met to finally document PETSc4py in
+Faversham, Kent from 27-31 March 2023.
 
 Firedrake '22
 ~~~~~~~~~~~~~
@@ -39,9 +46,8 @@ G-Adopt Firedrake workshop April 28-29 2022
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The `G-ADOPT <https://g-adopt.github.io/index.html>`__ programme held a
-`workshop on automating finite element methods for geodynamics via firedrake
-<https://g-adopt.github.io/workshop.html>`__ at the Australian National
-University in Canberra.
+workshop on automating finite element methods for geodynamics via firedrake
+at the Australian National University in Canberra.
 
 Firedrake '21
 ~~~~~~~~~~~~~

@@ -99,11 +99,7 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -475,7 +471,6 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        sdata = get_shared_data(mesh, element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -496,7 +491,6 @@ class FunctionSpace(object):
         else:
             self.shape = ()
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self._shared_data = sdata
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -512,32 +506,38 @@ class FunctionSpace(object):
         space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-
         # User comm
         self.comm = mesh.comm
         # Internal comm
-        self._comm = mpi.internal_comm(self.node_set.comm)
+        self._comm = mpi.internal_comm(self.comm, self)
+
+        self.set_shared_data()
+        self.dof_dset = self.make_dof_dset()
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+        self.node_set = self.dof_dset.set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+
+    def set_shared_data(self):
+        element = self.ufl_element()
+        sdata = get_shared_data(self._mesh, element)
         # Need to create finat element again as sdata does not
         # want to carry finat_element.
         self.finat_element = create_element(element)
         # Used for reconstruction of mixed/component spaces.
         # sdata carries real_tensorproduct.
+        self._shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
         self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+    def make_dof_dset(self):
+        return op2.DataSet(self._shared_data.node_set, self.shape or 1,
+                           name=f"{self.name}_nodes_dset")
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -584,7 +584,7 @@ class FunctionSpace(object):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self._shared_data.global_numbering)
+                             section=self.global_numbering)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -817,7 +817,8 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = mesh
-        self.comm = self.node_set.comm
+        self.comm = mesh.comm
+        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1101,17 +1102,7 @@ class RealFunctionSpace(FunctionSpace):
     """
 
     finat_element = None
-    rank = 0
-    shape = ()
-    value_size = 1
-
-    def __init__(self, mesh, element, name):
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
-        self.name = name
-        self.comm = mesh.comm
-        self._mesh = mesh
-        self.dof_dset = op2.GlobalDataSet(self.make_dat())
-        self.node_set = self.dof_dset.set
+    global_numbering = None
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):
@@ -1126,21 +1117,16 @@ class RealFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=None)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+    def set_shared_data(self):
+        pass
+
+    def make_dof_dset(self):
+        return op2.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self.comm)
+        return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
@@ -1161,9 +1147,6 @@ class RealFunctionSpace(FunctionSpace):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
-
-    def dim(self):
-        return 1
 
     def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0

@@ -3,7 +3,7 @@ from collections import OrderedDict
 import numpy as np
 
 from ufl.form import ZeroBaseForm
-from pyop2.mpi import internal_comm, decref
+from pyop2.mpi import internal_comm
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -59,11 +59,7 @@ class Vector(object):
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
         self.comm = self.function.function_space().comm
-        self._comm = internal_comm(self.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
+        self._comm = internal_comm(self.comm, self)
 
     @firedrake.utils.cached_property
     def dat(self):

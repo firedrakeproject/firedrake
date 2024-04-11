@@ -15,7 +15,11 @@ RUN bash -c "source firedrake/bin/activate; \
         --slepc \
         --tinyasm \
         --install femlium \
+        --install defcon \
+        --install fascd \
+        --install gadopt \
         --install gusto \
         --install icepack \
         --install irksome \
+        --install asQ \
         --install thetis"

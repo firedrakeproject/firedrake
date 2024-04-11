@@ -93,7 +93,7 @@ class Halo(op2.Halo):
     def __init__(self, dm, section, comm):
         super(Halo, self).__init__()
         self.comm = comm
-        self._comm = mpi.internal_comm(comm)
+        self._comm = mpi.internal_comm(comm, self)
         # Use a DM to create the halo SFs
         if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
@@ -101,23 +101,9 @@ class Halo(op2.Halo):
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
-
     @utils.cached_property
     def sf(self):
-        lsec = self.dm.getDefaultSection()
-        gsec = self.dm.getDefaultGlobalSection()
-        self.dm.createDefaultSF(lsec, gsec)
-        # The full SF is designed for GlobalToLocal or LocalToGlobal
-        # where the input and output buffers are different.  So on the
-        # local rank, it copies data from input to output.  However,
-        # our halo exchanges use the same buffer for input and output
-        # (so we don't need to do the local copy).  To facilitate
-        # this, prune the SF to remove all the roots that reference
-        # the local rank.
-        sf = dmcommon.prune_sf(self.dm.getDefaultSF())
+        sf = dmcommon.create_halo_exchange_sf(self.dm)
         sf.setFromOptions()
         if sf.getType() != sf.Type.BASIC:
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")

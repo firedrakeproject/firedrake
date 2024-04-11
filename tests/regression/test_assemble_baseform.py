@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import allocate_matrix
+from firedrake.assemble import BaseFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 import ufl
 
@@ -155,6 +155,23 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
+def test_preprocess_form(M, a, f):
+    from ufl.algorithms import expand_indices, expand_derivatives
+
+    expr = action(action(M, M), f)
+    A = BaseFormAssembler.preprocess_base_form(expr)
+    B = action(expand_derivatives(M), action(M, f))
+
+    assert isinstance(A, ufl.Action)
+    try:
+        # Need to expand indices to be able to match equal (different MultiIndex used for both).
+        assert expand_indices(A.left()) == expand_indices(B.left())
+        assert expand_indices(A.right()) == expand_indices(B.right())
+    except KeyError:
+        # Index expansion doesn't seem to play well with tensor elements.
+        pass
+
+
 def test_tensor_copy(a, M):
 
     # 1-form tensor
@@ -169,7 +186,7 @@ def test_tensor_copy(a, M):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
     # 2-form tensor
-    tensor = allocate_matrix(M)
+    tensor = get_assembler(M).allocate()
     formsum = assemble(M) + M
     res = assemble(formsum, tensor=tensor)
 
@@ -292,3 +309,18 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     postassemble_action = assemble(action(assembled_matrix, f))
 
     assert np.allclose(preassemble_action.M.values, postassemble_action.M.values, rtol=1e-14)
+
+
+def test_assemble_baseform_return_tensor_if_given():
+    mesh = UnitIntervalMesh(1)
+    space = FunctionSpace(mesh, "Discontinuous Lagrange", 0)
+    test = TestFunction(space)
+
+    form = ufl.conj(test) * dx
+    tensor = Cofunction(space.dual())
+
+    b0 = assemble(form)
+    b1 = assemble(b0, tensor=tensor)
+
+    assert b0 is not b1
+    assert b1 is tensor
