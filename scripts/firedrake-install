@@ -1699,8 +1699,7 @@ run_pip(["install", "-U", "Cython>=3.0.6"])
 
 # 11/04/24 Install a 2.0 release candidate because 2.0 has not yet been
 # officially released but we cannot build petsc4py without it.
-run_pip_install(["numpy==2.0.0rc1"])
-
+run_pip(["install", "-U", "numpy==2.0.0rc1"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
