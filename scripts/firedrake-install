@@ -1695,7 +1695,7 @@ run_pip(["install", "-U", "wheel"])
 # Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
 run_pip(["install", "-U", "meson-python>=0.15.0"])
-run_pip(["install", "-U", "Cython>=3.0"])
+run_pip(["install", "-U", "Cython>=3.0.6"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
@@ -1848,6 +1848,10 @@ if mode == "install":
     # Install mpi4py
     with environment(**compiler_env, **link_env):
         run_pip_install(["--no-cache-dir", "mpi4py"])
+
+    # 11/04/24 Install a 2.0 release candidate because 2.0 has not yet been
+    # officially released but we cannot build petsc4py without it.
+    run_pip_install(["numpy==2.0.0rc1"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
