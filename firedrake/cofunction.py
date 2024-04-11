@@ -3,12 +3,13 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
-from pyadjoint.tape import stop_annotating
+from pyadjoint.tape import stop_annotating, annotate_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.petsc import PETSc
 
 
@@ -32,7 +33,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -56,7 +58,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self, V.ufl_function_space())
+        ufl.Cofunction.__init__(self, V.ufl_function_space(), count=count)
 
         # User comm
         self.comm = V.comm
@@ -194,9 +196,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
-            # Keep the identifier of the Cofunction being assigned to.
-            expr._count = self.count()
-            self.block_variable = expr.block_variable
+            # do not annotate in case of self assignment
+            annotate = annotate_tape() and self != expr
+            if annotate:
+                self.block_variable = self.create_block_variable()
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
