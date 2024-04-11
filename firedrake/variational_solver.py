@@ -64,26 +64,35 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         """
         V = u.function_space()
         self.output_space = V
+        self.u = u
+
+        if not isinstance(self.u, function.Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+
+        # Use the user-provided Jacobian. If none is provided, derive
+        # the Jacobian from the residual.
+        self.J = J or ufl_expr.derivative(F, u)
+        self.F = F
+        self.Jp = Jp
+        self.restrict = restrict
 
         if restrict and bcs:
             V_res = RestrictedFunctionSpace(V, boundary_set=set([bc.sub_domain for bc in bcs]))
             bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
-            u = Function(V_res).interpolate(u)
+            self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             F_arg, = F.arguments()
-            F_coefs = F.coefficients()
             replace_dict = {F_arg: v_res}
-            for coef in F_coefs:
-                replace_dict[coef] = ufl.Coefficient(V_res.ufl_function_space())
-
-            F = replace(F, replace_dict)
-            if J:
-                v_arg, u_arg = J.arguments()
-                J = replace(J, {v_arg: v_res, u_arg: u_res})
-            if Jp:
-                v_arg, u_arg = Jp.arguments()
-                Jp = replace(Jp, {v_arg: v_res, u_arg: u_res})
+            replace_dict[self.u] = self.u_restrict
+            self.F = replace(F, replace_dict)
+            v_arg, u_arg = self.J.arguments()
+            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res})
+            if self.Jp:
+                v_arg, u_arg = self.Jp.arguments()
+                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res})
             self.restricted_space = V_res
+        else:
+            self.u_restrict = u
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
@@ -91,15 +100,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
 
-        self.u = u
-        self.F = F
-        self.Jp = Jp
-        self.restrict = restrict
-        if not isinstance(self.u, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
-        # Use the user-provided Jacobian. If none is provided, derive
-        # the Jacobian from the residual.
-        self.J = J or ufl_expr.derivative(F, u)
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
@@ -114,7 +114,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
     @utils.cached_property
     def dm(self):
-        return self.u.function_space().dm
+        return self.u_restrict.function_space().dm
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
@@ -225,7 +225,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -290,7 +290,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
-            dbc.apply(problem.u)
+            dbc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds
@@ -298,7 +298,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u.dat.vec as u:
+        with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
@@ -311,11 +311,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             work.copy(u)
         self._setup = True
         if problem.restrict:
-            u = Function(problem.output_space).interpolate(u)
+            problem.u.interpolate(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u.function_space().mesh()._comm
+        comm = self._problem.u_restrict.function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
 
