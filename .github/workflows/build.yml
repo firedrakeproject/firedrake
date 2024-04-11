@@ -88,6 +88,7 @@ jobs:
             --install asQ \
             --package-branch fiat connorjward/numpy2 \
             --package-branch pyop2 connorjward/numpy2 \
+            --package-branch tsfc connorjward/numpy2 \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
