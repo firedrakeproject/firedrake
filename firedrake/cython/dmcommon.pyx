@@ -2,6 +2,7 @@
 
 # Utility functions common to all DMs used in Firedrake
 import functools
+import math
 import cython
 import numpy as np
 import firedrake
@@ -970,7 +971,7 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
         coneSize1 -= 1
     assert n == coneSize
     for k in range(n):
-        o += np.math.factorial(n - 1 - k) * inds[k]
+        o += math.factorial(n - 1 - k) * inds[k]
     CHKERR(PetscFree(cone1))
     CHKERR(PetscFree(inds))
     return o
@@ -1022,7 +1023,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
                     io += <PetscInt> (2**(dim - 1 - i)) * 1
                 else:
                     raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
-                eo += np.math.factorial(dim - 1 - i) * j
+                eo += math.factorial(dim - 1 - i) * j
                 for k in range(j, dim1 - 1):
                     plex_cone_copy[2 * k] = plex_cone_copy[2 * k + 2]
                     plex_cone_copy[2 * k + 1] = plex_cone_copy[2 * k + 3]
