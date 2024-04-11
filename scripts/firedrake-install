@@ -1721,6 +1721,11 @@ run_pip(["install", "-U", "wheel"])
 run_pip(["install", "-U", "meson-python>=0.15.0"])
 run_pip(["install", "-U", "Cython>=3.0.6"])
 
+# 11/04/24 Install a 2.0 release candidate because 2.0 has not yet been
+# officially released but we cannot build petsc4py without it.
+run_pip_install(["numpy==2.0.0rc1"])
+
+
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
 run_pip(["install", "-U", "nanobind"])
@@ -1813,15 +1818,6 @@ if mode == "install":
             log.info("Pip installing %s to venv" % package)
             run_pip_install_wrap(package.split(), {})
 
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
-    log.info("Installing numpy==1.24 due to performance regression")
-    # https://github.com/inducer/pytential/issues/211
-    run_pip_install(["numpy==1.24"])
-    log.info("Updating setuptools and wheel to latest versions")
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "wheel"])
-
     # Install VTK
     if not args.no_vtk:
         log.info("Pip installing VTK to venv")
@@ -1872,10 +1868,6 @@ if mode == "install":
     # Install mpi4py
     with environment(**compiler_env, **link_env):
         run_pip_install(["--no-cache-dir", "mpi4py"])
-
-    # 11/04/24 Install a 2.0 release candidate because 2.0 has not yet been
-    # officially released but we cannot build petsc4py without it.
-    run_pip_install(["numpy==2.0.0rc1"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
