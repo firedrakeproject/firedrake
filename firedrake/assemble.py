@@ -1502,6 +1502,10 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
     # N.B. Generating the global kernel is not a collective operation so the
     # communicator does not need to be a part of this cache key.
 
+    # Maps in the cached global kernel depend on concrete mesh data.
+    all_meshes = extract_domains(form)
+    domain_ids = tuple(mesh.ufl_id() for mesh in all_meshes)
+
     if isinstance(form, ufl.Form):
         sig = form.signature()
     elif isinstance(form, slate.TensorBase):
@@ -1521,7 +1525,8 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
                 else:
                     subdomain_key.append((k, i))
 
-    return ((sig, subdomain_id)
+    return (domain_ids
+            + (sig, subdomain_id)
             + tuple(subdomain_key)
             + tuplify(all_integer_subdomain_ids)
             + cachetools.keys.hashkey(local_knl, **kwargs))
