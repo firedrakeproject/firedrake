@@ -135,6 +135,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
     domain = extract_unique_domain(expression)
+    builder._domain_integral_type_map = {domain: "cell"}
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
@@ -143,7 +144,6 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -519,6 +519,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
+    macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -536,7 +537,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     integral_type="cell",
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
@@ -557,13 +557,14 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
+                                domain_integral_type_map={Vc.mesh(): "cell"},
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
                                 coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
-    coarse_builder.set_coordinates(Vc.mesh())
+    coarse_builder.set_coordinates([Vc.mesh()])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
@@ -574,7 +575,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      integral_type="cell",
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
