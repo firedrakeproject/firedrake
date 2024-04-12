@@ -1,6 +1,4 @@
 from pyadjoint import ReducedFunctional
-import numpy as np
-from enum import Enum
 from pyop2.mpi import MPI
 
 import firedrake
@@ -13,8 +11,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        if isinstance(local_functional, float): 
-            total_functional = self.ensemble.comm.allreduce(sendobj=local_functional, op=MPI.SUM)
+        if isinstance(local_functional, float):
+            total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
         elif isinstance(local_functional, firedrake.Function):
             total_functional = firedrake.Function(local_functional.function_space())
             total_functional = self.ensemble.allreduce(local_functional, total_functional)
@@ -37,6 +35,4 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return dJdm_total
 
     def hessian(self, m_dot, options=None):
-
         raise NotImplementedError("Hessian is not yet implemented for ensemble reduced functional.")
-        

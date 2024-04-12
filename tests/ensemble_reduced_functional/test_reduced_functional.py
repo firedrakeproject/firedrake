@@ -18,19 +18,15 @@ def handle_annotation():
 
 @pytest.mark.parallel(nprocs=2)
 def test_ensemble_functional():
-    my_ensemble = Ensemble(COMM_WORLD, COMM_WORLD.size)
-    mesh = UnitSquareMesh(1, 1)
-    R = FunctionSpace(mesh, "R", 0)
-    x = [Function(R) for i in range(2)]
-    c = [Control(xi) for xi in x]
-
-    # Rosenbrock function https://en.wikipedia.org/wiki/Rosenbrock_function
-    # with minimum at x = (1, 1, 1, ...)
-    f = 100*(x[1] - x[0]**2)**2 + (1 - x[0])**2
-
-    J = assemble(f * dx(domain=mesh))
-    rf = EnsembleReducedFunctional(J, c, my_ensemble)
-    taylor_test(rf, x, Function(R, val=1.0))
-    result = minimize(rf)
-    print([float(xi) for xi in result])
-    assert_allclose([float(xi) for xi in result], 1., rtol=1e-4)
+    ensemble = Ensemble(COMM_WORLD, 1)
+    size = COMM_WORLD.size
+    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
+    V = FunctionSpace(mesh, "R", 0)
+    x = function.Function(V).assign(1)
+    J = assemble(x * x * dx(domain=mesh))
+    rf = EnsembleReducedFunctional(J, Control(x), ensemble)
+    ensemble_J = rf(x)
+    dJdm = rf.derivative()
+    assert_allclose(ensemble_J, size, rtol=1e-12)
+    assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-12)
+    assert taylor_test(rf, x, Function(V).assign(1.0))
