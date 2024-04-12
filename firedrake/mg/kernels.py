@@ -135,6 +135,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
     domain = extract_unique_domain(expression)
+    builder._domain_integral_type_map = {domain: "cell"}
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
@@ -520,6 +521,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
+    macro_builder._domain_integral_type_map = {Vf.mesh() : "cell"}
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -541,7 +543,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      entity_ids=entity_ids,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
-                     scalar_type=parameters["scalar_type"])
+                     scalar_type=parameters["scalar_type"],
+                     domain_integral_type_map={Vf.mesh(): "cell"})
 
     macro_context = fem.PointSetContext(**macro_cfg)
     fexpr, = fem.compile_ufl(f, macro_context)
@@ -557,8 +560,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
+                                domain_integral_type_map={Vc.mesh() : "cell"},
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
+                                coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
@@ -577,7 +582,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
                       entity_ids=entity_ids,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
-                      scalar_type=parameters["scalar_type"])
+                      scalar_type=parameters["scalar_type"],
+                      domain_integral_type_map={Vc.mesh(): "cell"})
 
     X = ufl.SpatialCoordinate(Vc.mesh())
     K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
