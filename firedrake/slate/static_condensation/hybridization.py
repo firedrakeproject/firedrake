@@ -54,6 +54,10 @@ class HybridizationPC(SCBase):
 
         V = test.function_space()
         mesh = V.mesh()
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
 
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
@@ -83,7 +87,7 @@ class HybridizationPC(SCBase):
             except TypeError:
                 tdegree = W.ufl_element().degree() - 1
 
-        TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
+        TraceSpace = FunctionSpace(mesh[self.vidx], "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
         broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
@@ -122,10 +126,10 @@ class HybridizationPC(SCBase):
                    trial: TrialFunction(V_d)}
         Atilde = Tensor(replace(self.ctx.a, arg_map))
         gammar = TestFunction(TraceSpace)
-        n = ufl.FacetNormal(mesh)
+        n = ufl.FacetNormal(mesh_unique)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        if mesh.cell_set._extruded:
+        if mesh_unique.cell_set._extruded:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
                      + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
@@ -159,7 +163,7 @@ class HybridizationPC(SCBase):
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
-            if mesh.cell_set._extruded:
+            if mesh_unique.cell_set._extruded:
                 ds = ufl.ds_v
                 for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
@@ -170,7 +174,7 @@ class HybridizationPC(SCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh.exterior_facets.unique_markers]
+                markers = [int(x) for x in mesh_unique.exterior_facets.unique_markers]
                 dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
@@ -185,7 +189,7 @@ class HybridizationPC(SCBase):
             # the exterior boundary. Extruded cells will have both
             # horizontal and vertical facets
             trace_subdomains = ["on_boundary"]
-            if mesh.cell_set._extruded:
+            if mesh_unique.cell_set._extruded:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
