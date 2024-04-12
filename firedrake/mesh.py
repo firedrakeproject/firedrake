@@ -929,6 +929,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
 
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -2439,6 +2445,12 @@ values from f.)"""
         one can only mark cell or facet entities.
         """
         self.topology.mark_entities(f.topological, label_value, label_name)
+
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
 
 
 @PETSc.Log.EventDecorator()
@@ -4160,3 +4172,150 @@ def SubDomainData(geometric_expr):
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
     return op2.Subset(m.cell_set, indices)
+
+
+class MixedMeshGeometry(ufl.MixedMesh):
+    """A representation of mesh topology and geometry."""
+
+    def __init__(self, *meshes):
+        for m in meshes:
+            if not isinstance(m, MeshGeometry):
+                raise ValueError(f"Got {type(m)}")
+        super().__init__(*meshes)
+        self.comm = meshes[0].comm
+        self._comm = internal_comm(self.comm, self)
+        self._hierarchy = None
+
+    @utils.cached_property
+    def topology(self):
+        return MixedMeshTopology(*[m.topology for m in self._meshes])
+
+    def init(self):
+        for m in self._meshes:
+            m.init()
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        e, = set(m.extruded for m in self._meshes)
+        return e
+
+    def unique(self):
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
+
+    @utils.cached_property
+    def hierarchy(self):
+        from firedrake.mg import utils
+
+        hierarchy, level = utils.get_level(self._meshes[0])
+        if hierarchy is None:
+            raise RuntimeError("No mesh hierarchy available")
+        if self._hierarchy is not None:
+            return self._hierarchy
+        else:
+            # MixedMesh of the finest mesh.
+            out = []
+            for m in hierarchy[:-1]:
+                out.append(MixedMeshGeometry(*[m for _ in self]))
+            out.append(self)
+            for mm in out[-1]:
+                mm._hierarchy = out
+        return out
+
+    def __getattr__(self, name):
+        m = self.unique()
+        val = getattr(m, name)
+        setattr(self, name, val)
+        return val
+
+
+class MixedMeshTopology(object):
+    def __init__(self, *meshes):
+        for m in meshes:
+            if not isinstance(m, AbstractMeshTopology):
+                raise ValueError(f"Got {type(m)}")
+        self._meshes = tuple(meshes)
+        self.comm = meshes[0].comm
+        self._comm = internal_comm(self.comm, self)
+
+    def init(self):
+        for m in self._meshes:
+            m.init()
+
+    def ufl_cell(self):
+        cell, = set(m.ufl_cell() for m in self._meshes)
+        return cell
+
+    def ufl_mesh(self):
+        cell = self.ufl_cell()
+        return ufl.MixedMesh(*[ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+                               for _ in self._meshes])
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        e, = set(m.extruded for m in self._meshes)
+        return e
+
+    def unique(self):
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
+
+    def __getattr__(self, name):
+        m = self.unique()
+        val = getattr(m, name)
+        setattr(self, name, val)
+        return val
