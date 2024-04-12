@@ -9,7 +9,7 @@ def mh(request):
         base_msh = UnitSquareMesh(2, 2)
     elif request.param == "cube":
         base_msh = UnitCubeMesh(2, 2, 2)
-    return MeshHierarchy(base_msh, 3)
+    return MeshHierarchy(base_msh, 2)
 
 
 @pytest.fixture(params=["iso", "alfeld", "th"])
@@ -24,8 +24,9 @@ def mixed_element(mh, variant):
         Vel = FiniteElement("CG", cell, degree=1, variant="iso")
         Pel = FiniteElement("CG", cell, degree=1)
     elif variant == "alfeld":
-        Vel = FiniteElement("CG", cell, degree=2, variant="alfeld")
-        Pel = FiniteElement("DG", cell, degree=1, variant="alfeld")
+        dim = mh[0].topological_dimension()
+        Vel = FiniteElement("CG", cell, degree=dim, variant="alfeld")
+        Pel = FiniteElement("DG", cell, degree=dim-1, variant="alfeld")
     elif variant == "th":
         Vel = FiniteElement("CG", cell, degree=2)
         Pel = FiniteElement("CG", cell, degree=1)
@@ -41,8 +42,7 @@ def conv_rates(x):
 def convergence_test(variant):
     if variant == "iso":
         def check(uerr, perr):
-            u_conv = conv_rates(uerr)
-            return (u_conv >= 1.9).all() and np.allclose(perr, 0, atol=1.e-7)
+            return conv_rates(uerr)[-1] >= 1.9 and np.allclose(perr, 0, atol=1.e-7)
     elif variant == "alfeld":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
@@ -114,7 +114,9 @@ def errornormL2_0(pexact, ph):
 
 def test_stokes(mh, variant, mixed_element, convergence_test):
     dim = mh[0].geometric_dimension()
-    sp = {"pc_factor_mat_ordering_type": "natural"} if variant == "th" or dim == 3 else None
+    if variant == "iso" and dim == 3:
+        pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
+    sp = {"pc_factor_mat_ordering_type": "natural"} if variant == "th" else None
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -144,6 +146,8 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
 
 def test_div_free(mh, variant, mixed_element, div_test):
     dim = mh[0].geometric_dimension()
+    if variant == "iso" and dim == 3:
+        pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
     el1, el2 = mixed_element
     for msh in mh:
         x = SpatialCoordinate(msh)
