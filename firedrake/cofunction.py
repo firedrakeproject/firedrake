@@ -3,7 +3,6 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
-from pyadjoint.tape import stop_annotating
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
@@ -169,6 +168,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.assign(0, subset=subset)
 
     @PETSc.Log.EventDecorator()
+    @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
@@ -189,20 +189,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            with stop_annotating(modifies=(self,)):
-                self.dat.zero(subset=subset)
+            self.dat.zero(subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
-            self.block_variable = expr.block_variable
-            # Keep `self.block_variable` output identity consistent with `self`.
-            self.block_variable.output._count = self.count()
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable to write down c += B where c is a Cofunction and B an appropriate BaseForm object.
-            # If the annotation is enabled, the following operation  will results in assemble block on the
-            # Pyadjoint tape.
+            # Enable to write down c += B where c is a Cofunction
+            # and B an appropriate BaseForm object
             assembled_expr = firedrake.assemble(expr)
             return self.assign(assembled_expr, subset=subset)
 
