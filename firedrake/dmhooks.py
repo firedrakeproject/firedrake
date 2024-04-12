@@ -43,6 +43,7 @@ from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
+from firedrake.mesh import MeshSequenceGeometry
 
 
 @PETSc.Log.EventDecorator()
@@ -53,8 +54,11 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref, element, indices, (name, names) = info
-    mesh = meshref()
+    meshref_tuple, element, indices, (name, names) = info
+    if len(meshref_tuple) == 1:
+        mesh = meshref_tuple[0]()
+    else:
+        mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
     V = firedrake.FunctionSpace(mesh, element, name=name)
@@ -78,8 +82,6 @@ def set_function_space(dm, V):
        This stores the information necessary to make a function space given a DM.
 
     """
-    mesh = V.mesh()
-
     indices = []
     names = []
     while V.parent is not None:
@@ -90,11 +92,12 @@ def set_function_space(dm, V):
             assert V.index is None
             indices.append(V.component)
         V = V.parent
+    mesh = V.mesh()
     if len(V) > 1:
         names = tuple(V_.name for V_ in V)
     element = V.ufl_element()
 
-    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names))
     dm.setAttr("__fs_info__", info)
 
 
@@ -412,7 +415,9 @@ def coarsen(dm, comm):
     """
     from firedrake.mg.utils import get_level
     V = get_function_space(dm)
-    hierarchy, level = get_level(V.mesh())
+    # TODO: Think harder.
+    m, = set(m_ for m_ in V.mesh())
+    hierarchy, level = get_level(m)
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
