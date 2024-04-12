@@ -52,6 +52,7 @@ supported_elements = {
     "Hermite": finat.Hermite,
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
+    "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
