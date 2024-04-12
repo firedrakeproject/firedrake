@@ -816,10 +816,13 @@ class PatchBase(PCSNESBase):
             is_snes = False
 
         if len(bcs) > 0:
-            ghost_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=True)
-                                                             for bc in bcs]))
-            global_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False)
-                                                              for bc in bcs]))
+            ghost_bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=True) for bc in bcs],
+                                  dtype=PETSc.IntType)
+            )
+            global_bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
+                                  dtype=PETSc.IntType))
         else:
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
