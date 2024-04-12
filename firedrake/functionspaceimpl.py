@@ -529,22 +529,22 @@ class FunctionSpace:
             # it is important to mark as unit here so we can distinguish row and column
             # matrices.
             axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
-            axes = op3.PartialAxisTree(axis)
+            axes = op3.AxisTree(axis)
 
             if self.shape:
-                subaxes = op3.PartialAxisTree.from_iterable(
+                subaxes = op3.AxisTree.from_iterable(
                     [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
                 )
                 axes = axes.add_subtree(subaxes, axes.root, axes.root.component)
         else:
-            axes = op3.PartialAxisTree(mesh.points)
+            axes = op3.AxisTree(mesh.points)
             for tdim, edofs in self.finat_element.entity_dofs().items():
                 ndofs = single_valued(len(d) for d in edofs.values())
-                subaxes = op3.PartialAxisTree(op3.Axis({"XXX": ndofs}, "dof"))
+                subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
                 for i, dim in enumerate(self.shape):
                     subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
                 axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
-        self.axes = axes.set_up()
+        self.axes = axes
 
     # def set_shared_data(self):
     #     element = self.ufl_element()
@@ -962,10 +962,10 @@ class MixedFunctionSpace:
             [op3.AxisComponent(1, i, unit=True) for i, _ in enumerate(spaces)],
             "field",
         )
-        axes = op3.PartialAxisTree(root)
+        axes = op3.AxisTree(root)
         for i, space in enumerate(spaces):
             axes = axes.add_subtree(space.axes, root, i, uniquify=True)
-        self.axes = axes.set_up()
+        self.axes = axes
 
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)

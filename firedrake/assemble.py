@@ -1002,6 +1002,10 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
 
+        # debug
+        if isinstance(tensor, op3.HierarchicalArray):
+            tensor.axes.layouts
+
         if needs_zeroing:
             self._as_pyop3_type(tensor).eager_zero()
 

@@ -28,10 +28,9 @@ def _create_const(value, comm):
     if rank == 0:
         axes = op3.AxisTree(op3.Axis(1))
     else:
-        axes = op3.PartialAxisTree(op3.Axis(shape[0]))
+        axes = op3.AxisTree(op3.Axis(shape[0]))
         for size in shape[1:]:
             axes = axes.add_subaxis(op3.Axis(size), *axes.leaf)
-        axes = axes.set_up()
     dat = op3.HierarchicalArray(axes, data=data.flatten())
     return dat, rank, shape
 

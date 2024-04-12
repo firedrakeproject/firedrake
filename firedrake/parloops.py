@@ -639,7 +639,7 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
 
 
 def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
-    axes = op3.PartialAxisTree(axes.parent_to_children)
+    axes = op3.AxisTree(axes.parent_to_children)
     new_target_paths = dict(target_paths)
     new_index_exprs = dict(index_exprs)
 
@@ -676,7 +676,7 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
             assert len(trees) == 1
 
         root = op3.Axis({"XXX": arity}, "support")
-        support_indices = op3.PartialAxisTree(root)
+        support_indices = op3.AxisTree(root)
         trees_ = []
         for subtree in trees:
             tree = support_indices.add_subtree(subtree, *support_indices.leaf)
@@ -689,7 +689,7 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     # outer mixed bit
     if is_mixed:
         raise NotImplementedError("Need to add extra exprs as for shape above")
-        field_indices = op3.PartialAxisTree(
+        field_indices = op3.AxisTree(
             op3.Axis(
                 {str(i): 1 for i, _ in enumerate(spaces)},
                 "field",
@@ -701,7 +701,7 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     else:
         tree = op3.utils.just_one(trees)
 
-    return tree.set_up(), freeze(new_target_paths), freeze(new_index_exprs)
+    return tree, freeze(new_target_paths), freeze(new_index_exprs)
 
 
 def _tensorify_axes(V, suffix=""):
@@ -787,12 +787,10 @@ def _tensorify_axes(V, suffix=""):
         })
 
         # hack
-        subelem_axes = op3.PartialAxisTree(subelem_axes.parent_to_children)
+        subelem_axes = op3.AxisTree(subelem_axes.parent_to_children)
         subelem_axess.append(subelem_axes)
 
     tensor_axes = _build_rec(subelem_axess)
-
-    tensor_axes = tensor_axes.set_up()
 
     tensor_target_paths = _build_target_paths(tensor_axes, suffix=suffix)
     tensor_index_exprs = _tensor_product_index_exprs(tensor_axes, tensor_target_paths)
@@ -903,8 +901,6 @@ def _tensor_product_index_exprs(tensor_axes, target_paths):
 
     leaf_iters = [iter(lvs) for lvs in leaves_per_dim]
     for dim, point_axes in point_axess.items():
-        point_axes = point_axes.set_up()
-
         for pleaf in point_axes.leaves:
             ppath = point_axes.path(*pleaf)
             playout = point_axes.layouts[ppath]
@@ -914,19 +910,6 @@ def _tensor_product_index_exprs(tensor_axes, target_paths):
 
     for leaf_iter in leaf_iters:
         assert_empty(leaf_iter)
-
-    # leaf_iter = iter(tensor_axes.leaves)
-    # point_axess = _flatten_tensor_axes_points_only(tensor_axes)
-    # for point_axes in point_axess.values():
-    #     point_axes = point_axes.set_up()
-    #
-    #     for pleaf in point_axes.leaves:
-    #         ppath = point_axes.path(*pleaf)
-    #         playout = point_axes.layouts[ppath]
-    #
-    #         leaf = next(leaf_iter)
-    #         index_exprs[leaf[0].id, leaf[1]]["closure"] = playout
-    # assert_empty(leaf_iter)
 
     # then DoFs
     dof_axess = _flatten_tensor_axes_dofs_only(tensor_axes)
@@ -969,7 +952,7 @@ def _flatten_tensor_axes_points_only(tensor_axes, axis=None, is_point_axis=True,
         trees = {}
         for tdim, tree_info in tree_infos.items():
             root = op3.Axis([c for c, _ in tree_info], axis.label)
-            tree = op3.PartialAxisTree(root)
+            tree = op3.AxisTree(root)
             for component, subtree in tree_info:
                 tree = tree.add_subtree(subtree, root, component)
             trees[tdim] = tree
@@ -984,7 +967,7 @@ def _flatten_tensor_axes_points_only(tensor_axes, axis=None, is_point_axis=True,
         if subaxis and subaxis.label.startswith("point"):
             return _flatten_tensor_axes_points_only(tensor_axes, subaxis, True, tdim_acc)
         else:
-            return {tdim_acc: op3.PartialAxisTree()}
+            return {tdim_acc: op3.AxisTree()}
 
 
 def _flatten_tensor_axes_dofs_only(tensor_axes, axis=None, is_dof_axis=False, dof_axes_acc=()):
