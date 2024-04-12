@@ -40,9 +40,11 @@ def compute_form_data(form,
                       do_apply_integral_scaling=True,
                       do_apply_geometry_lowering=True,
                       preserve_geometry_types=preserve_geometry_types,
+                      do_apply_default_restrictions=True,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True,
                       coefficients_to_split=None,
+                      do_assume_single_integral_type=False,
                       complex_mode=False):
     """Preprocess UFL form in a format suitable for TSFC. Return
     form data.
@@ -57,10 +59,12 @@ def compute_form_data(form,
         do_apply_integral_scaling=do_apply_integral_scaling,
         do_apply_geometry_lowering=do_apply_geometry_lowering,
         preserve_geometry_types=preserve_geometry_types,
+        do_apply_default_restrictions=do_apply_default_restrictions,
         do_apply_restrictions=do_apply_restrictions,
         do_estimate_degrees=do_estimate_degrees,
         do_replace_functions=True,
         coefficients_to_split=coefficients_to_split,
+        do_assume_single_integral_type=do_assume_single_integral_type,
         complex_mode=complex_mode
     )
     constants = extract_firedrake_constants(form)
@@ -166,6 +170,8 @@ class ModifiedTerminalMixin(object):
 
     positive_restricted = _modified_terminal
     negative_restricted = _modified_terminal
+    single_value_restricted = _modified_terminal
+    to_be_restricted = _modified_terminal
 
     reference_grad = _modified_terminal
     reference_value = _modified_terminal
@@ -197,8 +203,11 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
         mt = analyse_modified_terminal(o)
         t = mt.terminal
         r = mt.restriction
-        if isinstance(t, Argument) and r != self.restrictions[t.number()]:
-            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        if isinstance(t, Argument) and r in ['+', '-']:
+            if r == self.restrictions[t.number()]:
+                return o
+            else:
+                return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
             return o
 
