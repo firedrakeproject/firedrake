@@ -5,7 +5,6 @@ from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain
-
 import firedrake
 from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
@@ -233,63 +232,64 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise TypeError(
             f"Cannot take the derivative of a {type(form).__name__}"
         )
-    u_is_x = isinstance(u, ufl.SpatialCoordinate)
-    if u_is_x or isinstance(u, (Constant, BaseFormOperator)):
-        uc = u
-    else:
-        uc, = extract_coefficients(u)
-    if not (u_is_x or isinstance(u, BaseFormOperator)) and len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
-        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
-                         "\nYou probably meant to write split(u) when defining your form.")
-
-    mesh = as_domain(form)
-    if not mesh:
-        raise ValueError("Expression to be differentiated has no ufl domain."
-                         "\nDo you need to add a domain to your Constant?")
-    is_dX = u_is_x or u is mesh.coordinates
-
     try:
         args = form.arguments()
     except AttributeError:
         args = extract_arguments(form)
     # UFL arguments need unique indices within a form
     n = max(a.number() for a in args) if args else -1
-
-    if is_dX:
-        coords = mesh.coordinates
-        u = ufl.SpatialCoordinate(mesh)
+    set_internal_coord_derivatives = False
+    all_meshes = extract_domains(form)
+    if isinstance(u, ufl.SpatialCoordinate):
+        uc = u
+        coords_mesh, = extract_unique_domain(u)
+        coords = coords_mesh.coordinates
         V = coords.function_space()
-    elif isinstance(uc, (firedrake.Function, firedrake.Cofunction, BaseFormOperator)):
+        set_internal_coord_derivatives = True
+    elif any(u is m.coordinates for m in all_meshes):
+        uc = u
+        coords = u
+        coord_mesh = u.function_space().mesh()
+        u = ufl.SpatialCoordinate(coord_mesh)
+        V = coords.function_space()
+        set_internal_coord_derivatives = True
+    elif isinstance(u, BaseFormOperator):
+        uc = u
         V = uc.function_space()
-    elif isinstance(uc, firedrake.Constant):
+    elif isinstance(u, Constant):
+        uc = u
         if uc.ufl_shape != ():
             raise ValueError("Real function space of vector elements not supported")
         # Replace instances of the constant with a new argument ``x``
         # and differentiate wrt ``x``.
+        mesh = as_domain(form)  # integration domain
         V = firedrake.FunctionSpace(mesh, "Real", 0)
         x = ufl.Coefficient(V)
         # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
         form = ufl.replace(form, {u: x})
         u_orig, u = u, x
     else:
-        raise RuntimeError("Can't compute derivative for form")
-
+        uc, = extract_coefficients(u)
+        if not isinstance(uc, (firedrake.Function, firedrake.Cofunction)):
+            raise RuntimeError(f"Can't compute derivative for form w.r.t {u}")
+        if len(uc.subfunctions) > 1 and set(extract_coefficients(form)) & set(uc.subfunctions):
+            raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.subfunctions."
+                             "\nYou probably meant to write split(u) when defining your form.")
+        V = uc.function_space()
     if du is None:
         du = Argument(V, n + 1)
-
-    if is_dX:
+    if set_internal_coord_derivatives:
         internal_coefficient_derivatives = {coords: du}
     else:
         internal_coefficient_derivatives = {}
     if coefficient_derivatives:
         internal_coefficient_derivatives.update(coefficient_derivatives)
-
     if u.ufl_shape != du.ufl_shape:
         raise ValueError("Shapes of u and du do not match.\n"
                          "If you passed an indexed part of split(u) into "
                          "derivative, you need to provide an appropriate du as well.")
     dform = ufl.derivative(form, u, du, internal_coefficient_derivatives)
-    if isinstance(uc, firedrake.Constant):
+    if isinstance(uc, Constant):
         # If we replaced constants with ``x`` to differentiate,
         # replace them back to the original symbolic constant
         dform = ufl.replace(dform, {u: u_orig})
@@ -366,23 +366,37 @@ def FacetNormal(mesh):
     return ufl.FacetNormal(mesh)
 
 
-def extract_domains(func):
-    """Extract the domain from `func`.
+def extract_domains(f):
+    """Extract the domain from `f`.
 
     Parameters
     ----------
-    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
-        The function to extract the domain from.
+    f : ufl.form.Form or firedrake.slate.TensorBase or firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.constant.Constant
+        The form, tensor, or function to extract the domain from.
 
     Returns
     -------
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
-        return [func.function_space().mesh()]
+    from firedrake.mesh import MeshSequenceGeometry
+
+    if isinstance(f, firedrake.slate.TensorBase):
+        return f.ufl_domains()
+    elif isinstance(f, (cofunction.Cofunction, Coargument)):
+        # ufl.domain.extract_domains does not work.
+        mesh = f.function_space().mesh()
+        if isinstance(mesh, MeshSequenceGeometry):
+            return list(set(mesh._meshes))
+        else:
+            return [mesh]
+    elif isinstance(f, (ufl.form.FormSum, ufl.Action)):
+        # ufl.domain.extract_domains does not work.
+        if f._domains is None:
+            f._analyze_domains()
+        return f._domains
     else:
-        return ufl.domain.extract_domains(func)
+        return ufl.domain.extract_domains(f)
 
 
 def extract_unique_domain(func):
@@ -390,7 +404,7 @@ def extract_unique_domain(func):
 
     Parameters
     ----------
-    x : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
+    func : firedrake.function.Function, firedrake.cofunction.Cofunction, or firedrake.constant.Constant
         The function to extract the domain from.
 
     Returns
@@ -399,6 +413,6 @@ def extract_unique_domain(func):
         Extracted domains.
     """
     if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
-        return func.function_space().mesh()
+        return func.function_space().mesh().unique()
     else:
         return ufl.domain.extract_unique_domain(func)
