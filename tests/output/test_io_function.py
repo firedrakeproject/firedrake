@@ -218,7 +218,7 @@ def test_io_function_real(cell_type, tmpdir):
     VA = FunctionSpace(meshA, "Real", 0)
     fA = Function(VA, name=func_name)
     valueA = 3.14
-    fA.dat.data.itemset(valueA)
+    fA.dat.data[...] = valueA
     with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
         afile.save_function(fA)
     # Load -> View cycle
@@ -281,7 +281,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
     fA = Function(VA, name=func_name)
     fA0, fA1 = fA.subfunctions
     _initialise_function(fA0, _get_expr(VA[0]), method)
-    fA1.dat.data.itemset(3.14)
+    fA1.dat.data[...] = 3.14
     with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
         afile.save_function(fA)
     # Load -> View cycle
@@ -297,7 +297,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
             fBe = Function(VB)
             fBe0, fBe1 = fBe.subfunctions
             _initialise_function(fBe0, _get_expr(VB[0]), method)
-            fBe1.dat.data.itemset(3.14)
+            fBe1.dat.data[...] = 3.14
             assert assemble(inner(fB - fBe, fB - fBe) * dx) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
