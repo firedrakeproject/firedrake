@@ -3211,48 +3211,6 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     return val
 
 
-def prune_sf(PETSc.SF sf):
-    """Prune an SF of roots referencing the local rank
-
-    :arg sf: The PETSc SF to prune.
-    """
-    cdef:
-        PetscInt nroots, nleaves, new_nleaves, i, j
-        PetscInt rank
-        const PetscInt *ilocal = NULL
-        PetscInt *new_ilocal = NULL
-        const PetscSFNode *iremote = NULL
-        PetscSFNode *new_iremote = NULL
-        PETSc.SF pruned_sf
-
-    CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-
-    rank = sf.comm.rank
-    new_nleaves = 0
-    for i in range(nleaves):
-        if iremote[i].rank != rank:
-            new_nleaves += 1
-
-    CHKERR(PetscMalloc1(new_nleaves, &new_ilocal))
-    CHKERR(PetscMalloc1(new_nleaves, &new_iremote))
-    j = 0
-    for i in range(nleaves):
-        if iremote[i].rank != rank:
-            if ilocal != NULL:
-                new_ilocal[j] = ilocal[i]
-            else:
-                new_ilocal[j] = i
-            new_iremote[j].rank = iremote[i].rank
-            new_iremote[j].index = iremote[i].index
-            j += 1
-
-    pruned_sf = PETSc.SF().create(comm=sf.comm)
-    CHKERR(PetscSFSetGraph(pruned_sf.sf, nroots, new_nleaves,
-                           new_ilocal, PETSC_OWN_POINTER,
-                           new_iremote, PETSC_OWN_POINTER))
-    return pruned_sf
-
-
 cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
@@ -3471,3 +3429,77 @@ def to_petsc_local_numbering(PETSc.Vec vec, V):
                     idx += 1
     assert idx == (end - start)
     return out
+
+
+def create_halo_exchange_sf(PETSc.DM dm):
+    """Create the halo exchange sf.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The section dm.
+
+    Returns
+    -------
+    PETSc.SF
+        The halo exchange sf.
+
+    Notes
+    -----
+    The output sf is to update all ghost DoFs including constrained ones if any.
+
+    """
+    cdef:
+        PETSc.SF halo_exchange_sf
+        PetscInt dof_nroots, dof_nleaves
+        PetscInt *dof_ilocal = NULL
+        PetscSFNode *dof_iremote = NULL
+        PETSc.SF point_sf
+        PetscInt nroots, nleaves
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
+        PETSc.Section local_sec
+        PetscInt pStart, pEnd, p, dof, off, m, n, i, j
+        np.ndarray[PetscInt, ndim=1, mode="c"] local_offsets
+        np.ndarray[PetscInt, ndim=1, mode="c"] remote_offsets
+
+    point_sf = dm.getPointSF()
+    local_sec = dm.getLocalSection()
+    CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+    pStart, pEnd = local_sec.getChart()
+    assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
+    assert pStart == 0
+    m = 0
+    local_offsets = np.empty(pEnd - pStart, dtype=IntType)
+    remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
+        local_offsets[p] = off
+        m += dof
+    unit = MPI._typedict[np.dtype(IntType).char]
+    point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
+    point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
+    n = 0
+    # ilocal == NULL if local leaf points are [0, 1, 2, ...).
+    for i in range(nleaves):
+        p = ilocal[i] if ilocal != NULL else i
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        n += dof
+    CHKERR(PetscMalloc1(n, &dof_ilocal))
+    CHKERR(PetscMalloc1(n, &dof_iremote))
+    n = 0
+    for i in range(nleaves):
+        # ilocal == NULL if local leaf points are [0, 1, 2, ...).
+        p = ilocal[i] if ilocal != NULL else i
+        assert remote_offsets[p] >= 0
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
+        for j in range(dof):
+            dof_ilocal[n] = off + j
+            dof_iremote[n].rank = iremote[i].rank
+            dof_iremote[n].index = remote_offsets[p] + j
+            n += 1
+    halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
+    CHKERR(PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, PETSC_OWN_POINTER, dof_iremote, PETSC_OWN_POINTER))
+    return halo_exchange_sf
