@@ -21,7 +21,7 @@ from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
-from pyop2.utils import as_tuple, tuplify
+from pyop2.utils import as_tuple
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -1446,7 +1446,14 @@ class ExtrudedMeshTopology(MeshTopology):
         dofs_per_entity = np.zeros((1 + self._base_mesh.cell_dimension(), 2), dtype=IntType)
         for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b, v] += len(entities[0])
-        return tuplify(dofs_per_entity)
+
+        # Convert to a tuple of tuples with int (not numpy.intXX) values. This is
+        # to give us a string representation like ((0, 1), (2, 3)) instead of
+        # ((numpy.int32(0), numpy.int32(1)), (numpy.int32(2), numpy.int32(3))).
+        return tuple(
+            tuple(int(d_) for d_ in d)
+            for d in dofs_per_entity
+        )
 
     @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
