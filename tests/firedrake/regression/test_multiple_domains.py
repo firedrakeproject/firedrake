@@ -80,10 +80,14 @@ def test_functional(mesh1, mesh2):
     assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension()))
 
 
+def cell_measure(primal, secondary):
+    return Measure("dx", primal, extra_measures=(Measure("dx", secondary),))
+
+
 @pytest.mark.parametrize("form,expect", [
     (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1) + conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+    (lambda v, mesh1, mesh2: conj(v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(0.5**dim)),
+    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1) + conj(v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["conj(v)*dx(mesh1)", "conj(v)*dx(mesh2)", "conj(v)*(dx(mesh1) + dx(mesh2)"])
 def test_one_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)
@@ -102,8 +106,8 @@ def test_one_form(mesh1, mesh2, form, expect):
 
 @pytest.mark.parametrize("form,expect", [
     (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1) + inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+    (lambda u, v, mesh1, mesh2: inner(u, v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(0.5**dim)),
+    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1) + inner(u, v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["inner(u, v)*dx(mesh1)", "inner(u, v)*dx(mesh2)", "inner(u, v)*(dx(mesh1) + dx(mesh2)"])
 def test_two_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)

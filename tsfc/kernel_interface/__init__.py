@@ -22,19 +22,19 @@ class KernelInterface(metaclass=ABCMeta):
         """Return the GEM expression corresponding to the constant."""
 
     @abstractmethod
-    def cell_orientation(self, restriction):
+    def cell_orientation(self, domain, restriction):
         """Cell orientation as a GEM expression."""
 
     @abstractmethod
-    def cell_size(self, restriction):
+    def cell_size(self, domain, restriction):
         """Mesh cell size as a GEM expression.  Shape (nvertex, ) in FIAT vertex ordering."""
 
     @abstractmethod
-    def entity_number(self, restriction):
+    def entity_number(self, domain, restriction):
         """Facet or vertex number as a GEM index."""
 
     @abstractmethod
-    def entity_orientation(self, restriction):
+    def entity_orientation(self, domain, restriction):
         """Entity orientation as a GEM index."""
 
     @abstractmethod
