@@ -634,9 +634,7 @@ class FunctionSpace(object):
                                                    self.name)
 
     def __str__(self):
-        return "FunctionSpace(%s, %s, name=%s)" % (self.mesh(),
-                                                   self.ufl_element(),
-                                                   self.name)
+        return self.__repr__()
 
     @utils.cached_property
     def subfunctions(self):
@@ -683,7 +681,10 @@ class FunctionSpace(object):
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.value_size
+        node_count = self.node_count
+        for sub_domain in self.boundary_set:
+            node_count -= len(self._shared_data.boundary_nodes(self, sub_domain))
+        return node_count*self.value_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -846,26 +847,13 @@ class RestrictedFunctionSpace(FunctionSpace):
         return self.function_space == other.function_space and \
             self.boundary_set == other.boundary_set
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        return hash((self.function_space.mesh(), self.function_space.dof_dset,
-                     self.function_space.ufl_element(), self.boundary_set))
-
     def __repr__(self):
         return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
             str(self.function_space), self.name, self.boundary_set)
 
-    def __str__(self):
-        return self.__repr__()
-
-    @utils.cached_property
-    def dof_count(self):
-        node_count = self.node_count
-        for sub_domain in self.boundary_set:
-            node_count -= len(self._shared_data.boundary_nodes(self, sub_domain))
-        return node_count*self.value_size
+    def __hash__(self):
+        return hash((self.mesh(), self.dof_dset, self.ufl_element(), 
+                     self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None):
         return lgmap or self.dof_dset.lgmap
