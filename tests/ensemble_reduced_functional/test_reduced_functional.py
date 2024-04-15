@@ -4,6 +4,13 @@ import pytest
 from numpy.testing import assert_allclose
 
 
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
     from firedrake.adjoint import annotate_tape, continue_annotation
