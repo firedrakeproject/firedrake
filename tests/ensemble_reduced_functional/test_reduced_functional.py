@@ -4,14 +4,15 @@ import pytest
 from numpy.testing import assert_allclose
 
 
-
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield
     tape = get_working_tape()
     tape.clear_tape()
 
+
 @pytest.fixture(autouse=True, scope="module")
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def handle_annotation():
     from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
@@ -24,6 +25,7 @@ def handle_annotation():
 
 
 @pytest.mark.parallel(nprocs=2)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_verification():
     ensemble = Ensemble(COMM_WORLD, 1)
     size = ensemble.ensemble_comm.size
