@@ -27,6 +27,7 @@ from itertools import chain
 
 from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
+# TODO: Move to pyop3
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 
 import firedrake.slate.slate as slate
@@ -89,7 +90,6 @@ def compile_expression(slate_expr, compiler_parameters=None):
 
     Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
-    raise NotImplementedError("TODO Slate")
     if complex_mode:
         raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
@@ -160,6 +160,9 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged, arguments, events = merge_loopy(slate_loopy, output_arg, builder, var2terminal, name)
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
+
+    # set default_entrypoint
+    loopy_merged = loopy_merged.with_entrypoints(name)
 
     loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
                                                        include_dirs=BLASLAPACK_INCLUDE.split(),

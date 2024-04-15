@@ -68,7 +68,7 @@ class VectorSpaceBasis(object):
         if hasattr(self, "_nullspace"):
             return self._nullspace
         if comm:
-            warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
+            warning("Specify comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
                                                    comm=self._comm)

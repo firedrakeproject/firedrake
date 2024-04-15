@@ -4,30 +4,34 @@ non-finite element operations such as slope limiters."""
 import collections
 import functools
 from cachetools import LRUCache
-from typing import Any, Iterable, Union
+from typing import Any
 
 import finat
 import loopy
 import numpy as np
 import pyop3 as op3
+import ufl
+from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 from pyop3.axtree.tree import ExpressionEvaluator
 from pyop3.array.harray import ArrayVar
-import ufl
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
+from pyop3.itree.tree import compose_axes
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
 from firedrake import constant
 from firedrake.cofunction import Cofunction
-from firedrake.function import Function
+from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
 from firedrake.utils import IntType, assert_empty
+
+
+# Set a default loopy language version (should be in __init__.py)
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 kernel_cache = LRUCache(maxsize=128)
@@ -343,9 +347,10 @@ def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str):
 
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
-def _(func: Union[Function, Cofunction], index: op3.LoopIndex, integral_type: str):
+@pack_tensor.register(CoordinatelessFunction)
+def _(func, index: op3.LoopIndex, integral_type: str):
     return pack_pyop3_tensor(
-        func.dat, func.ufl_function_space(), index, integral_type
+        func.dat, func.function_space(), index, integral_type
     )
 
 
@@ -394,47 +399,31 @@ def _(
 
         indexed = indexed.getitem(mytree, strict=True)
 
-    tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V)
+    tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V.finat_element.product)
     tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
 
-    # taken from harray.getitem
-    from pyop3.itree.tree import _compose_bits
+    # This should be cleaned up - basically we need to accumulate the target_paths
+    # and index_exprs along the nodes. This is done inside index_axes in pyop3.
+    from pyop3.itree.tree import _acc_target_paths
+    ttarget_paths = _acc_target_paths(tensor_axes, ttarget_paths)
+    tindex_exprs = _acc_target_paths(tensor_axes, tindex_exprs)
 
-    target_paths, index_exprs, _ = _compose_bits(
-        indexed.axes,
-        indexed.target_paths,
-        indexed.index_exprs,
-        None,
-        tensor_axes,
-        ttarget_paths,
-        tindex_exprs,
-        {},
+    tensor_axes = op3.IndexedAxisTree(
+        tensor_axes.node_map,
+        indexed.axes.unindexed,
+        target_paths=ttarget_paths,
+        index_exprs=tindex_exprs,
+        layout_exprs={},
+        outer_loops=indexed.axes.outer_loops,
     )
-
-    # breakpoint()
+    composed_axes = compose_axes(tensor_axes, indexed.axes)
 
     return op3.HierarchicalArray(
-        tensor_axes,
+        composed_axes,
         data=indexed.buffer,
         max_value=indexed.max_value,
-        target_paths=target_paths,
-        index_exprs=index_exprs,
-        layouts=indexed.layouts,
         name=indexed.name,
     )
-
-    # myslices = _indexify_tensor_axes(tensor_axes, target_paths, index_exprs)
-    #
-    # myroot = op3.Slice("closure", [idx for idx, _ in myslices])
-    # mychildren = {myroot.id: [idx for _, idx in myslices]}
-    # mynodemap = {None: (myroot,)}
-    # mynodemap.update(mychildren)
-    # myindextree = op3.IndexTree(mynodemap)
-    #
-    # myindextree = _with_shape_indices(V, myindextree, integral_type in {"exterior_facet", "interior_facet"})
-    # retval = indexed.getitem(myindextree, strict=True)
-    # # breakpoint()
-    # return retval
 
 
 @pack_pyop3_tensor.register
@@ -482,72 +471,50 @@ def _(
         raise NotImplementedError
     #     _entity_permutations(Vrow)
 
-    # axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow, suffix="_row")
-    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow)
+    # TODO: shouldn't need to do this
+    from pyop3.itree.tree import _acc_target_paths
+
+    axes0, target_paths0, index_exprs0 = _tensorify_axes(Vrow.finat_element.product)
     axes0, target_paths0, index_exprs0 = _with_shape_axes(Vrow, axes0, target_paths0, index_exprs0, integral_type)
+    target_paths0 = _acc_target_paths(axes0, target_paths0)
+    index_exprs0 = _acc_target_paths(axes0, index_exprs0)
 
-    # taken from harray.getitem
-    from pyop3.itree.tree import _compose_bits
-
-    target_paths0, index_exprs0, _ = _compose_bits(
-        cf_indexed.raxes,
-        cf_indexed.rtarget_paths,
-        cf_indexed.rindex_exprs,
-        None,
-        axes0,
-        target_paths0,
-        index_exprs0,
-        {},
+    axes0 = op3.IndexedAxisTree(
+        axes0.node_map,
+        cf_indexed.raxes.unindexed,
+        target_paths=target_paths0,
+        index_exprs=index_exprs0,
+        layout_exprs={},
+        outer_loops=cf_indexed.raxes.outer_loops,
     )
+    axes0 = compose_axes(axes0, cf_indexed.raxes)
 
-    # myslices = _indexify_tensor_axes(axes0, target_paths0, index_exprs0, suffix="_row")
-    # myroot = op3.Slice("closure_row", [idx for idx, _ in myslices])
-    # mychildren = {myroot.id: [idx for _, idx in myslices]}
-    # mynodemap = {None: (myroot,)}
-    # mynodemap.update(mychildren)
-    # myindextree0 = op3.IndexTree(mynodemap)
-    # myindextree0 = _with_shape_indices(Vrow, myindextree0, integral_type in {"exterior_facet", "interior_facet"})
-
-    # axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol, suffix="_col")
-    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol)
+    axes1, target_paths1, index_exprs1 = _tensorify_axes(Vcol.finat_element.product)
     axes1, target_paths1, index_exprs1 = _with_shape_axes(Vcol, axes1, target_paths1, index_exprs1, integral_type)
+    target_paths1 = _acc_target_paths(axes1, target_paths1)
+    index_exprs1 = _acc_target_paths(axes1, index_exprs1)
 
-    target_paths1, index_exprs1, _ = _compose_bits(
-        cf_indexed.caxes,
-        cf_indexed.ctarget_paths,
-        cf_indexed.cindex_exprs,
-        None,
-        axes1,
-        target_paths1,
-        index_exprs1,
-        {},
+    axes1 = op3.IndexedAxisTree(
+        axes1.node_map,
+        cf_indexed.caxes.unindexed,
+        target_paths=target_paths1,
+        index_exprs=index_exprs1,
+        layout_exprs={},
+        outer_loops=cf_indexed.caxes.outer_loops,
     )
-    # myslices = _indexify_tensor_axes(axes1, target_paths1, index_exprs1, suffix="_col")
-    # myroot = op3.Slice("closure_col", [idx for idx, _ in myslices])
-    # mychildren = {myroot.id: [idx for _, idx in myslices]}
-    # mynodemap = {None: (myroot,)}
-    # mynodemap.update(mychildren)
-    # myindextree1 = op3.IndexTree(mynodemap)
-    # myindextree1 = _with_shape_indices(Vcol, myindextree1, integral_type in {"exterior_facet", "interior_facet"})
+    axes1 = compose_axes(axes1, cf_indexed.caxes)
 
     return op3.Mat(
         axes0,
         axes1,
         mat_type=cf_indexed.mat_type,
         mat=cf_indexed.mat,
-        # TODO: Make these attributes of axes0 and axes1 (IndexedAxisTree!)
-        rtarget_paths=target_paths0,
-        rindex_exprs=index_exprs0,
-        orig_raxes=cf_indexed.orig_raxes,
-        ctarget_paths=target_paths1,
-        cindex_exprs=index_exprs1,
-        orig_caxes=cf_indexed.orig_caxes,
         name=cf_indexed.name,
     )
 
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
-    plex = V.ufl_domain().topology
+    plex = V.mesh().topology
 
     if V.ufl_element().family() == "Real":
         indices = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
@@ -704,7 +671,8 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     return tree, freeze(new_target_paths), freeze(new_index_exprs)
 
 
-def _tensorify_axes(V, suffix=""):
+@functools.singledispatch
+def _tensorify_axes(element, suffix=""):
     """
 
     FIAT numbering:
@@ -769,9 +737,13 @@ def _tensorify_axes(V, suffix=""):
     need to be able to fill it from the "flat" closure that DMPlex gives us.
 
     """
+    raise TypeError(f"No handler defined for {type(element).__name__}")
+
+
+@_tensorify_axes.register(finat.TensorProductElement)
+def _(element, suffix=""):
     subelem_axess = []
-    subelems = V.finat_element.product.factors
-    for i, subelem in enumerate(subelems):
+    for i, subelem in enumerate(element.factors):
         npoints = []
         subaxess = []
         for tdim, edofs in subelem.entity_dofs().items():
@@ -785,9 +757,6 @@ def _tensorify_axes(V, suffix=""):
                 {str(tdim): n for tdim, n in enumerate(npoints)}, f"points{i}"+suffix
             ): subaxess
         })
-
-        # hack
-        subelem_axes = op3.AxisTree(subelem_axes.parent_to_children)
         subelem_axess.append(subelem_axes)
 
     tensor_axes = _build_rec(subelem_axess)
@@ -796,6 +765,31 @@ def _tensorify_axes(V, suffix=""):
     tensor_index_exprs = _tensor_product_index_exprs(tensor_axes, tensor_target_paths)
 
     return tensor_axes, tensor_target_paths, tensor_index_exprs
+
+
+@_tensorify_axes.register(finat.EnrichedElement)
+def _(element, suffix=""):
+    root = op3.Axis((1,) * len(element.elements))
+    axes = op3.AxisTree(root)
+    target_paths = {}
+    index_exprs = {}
+    for component, subelem in zip(root.components, element.elements):
+        subaxes, subtarget_paths, subindex_exprs = _tensorify_axes(subelem, suffix=suffix)
+        axes = axes.add_subtree(subaxes, root, component)
+        target_paths.update(subtarget_paths)
+        index_exprs.update(subindex_exprs)
+
+        key = (root.id, component.label)
+        target_paths[key] = {root.label: component.label}
+        index_exprs[key] = {root.label: op3.AxisVariable(root.label)}
+
+    return axes, freeze(target_paths), freeze(index_exprs)
+
+
+@_tensorify_axes.register(finat.HDivElement)
+@_tensorify_axes.register(finat.HCurlElement)
+def _(element, suffix=""):
+    return _tensorify_axes(element.wrappee, suffix=suffix)
 
 
 def _indexify_tensor_axes(
@@ -891,7 +885,6 @@ def _tensor_product_index_exprs(tensor_axes, target_paths):
     index_exprs = collections.defaultdict(dict)
 
     # first points
-    # I reckon that this is in the wrong order, edges and faces are interleaved!
     point_axess = _flatten_tensor_axes_points_only(tensor_axes)
     ndims = max(point_axess.keys())
     leaves_per_dim = [[] for _ in range(ndims+1)]

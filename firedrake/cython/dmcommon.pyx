@@ -914,9 +914,6 @@ def quadrilateral_closure_ordering(mesh,
             for i in range(3, off-1, -1):
                 facets[off + (3-i)] = c_facets[i]
 
-        print("vertices: ", vertices)
-        print("facets: ", facets)
-
         # At this point the cell "has" the right starting vertex
         # and order of traversal. If the starting vertex is one with an X,
         # and arrows on the edges show the order of traversal:

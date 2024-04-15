@@ -8,14 +8,11 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy
-from pyrsistent import freeze
-
-import ufl
 import finat.ufl
-
-from pyop2 import op2, mpi
+import numpy
 import pyop3 as op3
+import ufl
+from pyop2 import op2, mpi
 from pyop3.utils import single_valued
 
 from firedrake import dmhooks, utils
@@ -667,6 +664,14 @@ class FunctionSpace:
         return tuple(ises)
 
     @utils.cached_property
+    def _local_ises(self):
+        iset = PETSc.IS().createStride(
+            self.axes.size, first=0, step=1, comm=mpi.COMM_SELF
+        )
+        iset.setBlockSize(self._cdim)
+        return (iset,)
+
+    @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
         points = self.mesh().topology.points
@@ -887,8 +892,8 @@ class FunctionSpace:
         indices_dat = op3.HierarchicalArray(self.axes, data=indices)
         for bc in bcs:
             op3.do_loop(
-                p := self.axes[bc.constrained_points].index(),
-                indices_dat[p].assign(-1)
+                p := self.axes.root[bc.constrained_points].index(),
+                indices_dat[p, :].assign(-1, eager=False)
             )
 
 
@@ -1159,23 +1164,37 @@ class MixedFunctionSpace:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
-        Used when extracting blocks from matrices for solvers."""
-        # This is also very similar to the global numbering bits
-        nlocal_rows = self.axes.size
-        offset = self.comm.scan(nlocal_rows)
-        offset -= nlocal_rows  # or exscan?
+        Used when extracting blocks from matrices for solvers.
+
+        """
+        return self._collect_ises(local=False)
+
+    @utils.cached_property
+    def _local_ises(self):
+        """A list of PETSc ISes defining the local indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers.
+
+        """
+        return self._collect_ises(local=True)
+
+    def _collect_ises(self, *, local):
+        if local:
+            size = self.axes.size
+            start = 0
+        else:
+            size = self.axes.owned.size
+            start = self.comm.exscan(size) or 0
 
         ises = []
         for i, subspace in enumerate(self._spaces):
-            space_label = str(i)
-            nrows = self.axes[space_label].size
-            iset = PETSc.IS().createStride(nrows, first=offset, step=1, comm=self.comm)
+            nrows = self.axes[i].size if local else self.axes[i].owned.size
+            iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
             iset.setBlockSize(subspace._cdim)
-            offset += nrows
             ises.append(iset)
+            start += nrows
         return tuple(ises)
-
-
 
 
 class ProxyFunctionSpace(FunctionSpace):

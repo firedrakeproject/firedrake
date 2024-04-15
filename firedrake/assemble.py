@@ -1,11 +1,11 @@
 import abc
-import collections
-from collections import OrderedDict, defaultdict
-from collections.abc import Sequence  # noqa: F401
+import contextlib
 import functools
 import itertools
-from itertools import product
 import operator
+from collections import OrderedDict, defaultdict
+from collections.abc import Sequence  # noqa: F401
+from itertools import product
 from functools import cached_property
 
 import cachetools
@@ -1002,15 +1002,12 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
 
-        # debug
-        if isinstance(tensor, op3.HierarchicalArray):
-            tensor.axes.layouts
-
         if needs_zeroing:
             self._as_pyop3_type(tensor).eager_zero()
 
-        for parloop in self.parloops(tensor):
-            parloop()
+        for parloop, lgmaps in self.parloops(tensor):
+            with _modified_lgmaps(tensor, lgmaps):
+                parloop()
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1033,15 +1030,16 @@ class ParloopFormAssembler(FormAssembler):
         loops = []
         if hasattr(self, "_parloops"):
             assert hasattr(self, "_tensor_name")
-            for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
+            for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self._parloops):
                 data = _FormHandler.index_tensor(
                     tensor, self._form, lknl.indices, self.diagonal
                 )
-                loops.append(functools.partial(parloop, **{self._tensor_name: data}))
+                loop = (functools.partial(parloop, **{self._tensor_name: data}), lgmaps)
+                loops.append(loop)
         else:
             # Make parloops for one concrete output tensor and cache them.
             self._parloops = tuple(
-                parloop_builder.build(tensor)
+                (parloop_builder.build(tensor), parloop_builder.collect_lgmaps())
                 for parloop_builder in self.parloop_builders
             )
             loops = self._parloops
@@ -1418,7 +1416,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             if cindex is None:
                 cindex = Ellipsis
 
-            op3.do_loop(iter_index, sparsity[rindex, cindex][rmap, cmap].assign(666))
+            op3.do_loop(
+                iter_index,
+                sparsity[rindex, cindex][rmap, cmap].assign(666, eager=False)
+            )
 
         sparsity.assemble()
         return sparsity
@@ -1550,8 +1551,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         V = bc.function_space()
         component = V.component
         if component is not None:
+            raise NotImplementedError
             V = V.parent
-        index = 0 if V.index is None else V.index
+        # index = 0 if V.index is None else V.index
+        index = Ellipsis if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             if space != spaces[0]:
@@ -1562,7 +1565,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
-            op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
+            # op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
+
+            op3.do_loop(
+                p := space.axes[index].root[bc.constrained_points].index(),
+                # op2tensor[index, index].getitem(((p, slice(None)), (p, slice(None))), strict=True).assign(1, eager=False)
+                op2tensor[index, index][p, p].assign(1, eager=False)
+            )
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1585,6 +1594,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @staticmethod
     def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
+        raise NotImplementedError
         dat = op2tensor[i, j].handle.getPythonContext().dat
         if component is not None:
             dat = op2.DatView(dat, component)
@@ -1696,7 +1706,6 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        # breakpoint()
         return op3.loop(p, kernel(*args))
 
     @property
@@ -1768,10 +1777,9 @@ class ParloopBuilder:
             lgmaps = []
             for i, j in self.get_indicess():
                 row_bcs, col_bcs = self._filter_bcs(i, j)
-                rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
-                lgmaps.append((rlgmap, clgmap))
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs)
+                lgmaps.append((i, j, rlgmap, clgmap))
             return tuple(lgmaps)
         else:
             return None
@@ -1873,8 +1881,6 @@ class ParloopBuilder:
                 dat = submat.getPythonContext().dat
                 return pack_pyop3_tensor(dat, V, index, self._integral_type)
             else:
-                if self.collect_lgmaps() is not None:
-                    raise NotImplementedError
                 return pack_pyop3_tensor(tensor, *Vs, index, self._integral_type)
         else:
             raise AssertionError
@@ -1895,12 +1901,11 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
-        func = self._mesh.cell_orientations()
-        m = self._get_map(func.function_space())
-        return func.dat[m(index)]
+        return pack_tensor(self._mesh.cell_orientations(), index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
+        raise NotImplementedError
         func = self._mesh.cell_sizes
         m = self._get_map(func.function_space())
         return func.dat[m(index)]
@@ -1908,18 +1913,10 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
         return self._topology.exterior_facets._local_facets[index]
-        local_facets = self._topology.exterior_facets.local_facets(
-            self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids
-        )
-        return local_facets[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
         return self._topology.interior_facets._local_facets[index]
-        local_facets = self._topology.interior_facets.local_facets(
-            self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids
-        )
-        return local_facets[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
@@ -1992,3 +1989,29 @@ class _FormHandler:
 
 def _is_real_space(space):
     return space.ufl_element().family() == "Real"
+
+
+@contextlib.contextmanager
+def _modified_lgmaps(tensor, lgmaps):
+    swap = isinstance(tensor, matrix.Matrix) and lgmaps is not None
+
+    if swap:
+        if tensor.M.nested:
+            raise NotImplementedError("Think about extracting the right sub-blocks")
+        else:
+            rspace, cspace = tensor.ufl_function_spaces()
+
+            orig_lgmaps = []
+            for i, j, rlgmap, clgmap in lgmaps:
+                rowis = rspace._local_ises[i]
+                colis = cspace._local_ises[j]
+                submat = tensor.M.mat.getLocalSubMatrix(rowis, colis)
+
+                orig_lgmaps.append((submat, *submat.getLGMap()))
+                submat.setLGMap(rlgmap, clgmap)
+
+    yield
+
+    if swap:
+        for submat, orig_rlgmap, orig_clgmap in orig_lgmaps:
+            submat.setLGMap(orig_rlgmap, orig_clgmap)

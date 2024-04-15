@@ -1,11 +1,12 @@
 import functools
 import operator
 
+import finat.ufl
 import numpy as np
+import pyop3 as op3
+import pytools
 from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
-import pytools
-import finat.ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -201,24 +202,23 @@ class Assigner:
         assign_to_halos = (
             func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
 
-        if self._subset is not Ellipsis:
-            raise NotImplementedError
-
         if assign_to_halos:
-            # subset_indices = self._subset.indices if self._subset else ...
-            subset_indices = ...
-            data_ro = operator.attrgetter("_data")
+            data_ro = operator.attrgetter("data_ro_with_halos")
         else:
-            # subset_indices = self._subset.owned_indices if self._subset else ...
-            subset_indices = ...
             data_ro = operator.attrgetter("data_ro")
 
         # If mixed, loop over individual components
         for lhs, *funcs in zip(self._assignee.subfunctions,
                                *(f.subfunctions for f in self._functions)):
-            func_data = np.array([data_ro(f.dat.buffer)[subset_indices] for f in funcs])
+            func_data = np.array([data_ro(f.dat[self._subset]) for f in funcs])
             rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs.dat, subset_indices, rvalue, assign_to_halos)
+
+            if len(self._functions) > 0:
+                # convert rvalue to a pyop3 object
+                axes = op3.AxisTree(self._assignee.function_space().axes[self._subset].node_map)
+                rvalue = op3.HierarchicalArray(axes, data=rvalue)
+
+            self._assign_single_dat(lhs.dat, self._subset, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:
@@ -240,13 +240,17 @@ class Assigner:
     def _function_weights(self):
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
-    def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
-        if assign_to_halos:
-            # TODO set modified
-            # FIXME this does not respect mixed functions
-            lhs_dat.buffer._data[indices] = rvalue
-        else:
-            lhs_dat.data_wo[indices] = rvalue
+    def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
+        # convert to a numpy type
+        rval = rvalue.data_ro if isinstance(rvalue, op3.HierarchicalArray) else rvalue
+
+        try:
+            if assign_to_halos:
+                lhs_dat[subset].data_wo_with_halos[...] = rval
+            else:
+                lhs_dat[subset].data_wo[...] = rval
+        except op3.FancyIndexWriteException:
+            lhs_dat[subset].assign(rvalue)
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
