@@ -32,7 +32,7 @@ class FacetSplitPC(PCBase):
     def get_permutation(self, V, W):
         key = (V, W)
         if key not in self._permutation_cache:
-            indices = restricted_local_dofs(V, W)
+            indices = get_permutation_map(V, W)
             if V._comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
                 self._permutation_cache[key] = None
             else:
