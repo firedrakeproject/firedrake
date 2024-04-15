@@ -359,8 +359,7 @@ def test_adjoint_Pk(degree):
 
     v = conj(TestFunction(Pkp1))
     u_Pk = assemble(conj(TestFunction(Pk)) * dx)
-    interpolator = Interpolator(TestFunction(Pk), Pkp1)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
 
@@ -372,8 +371,7 @@ def test_adjoint_quads():
 
     v = conj(TestFunction(P2))
     u_P1 = assemble(conj(TestFunction(P1)) * dx)
-    interpolator = Interpolator(TestFunction(P1), P2)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(P1), assemble(v * dx)))
 
     assert np.allclose(u_P1.dat.data, v_adj.dat.data)
 
@@ -385,10 +383,26 @@ def test_adjoint_dg():
 
     v = conj(TestFunction(dg1))
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
-    interpolator = Interpolator(TestFunction(cg1), dg1)
-    v_adj = assemble(interpolator.interpolate(assemble(v * dx), transpose=True))
+    v_adj = assemble(interpolate(TestFunction(cg1), assemble(v * dx)))
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_function_cofunction(degree):
+    mesh = UnitSquareMesh(10, 10)
+    Pkp1 = FunctionSpace(mesh, "CG", degree+1)
+    Pk = FunctionSpace(mesh, "CG", degree)
+
+    v1 = conj(TestFunction(Pkp1))
+    x = SpatialCoordinate(mesh)
+    f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1]), Pk))
+
+    fhat = assemble(f*v1*dx)
+    norm_i = assemble(interpolate(f, fhat))
+    norm = assemble(f*f*dx)
+
+    assert np.allclose(norm_i, norm)
 
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
