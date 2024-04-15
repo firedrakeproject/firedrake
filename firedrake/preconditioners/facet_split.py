@@ -32,7 +32,7 @@ class FacetSplitPC(PCBase):
     def get_permutation(self, V, W):
         key = (V, W)
         if key not in self._permutation_cache:
-            indices = restricted_local_dofs(V, W)
+            indices = get_permutation_map(V, W)
             if V._comm.allreduce(numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
                 self._permutation_cache[key] = None
             else:
@@ -267,8 +267,8 @@ def get_permutation_map(V, W):
 
 
 def restricted_local_dofs(V, W):
-    vdat = V.make_dat(val=numpy.arange(0, V.dof_count, dtype=PETSc.IntType))
-    wdat = W.make_dat(val=numpy.full((W.dof_count,), -1, dtype=PETSc.IntType))
+    vdat = V.make_dat(val=numpy.arange(0, sum(as_tuple(V.dof_count)), dtype=PETSc.IntType))
+    wdat = W.make_dat(val=numpy.full((sum(as_tuple(W.dof_count)),), -1, dtype=PETSc.IntType))
 
     Vsize = reference_space_dimension(V)
     Wsize = reference_space_dimension(W)
