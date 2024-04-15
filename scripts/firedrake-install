@@ -783,7 +783,7 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-openblas")
         petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
         if osname == "Darwin":
-            petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+            petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration -Wno-int-conversion -Wno-deprecated-non-prototype -Wno-implicit-int")
             if Version(clt["version"]) >= Version("15"):
                 # CLT >= 15 requires legacy linking behaviour
                 petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
