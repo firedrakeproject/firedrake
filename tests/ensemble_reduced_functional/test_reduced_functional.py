@@ -12,7 +12,6 @@ def handle_taping():
 
 
 @pytest.fixture(autouse=True, scope="module")
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def handle_annotation():
     from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
@@ -42,6 +41,7 @@ def test_verification():
 
 
 @pytest.mark.parallel(nprocs=3)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_minimise():
     # Optimisation test using a list of controls.
     # This test is equivalent to the one found at:
