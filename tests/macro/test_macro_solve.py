@@ -42,7 +42,8 @@ def conv_rates(x):
 def convergence_test(variant):
     if variant == "iso":
         def check(uerr, perr):
-            return conv_rates(uerr)[-1] >= 1.9 and np.allclose(perr, 0, atol=1.e-7)
+            return (conv_rates(uerr)[-1] >= 1.9
+                    and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "alfeld":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
@@ -109,7 +110,8 @@ def stokes_mms(Z, zexact):
 def errornormL2_0(pexact, ph):
     msh = ph.function_space().mesh()
     vol = assemble(1*dx(domain=msh))
-    return sqrt(abs(errornorm(pexact, ph)**2 - (1/vol)*assemble((pexact - ph)*dx)**2))
+    err = pexact - ph
+    return sqrt(abs(assemble(inner(err, err)*dx) - (1/vol)*abs(assemble(err*dx))**2))
 
 
 def test_stokes(mh, variant, mixed_element, convergence_test):
