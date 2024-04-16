@@ -2499,9 +2499,12 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     if not topology.topology_dm.getCoordinatesLocalized():
-        element = finat.ufl.VectorElement("Lagrange", cell, 1)
+        element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
-        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
+        element = finat.ufl.VectorElement(
+            "DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG",
+            cell, 1, variant="equispaced", dim=geometric_dim
+        )
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
