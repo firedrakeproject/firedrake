@@ -5,19 +5,27 @@ import firedrake
 
 
 class EnsembleReducedFunctional(ReducedFunctional):
-    """Ensemble of Reduced Functionals.
-
-    This class is used to compute the ensemble of reduced functionals in parallel.
+    """Enable solving simultaneously reduced functionals in parallel.
 
     Parameters
     ----------
-    J : :obj:`pyadjoint.OverloadedType`
-        An instance of an OverloadedType, usually :class:`pyadjoint.AdjFloat`. This should be the functional that we want to
-        reduce.
-    control : :obj:`pyadjoint.Control` or list of :obj:`pyadjoint.Control`
+    J : pyadjoint.OverloadedType
+        An instance of an OverloadedType, usually :class:`pyadjoint.AdjFloat`.
+        This should be the functional that we want to reduce.
+    control : pyadjoint.Control or list of pyadjoint.Control
         A single or a list of Control instances, which you want to map to the functional.
     ensemble : Ensemble
-        An instance of the `Ensemble`. This is used to communicate the reduced functional values across the ensemble.
+        An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
+        functionals and their derivatives between the ensemble members.
+
+    See Also
+    --------
+    :class:`~.ensemble.Ensemble`, :class:`pyadjoint.ReducedFunctional`.
+
+    Notes
+    -----
+    To understand more about how ensemble parallelism works, please refer to the Firedrake
+    `documentation <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
     def __init__(self, J, control, ensemble):
         super(EnsembleReducedFunctional, self).__init__(J, control)
@@ -35,21 +43,26 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return total_functional
 
     def derivative(self, adj_input=1.0, options=None, op=MPI.SUM):
-        """Return the derivative of the ensemble of reduced functionals with respect to the control parameters.
+        """Compute derivatives of a functional with respect to the control parameters.
 
         Parameters
         ----------
         adj_input : float
-            The adjoint input for the derivative computation.
+            The adjoint input. (Improve this description. Ask David for help.)
         options : dict
             Additional options for the derivative computation.
+            (Improve this description. Ask David for help.)
         op : mpi4py.MPI.Op
-            The MPI operation used for the allreduce operation.
+            The employed MPI operation for the `Ensemble.allreduce` the derivatives.
 
         Returns
         -------
-            dJdm_total : firedrake.Function or list of firedrake.Function
-            The total derivative of the ensemble reduced functional with respect to the model parameters.
+            dJdm_total : :class:`~.function.Function` or list of :class:`~.function.Function`
+            The result of Allreduce operations of ``dJdm_local`` into ``dJdm_total`` over `Ensemble.ensemble_comm`.
+
+        See Also
+        --------
+        :meth:`~.ensemble.Ensemble.allreduce`, :meth:`pyadjoint.ReducedFunctional.derivative`.
         """
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
         if isinstance(dJdm_local, list):
@@ -58,7 +71,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 dJdm_total.append(
                     self.ensemble.allreduce(dJdm, firedrake.Function(dJdm.function_space()), op=op)
                 )
-        elif isinstance(dJdm_local, (firedrake.Function, firedrake.Cofunction)):
+        elif isinstance(dJdm_local, firedrake.Function):
             dJdm_total = firedrake.Function(dJdm_local.function_space())
             dJdm_total = self.ensemble.allreduce(dJdm_local, dJdm_total, op=op)
         else:
@@ -67,7 +80,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return dJdm_total
 
     def hessian(self, m_dot, options=None):
-        """Should return the Hessian of the ensemble of reduced functionals with respect to the control parameters.
+        """The Hessian is not yet implemented for ensemble reduced functional.
 
         Raises:
             NotImplementedError: This method is not yet implemented for ensemble reduced functional.
