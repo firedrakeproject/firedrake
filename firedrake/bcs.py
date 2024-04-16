@@ -27,7 +27,7 @@ from firedrake.petsc import PETSc
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
 
-class BCBase(object):
+class BCBase:
     r'''Implementation of a base class of Dirichlet-like boundary conditions.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -122,6 +122,11 @@ class BCBase(object):
             # bit convoluted
             subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
 
+        # This check should be moved into __init__
+        mesh = self.function_space().mesh().topology
+        valid_markers = set(mesh.interior_facets.unique_markers)
+        valid_markers |= set(mesh.exterior_facets.unique_markers)
+
         for subdomain_id in subdomain_ids:
             # subdomain_id is of one of the following formats:
             # facet: (i,)
@@ -144,6 +149,12 @@ class BCBase(object):
                 raise NotImplementedError(
                     "TODO pyop3, need to intersect (see previous `nodes` method)"
                 )
+
+            if subdomain_id not in {"on_boundary", "top", "bottom"}:
+                invalid = set(subdomain_id) - valid_markers
+                if invalid:
+                    raise LookupError(f"BC construction got invalid markers {invalid}. "
+                                      f"Valid markers are '{valid_markers}'")
 
             subsets = mesh.subdomain_points(subdomain_id)
             for dim, subset_data in subset_data_per_dim.items():
@@ -177,8 +188,8 @@ class BCBase(object):
         for idx in self._indices:
             r = r.sub(idx)
 
-        # TODO raise an exception if spaces are not compatible
-        # raise RuntimeError(f"{r} defined on incompatible FunctionSpace")
+        if r.function_space() != self._function_space:
+            raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
         r.dat.eager_zero(subset=self.constrained_points)
 
