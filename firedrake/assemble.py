@@ -1005,9 +1005,16 @@ class ParloopFormAssembler(FormAssembler):
         if needs_zeroing:
             self._as_pyop3_type(tensor).eager_zero()
 
-        for parloop, lgmaps in self.parloops(tensor):
-            with _modified_lgmaps(tensor, lgmaps):
-                parloop()
+        for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+            subtensor = _FormHandler.index_tensor(
+                tensor, self._form, lknl.indices, self.diagonal
+            )
+
+            if isinstance(self, ExplicitMatrixAssembler):
+                with _modified_lgmaps(subtensor, self._form, lgmaps) as tensor_mod:
+                    parloop(**{self._tensor_name: tensor_mod})
+            else:
+                parloop(**{self._tensor_name: subtensor})
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1567,9 +1574,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # index of the function space the bc is defined on.
             # op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
 
+            # for some reason I need to do this first
+            op2tensor.assemble()
+
             op3.do_loop(
                 p := space.axes[index].root[bc.constrained_points].index(),
-                # op2tensor[index, index].getitem(((p, slice(None)), (p, slice(None))), strict=True).assign(1, eager=False)
                 op2tensor[index, index][p, p].assign(1, eager=False)
             )
 
@@ -1992,26 +2001,27 @@ def _is_real_space(space):
 
 
 @contextlib.contextmanager
-def _modified_lgmaps(tensor, lgmaps):
-    swap = isinstance(tensor, matrix.Matrix) and lgmaps is not None
+def _modified_lgmaps(mat, form, lgmaps):
+    if lgmaps is None:
+        yield mat
+        return
 
-    if swap:
-        if tensor.M.nested:
-            raise NotImplementedError("Think about extracting the right sub-blocks")
-        else:
-            rspace, cspace = tensor.ufl_function_spaces()
+    if mat.nested:
+        raise NotImplementedError("Think about extracting the right sub-blocks")
+    else:
+        rspace, cspace = (a.function_space() for a in form.arguments())
 
-            orig_lgmaps = []
-            for i, j, rlgmap, clgmap in lgmaps:
-                rowis = rspace._local_ises[i]
-                colis = cspace._local_ises[j]
-                submat = tensor.M.mat.getLocalSubMatrix(rowis, colis)
+        orig_lgmaps = []
+        for i, j, rlgmap, clgmap in lgmaps:
+            rowis = rspace._local_ises[i]
+            colis = cspace._local_ises[j]
+            submat = mat.mat.getLocalSubMatrix(rowis, colis)
 
-                orig_lgmaps.append((submat, *submat.getLGMap()))
-                submat.setLGMap(rlgmap, clgmap)
+            orig_lgmaps.append((submat, *submat.getLGMap()))
+            submat.setLGMap(rlgmap, clgmap)
 
-    yield
+    yield type(mat)(mat.raxes, mat.caxes, mat.mat_type, submat, name=mat.name)
 
-    if swap:
-        for submat, orig_rlgmap, orig_clgmap in orig_lgmaps:
-            submat.setLGMap(orig_rlgmap, orig_clgmap)
+    mat.mat.restoreLocalSubMatrix(rowis, colis, submat)
+    # for submat, orig_rlgmap, orig_clgmap in orig_lgmaps:
+    #     submat.setLGMap(orig_rlgmap, orig_clgmap)

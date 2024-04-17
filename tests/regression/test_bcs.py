@@ -281,8 +281,11 @@ def test_assemble_mass_bcs_2d(V):
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
 
+    # debug
+    mat = assemble(inner(u,v)*dx)
+
+    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
     assert assemble(inner((w - f), (w - f))*dx) < 1e-12
 
 
@@ -298,7 +301,7 @@ def test_overlapping_bc_nodes(quad):
            DirichletBC(V, 1, 4)]
     A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
-    assert np.allclose(A, np.identity(V.dof_dset.size))
+    assert np.allclose(A, np.identity(V.axes.size))
 
 
 @pytest.mark.parametrize("diagonal",

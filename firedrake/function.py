@@ -100,7 +100,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             :class:`CoordinatelessFunction` will share the dof values.
         """
         if deepcopy:
-            val = type(self.dat)(self.dat)
+            val = self.dat.copy2()
         else:
             val = self.dat
         return type(self)(self.function_space(),

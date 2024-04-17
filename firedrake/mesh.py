@@ -3320,11 +3320,10 @@ values from f.)"""
         cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self._cell_orientations = cell_orientations.topological
 
-    # Remove this, this class is moving to pyop3 anyway - code smell
-    # def __getattr__(self, name):
-    #     val = getattr(self._topology, name)
-    #     setattr(self, name, val)
-    #     return val
+    def __getattr__(self, name):
+        val = getattr(self._topology, name)
+        setattr(self, name, val)
+        return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()

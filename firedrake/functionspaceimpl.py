@@ -517,16 +517,16 @@ class FunctionSpace:
         self.finat_element = create_element(element)
 
         # This is a hack because RealFunctionSpace inherits from this class
-        # without its own constructor. Perhaps introduce an AbstractFunctionSpace
+        # without its own constructor. Perhaps introduce a BaseFunctionSpace
         # parent class.
         if isinstance(self, RealFunctionSpace):
             if self._comm.size > 1:
                 raise NotImplementedError("Hitting minor issues in layout tabulation")
-            # axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), mesh.topology.name, sf=op3.single_star(self._comm))
             # it is important to mark as unit here so we can distinguish row and column
             # matrices.
             axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
             axes = op3.AxisTree(axis)
+            block_axes = axes
 
             if self.shape:
                 subaxes = op3.AxisTree.from_iterable(
@@ -541,27 +541,16 @@ class FunctionSpace:
                 for i, dim in enumerate(self.shape):
                     subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
                 axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+
+            # TODO: Remove code duplication
+            block_axes = op3.AxisTree(mesh.points)
+            for tdim, edofs in self.finat_element.entity_dofs().items():
+                ndofs = single_valued(len(d) for d in edofs.values())
+                subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
+                block_axes = block_axes.add_subtree(subaxes, mesh.points, str(tdim))
+
         self.axes = axes
-
-    # def set_shared_data(self):
-    #     element = self.ufl_element()
-    #     sdata = get_shared_data(self._mesh, element)
-    #     # Need to create finat element again as sdata does not
-    #     # want to carry finat_element.
-    #     # Used for reconstruction of mixed/component spaces.
-    #     # sdata carries real_tensorproduct.
-    #     self._shared_data = sdata
-    #     self.real_tensorproduct = sdata.real_tensorproduct
-    #     self.extruded = sdata.extruded
-    #     self.offset = sdata.offset
-    #     self.offset_quotient = sdata.offset_quotient
-    #     self.cell_boundary_masks = sdata.cell_boundary_masks
-    #     self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-    #     self.global_numbering = sdata.global_numbering
-
-    # def make_dof_dset(self):
-    #     return op2.DataSet(self._shared_data.node_set, self.shape or 1,
-    #                        name=f"{self.name}_nodes_dset")
+        self.block_axes = axes
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -691,12 +680,10 @@ class FunctionSpace:
         section.setPermutation(perm)
         return section
 
+    # TODO: This is identical to value_size, remove
     @property
     def _cdim(self):
-        if self.shape:
-            return numpy.prod(self.shape, dtype=int)
-        else:
-            return 1
+        return self.value_size
 
     @utils.cached_property
     def cell_node_list(self):
@@ -843,14 +830,14 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs: tuple = ()) -> PETSc.LGMap:
+    def local_to_global_map(self, bcs=()) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         Parameters
         ----------
         bcs
             Optional iterable of boundary conditions. If provided these DoFs
-            are masked out (set to -1) of the returned map.
+            are masked out (set to -1) in the returned map.
 
         Returns
         -------
@@ -866,66 +853,48 @@ class FunctionSpace:
             while fs.component is not None and fs.parent is not None:
                 fs = fs.parent
             if fs.topological != self.topological:
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
-
-        unblocked = any(bc.function_space().component is not None for bc in bcs)
-        lgmap = self._lgmap
-        if unblocked:
-            indices = lgmap.indices.copy()
-            bsize = 1
-        else:
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-            assert bsize == self.value_size
-        # if lgmap is None:
-        #     ...
-        # else:
-        #     # MatBlock case, LGMap is already unrolled.
-        #     indices = lgmap.block_indices.copy()
-        #     bsize = lgmap.getBlockSize()
-        #     unblocked = True
+                raise RuntimeError("Dirichlet BC defined on a different function space")
 
         # Caching these things is too complicated, since it depends
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from (e.g. inside
         # fieldsplit)
-        indices_dat = op3.HierarchicalArray(self.axes, data=indices)
+
+        # NOTE: I should investigate whether or not we need unblocked lgmaps. Surely
+        # PETSc should be smart enough to cope?
+
+        unblocked = any(bc.function_space().component is not None for bc in bcs)
+        if unblocked:
+            indices = self._lgmap.indices.copy()
+            idat = op3.HierarchicalArray(self.axes, data=indices)
+            bsize = 1
+        else:
+            indices = self._lgmap.block_indices.copy()
+            idat = op3.HierarchicalArray(self.block_axes, data=indices)
+            bsize = self._lgmap.getBlockSize()
+            assert bsize == self.value_size
+
         for bc in bcs:
             op3.do_loop(
                 p := self.axes.root[bc.constrained_points].index(),
-                indices_dat[p, :].assign(-1, eager=False)
+                idat[p, :].assign(-1, eager=False)
             )
-
-
-            # if bc.function_space().component is not None:
-            #     nodes.append(bc.nodes * self.value_size
-            #                  + bc.function_space().component)
-            # elif unblocked:
-            #     tmp = bc.nodes * self.value_size
-            #     for i in range(self.value_size):
-            #         nodes.append(tmp + i)
-            # else:
-            #     nodes.append(bc.nodes)
-        # nodes = numpy.unique(numpy.concatenate(nodes))
-        # indices[nodes] = -1
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
-        return PETSc.LGMap().create(
-            self.axes.global_numbering(), comm=self._comm
-        )
+        indices = self.block_axes.global_numbering()
+        return PETSc.LGMap().create(indices, bsize=self._cdim, comm=self.comm)
 
     @utils.cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
-        if self.cdim == 1:
+        if self._cdim == 1:
             return self._lgmap
         else:
-            return PETSc.LGMap().create(
-                indices=self._lgmap.indices, bsize=1, comm=self._lgmap.comm,
-            )
+            indices = self.axes.global_numbering()
+            return PETSc.LGMap().create(indices, bsize=1, comm=self.comm)
 
     def collapse(self):
         from firedrake import FunctionSpace

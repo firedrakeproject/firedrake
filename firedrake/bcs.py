@@ -150,7 +150,7 @@ class BCBase:
                     "TODO pyop3, need to intersect (see previous `nodes` method)"
                 )
 
-            if subdomain_id not in {"on_boundary", "top", "bottom"}:
+            if subdomain_id not in {("on_boundary",), ("top",), ("bottom",)}:
                 invalid = set(subdomain_id) - valid_markers
                 if invalid:
                     raise LookupError(f"BC construction got invalid markers {invalid}. "

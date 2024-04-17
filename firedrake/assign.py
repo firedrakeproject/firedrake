@@ -246,9 +246,10 @@ class Assigner:
             else:
                 assignee = lhs[subset].data_wo
         except op3.FancyIndexWriteException:
-            # convert rvalue to a pyop3 object
-            axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
-            rvalue = op3.HierarchicalArray(axes, data=rvalue)
+            if not isinstance(rvalue, numbers.Number):
+                # convert rvalue to a pyop3 object
+                axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
+                rvalue = op3.HierarchicalArray(axes, data=rvalue)
             lhs[subset].assign(rvalue)
             return
 
