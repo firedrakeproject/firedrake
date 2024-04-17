@@ -73,7 +73,7 @@ class LinearEigenproblem():
             from ufl import inner, dx
             M = inner(u, v) * dx
 
-        if restrict and bcs:  # assumed u and v are in the same space here 
+        if restrict and bcs:  # assumed u and v are in the same space here
             V_res = RestrictedFunctionSpace(self.output_space, boundary_set=set([bc.sub_domain for bc in bcs]))
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)

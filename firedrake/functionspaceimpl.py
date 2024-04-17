@@ -691,7 +691,7 @@ class FunctionSpace(object):
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.dof_dset.layout_vec.getSize()
-    
+
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
@@ -873,7 +873,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             str(self.function_space), self.name, self.boundary_set)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element(), 
+        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None):
