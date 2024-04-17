@@ -317,8 +317,10 @@ def RestrictedFunctionSpace(function_space, name=None, boundary_set=[]):
         FunctionSpace object to restrict
     name:
         An optional name for the function space.
-    bcs :
-        Set of boundary conditions
-
+    boundary_set:
+        A set of subdomains of the mesh in which Dirichlet boundary conditions 
+        will be applied.
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name, boundary_set=boundary_set), function_space.mesh())
+    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name,
+                                                                 boundary_set=boundary_set),
+                                                                 function_space.mesh())

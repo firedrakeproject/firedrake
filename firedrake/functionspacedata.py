@@ -93,10 +93,10 @@ def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
     :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple where
-        nodes_per_entity is a tuple of the number of nodes per topological
-        entity; real_tensorproduct is True if the function space is a
-        degenerate fs x Real tensorproduct; boundary_set is a set of boundary
+    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple
+        where nodes_per_entity is a tuple of the number of nodes per
+        topological entity; real_tensorproduct is True if the function space is
+        a degenerate fs x Real tensorproduct; boundary_set is a set of boundary
         markers, indicating sub-domains a boundary condition is specified on.
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
@@ -152,7 +152,8 @@ def get_entity_node_lists(mesh, key, entity_dofs, entity_permutations, global_nu
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key) tuple.
+    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
+        boundary_set) tuple.
     :arg entity_dofs: FInAT entity dofs.
     :arg entity_permutations: FInAT entity permutations.
     :arg global_numbering: The PETSc Section describing node layout
@@ -185,10 +186,12 @@ def get_map_cache(mesh, key):
     """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key) tuple where
-        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
-        real_tensorproduct is True if the function space is a degenerate
-        fs x Real tensorproduct.
+    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
+        boundary_set) tuple where entity_dofs is Canonicalised entity_dofs
+        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
+        function space is a degenerate fs x Real tensorproduct; boundary_set is
+        the set of subdomains a restricted function space is applied to, or
+        None if using a regular function space.
     """
     if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
         return {mesh.cell_set: None}
@@ -270,7 +273,7 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     """Get top or bottom boundary nodes of an extruded function space.
 
     :arg mesh: The mesh to cache on.
-    :arg key: The key a 2-tuple of ``(entity_dofs_key, sub_domain)``.
+    :arg key: A 3-tuple of ``(entity_dofs_key, sub_domain, boundary_set)`` key.
         Where sub_domain indicates top or bottom.
     :arg V: The FunctionSpace to select from.
     :arg entity_dofs: The flattened entity dofs.
@@ -304,7 +307,7 @@ def get_facet_closure_nodes(mesh, key, V):
     """Function space nodes in the closure of facets with a given
     marker.
     :arg mesh: Mesh to cache on
-    :arg key: (edofs, sub_domain) tuple
+    :arg key: (edofs, sub_domain, boundary_set) tuple
     :arg V: function space.
     :returns: numpy array of unique nodes in the closure of facets
        with provided markers (both interior and exterior)."""
@@ -398,6 +401,9 @@ class FunctionSpaceData(object):
 
     :arg mesh: The mesh to share the data on.
     :arg ufl_element: The UFL element.
+    :arg boundary_set: The set of subdomains that a Dirichlet boundary condition
+        will act on. This is None if the function space is not a
+        :class:`.RestrictedFunctionSpace`.
     """
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
@@ -521,8 +527,8 @@ def get_shared_data(mesh, ufl_element, boundary_set=None):
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
-    :arg boundary_set: A set of boundary markers, indicating the sub-domains
-        a boundary condition is specified on.
+    :arg boundary_set: A set of boundary markers, indicating the subdomains a
+        boundary condition is specified on.
     :raises ValueError: if mesh or ufl_element are invalid.
     :returns: a ``FunctionSpaceData`` object with the shared
         data.
