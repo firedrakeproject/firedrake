@@ -1195,6 +1195,9 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
+    
+    :returns: An integer providing the total number of constrained nodes in the
+    Section
     """
     # We don't use DMPlexCreateSection because we only ever put one
     # field in each section.
@@ -2336,10 +2339,16 @@ def plex_renumbering(PETSc.DM plex,
          DMPlexGetOrdering).  Optional, if not provided (or ``None``),
          no reordering is applied and the plex is traversed in
          original order.
+    :arg boundary_set: A set of boundary subdomains, where a DirichletBC is to
+         be applied. This is None if working with a FunctionSpace object, and 
+         non-empty if working with a RestrictedFunctionSpace object. If one is 
+         provided, this will move all core or owned boundary points to the end 
+         of the core+owned block. 
 
     The node permutation is derived from a depth-first traversal of
     the Plex graph over each entity class in turn. The returned IS
-    is the Plex -> PyOP2 permutation.
+    is the Plex -> PyOP2 permutation. A tuple indicating the start and end of 
+    the core/owned constrained block is returned, for use in create_section. 
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
