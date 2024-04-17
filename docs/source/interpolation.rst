@@ -9,7 +9,7 @@ Firedrake offers highly flexible capabilities for interpolating expressions
 (functions of space) into finite element :py:class:`~.Function`\s.
 Interpolation is often used to set up initial conditions and/or boundary
 conditions. Mathematically, if :math:`e(x)` is a function of space and
-:math:`V`` is a finite element functionspace then
+:math:`V` is a finite element functionspace then
 :math:`\operatorname{interpolate}(e, V)` is the :py:class:`~.Function`
 :math:`v_i \phi_i\in V` such that:
 
