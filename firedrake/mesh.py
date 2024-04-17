@@ -744,8 +744,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
         :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
-        :arg boundary_set: A set of boundary markers, indicating the sub-domains 
-        a boundary condition is specified on. 
+        :arg boundary_set: A set of boundary markers, indicating the subdomains
+            a boundary condition is specified on.
         :returns: a new PETSc Section.
         """
         return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)

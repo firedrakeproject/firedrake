@@ -180,7 +180,7 @@ def test_restricted_mixed_spaces(i, j):
     w = Function(W)
     w2= Function(W_res)
 
-    f = Constant(1)    
+    f = Constant(1)
     L = - f * v * dx
     L2 = - f * v2 * dx
 
