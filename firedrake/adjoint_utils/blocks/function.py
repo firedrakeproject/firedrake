@@ -271,7 +271,7 @@ class FunctionMergeBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
         parent_in = inputs[1]
-        parent_out = type(sub_func)(parent_in)
+        parent_out = type(parent_in)(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
         return maybe_disk_checkpoint(parent_out)
 
