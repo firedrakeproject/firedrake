@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from numpy.random import rand
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
+from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -800,6 +801,65 @@ def test_3325():
     minimize(Jhat, method="SLSQP", constraints=constraint)
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.parametrize("solve_type", ["solve", "linear_variational_solver"])
+def test_assign_cofunction(solve_type):
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
+    # This function tests the case where Cofunction assigns a
+    # Cofunction and a BaseForm.
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    k = Function(V).assign(1.0)
+    a = k * u * v * dx
+    b = Constant(1.0) * v * dx
+    u0 = Cofunction(V.dual(), name="u0")
+    u1 = Cofunction(V.dual(), name="u1")
+    sol = Function(V, name="sol")
+    if solve_type == "linear_variational_solver":
+        problem = LinearVariationalProblem(lhs(a), rhs(a) + u1, sol)
+        solver = LinearVariationalSolver(problem)
+    J = 0
+    for i in range(2):
+        # This loop emulates a time-dependent problem, where the Cofunction
+        # added on the right-hand of the equation is updated at each time step.
+        u0.assign(assemble(b))
+        u1.assign(i * u0 + b)
+        if solve_type == "solve":
+            solve(a == u1, sol)
+        if solve_type == "linear_variational_solver":
+            solver.solve()
+        J += assemble(((sol + Constant(1.0)) ** 2) * dx)
+    rf = ReducedFunctional(J, Control(k))
+    assert rf(k) == J
+    assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_assign_zero_cofunction():
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
+    # It is expected the tape breaks since the functional loses its dependency
+    # on the control after the Cofunction assigns Zero.
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    k = Function(V).assign(1.0)
+    a = u * v * dx
+    b = k * v * dx
+    u0 = Cofunction(V.dual(), name="u0")
+    u0.assign(b)
+    u0.assign(Zero())
+    sol = Function(V, name="c")
+    solve(a == u0, sol)
+    J = assemble(((sol + Constant(1.0)) ** 2) * dx)
+    # The zero assignment should break the tape and hence cause a zero
+    # gradient.
+    assert all(compute_gradient(J, Control(k)).dat.data_ro == 0.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_cofunction_subfunctions_with_adjoint():
     # See https://github.com/firedrakeproject/firedrake/issues/3469
     mesh = UnitSquareMesh(2, 2)
@@ -813,19 +873,16 @@ def test_cofunction_subfunctions_with_adjoint():
         10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
     bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
     bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
-    k = Function(BDM).assign(1.0)
-    a = k * dot(sigma, tau) * dx + (div(tau)*u + div(sigma))*v*dx
+    k = Function(DG).assign(1.0)
+    a = (dot(sigma, tau) + (dot(div(tau), u))) * dx + k * div(sigma)*v*dx
     b = assemble(-f*v*dx)
     w = Function(W)
     b1 = Cofunction(W.dual())
     b1.sub(1).assign(b.sub(1))
     solve(a == b1, w, bcs=[bc0, bc1])
-    sigma, u = w.subfunctions()
-    J = assemble(inner(grad(u), grad(u))*dx)
-    taylor_test(J, k, Function(W).assign(1.0))
-
-
-
-
-
-
+    J = assemble(0.5*dot(w, w)*dx)
+    k.block_variable.tlm_value = Constant(1)
+    get_working_tape().evaluate_tlm()
+    print(J)
+    J_hat = ReducedFunctional(J, Control(k))
+    assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9
