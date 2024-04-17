@@ -258,9 +258,9 @@ class FunctionMergeBlock(Block):
             return
         output = self.get_outputs()[0]
         fs = output.output.function_space()
-        f = firedrake.Function(fs)
+        f = type(output.output)(fs)
         output.add_tlm_output(
-            firedrake.Function.assign(f.sub(self.idx), tlm_input)
+            type(output.output).assign(f.sub(self.idx), tlm_input)
         )
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
@@ -271,7 +271,7 @@ class FunctionMergeBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
         parent_in = inputs[1]
-        parent_out = firedrake.Function(parent_in)
+        parent_out = type(sub_func)(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
         return maybe_disk_checkpoint(parent_out)
 

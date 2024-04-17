@@ -803,8 +803,29 @@ def test_3325():
 def test_cofunction_subfunctions_with_adjoint():
     # See https://github.com/firedrakeproject/firedrake/issues/3469
     mesh = UnitSquareMesh(2, 2)
-    V = VectorFunctionSpace(mesh, "CG", 1)
-    Q = FunctionSpace(mesh, "CG", 1)
-    W = V * Q
-    uf = Cofunction(W.dual())
-    uf.sub(1)
+    BDM = FunctionSpace(mesh, "BDM", 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    W = BDM * DG
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(DG).interpolate(
+        10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
+    bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
+    k = Function(BDM).assign(1.0)
+    a = k * dot(sigma, tau) * dx + (div(tau)*u + div(sigma))*v*dx
+    b = assemble(-f*v*dx)
+    w = Function(W)
+    b1 = Cofunction(W.dual())
+    b1.sub(1).assign(b.sub(1))
+    solve(a == b1, w, bcs=[bc0, bc1])
+    sigma, u = w.subfunctions()
+    J = assemble(inner(grad(u), grad(u))*dx)
+    taylor_test(J, k, Function(W).assign(1.0))
+
+
+
+
+
+
