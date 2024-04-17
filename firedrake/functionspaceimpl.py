@@ -801,6 +801,26 @@ class FunctionSpace(object):
 
 
 class RestrictedFunctionSpace(FunctionSpace):
+    r"""A representation of a function space, with additional information
+    about where boundary conditions are to be applied.
+
+    If a :class:`FunctionSpace` is represented as V, we can decompose V into
+    V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
+    the boundary where a boundary condition is applied, and VΓ contains all
+    other basis functions. This means that the :class:`RestrictedFunctionSpace`
+    corresponding to V is V0.
+
+    :arg function_space: The :class:`FunctionSpace` to restrict.
+    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
+        useful for later identification.
+    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
+        applied.
+
+    Notes
+    -----
+    If using this class to solve or similar, a list of DirichletBCs will still
+    need to be specified on this space and passed into the function.
+    """
     def __init__(self, function_space, name=None, boundary_set=frozenset()):
         label = ""
         for boundary_domain in boundary_set:
@@ -826,7 +846,8 @@ class RestrictedFunctionSpace(FunctionSpace):
                                     name="%s_nodes_dset" % self.name)
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
-        # check not all are constrained 
+
+        # check not all degrees of freedom are constrained
         unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
         if self.comm.allreduce(unconstrained_dofs) == 0:
             raise ValueError("All degrees of freedom are constrained.")
