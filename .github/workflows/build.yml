@@ -84,7 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch ufl dolci/add_option_ufl_signature \
+            --package-branch ufl dolci/test_ufl \
             --package-branch fiat dolci/add_ufl_signature \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
