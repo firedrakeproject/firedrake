@@ -27,7 +27,7 @@ from pyop2.mpi import (
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, checked_zip, debug_assert
+from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one
 from tsfc.finatinterface import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
@@ -679,10 +679,10 @@ class AbstractMeshTopology(abc.ABC):
                 )
 
             points = op3.Axis(
-                {
-                    str(d): self.num_entities(d)
+                [
+                    op3.AxisComponent(self.num_entities(d), label=str(d), rank_equal=False)
                     for d in self.depth_strata_order
-                },
+                ],
                 numbering=self._dm_renumbering.indices,
                 label=self.name,
             )
@@ -1139,6 +1139,8 @@ class AbstractMeshTopology(abc.ABC):
             ]
 
         # add exterior and interior facets
+        # NOTE: The arity restriction for interior facets is not right. Some interior
+        # facets can have a single incident cell if on a mesh partition boundary.
         supports[freeze({self.name: "ext_facets"})] = [
             op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1, label="XXX"),
         ]
@@ -1160,6 +1162,7 @@ class AbstractMeshTopology(abc.ABC):
                 supports.append({})
                 continue
 
+            # because this is ragged things are already renumbered
             map_data, sizes = self._memoize_map(support_func, dim)
 
             # only the next dimension has entries
@@ -1189,23 +1192,24 @@ class AbstractMeshTopology(abc.ABC):
         facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
 
         next_facets = len(self._exterior_facets)
-        # ext_facets_axes = op3.Axis(next_facets)
-        # ext_facets_dat = op3.HierarchicalArray(ext_facets_axes, data=self._exterior_facets)
-
-        # ext_facets_subset = op3.Slice(
-        #     self.name,
-        #     [op3.Subset(self.facet_label, ext_facets_dat, label="ext_facets")],
-        #     label=self.name,
-        # )
-
         ext_facet_support_axes = op3.AxisTree.from_iterable(
             (op3.Axis({"ext_facets": next_facets}, self.name), 1))
         ext_facet_support_dat = op3.HierarchicalArray(
-            ext_facet_support_axes, dtype=IntType
+            ext_facet_support_axes, data=np.full(ext_facet_support_axes.size, -1, dtype=IntType),
         )
+
+        # This map is only valid for owned facets
+        # but doing this breaks composability!
+        # facet_component = just_one(
+        #     c for c in self.points.components if c.label == self.facet_label
+        # )
+        # nowned_facets = self.points.owned_count_per_component[facet_component]
+
         for fi, ext_facet in enumerate(self._exterior_facets):
-            cell = facet_support_dat.get_value([ext_facet, 0])
-            ext_facet_support_dat.set_value([fi, 0], cell)
+            # if ext_facet < nowned_facets:
+            if True:
+                cell = facet_support_dat.get_value([ext_facet, 0])
+                ext_facet_support_dat.set_value([fi, 0], cell)
 
         return ext_facet_support_dat
 
@@ -1214,109 +1218,32 @@ class AbstractMeshTopology(abc.ABC):
         facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
 
         nint_facets = len(self._interior_facets)
-        # int_facets_axes = op3.Axis(nint_facets)
-        # int_facets_dat = op3.HierarchicalArray(int_facets_axes, data=self._interior_facets)
 
-        int_facet_support_axes = op3.AxisTree.from_iterable(
-            (op3.Axis({"int_facets": nint_facets}, self.name), 2))
-        int_facet_support_dat = op3.HierarchicalArray(
-            int_facet_support_axes, dtype=IntType
+        facet_axis = op3.Axis(
+            op3.AxisComponent(nint_facets, label="int_facets", rank_equal=False),
+            self.name
         )
 
-        # int_facets_subset = op3.Slice(
-        #     self.name,
-        #     [op3.Subset(self.facet_label, int_facets_dat, label="int_facets")],
-        #     label=self.name,
-        # )
+        # select the sizes from the array that correspond to the interior facets
+        sizes = facet_support_dat.axes.leaf_component.count.data_ro[self._interior_facets]
+        sizes_dat = op3.HierarchicalArray(facet_axis, data=sizes)
 
-        # this is bad because it doesn't know that it's a fixed size now...
-        # old = facet_support_dat[int_facets_subset]
+        int_facet_support_axes = op3.AxisTree.from_iterable(
+            [facet_axis, op3.Axis(op3.AxisComponent(sizes_dat))]
+        )
+        int_facet_support_dat = op3.HierarchicalArray(
+            int_facet_support_axes, data=np.full(int_facet_support_axes.size, -1, dtype=IntType),
+        )
 
         for fi, int_facet in enumerate(self._interior_facets):
-            for ci in range(2):
+            # This loop must be ragged because some interior facets only have 1
+            # incident cell.
+            # for ci in range(2):
+            for ci in range(sizes[fi]):
                 cell = facet_support_dat.get_value([int_facet, ci])
                 int_facet_support_dat.set_value([fi, ci], cell)
 
         return int_facet_support_dat
-
-    def _cell_integral_map(self, cell: op3.LoopIndex):
-        """
-        Probably not useful anymore...
-
-        cell:
-            ┌───────┬───────┬───────┐
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            ├──────╴o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            │       o   *   o       │
-            │       │       │       │
-            ├──────╴o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            └───────┴───────┴───────┘
-
-        vertex:
-
-            ┌───────┬───────┬───────┐
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            o   o   o   o   o       │
-            │       │       │       │
-            o╶─╴o╶─╴*╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            o   o   o   o   o       │
-            │       │       │       │
-            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┘
-
-        """
-        # TODO: Or self._fiat_closure? Tidy up.
-        return self.closure(cell)
-
-    def _facet_integral_map(self, facet: op3.LoopIndex):
-        """
-
-        Probably not needed anymore...
-
-        cell:
-
-            ┌───────┬───────┬───────┐
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            ├───────o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            │       o   *   o       │
-            │       │       │       │
-            ├──────╴o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            └───────┴───────┴───────┘
-
-        vertex:
-
-            ┌───────┬───────┬───────┐
-            │       │       │       │
-            │       │       │       │
-            │       │       │       │
-            o╶─╴o╶─╴o╶─╴o╶─╴o╶──────┤
-            │       │       │       │
-            o   o   o   o   o       │
-            │       │       │       │
-            o╶─╴o╶─╴o╶─╴o╶─╴o╶─╴o╶─╴o
-            │       │       │       │
-            o   o   o   o   o   o   o
-            │       │       │       │
-            o╶─╴o╶─╴*╶─╴o╶─╴o╶─╴o╶─╴o
-
-        """
-        return self.closure(self.support(facet))
 
     # delete?
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
@@ -1755,35 +1682,24 @@ class MeshTopology(AbstractMeshTopology):
     def _plex_closures_renum(self):
         """Memoized, renumbered, DMPlex point closures.
 
+        This function does several things:
+
+        1. The map entries are shuffled to account for the renumbering
+           of source points.
+        2. The map values are shifted by an offset to be in "component-wise"
+           numbering.
+        3. The map values are renumbered.
+
         See `_plex_closures_default` for more information.
 
         """
+        closures_renum = []
         closures_default, sizes = self._plex_closures_default
-        closures_renum = tuple(
-            tuple(np.empty_like(cl) for cl in closures)
-            for closures in closures_default
-        )
         for src_dim in range(self.dimension+1):
-            src_label = str(src_dim)
-            src_renumbering = self.points.component_numbering(src_label)
-            src_strata_offset = self.points.component_offset(src_label)
-
-            for dest_dim in range(self.dimension+1):
-                dest_label = str(dest_dim)
-                dest_renumbering = self.points.component_numbering(dest_label)
-                dest_strata_offset = self.points.component_offset(dest_label)
-
-                closure_renum = closures_renum[src_dim][dest_dim]
-                closure_default = closures_default[src_dim][dest_dim]
-                for src_strata_pt, dest_pts in enumerate(closure_default):
-                    # src_strata_pt = src_pt - src_strata_offset
-                    dest_strata_pts = dest_pts - dest_strata_offset
-
-                    src_pt_renum = src_renumbering[src_strata_pt]
-                    dest_pts_renum = dest_renumbering[dest_strata_pts]
-                    closure_renum[src_pt_renum] = dest_pts_renum
-
-        return closures_renum, sizes
+            map_data = closures_default[src_dim]
+            map_data_renum = self._renumber_map(map_data, src_dim)
+            closures_renum.append(map_data_renum)
+        return tuple(closures_renum), sizes
 
     def _memoize_closures(self, dim):
         def closure_func(pt):
@@ -1841,6 +1757,7 @@ class MeshTopology(AbstractMeshTopology):
             utils.assert_empty(map_pts)
         return map_data
 
+    # NOTE: This function *does* renumber things, whereas the fixed version does not.
     def _memoize_map_ragged(self, map_func, dim):
         pstart, pend = self.topology_dm.getDepthStratum(dim)
         npoints = pend - pstart
@@ -1875,6 +1792,30 @@ class MeshTopology(AbstractMeshTopology):
                 ptrs[map_dim] += 1
         # assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
         return map_data, sizes
+
+    def _renumber_map(self, map_data, src_dim):
+        # TODO: Rename vars here to be non-closure specific
+        closures_default = map_data
+        closures_renum = tuple(np.empty_like(cl) for cl in closures_default)
+        src_label = str(src_dim)
+        src_renumbering = self.points.component_numbering(src_label)
+
+        for dest_dim in range(self.dimension+1):
+            dest_label = str(dest_dim)
+            dest_renumbering = self.points.component_numbering(dest_label)
+            dest_strata_offset = self.points.component_offset(dest_label)
+
+            # This is the hot loop
+            closure_renum = closures_renum[dest_dim]
+            closure_default = closures_default[dest_dim]
+            for src_strata_pt, dest_pts in enumerate(closure_default):
+                dest_strata_pts = dest_pts - dest_strata_offset
+
+                src_pt_renum = src_renumbering[src_strata_pt]
+                dest_pts_renum = dest_renumbering[dest_strata_pts]
+                closure_renum[src_pt_renum] = dest_pts_renum
+
+        return closures_renum
 
     @utils.cached_property
     def entity_orientations(self):

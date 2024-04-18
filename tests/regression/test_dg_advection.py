@@ -81,3 +81,9 @@ def test_dg_advection_cubed_sphere():
 @pytest.mark.parallel(nprocs=3)
 def test_dg_advection_cubed_sphere_parallel():
     run_test(UnitCubedSphereMesh(refinement_level=4))
+
+
+if __name__ == "__main__":
+    # fails as uses quads
+    # run_test(UnitCubedSphereMesh(refinement_level=4))
+    run_test(UnitIcosahedralSphereMesh(refinement_level=3))

@@ -3,7 +3,7 @@ import finat
 import ufl
 
 from ufl.form import BaseForm
-from pyop2 import op2, mpi
+from pyop2 import mpi
 import pyop3 as op3
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
@@ -121,13 +121,49 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
         return self.subfunctions
 
+    # exact copy from function.py
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self, )
+        if self.function_space()._cdim == 1:
+            return (self,)
         else:
-            return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
-                         for i in range(self.function_space().value_size))
+            if len(self.function_space().shape) > 1:
+                # This all gets a lot easier if one could insert slices *above*
+                # the relevant indices. Then we could just index with a ScalarIndex.
+                # Instead we have to construct the whole IndexTree and for simplicity
+                # this is disabled for tensor things.
+                raise NotImplementedError
+
+            root_axis = self.dat.axes.root
+            root_index = op3.Slice(
+                root_axis.label,
+                [op3.AffineSliceComponent(c.label) for c in root_axis.components],
+            )
+            root_index_tree = op3.IndexTree(root_index)
+            subtree = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
+            for component in root_index.component_labels:
+                root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
+
+            subfuncs = []
+            # This flattens any tensor shape, which pyop3 can now do "properly"
+            for i, j in enumerate(np.ndindex(self.function_space().shape)):
+
+                # just one-tuple supported for now
+                j, = j
+
+                indices = root_index_tree
+                subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
+                for leaf in root_index_tree.leaves:
+                    indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
+
+                subfunc = type(self)(
+                    self.function_space().sub(i),
+                    # val=self.dat[indices],
+                    val=self.dat.getitem(indices, strict=True),
+                    name=f"view[{i}]({self.name()})"
+                )
+                subfuncs.append(subfunc)
+            return tuple(subfuncs)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):

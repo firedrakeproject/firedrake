@@ -14,7 +14,7 @@ from numbers import Number
 from pathlib import Path
 from pyrsistent import freeze
 
-from pyop2 import op2, mpi
+from pyop2 import mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
 
@@ -155,6 +155,10 @@ class CoordinatelessFunction(ufl.Coefficient):
             subfuncs = []
             # This flattens any tensor shape, which pyop3 can now do "properly"
             for i, j in enumerate(np.ndindex(self.function_space().shape)):
+
+                # just one-tuple supported for now
+                j, = j
+
                 indices = root_index_tree
                 subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
                 for leaf in root_index_tree.leaves:
@@ -622,6 +626,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
+        raise NotImplementedError("TODO pyop3")
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
             return self.dat.data_ro
@@ -754,6 +759,8 @@ class PointNotInDomainError(Exception):
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
+
+    raise NotImplementedError("TODO pyop3")
 
     from os import path
     from firedrake.pointeval_utils import compile_element

@@ -271,6 +271,8 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
+    raise NotImplementedError("TODO pyop3")
+
     # catch deprecated C-string parloops
     if isinstance(kernel, str):
         raise TypeError("C-string kernels are no longer supported by Firedrake parloops")

@@ -13,7 +13,7 @@ import numpy
 import pyop3 as op3
 import ufl
 from pyop2 import op2, mpi
-from pyop3.utils import single_valued
+from pyop3.utils import just_one, single_valued
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -663,19 +663,17 @@ class FunctionSpace:
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
-        points = self.mesh().topology.points
+        points = self._mesh.points
         section.setChart(0, points.size)
+
         for p in points.iter():
-            clabel = op3.utils.just_one(p.source_path.values())
-            # p_renum = points.default_to_applied_component_number(
-            #     clabel,
-            #     op3.utils.just_one(p.target_exprs.values())
-            # )
-            p_renum = op3.utils.just_one(p.target_exprs.values())
-            p_ = points.component_to_axis_number(clabel, p_renum)
-            offset = self.axes.offset(p.target_exprs, p.target_path)
-            section.setOffset(p_, offset)
-        # could also try setting a permutation?
+            pi = just_one(p.source_exprs.values())
+            stratum_label = just_one(p.source_path.values())
+            pi_plex = points.component_to_axis_number(stratum_label, pi)
+            offset = self.axes.offset(p.source_exprs, p.source_path)
+            section.setOffset(pi_plex, offset)
+
+        # could also try setting a permutation? this seems to work
         perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
         section.setPermutation(perm)
         return section
