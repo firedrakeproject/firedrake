@@ -674,8 +674,8 @@ class FunctionSpace:
             section.setOffset(pi_plex, offset)
 
         # could also try setting a permutation? this seems to work
-        perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
-        section.setPermutation(perm)
+        # perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
+        # section.setPermutation(perm)
         return section
 
     # TODO: This is identical to value_size, remove

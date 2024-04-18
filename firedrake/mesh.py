@@ -157,39 +157,45 @@ class _Facets:
        The unique_markers argument **must** be the same on all processes."""
 
     @PETSc.Log.EventDecorator()
-    # def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number,
     def __init__(self, mesh, kind, local_facet_number, unique_markers=None):
 
         self.mesh = mesh
-        # classes = as_tuple(classes, int, 3)
-        # self.classes = classes
 
         self.kind = kind
         assert kind in ["interior", "exterior"]
         if kind == "interior":
             self._rank = 2
             facets = mesh._interior_facets
+            owned_facets = mesh._owned_interior_facets
             mylabel = "int_facets"
         else:
             self._rank = 1
             facets = mesh._exterior_facets
+            # owned_facets = mesh._owned_exterior_facets
+            if self.mesh.comm.size > 1:
+                raise NotImplementedError("TODO, straightforward")
+            else:
+                owned_facets = facets
             mylabel = "ext_facets"
-        nfacets = len(facets)
 
+        nfacets = len(facets)
         facet_axis = op3.Axis({mylabel: nfacets}, mesh.topology.name)
         self.facets = op3.HierarchicalArray(facet_axis, data=facets)
 
+        nownedfacets = len(owned_facets)
+        owned_facet_axis = op3.Axis({mylabel: nownedfacets}, mesh.topology.name)
+        self.owned_facets = op3.HierarchicalArray(owned_facet_axis, data=owned_facets)
+
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
-        axes = op3.AxisTree.from_iterable((facet_axis, self._rank))
+        # NOTE: This is very unpleasant but this array needs to map from owned
+        # entities...
+        mylocal_facet_number = local_facet_number[:nownedfacets]
+        axes = op3.AxisTree.from_iterable((owned_facet_axis, self._rank))
         self._local_facets = op3.HierarchicalArray(
-            axes, data=np.asarray(local_facet_number.flatten(), dtype=np.uint32)
-            # axes, data=np.asarray(local_facet_number, dtype=np.uint32)
+            axes, data=np.asarray(mylocal_facet_number.flatten(), dtype=np.uint32)
         )
         # breakpoint()
-        # self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
-        #                                "%s_%s_local_facet_number" %
-        #                                (self.mesh.name, self.kind))
 
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
@@ -210,7 +216,9 @@ class _Facets:
             assert self._rank == 2
             mylabel = "int_facets"
 
-        return op3.Axis({mylabel: self.facets.size}, self.mesh.topology.name)
+        # return self.mesh.points[op3.Slice(self.mesh.topology.name, [op3.Subset(self.mesh.facet_label, self.owned_facets, label=self.mesh.facet_label)], label=self.mesh.topology.name)]
+
+        return op3.Axis({mylabel: self.owned_facets.size}, self.mesh.topology.name)
         # return self.facets.axes
         # doing the following works for unlabelled bits... I guess otherwise maps
         # would break... as the "from axis" is numbered wrongly...
@@ -254,8 +262,11 @@ class _Facets:
          :returns: A :class:`pyop2.Subset` for iteration.
         """
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
+        if subset != slice(None):
+            raise NotImplementedError
+        else:
+            return self.set
         retval = self.set[subset]
-        # breakpoint()
         return retval
 
     def local_facets(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
@@ -350,7 +361,7 @@ class _Facets:
 
         if marked_points_list:
             # indices = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list))
-            _, indices, _ = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
+            _, indices, _ = np.intersect1d(self.owned_facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
             # breakpoint()
             # FIXME, specific labels here
             mylabel = "ext_facets" if self._rank == 1 else "int_facets"
@@ -372,12 +383,6 @@ class _Facets:
             return np.setdiff1d(self.facets, np.concatenate(indices_list))
         else:
             return self.facets
-
-    @utils.cached_property
-    def facet_cell_map(self):
-        """Map from facets to cells."""
-        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
-                       "facet_to_cell_map")
 
 
 @PETSc.Log.EventDecorator()
@@ -784,11 +789,30 @@ class AbstractMeshTopology(abc.ABC):
         return facets
 
     @cached_property
+    def _owned_interior_facets(self):
+        # This could be overkill. I *think* that the owned interior facets will
+        # always be first so I can count them and return a slice.
+
+        nowned_interior_facets = 0
+        nowned_facets = self.points.owned_count_per_component[self.facet_label]
+        for facet in self._interior_facets:
+            if facet < nowned_facets:
+                nowned_interior_facets += 1
+
+        owned_interior_facets = np.empty(nowned_interior_facets, dtype=IntType)
+        fi = 0
+        for facet in self._interior_facets:
+            if facet < nowned_facets:
+                owned_interior_facets[fi] = facet
+                fi += 1
+        assert fi == nowned_interior_facets
+        return owned_interior_facets
+
+    @cached_property
     def _exterior_facets_default(self):
         """Return the numbers of the exterior facets."""
         return dmcommon.facets_with_label(self, "exterior_facets")
 
-    # these class with _Facets and mesh.interior_facets
     @cached_property
     def _interior_facets_default(self):
         """Return the numbers of the interior facets."""
@@ -1130,13 +1154,15 @@ class AbstractMeshTopology(abc.ABC):
     @cached_property
     def _support(self):
         supports = {}
-        for dim, item in enumerate(self._support_dats):
-            if dim == self.dimension:
-                continue
-            map_dim, map_dat = op3.utils.just_one(item.items())
-            supports[freeze({self.name: str(dim)})] = [
-                op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
-            ]
+
+        # not currently used
+        # for dim, item in enumerate(self._support_dats):
+        #     if dim == self.dimension:
+        #         continue
+        #     map_dim, map_dat = op3.utils.just_one(item.items())
+        #     supports[freeze({self.name: str(dim)})] = [
+        #         op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+        #     ]
 
         # add exterior and interior facets
         # NOTE: The arity restriction for interior facets is not right. Some interior
@@ -1215,9 +1241,11 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _interior_facet_support_dat(self):
+        # NOTE: *owned* interior facets!
         facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
 
-        nint_facets = len(self._interior_facets)
+        # nint_facets = len(self._interior_facets)
+        nint_facets = len(self._owned_interior_facets)
 
         facet_axis = op3.Axis(
             op3.AxisComponent(nint_facets, label="int_facets", rank_equal=False),
@@ -1225,8 +1253,11 @@ class AbstractMeshTopology(abc.ABC):
         )
 
         # select the sizes from the array that correspond to the interior facets
-        sizes = facet_support_dat.axes.leaf_component.count.data_ro[self._interior_facets]
+        sizes = facet_support_dat.axes.leaf_component.count.data_ro[self._owned_interior_facets]
         sizes_dat = op3.HierarchicalArray(facet_axis, data=sizes)
+
+        # since owned, should all be 2
+        assert (sizes == 2).all()
 
         int_facet_support_axes = op3.AxisTree.from_iterable(
             [facet_axis, op3.Axis(op3.AxisComponent(sizes_dat))]
@@ -1235,13 +1266,18 @@ class AbstractMeshTopology(abc.ABC):
             int_facet_support_axes, data=np.full(int_facet_support_axes.size, -1, dtype=IntType),
         )
 
+        nowned_interior_facets = self.points.owned_count_per_component[self.facet_label]
+        mycount = 0
         for fi, int_facet in enumerate(self._interior_facets):
-            # This loop must be ragged because some interior facets only have 1
-            # incident cell.
-            # for ci in range(2):
-            for ci in range(sizes[fi]):
-                cell = facet_support_dat.get_value([int_facet, ci])
-                int_facet_support_dat.set_value([fi, ci], cell)
+            if int_facet < nowned_interior_facets:  # skip ghost facets, is this wrong?
+                mycount += 1
+                # This loop must be ragged because some interior facets only have 1
+                # incident cell.
+                # for ci in range(2):
+                for ci in range(sizes[fi]):
+                    cell = facet_support_dat.get_value([int_facet, ci])
+                    int_facet_support_dat.set_value([fi, ci], cell)
+        assert mycount == nint_facets
 
         return int_facet_support_dat
 
@@ -1851,8 +1887,6 @@ class MeshTopology(AbstractMeshTopology):
             closure_map = self._fiat_closure.connectivity[pmap({self.name: self.cell_label})][dim]
             axes = op3.AxisTree.from_iterable((op3.Axis({self.cell_label: self.num_cells()}, self.name), op3.Axis({str(dim): closure_map.arity}, "closure")))
             dat = op3.HierarchicalArray(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
-            # if dat.name == "ornt_2":
-            #     breakpoint()
             dats.append(dat)
         return tuple(dats)
 
@@ -1884,16 +1918,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             unique_markers = None
 
-        # can this go? facet_cell is equivalent to support(f)
-        # local_facet_number, facet_cell = \
-        #     dmcommon.facet_numbering(dm, kind, facets,
-        #                              self._cell_numbering,
-        #                              self.cell_closure)
         local_facet_number = dmcommon.local_facet_number(self, kind)
-
-        # obj = _Facets(self, facets, classes, kind,
-        #               facet_cell, local_facet_number,
-        #               unique_markers=unique_markers)
         obj = _Facets(
             self, kind, local_facet_number, unique_markers=unique_markers
         )
@@ -2776,11 +2801,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             for i, v in enumerate(range(self.topology.num_vertices())):
                 i_renum = coordinates_fs.axes.root.default_to_applied_component_number(self.topology.vert_label, i)
                 offset = coordinates_fs.axes.offset({self.topology.name: i_renum}, {self.topology.name: self.topology.vert_label})
-                # breakpoint()
                 for j in range(gdim):
                     new_coords[offset+j] = plex_coords[i*gdim+j]
 
-            # breakpoint()
             coordinates = function.CoordinatelessFunction(
                 coordinates_fs,
                 val=new_coords,

@@ -1469,7 +1469,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     Vcol = Vcol[cindex]
 
                 if integral_type == "cell":
-                    iterset = plex.cells
+                    iterset = plex.cells.owned
                     index = iterset.index()
                     rmap = _cell_integral_pack_indices(Vrow, index)
                     cmap = _cell_integral_pack_indices(Vcol, index)
@@ -1511,7 +1511,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         loops = []
         for integral_type in allocation_integral_types:
             if integral_type == "cell":
-                iterset = plex.cells
+                iterset = plex.cells.owned  # not sure this works!
                 index = iterset.index()
                 rmap = _cell_integral_pack_indices(Vrow, index)
                 cmap = _cell_integral_pack_indices(Vcol, index)

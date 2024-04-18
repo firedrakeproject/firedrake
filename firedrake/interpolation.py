@@ -1065,7 +1065,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
-    cell_set = target_mesh.topology.cells
+    cell_set = target_mesh.topology.cells.owned
     if not (subset is None or subset is Ellipsis):
         raise NotImplementedError
         assert subset.superset == cell_set
