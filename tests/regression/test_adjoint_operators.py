@@ -878,6 +878,7 @@ def test_cofunction_subfunctions_with_adjoint():
     b = assemble(-f*TestFunction(DG)*dx)
     w = Function(W)
     b1 = Cofunction(W.dual())
+    # The following operation generates the FunctionMergeBlock.
     b1.sub(1).interpolate(b)
     solve(a == b1, w, bcs=[bc0, bc1])
     J = assemble(0.5*dot(w, w)*dx)
