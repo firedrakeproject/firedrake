@@ -62,6 +62,7 @@ As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
 
 To visualise the output, we also need to import matplotlib.pyplot to display
 the visual output ::
@@ -168,11 +169,11 @@ e.g. for output. ::
   m0, u0 = w0.subfunctions
   m1, u1 = w1.subfunctions
 
-We choose a final time, and initialise a :class:`~.File` object for
+We choose a final time, and initialise a :class:`~.VTKFile` object for
 storing ``u``. as well as an array for storing the function to be visualised::
 
   T = 100.0
-  ufile = File('u.pvd')
+  ufile = VTKFile('u.pvd')
   t = 0.0
   ufile.write(u1, time=t)
   all_us = []

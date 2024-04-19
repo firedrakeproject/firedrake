@@ -85,6 +85,7 @@ follows:
 The mesh is chosen as a :math:`32\times32` element unit square. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
   mesh = UnitSquareMesh(32, 32)
 
 As argued above, a stable choice of function spaces for our problem is the
@@ -144,7 +145,7 @@ Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a
 visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
-  File("poisson_mixed.pvd").write(u)
+  VTKFile("poisson_mixed.pvd").write(u)
 
 We could use the built in plot function of firedrake by calling
 :func:`plot <firedrake.pyplot.tripcolor>` to plot a surface graph. Before that,

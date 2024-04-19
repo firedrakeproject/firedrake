@@ -9,6 +9,7 @@ cavity.
 As ever, we import firedrake and define a mesh.::
 
   from firedrake import *
+  from firedrake.output import VTKFile
 
   N = 64
 
@@ -47,7 +48,7 @@ wrapped in a ``try/except`` block so that an error is not raised in
 the case that it is not, to do this we must import ``PETSc``::
 
   from firedrake.petsc import PETSc
-  
+
 To factor the matrix from this mixed system, we must specify
 a ``mat_type`` of ``aij`` to the solve call.::
 
@@ -130,7 +131,7 @@ file.::
   u.rename("Velocity")
   p.rename("Pressure")
 
-  File("stokes.pvd").write(u, p)
+  VTKFile("stokes.pvd").write(u, p)
 
 By default, the mass matrix is assembled in the :class:`~.MassInvPC`
 preconditioner, however, this can be controlled using a ``mat_type``

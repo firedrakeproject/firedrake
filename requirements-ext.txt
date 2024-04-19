@@ -13,4 +13,3 @@ requests
 rtree>=1.2
 scipy
 sympy
-vtk>=9.0.1

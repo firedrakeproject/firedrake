@@ -428,24 +428,7 @@ def _from_gmsh(filename, comm=None):
         COMM_WORLD).
     """
     comm = comm or COMM_WORLD
-    # check the filetype of the gmsh file
-    filetype = None
-    if comm.rank == 0:
-        with open(filename, 'rb') as fid:
-            header = fid.readline().rstrip(b'\n\r')
-            version = fid.readline().rstrip(b'\n\r')
-        assert header == b'$MeshFormat'
-        if version.split(b' ')[1] == b'1':
-            filetype = "binary"
-        else:
-            filetype = "ascii"
-    filetype = comm.bcast(filetype, root=0)
-    # Create a read-only PETSc.Viewer
-    gmsh_viewer = PETSc.Viewer().create(comm=comm)
-    gmsh_viewer.setType(filetype)
-    gmsh_viewer.setFileMode("r")
-    gmsh_viewer.setFileName(filename)
-    gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
+    gmsh_plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
 
     return gmsh_plex
 
@@ -3194,7 +3177,8 @@ values from f.)"""
                     str(libspatialindex_so),
                     f"-Wl,-rpath,{sys.prefix}/lib",
                     lsi_runpath
-                ]
+                ],
+                comm=self.comm
             )
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),

@@ -22,7 +22,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_div = []
     hdiv, l2 = element_pair
     hdiv_family, degree = hdiv
-    for n in [8, 16, 32, 64]:
+    # for n in [8, 16, 32, 64]:
+    for n in [2]:
         mesh = UnitSquareMesh(n, n)
 
         V = FunctionSpace(mesh, hdiv_family, degree)

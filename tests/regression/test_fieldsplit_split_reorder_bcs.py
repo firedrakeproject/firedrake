@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+PETSc.Sys.popErrorHandler()
 
 
 class SchurPC(AuxiliaryOperatorPC):
@@ -133,3 +134,8 @@ def test_fieldsplit_split_reorder_bcs(solver, solution, permute):
 @pytest.mark.parallel(nprocs=2)
 def test_fieldsplit_split_reorder_bcs_parallel(solver, solution, permute):
     run(solver, solution, permute)
+
+
+# if __name__ == "__main__":
+#
+#     run(

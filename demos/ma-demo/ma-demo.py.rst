@@ -75,6 +75,7 @@ We now proceed to set up the problem in Firedrake using a square
 mesh of quadrilaterals. ::
 
   from firedrake import *
+  from firedrake.output import VTKFile
   n = 100
   mesh = UnitSquareMesh(n, n, quadrilateral=True)
 
@@ -188,7 +189,7 @@ and output the solution to a file. ::
 
   u, sigma = w.subfunctions
   u_solv.solve()
-  File("u.pvd").write(u)
+  VTKFile("u.pvd").write(u)
 
 An image of the solution is shown below.
 

@@ -83,6 +83,7 @@ jobs:
             --install fascd \
             --install defcon \
             --install gadopt \
+            --install asQ \
             --package-branch tsfc connorjward/pyop3 \
             --package-branch petsc connorjward/pyop3 \
             --package-branch pyop3 firedrake \
