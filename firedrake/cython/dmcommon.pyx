@@ -258,14 +258,6 @@ def count_labelled_points(PETSc.DM dm, name,
 
 
 def local_facet_number(mesh, facet_type):
-    """TODO, taken from facet_numbering.
-
-    It is possible for interior facets to only have a support size of 1. This
-    can occur in distributed meshes where the interior facet is on the boundary
-    of the local portion of the mesh. In these cases the second facet index
-    will be -1.
-
-    """
     cdef:
         const PetscInt *cells=NULL
         PetscInt ncells_per_facet, nfacets_in_closure
@@ -296,13 +288,14 @@ def local_facet_number(mesh, facet_type):
 
     if facet_type == "exterior":
         ncells_per_facet = 1
-        facets = mesh._exterior_facets_default
+        facets = mesh.exterior_facets._facet_data_default
     else:
         assert facet_type == "interior"
         ncells_per_facet = 2
-        facets = mesh._interior_facets_default
+        facets = mesh.interior_facets._facet_data_default
 
-    facet_number = np.full((len(facets), ncells_per_facet), -1, dtype=IntType)
+    nfacets = len(facets)
+    facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
     for fi, facet in enumerate(facets):
         facet_renum = facet_numbering[facet - fStart]
 

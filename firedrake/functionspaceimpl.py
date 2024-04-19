@@ -539,7 +539,7 @@ class FunctionSpace:
                 ndofs = single_valued(len(d) for d in edofs.values())
                 subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
                 for i, dim in enumerate(self.shape):
-                    subaxes = subaxes.add_subaxis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
+                    subaxes = subaxes.add_axis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
                 axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
 
             # TODO: Remove code duplication

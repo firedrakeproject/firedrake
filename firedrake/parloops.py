@@ -608,7 +608,7 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
 
 
 def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
-    axes = op3.AxisTree(axes.parent_to_children)
+    axes = op3.AxisTree(axes.node_map)
     new_target_paths = dict(target_paths)
     new_index_exprs = dict(index_exprs)
 
@@ -628,7 +628,7 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
                 for i, dim in enumerate(space.shape):
                     label = f"dim{i}"
                     subaxis = op3.Axis({"XXX": dim}, label)
-                    tree = tree.add_subaxis(subaxis, *leaf)
+                    tree = tree.add_axis(subaxis, *leaf)
                     new_target_paths[subaxis.id, "XXX"] = pmap({label: "XXX"})
                     new_index_exprs[subaxis.id, "XXX"] = pmap({label: op3.AxisVariable(label)})
 

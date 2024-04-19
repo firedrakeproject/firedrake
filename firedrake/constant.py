@@ -30,7 +30,7 @@ def _create_const(value, comm):
     else:
         axes = op3.AxisTree(op3.Axis(shape[0]))
         for size in shape[1:]:
-            axes = axes.add_subaxis(op3.Axis(size), *axes.leaf)
+            axes = axes.add_axis(op3.Axis(size), *axes.leaf)
     dat = op3.HierarchicalArray(axes, data=data.flatten())
     return dat, rank, shape
 

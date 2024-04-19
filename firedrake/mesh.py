@@ -149,56 +149,24 @@ class DistributedMeshOverlapType(enum.Enum):
     VERTEX = 3
 
 
-class _Facets:
-    """Wrapper class for facet interation information on a :func:`Mesh`
+class _FacetContext:
+    """Wrapper class for facet interation information on a mesh.
 
-    .. warning::
+    Warnings
+    --------
+    The ``unique_markers`` argument **must** be the same on all processes.
 
-       The unique_markers argument **must** be the same on all processes."""
-
-    @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, kind, local_facet_number, unique_markers=None):
-
+    """
+    def __init__(self, mesh, facet_type, unique_markers=None):
         self.mesh = mesh
-
-        self.kind = kind
-        assert kind in ["interior", "exterior"]
-        if kind == "interior":
-            self._rank = 2
-            facets = mesh._interior_facets
-            owned_facets = mesh._owned_interior_facets
-            mylabel = "int_facets"
-        else:
-            self._rank = 1
-            facets = mesh._exterior_facets
-            # owned_facets = mesh._owned_exterior_facets
-            if self.mesh.comm.size > 1:
-                raise NotImplementedError("TODO, straightforward")
-            else:
-                owned_facets = facets
-            mylabel = "ext_facets"
-
-        nfacets = len(facets)
-        facet_axis = op3.Axis({mylabel: nfacets}, mesh.topology.name)
-        self.facets = op3.HierarchicalArray(facet_axis, data=facets)
-
-        nownedfacets = len(owned_facets)
-        owned_facet_axis = op3.Axis({mylabel: nownedfacets}, mesh.topology.name)
-        self.owned_facets = op3.HierarchicalArray(owned_facet_axis, data=owned_facets)
-
-        # Dat indicating which local facet of each adjacent cell corresponds
-        # to the current facet.
-        # NOTE: This is very unpleasant but this array needs to map from owned
-        # entities...
-        mylocal_facet_number = local_facet_number[:nownedfacets]
-        axes = op3.AxisTree.from_iterable((owned_facet_axis, self._rank))
-        self._local_facets = op3.HierarchicalArray(
-            axes, data=np.asarray(mylocal_facet_number.flatten(), dtype=np.uint32)
-        )
-        # breakpoint()
+        self._facet_type = facet_type
 
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
+
+    @property
+    def _rank(self):
+        return 1 if self._facet_type == "exterior" else 2
 
     @property
     def topology(self):
@@ -210,28 +178,7 @@ class _Facets:
 
     @utils.cached_property
     def set(self):
-        if self._rank == 1:
-            mylabel = "ext_facets"
-        else:
-            assert self._rank == 2
-            mylabel = "int_facets"
-
-        # return self.mesh.points[op3.Slice(self.mesh.topology.name, [op3.Subset(self.mesh.facet_label, self.owned_facets, label=self.mesh.facet_label)], label=self.mesh.topology.name)]
-
-        return op3.Axis({mylabel: self.owned_facets.size}, self.mesh.topology.name)
-        # return self.facets.axes
-        # doing the following works for unlabelled bits... I guess otherwise maps
-        # would break... as the "from axis" is numbered wrongly...
-        slice_ = op3.Slice(self.mesh.topology.name, [op3.Subset(self.mesh.facet_label, self.facets, label=mylabel)], label=self.mesh.topology.name)
-        return self.mesh.points[slice_]
-        # size = self.classes
-        # if isinstance(self.mesh, ExtrudedMeshTopology):
-        #     label = "%s_facets" % self.kind
-        #     layers = self.mesh.entity_layers(1, label)
-        #     base = getattr(self.mesh._base_mesh, label).set
-        #     return op2.ExtrudedSet(base, layers=layers)
-        # return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
-        #                comm=self.mesh.comm)
+        return self._owned_facet_dat.axes
 
     @utils.cached_property
     def _null_subset(self):
@@ -246,28 +193,28 @@ class _Facets:
                     all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
 
-        :arg integral_type: The type of the integral (should be a facet measure).
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
+        Parameters
+        ----------
+        integral_type :
+            The type of the integral (should be a facet measure).
+        subdomain_id : The subdomain of the mesh to iterate over.
              Either an integer, an iterable of integers or the special
              subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.
+        all_integer_subdomain_ids :
+            Information to interpret the ``"otherwise"`` subdomain. ``"otherwise"``
+            means all entities not explicitly enumerated by the integer
+            subdomains provided here.  For example, if all_integer_subdomain_ids
+            is empty, then ``"otherwise" == "everywhere"``.  If it contains
+            ``(1, 2)``, then ``"otherwise"`` is all entities except those marked by
+            subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.Subset` for iteration.
+        Returns
+        -------
+        pyop3.AxisTree or pyop3.IndexedAxisTree :
+            The iteration region.
         """
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
-        if subset != slice(None):
-            raise NotImplementedError
-        else:
-            return self.set
-        retval = self.set[subset]
-        return retval
+        return self.set[subset]
 
     def local_facets(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
@@ -301,7 +248,7 @@ class _Facets:
         else:
             return self._subset(subdomain_id)
 
-    def _subset(self, markers: Optional[Union[int, Iterable[int]]]) -> op3.AxisTree:
+    def _subset(self, markers: Optional[Union[int, Iterable[int]]]):  #  -> op3.Slice: (almost)
         """Return the subset corresponding to a given set of markers.
 
         Parameters
@@ -312,7 +259,7 @@ class _Facets:
 
         Returns
         -------
-        pyop3.AxisTree
+        pyop3.Slice (almost)
             The subset of marked points.
 
         """
@@ -340,8 +287,7 @@ class _Facets:
             elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
                 marked_points = self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices
 
-                cidx = self.topology.points.component_index(self.topology.facet_label)
-                f_start, f_stop = self.topology.points._component_offsets[cidx:cidx+2]
+                f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
 
                 nmarked_facets = 0
                 for point in marked_points:
@@ -350,7 +296,7 @@ class _Facets:
 
                 # renumber the points
                 marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
-                facet_numbering = self.topology.points.component_numbering(self.topology.facet_label)
+                facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
                 fi = 0
                 for point in marked_points:
                     if f_start <= point < f_stop:
@@ -360,13 +306,16 @@ class _Facets:
                 marked_points_list.append(marked_points_renum)
 
         if marked_points_list:
-            # indices = np.intersect1d(self.facets.data_ro, functools.reduce(np.union1d, marked_points_list))
-            _, indices, _ = np.intersect1d(self.owned_facets.data_ro, functools.reduce(np.union1d, marked_points_list), return_indices=True)
-            # breakpoint()
-            # FIXME, specific labels here
-            mylabel = "ext_facets" if self._rank == 1 else "int_facets"
+            _, indices, _ = np.intersect1d(
+                self._owned_facet_data,
+                functools.reduce(np.union1d, marked_points_list),
+                return_indices=True
+            )
             indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
-            subset = op3.Slice(self.mesh.topology.name, [op3.Subset(mylabel, indices_dat)])
+            subset = op3.Slice(
+                self.mesh.topology.name,
+                [op3.Subset(self._owned_facet_label, indices_dat)],
+            )
         else:
             raise NotImplementedError
             subset = self._null_subset
@@ -383,6 +332,92 @@ class _Facets:
             return np.setdiff1d(self.facets, np.concatenate(indices_list))
         else:
             return self.facets
+
+    @property
+    def _facet_label(self):
+        if self._facet_type == "exterior":
+            return "ext_facets"
+        else:
+            assert self._facet_type == "interior"
+            return "int_facets"
+
+    @property
+    def _owned_facet_label(self):
+        return (self._facet_label, "owned")
+
+    @cached_property
+    def _facet_axis(self):
+        return op3.Axis(
+            op3.AxisComponent(
+                len(self._facet_data),
+                label=self._facet_label,
+                rank_equal=False
+            ),
+            self.mesh.topology.name,
+        )
+
+    @cached_property
+    def _owned_facet_axis(self):
+        return op3.Axis(
+            op3.AxisComponent(
+                len(self._owned_facet_data),
+                label=self._owned_facet_label,
+                rank_equal=False
+            ),
+            self.mesh.topology.name,
+        )
+
+    @cached_property
+    def _facet_dat(self):
+        return op3.HierarchicalArray(
+            self._facet_axis, data=self._facet_data
+        )
+
+    @cached_property
+    def _owned_facet_dat(self):
+        return op3.HierarchicalArray(
+            self._owned_facet_axis, data=self._owned_facet_data
+        )
+
+    @cached_property
+    def _facet_data(self) -> np.ndarray:
+        facets = np.empty_like(self._facet_data_default)
+        f_start = self.mesh.points.component_offset(self.mesh.facet_label)
+        facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
+        for fi, facet in enumerate(self._facet_data_default):
+            facets[fi] = facet_numbering[facet - f_start]
+        return facets
+
+    @cached_property
+    def _owned_facet_data(self) -> np.ndarray:
+        nowned_facets = self.mesh.points.owned_count_per_component[self.mesh.facet_label]
+        return self._facet_data[self._facet_data < nowned_facets]
+
+    @cached_property
+    def _facet_data_default(self) -> np.ndarray:
+        """Return the numbers of the exterior facets."""
+        if self._facet_type == "exterior":
+            return dmcommon.facets_with_label(self.mesh, "exterior_facets")
+        else:
+            assert self._facet_type == "interior"
+            return dmcommon.facets_with_label(self.mesh, "interior_facets")
+
+    @cached_property
+    def _local_facets(self):
+        local_facet_number = dmcommon.local_facet_number(self.mesh, self._facet_type)
+        local_facet_axes = op3.AxisTree.from_iterable((self._owned_facet_axis, self._rank))
+        owned_local_facet_number = local_facet_number[:self._owned_facet_axis.size]
+
+        # debug, negative ones should only be set for ghost facets
+        assert (owned_local_facet_number >= 0).all()
+
+        # cast dtype, I think that this is a bug
+        owned_local_facet_number = np.asarray(owned_local_facet_number, dtype=np.uint32)
+
+        return op3.HierarchicalArray(
+            local_facet_axes, data=owned_local_facet_number.flatten()
+        )
+
 
 
 @PETSc.Log.EventDecorator()
@@ -768,56 +803,6 @@ class AbstractMeshTopology(abc.ABC):
 
         return section
 
-    @cached_property
-    def _exterior_facets(self):
-        # TODO cythonise, renumbering is a generic operation
-        facets = np.empty_like(self._exterior_facets_default)
-        f_start = self.points._component_offsets[self.points.component_index(self.facet_label)]
-        facet_numbering = self.points.component_numbering(self.facet_label)
-        for fi, facet in enumerate(self._exterior_facets_default):
-            facets[fi] = facet_numbering[facet - f_start]
-        return facets
-
-    @cached_property
-    def _interior_facets(self):
-        # TODO cythonise, renumbering is a generic operation
-        facets = np.empty_like(self._interior_facets_default)
-        f_start = self.points._component_offsets[self.points.component_index(self.facet_label)]
-        facet_numbering = self.points.component_numbering(self.facet_label)
-        for fi, facet in enumerate(self._interior_facets_default):
-            facets[fi] = facet_numbering[facet - f_start]
-        return facets
-
-    @cached_property
-    def _owned_interior_facets(self):
-        # This could be overkill. I *think* that the owned interior facets will
-        # always be first so I can count them and return a slice.
-
-        nowned_interior_facets = 0
-        nowned_facets = self.points.owned_count_per_component[self.facet_label]
-        for facet in self._interior_facets:
-            if facet < nowned_facets:
-                nowned_interior_facets += 1
-
-        owned_interior_facets = np.empty(nowned_interior_facets, dtype=IntType)
-        fi = 0
-        for facet in self._interior_facets:
-            if facet < nowned_facets:
-                owned_interior_facets[fi] = facet
-                fi += 1
-        assert fi == nowned_interior_facets
-        return owned_interior_facets
-
-    @cached_property
-    def _exterior_facets_default(self):
-        """Return the numbers of the exterior facets."""
-        return dmcommon.facets_with_label(self, "exterior_facets")
-
-    @cached_property
-    def _interior_facets_default(self):
-        """Return the numbers of the interior facets."""
-        return dmcommon.facets_with_label(self, "interior_facets")
-
     @property
     def comm(self):
         return self.user_comm
@@ -1164,14 +1149,38 @@ class AbstractMeshTopology(abc.ABC):
         #         op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
         #     ]
 
-        # add exterior and interior facets
-        # NOTE: The arity restriction for interior facets is not right. Some interior
-        # facets can have a single incident cell if on a mesh partition boundary.
+        # Add specific support maps for the different facet types
         supports[freeze({self.name: "ext_facets"})] = [
-            op3.TabulatedMapComponent(self.name, self.cell_label, self._exterior_facet_support_dat, arity=1, label="XXX"),
+            op3.TabulatedMapComponent(
+                self.name,
+                self.cell_label,
+                self._facet_support_dat("exterior", include_ghost_points=True),
+                label="XXX",  # needed?
+            ),
+        ]
+        supports[freeze({self.name: ("ext_facets", "owned")})] = [
+            op3.TabulatedMapComponent(
+                self.name,
+                self.cell_label,
+                self._facet_support_dat("exterior", include_ghost_points=False),
+                label="XXX",  # needed?
+            ),
         ]
         supports[freeze({self.name: "int_facets"})] = [
-            op3.TabulatedMapComponent(self.name, self.cell_label, self._interior_facet_support_dat, arity=2, label="XXX"),
+            op3.TabulatedMapComponent(
+                self.name,
+                self.cell_label,
+                self._facet_support_dat("interior", include_ghost_points=True),
+                label="XXX",  # needed?
+            ),
+        ]
+        supports[freeze({self.name: ("int_facets", "owned")})] = [
+            op3.TabulatedMapComponent(
+                self.name,
+                self.cell_label,
+                self._facet_support_dat("interior", include_ghost_points=False),
+                label="XXX",  # needed?
+            ),
         ]
 
         return op3.Map(supports, name="support")
@@ -1213,73 +1222,71 @@ class AbstractMeshTopology(abc.ABC):
             supports.append({map_dim: map_dat})
         return tuple(supports)
 
-    @cached_property
-    def _exterior_facet_support_dat(self):
+    def _facet_support_dat(self, facet_type, *, include_ghost_points):
+        assert facet_type in {"exterior", "interior"}
+
+        # Get the support map for *all* facets in the mesh, not just the
+        # exterior/interior ones. We have to filter it.
         facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
 
-        next_facets = len(self._exterior_facets)
-        ext_facet_support_axes = op3.AxisTree.from_iterable(
-            (op3.Axis({"ext_facets": next_facets}, self.name), 1))
-        ext_facet_support_dat = op3.HierarchicalArray(
-            ext_facet_support_axes, data=np.full(ext_facet_support_axes.size, -1, dtype=IntType),
+        if facet_type == "exterior":
+            facet_context = self.exterior_facets
+        else:
+            facet_context = self.interior_facets
+
+        if include_ghost_points:
+            selected_facets = facet_context._facet_data
+            facet_axis = facet_context._facet_axis
+        else:
+            selected_facets = facet_context._owned_facet_data
+            facet_axis = facet_context._owned_facet_axis
+
+        if facet_type == "exterior":
+            arity = 1
+        else:
+            if include_ghost_points:
+                arity_data = facet_support_dat.axes.leaf_component.count.data_ro
+                selected_arity_data = arity_data[selected_facets]
+                arity = op3.HierarchicalArray(facet_axis, data=selected_arity_data)
+            else:
+                arity = 2
+
+        selected_facet_support_axes = op3.AxisTree.from_iterable(
+            [facet_axis, op3.Axis(op3.AxisComponent(arity))]
+        )
+        selected_facet_support_dat = op3.HierarchicalArray(
+            selected_facet_support_axes,
+            data=np.full(selected_facet_support_axes.size, -1, dtype=IntType),
         )
 
-        # This map is only valid for owned facets
-        # but doing this breaks composability!
-        # facet_component = just_one(
-        #     c for c in self.points.components if c.label == self.facet_label
-        # )
-        # nowned_facets = self.points.owned_count_per_component[facet_component]
+        nowned_facets = self.points.owned_count_per_component[self.facet_label]
+        if facet_type == "exterior":
+            if include_ghost_points:
+                for fi, facet in enumerate(selected_facets):
+                    cell = facet_support_dat.get_value([facet, 0])
+                    selected_facet_support_dat.set_value([fi, 0], cell)
+            else:
+                for fi, facet in enumerate(selected_facets):
+                    if facet < nowned_facets:
+                        cell = facet_support_dat.get_value([facet, 0])
+                        selected_facet_support_dat.set_value([fi, 0], cell)
+        else:
+            assert facet_type == "interior"
+            if include_ghost_points:
+                for fi, facet in enumerate(selected_facets):
+                    # This loop must be ragged because some interior facets
+                    # only have 1 incident cell.
+                    for ci in range(arity_data[fi]):
+                        cell = facet_support_dat.get_value([facet, ci])
+                        selected_facet_support_dat.set_value([fi, ci], cell)
+            else:
+                for fi, facet in enumerate(selected_facets):
+                    if facet < nowned_facets:
+                        for ci in range(2):
+                            cell = facet_support_dat.get_value([facet, ci])
+                            selected_facet_support_dat.set_value([fi, ci], cell)
 
-        for fi, ext_facet in enumerate(self._exterior_facets):
-            # if ext_facet < nowned_facets:
-            if True:
-                cell = facet_support_dat.get_value([ext_facet, 0])
-                ext_facet_support_dat.set_value([fi, 0], cell)
-
-        return ext_facet_support_dat
-
-    @cached_property
-    def _interior_facet_support_dat(self):
-        # NOTE: *owned* interior facets!
-        facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
-
-        # nint_facets = len(self._interior_facets)
-        nint_facets = len(self._owned_interior_facets)
-
-        facet_axis = op3.Axis(
-            op3.AxisComponent(nint_facets, label="int_facets", rank_equal=False),
-            self.name
-        )
-
-        # select the sizes from the array that correspond to the interior facets
-        sizes = facet_support_dat.axes.leaf_component.count.data_ro[self._owned_interior_facets]
-        sizes_dat = op3.HierarchicalArray(facet_axis, data=sizes)
-
-        # since owned, should all be 2
-        assert (sizes == 2).all()
-
-        int_facet_support_axes = op3.AxisTree.from_iterable(
-            [facet_axis, op3.Axis(op3.AxisComponent(sizes_dat))]
-        )
-        int_facet_support_dat = op3.HierarchicalArray(
-            int_facet_support_axes, data=np.full(int_facet_support_axes.size, -1, dtype=IntType),
-        )
-
-        nowned_interior_facets = self.points.owned_count_per_component[self.facet_label]
-        mycount = 0
-        for fi, int_facet in enumerate(self._interior_facets):
-            if int_facet < nowned_interior_facets:  # skip ghost facets, is this wrong?
-                mycount += 1
-                # This loop must be ragged because some interior facets only have 1
-                # incident cell.
-                # for ci in range(2):
-                for ci in range(sizes[fi]):
-                    cell = facet_support_dat.get_value([int_facet, ci])
-                    int_facet_support_dat.set_value([fi, ci], cell)
-        assert mycount == nint_facets
-
-        return int_facet_support_dat
+        return selected_facet_support_dat
 
     # delete?
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
@@ -1918,9 +1925,8 @@ class MeshTopology(AbstractMeshTopology):
         else:
             unique_markers = None
 
-        local_facet_number = dmcommon.local_facet_number(self, kind)
-        obj = _Facets(
-            self, kind, local_facet_number, unique_markers=unique_markers
+        obj = _FacetContext(
+            self, kind, unique_markers=unique_markers
         )
 
         # FIXME This is only used for PCPatch, is there a better way?
@@ -1930,15 +1936,15 @@ class MeshTopology(AbstractMeshTopology):
 
         return obj
 
-    @utils.cached_property
+    @cached_property
     def exterior_facets(self):
         return self._facets("exterior")
 
-    @utils.cached_property
+    @cached_property
     def interior_facets(self):
         return self._facets("interior")
 
-    @utils.cached_property
+    @cached_property
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
@@ -2226,7 +2232,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
         base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _Facets(self, base.facets, base.classes,
+        return _FacetContext(self, base.facets, base.classes,
                        kind,
                        base.facet_cell,
                        base.local_facet_dat.data_ro_with_halos,
