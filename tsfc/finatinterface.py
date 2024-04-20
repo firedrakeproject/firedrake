@@ -19,14 +19,13 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
-from functools import singledispatch, partial
 import weakref
+from functools import partial, singledispatch
 
 import FIAT
 import finat
-import ufl
 import finat.ufl
-
+import ufl
 
 __all__ = ("as_fiat_cell", "create_base_element",
            "create_element", "supported_elements")
@@ -53,6 +52,7 @@ supported_elements = {
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
     "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
+    "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
