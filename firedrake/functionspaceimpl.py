@@ -16,6 +16,7 @@ from pyop2 import op2, mpi
 from pyop3.utils import just_one, single_valued
 
 from firedrake import dmhooks, utils
+from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
@@ -534,20 +535,31 @@ class FunctionSpace:
                 )
                 axes = axes.add_subtree(subaxes, axes.root, axes.root.component)
         else:
-            axes = op3.AxisTree(mesh.points)
-            for tdim, edofs in self.finat_element.entity_dofs().items():
-                ndofs = single_valued(len(d) for d in edofs.values())
-                subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-                for i, dim in enumerate(self.shape):
-                    subaxes = subaxes.add_axis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
-                axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+            # TODO: should
+            entity_dofs = self.finat_element.entity_dofs()
+            nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
+            real_tensor_product = is_real_tensor_product_element(self.finat_element)
+            key = (nodes_per_entity, real_tensor_product, self.shape)
 
-            # TODO: Remove code duplication
-            block_axes = op3.AxisTree(mesh.points)
-            for tdim, edofs in self.finat_element.entity_dofs().items():
-                ndofs = single_valued(len(d) for d in edofs.values())
-                subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-                block_axes = block_axes.add_subtree(subaxes, mesh.points, str(tdim))
+            if key in mesh._shared_data_cache:
+                axes, block_axes = mesh._shared_data_cache[key]
+            else:
+                axes = op3.AxisTree(mesh.points)
+                for tdim, edofs in self.finat_element.entity_dofs().items():
+                    ndofs = single_valued(len(d) for d in edofs.values())
+                    subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
+                    for i, dim in enumerate(self.shape):
+                        subaxes = subaxes.add_axis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
+                    axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+
+                # TODO: Remove code duplication
+                block_axes = op3.AxisTree(mesh.points)
+                for tdim, edofs in self.finat_element.entity_dofs().items():
+                    ndofs = single_valued(len(d) for d in edofs.values())
+                    subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
+                    block_axes = block_axes.add_subtree(subaxes, mesh.points, str(tdim))
+
+                mesh._shared_data_cache[key] = (axes, block_axes)
 
         self.axes = axes
         self.block_axes = axes
@@ -863,26 +875,41 @@ class FunctionSpace:
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
         if unblocked:
-            indices = self._lgmap.indices.copy()
+            indices = self._unblocked_lgmap.indices.copy()
             idat = op3.HierarchicalArray(self.axes, data=indices)
             bsize = 1
         else:
+            # is block_indices right?
             indices = self._lgmap.block_indices.copy()
             idat = op3.HierarchicalArray(self.block_axes, data=indices)
             bsize = self._lgmap.getBlockSize()
             assert bsize == self.value_size
 
         for bc in bcs:
+            p = self._mesh.points[bc.constrained_points].index()
+
+            index_forest = {}
+            component = bc.function_space().component
+            for ctx, index_tree in op3.as_index_forest(p).items():
+                dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+                index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+
+                if component is not None:
+                    component_slice = op3.ScalarIndex("dim0", "XXX", component)
+                    index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+
+                index_forest[ctx] = index_tree
+
             op3.do_loop(
-                p := self.axes.root[bc.constrained_points].index(),
-                idat[p, :].assign(-1, eager=False)
+                p, idat[index_forest].assign(-1, eager=False)
             )
+
         return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
-        indices = self.block_axes.global_numbering()
+        indices = self.block_axes.global_numbering
         return PETSc.LGMap().create(indices, bsize=self._cdim, comm=self.comm)
 
     @utils.cached_property
@@ -891,7 +918,7 @@ class FunctionSpace:
         if self._cdim == 1:
             return self._lgmap
         else:
-            indices = self.axes.global_numbering()
+            indices = self.axes.global_numbering
             return PETSc.LGMap().create(indices, bsize=1, comm=self.comm)
 
     def collapse(self):

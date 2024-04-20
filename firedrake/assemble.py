@@ -493,7 +493,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return sum(args)
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
+                res = sum([w*op.dat.data_ro for (op, w) in zip(args, expr.weights())])
                 return firedrake.Cofunction(V, res)
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 res = tensor.petscmat if tensor else PETSc.Mat()
@@ -1013,6 +1013,9 @@ class ParloopFormAssembler(FormAssembler):
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, self._form, lgmaps) as tensor_mod:
                     parloop(**{self._tensor_name: tensor_mod})
+
+                    # maybe?
+                    # tensor_mod.assemble()
             else:
                 parloop(**{self._tensor_name: subtensor})
 
@@ -1469,7 +1472,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     Vcol = Vcol[cindex]
 
                 if integral_type == "cell":
-                    iterset = plex.cells.owned
+                    iterset = plex.owned_cells
                     index = iterset.index()
                     rmap = _cell_integral_pack_indices(Vrow, index)
                     cmap = _cell_integral_pack_indices(Vcol, index)
@@ -1511,7 +1514,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         loops = []
         for integral_type in allocation_integral_types:
             if integral_type == "cell":
-                iterset = plex.cells.owned  # not sure this works!
+                iterset = plex.owned_cells
                 index = iterset.index()
                 rmap = _cell_integral_pack_indices(Vrow, index)
                 cmap = _cell_integral_pack_indices(Vcol, index)
@@ -1553,14 +1556,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         return all_local_kernels
 
     def _apply_bc(self, tensor, bc):
-        op2tensor = tensor.M
+        mat = tensor.M
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
         if component is not None:
-            raise NotImplementedError
             V = V.parent
-        # index = 0 if V.index is None else V.index
         index = Ellipsis if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
@@ -1569,18 +1570,27 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             elif space != spaces[1]:
                 raise TypeError("bc space does not match the trial function space")
 
-            # Set diagonal entries on bc nodes to 1 if the current
-            # block is on the matrix diagonal and its index matches the
-            # index of the function space the bc is defined on.
-            # op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
+            # for some reason I need to do this first, is this still the case?
+            mat.assemble()
 
-            # for some reason I need to do this first
-            op2tensor.assemble()
+            p = space.axes[index].root[bc.constrained_points].index()
+
+            index_forest = {}
+            for ctx, index_tree in op3.as_index_forest(p).items():
+                dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+                index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+
+                if component is not None:
+                    component_slice  = op3.ScalarIndex("dim0", "XXX", component)
+                    index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+
+                index_forest[ctx] = index_tree
 
             op3.do_loop(
-                p := space.axes[index].root[bc.constrained_points].index(),
-                op2tensor[index, index][p, p].assign(1, eager=False)
+                p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
             )
+
+            mat.assemble()
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1588,15 +1598,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
                 if j != index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
                 if i != index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(op2tensor, i, index, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, i, index, component, bc.node_set)
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
-                    self._apply_bcs_mat_real_block(op2tensor, index, j, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
@@ -1777,8 +1787,6 @@ class ParloopBuilder:
 
         This is only needed when applying boundary conditions to 2-forms.
 
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
         """
         if len(self._form.arguments()) == 2 and not self._diagonal:
             if not self._bcs:

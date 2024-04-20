@@ -184,17 +184,25 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
-    @PETSc.Log.EventDecorator()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
 
-        :arg value: A value of the appropriate shape"""
-        try:
-            self.dat.data = value
-            return self
-        except (DataTypeError, DataValueError) as e:
-            raise ValueError(e)
+        Parameters
+        ----------
+        value :
+            The value to set. It must have the appropriate shape.
+
+        Returns
+        -------
+        self
+
+        """
+        self.dat.data_wo[...] = value
+        return self
+        # TODO pyop3
+        # except (DataTypeError, DataValueError) as e:
+        #     raise ValueError(e)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")

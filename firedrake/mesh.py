@@ -703,7 +703,7 @@ class AbstractMeshTopology(abc.ABC):
 
             points = op3.Axis(
                 [
-                    op3.AxisComponent(self.num_entities(d), label=str(d), rank_equal=False)
+                    op3.AxisComponent(self.num_entities(d), label=str(d))
                     for d in self.depth_strata_order
                 ],
                 numbering=self._dm_renumbering.indices,
@@ -2012,18 +2012,25 @@ class MeshTopology(AbstractMeshTopology):
     def vert_label(self):
         return "0"
 
+    # Think this should be put in AbstractMeshTopology class
     @cached_property
     def cells(self):
         return self.points[self.cell_label]
+
+    @cached_property
+    def owned_cells(self):
+        return self.cells.owned  # this should now work
+        # nowned = self.points.owned_count_per_component[self.cell_label]
+        # return self.cells[:nowned]
 
     @cached_property
     def vertices(self):
         return self.points[self.vert_label]
 
     @property
-    @op3.utils.deprecated("cells")
+    @op3.utils.deprecated("owned_cells")
     def cell_set(self):
-        return self.cells
+        return self.owned_cells
 
     @PETSc.Log.EventDecorator()
     def _set_partitioner(self, plex, distribute, partitioner_type=None):
