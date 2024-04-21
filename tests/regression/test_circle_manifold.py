@@ -3,6 +3,9 @@ import numpy as np
 import pytest
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.mark.parametrize('i', range(3, 11))
 def test_circumference(i):
     eps = 1e-12

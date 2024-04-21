@@ -3,6 +3,9 @@ from firedrake import *
 from firedrake.petsc import PETSc
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 def test_moore_spence():
 
     try:

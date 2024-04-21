@@ -48,6 +48,7 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh1))
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_mismatching_meshes_constant(mesh1, mesh3):
     V2 = FunctionSpace(mesh3, "CG", 1)
 

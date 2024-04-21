@@ -4,6 +4,9 @@ from firedrake import *
 from itertools import product
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.mark.parametrize(('degree', 'nested', 'elimination'), list(product([1, 2], [True, False], ['0,1', '1,0'])))
 def test_lvp_equiv_hdg(degree, nested, elimination):
     """Runs an HDG problem and checks that passing

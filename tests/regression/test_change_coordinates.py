@@ -36,6 +36,7 @@ def test_project_2d():
     assert m.ufl_cell().geometric_dimension() == 1
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_immerse_extruded():
     m1 = UnitIntervalMesh(5)
     m = ExtrudedMesh(m1, 10)

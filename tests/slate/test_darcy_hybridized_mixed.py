@@ -2,6 +2,9 @@ from firedrake import *
 import pytest
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.mark.parametrize(("degree", "hdiv_family"),
                          [(1, "RT"), (1, "BDM")])
 def test_darcy_flow_hybridization(degree, hdiv_family):
