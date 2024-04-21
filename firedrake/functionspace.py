@@ -323,4 +323,4 @@ def RestrictedFunctionSpace(function_space, name=None, boundary_set=[]):
     """
     return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name,
                                                                  boundary_set=boundary_set),
-                                                                 function_space.mesh())
+                                    function_space.mesh())

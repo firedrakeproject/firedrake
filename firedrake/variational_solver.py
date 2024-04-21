@@ -100,7 +100,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
 
-
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
 

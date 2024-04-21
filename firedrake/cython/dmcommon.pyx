@@ -2410,13 +2410,10 @@ def plex_renumbering(PETSc.DM plex,
                             break
     
     # assign lists
-    lidx = np.zeros(3, dtype=IntType)
-    lidx[1] = sum(entity_classes[:, 0])
+    lidx = np.zeros(4, dtype=IntType)
+    lidx[1] = sum(entity_classes[:, 0]) -  constrained_core
     lidx[2] = sum(entity_classes[:, 1])
-    if boundary_set:
-        lidx[1] -= constrained_core
-        lidx = np.concatenate((lidx, np.array([lidx[2]], dtype=IntType)))
-        lidx[3] -= (constrained_core + constrained_owned)
+    lidx[3] = lidx[2] - constrained_core - constrained_owned
     
     for c in range(pStart, pEnd):
         if reorder:
