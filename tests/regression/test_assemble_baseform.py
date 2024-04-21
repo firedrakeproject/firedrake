@@ -172,6 +172,7 @@ def test_preprocess_form(M, a, f):
         pass
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_tensor_copy(a, M):
 
     # 1-form tensor

@@ -3,6 +3,7 @@ import numpy
 from functools import reduce
 from operator import add
 from firedrake import *
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture

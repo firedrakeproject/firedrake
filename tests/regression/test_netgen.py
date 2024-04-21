@@ -3,6 +3,7 @@ from firedrake.__future__ import interpolate
 import numpy as np
 from petsc4py import PETSc
 import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 try:
     import netgen

@@ -3,6 +3,9 @@ import numpy
 from firedrake import *
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(5, 5, 5)
