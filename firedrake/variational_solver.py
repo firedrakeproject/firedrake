@@ -61,6 +61,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
+        :param restrict: (optional) flag indicating whetehr or not to change
+            the function space the arguments of the forms are defined on
+            to their restricted counterpart, based off the bcs. The output
+            space remains the same.
         """
         V = u.function_space()
         self.output_space = V
@@ -339,6 +343,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian does not change, set
                  this flag to ``True``.
+        :param restrict: (optional) flag indicating whetehr or not to change
+                 the function space the arguments of the forms are defined on
+                 to their restricted counterpart, based off the bcs. The output
+                 space remains the same.
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
