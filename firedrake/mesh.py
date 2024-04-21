@@ -359,7 +359,15 @@ class _FacetContext:
 
     @cached_property
     def _owned_facet_axis(self):
-        return self._facet_axis.owned
+        nowned_facets = len(self._owned_facet_data)
+        return op3.Axis(
+            op3.AxisComponent(
+                (nowned_facets, nowned_facets),
+                label=(self._facet_label, "owned"),
+            ),
+            self.mesh.topology.name,
+        )
+        # return self._facet_axis.owned  # does not work
 
     @cached_property
     def _facet_dat(self):

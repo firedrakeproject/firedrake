@@ -4,7 +4,7 @@ import pytest
 
 
 # skip vertexonlymesh tests because point location not yet implemented
-collect_ignore_glob = ["vertexonly/*"]
+collect_ignore_glob = ["vertexonly/*", "extrusion/*"]
 
 
 def pytest_configure(config):

@@ -678,7 +678,7 @@ class FunctionSpace:
         points = self._mesh.points
         section.setChart(0, points.size)
 
-        for p in points.iter():
+        for p in points.iter(include_ghost_points=True):
             pi = just_one(p.source_exprs.values())
             stratum_label = just_one(p.source_path.values())
             pi_plex = points.component_to_axis_number(stratum_label, pi)
@@ -863,7 +863,9 @@ class FunctionSpace:
         #     lgmap = self._lgmap
 
         if not bcs:
-            return indices
+            if self.value_size > 1:
+                raise NotImplementedError
+            return PETSc.LGMap().create(indices.buffer.data_ro, bsize=1, comm=self.comm)
 
         for bc in bcs:
             fs = bc.function_space()

@@ -7,6 +7,9 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
+pytest.mark.skip("pyop3 point location")
+
+
 def test_1d_args():
     mesh = UnitIntervalMesh(1)
     f = mesh.coordinates

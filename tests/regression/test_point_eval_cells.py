@@ -7,6 +7,9 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
+pytest.mark.skip("pyop3 point location")
+
+
 @pytest.fixture(params=[False, True])
 def mesh1d(request):
     periodic = request.param

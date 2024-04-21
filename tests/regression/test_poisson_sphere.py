@@ -67,10 +67,11 @@ def test_hdiv_l2_cubedsphere_parallel():
 
 
 if __name__ == "__main__":
-    MeshClass, hdiv_space, degree, refinement, conv_order = (UnitIcosahedralSphereMesh, 'RT', 1, (1, 3), 0.75)
+    # MeshClass, hdiv_space, degree, refinement, conv_order = (UnitIcosahedralSphereMesh, 'RT', 1, (1, 3), 0.75)
+    MeshClass, hdiv_space, degree, refinement, conv_order = (UnitCubedSphereMesh, 'RTCF', 2, (1, 3), 1.5)                          
     errors = [run_hdiv_l2(MeshClass, r, hdiv_space, degree) for r in range(*refinement)]
     errors = np.asarray(errors)
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     print(l2conv)
-    # assert (l2conv > conv_order).all()
+    assert (l2conv > conv_order).all()
