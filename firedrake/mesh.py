@@ -1138,7 +1138,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "ext_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.cell_label,
+                self.owned_cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
@@ -1146,7 +1146,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: ("ext_facets", "owned")})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.cell_label,
+                self.owned_cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=False),
                 label="XXX",  # needed?
             ),
@@ -1154,7 +1154,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "int_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.cell_label,
+                self.owned_cell_label,
                 self._facet_support_dat("interior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
@@ -1380,15 +1380,17 @@ class AbstractMeshTopology(abc.ABC):
     def cell_set(self):
         pass
 
-    @PETSc.Log.EventDecorator()
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
-        """Return a subset over cells with the given subdomain_id.
+        """Return the subset of cells with the given subdomain ID.
 
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+        Parameters
+        ----------
+        subdomain_id :
+            The subdomain of the mesh to iterate over. Either an integer,
+            an iterable of integers or the special subdomains
+            ``"everywhere"`` or ``"otherwise"``.
+        all_integer_subdomain_ids : Information to interpret the
+            ``"otherwise"`` subdomain.  ``"otherwise"`` means all
              entities not explicitly enumerated by the integer
              subdomains provided here.  For example, if
              all_integer_subdomain_ids is empty, then ``"otherwise" ==
@@ -1396,7 +1398,10 @@ class AbstractMeshTopology(abc.ABC):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+        Returns
+        -------
+        The subset to iterate over.
+
         """
         if subdomain_id == "everywhere":
             return self.cell_set
@@ -2002,6 +2007,11 @@ class MeshTopology(AbstractMeshTopology):
         return str(self.dimension)
 
     @property
+    def owned_cell_label(self):
+        return (self.cell_label, "owned")
+
+
+    @property
     def facet_label(self):
         return str(self.dimension - 1)
 
@@ -2021,9 +2031,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def owned_cells(self):
-        return self.cells.owned  # this should now work
-        # nowned = self.points.owned_count_per_component[self.cell_label]
-        # return self.cells[:nowned]
+        return self.cells.owned
 
     @cached_property
     def vertices(self):

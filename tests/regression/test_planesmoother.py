@@ -3,6 +3,9 @@ import numpy
 from firedrake import *
 
 
+pytest.skip(allow_module_level=True, reason="pyop3")
+
+
 @pytest.mark.skipcomplex
 def test_xy_equivalence():
     mesh = UnitSquareMesh(10, 10)

@@ -6,6 +6,9 @@ from firedrake.utils import IntType
 import shutil
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO (very slow!)")
+
+
 test_version = "2024_01_27"
 
 

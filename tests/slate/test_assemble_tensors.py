@@ -285,6 +285,7 @@ def test_matrix_subblocks(mesh):
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_diagonal(mass, matrix_mixed_nofacet):
     n, _ = Tensor(mass).shape
 

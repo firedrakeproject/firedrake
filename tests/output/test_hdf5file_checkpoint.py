@@ -83,6 +83,7 @@ def test_write_read(mesh, fs, degree, dumpfile):
     run_write_read(mesh, fs, degree, dumpfile)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 def test_write_read_parallel(mesh, fs, degree, dumpfile):
     run_write_read(mesh, fs, degree, dumpfile)

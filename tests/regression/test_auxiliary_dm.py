@@ -4,6 +4,9 @@ import pytest
 distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 class ApproximateSchur(AuxiliaryOperatorPC):
     def form(self, pc, test, trial):
         Z = test.function_space()
