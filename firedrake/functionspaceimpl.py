@@ -675,7 +675,10 @@ class FunctionSpace(object):
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        return self.node_set.total_size
+        constrained_node_set = set()
+        for sub_domain in self.boundary_set:
+            constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
+        return self.node_set.total_size - len(constrained_node_set)
 
     @utils.cached_property
     def dof_count(self):
@@ -825,6 +828,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         label = ""
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
+            label += "_"
         self.boundary_set = frozenset(boundary_set)
         super().__init__(function_space._mesh.topology,
                          function_space.ufl_element(), function_space.name)
@@ -903,7 +907,10 @@ class MixedFunctionSpace(object):
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
                                                      finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
-        self._label = "_".join(str(s._label) for s in spaces)
+        label = ""
+        for s in spaces:
+            label += "(" + s._label + ")_"
+        self._label = label
         self._subspaces = {}
         self._mesh = mesh
         self.comm = mesh.comm

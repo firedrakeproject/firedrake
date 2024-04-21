@@ -101,10 +101,10 @@ def get_node_set(mesh, key):
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
     nodes_per_entity, real_tensorproduct, _ = key
-    global_numbering, constrained_nodes = get_global_numbering(mesh, key)
+    global_numbering, constrained_size = get_global_numbering(mesh, key)
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
-    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm, constrained_size=constrained_nodes)
+    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm, constrained_size=constrained_size)
     extruded = mesh.cell_set._extruded
 
     assert global_numbering.getStorageSize() == node_set.total_size
@@ -430,7 +430,7 @@ class FunctionSpaceData(object):
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct, boundary_set)
         # These are keyed only on nodes per topological entity.
-        global_numbering, constrained_nodes = get_global_numbering(mesh, key)
+        global_numbering, constrained_size = get_global_numbering(mesh, key)
         node_set = get_node_set(mesh, key)
 
         edofs_key = entity_dofs_key(entity_dofs)
