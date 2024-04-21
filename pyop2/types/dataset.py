@@ -183,7 +183,7 @@ class DataSet(caching.ObjectCached):
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this DataSet."""
         vec = PETSc.Vec().create(comm=self.comm)
-        size = ((self.size - self.set.constrained_size) * self.cdim , None)
+        size = ((self.size - self.set.constrained_size) * self.cdim, None)
         vec.setSizes(size, bsize=self.cdim)
         vec.setUp()
         return vec
