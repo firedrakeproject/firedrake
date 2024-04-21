@@ -110,7 +110,7 @@ jobs:
             -o faulthandler_timeout=1860 \
             -n 12 --dist worksteal \
             -sv tests
-        timeout-minutes: 120
+        timeout-minutes: 240
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
