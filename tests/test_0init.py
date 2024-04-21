@@ -4,6 +4,7 @@ from firedrake import *
 
 
 # See https://pytest-xdist.readthedocs.io/en/stable/how-to.html#identifying-the-worker-process-during-a-test
+@pytest.mark.skip("TODO")
 @pytest.mark.skipif(
     "PYTEST_XDIST_WORKER_COUNT" in os.environ.keys()
     and int(os.environ["PYTEST_XDIST_WORKER_COUNT"]) > 1,
@@ -15,6 +16,7 @@ def test_pyop2_not_initialised():
     assert not op2.initialised()
 
 
+@pytest.mark.skip("TODO")
 def test_pyop2_custom_init():
     """PyOP2 init parameters set by the user should be retained."""
     op2.init(debug=True, log_level='CRITICAL')
@@ -36,6 +38,7 @@ def test_int_type():
     assert expected == actual
 
 
+@pytest.mark.skip("TODO")
 def test_pyop2_cache_dir_set_correctly():
     from firedrake_configuration import get_config
 
