@@ -904,7 +904,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 else:
                     val = firedrake.Constant(finfo.min)
                 f.assign(val)
-        tensor = f
+        tensor = f.dat
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
@@ -1115,8 +1115,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        # tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
-        tensor = output.copy()
+        tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
         if access != op3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:
@@ -1128,7 +1127,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        parloop_args.append(pack_tensor(tensor, loop_index, "cell"))
+        parloop_args.append(pack_pyop3_tensor(tensor, V, loop_index, "cell"))
     else:
         assert len(expr_arguments) == 1
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.

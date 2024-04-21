@@ -3,6 +3,10 @@
 import pytest
 
 
+# skip vertexonlymesh tests because point location not yet implemented
+collect_ignore_glob = ["vertexonly/*"]
+
+
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(

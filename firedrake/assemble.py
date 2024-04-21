@@ -20,13 +20,11 @@ from tsfc.finatinterface import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import pyop3 as op3
-import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.function import Function
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.parloops import pack_tensor, _with_shape_indices, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
@@ -1011,11 +1009,8 @@ class ParloopFormAssembler(FormAssembler):
             )
 
             if isinstance(self, ExplicitMatrixAssembler):
-                with _modified_lgmaps(subtensor, self._form, lgmaps) as tensor_mod:
+                with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
                     parloop(**{self._tensor_name: tensor_mod})
-
-                    # maybe?
-                    # tensor_mod.assemble()
             else:
                 parloop(**{self._tensor_name: subtensor})
 
@@ -1049,7 +1044,7 @@ class ParloopFormAssembler(FormAssembler):
         else:
             # Make parloops for one concrete output tensor and cache them.
             self._parloops = tuple(
-                (parloop_builder.build(tensor), parloop_builder.collect_lgmaps())
+                (parloop_builder.build(tensor), parloop_builder.collect_lgmaps(tensor))
                 for parloop_builder in self.parloop_builders
             )
             loops = self._parloops
@@ -1740,14 +1735,17 @@ class ParloopBuilder:
         return trial.function_space()
 
     def get_indicess(self):
-        assert len(self._form.arguments()) == 2 and not self._diagonal
-        if all(i is None for i in self._local_knl.indices):
-            test, trial = self._form.arguments()
-            return numpy.ndindex((len(test.function_space()),
-                                  len(trial.function_space())))
-        else:
-            assert all(i is not None for i in self._local_knl.indices)
-            return self._local_knl.indices,
+        return (self._local_knl.indices,)
+
+        # think below is not needed anymore
+        # assert len(self._form.arguments()) == 2 and not self._diagonal
+        # if all(i is None for i in self._local_knl.indices):
+        #     test, trial = self._form.arguments()
+        #     return numpy.ndindex((len(test.function_space()),
+        #                           len(trial.function_space())))
+        # else:
+        #     assert all(i is not None for i in self._local_knl.indices)
+        #     return self._local_knl.indices,
 
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
@@ -1777,12 +1775,17 @@ class ParloopBuilder:
         """
         if len(self._form.arguments()) == 2 and not self._diagonal:
             for i, j in self.get_indicess():
+                if i is None:
+                    i = 0
+                if j is None:
+                    j = 0
+
                 for bc in itertools.chain(*self._filter_bcs(i, j)):
                     if bc.function_space().component is not None:
                         return True
         return False
 
-    def collect_lgmaps(self):
+    def collect_lgmaps(self, matrix):
         """Return any local-to-global maps that need to be swapped out.
 
         This is only needed when applying boundary conditions to 2-forms.
@@ -1793,9 +1796,16 @@ class ParloopBuilder:
                 return None
             lgmaps = []
             for i, j in self.get_indicess():
-                row_bcs, col_bcs = self._filter_bcs(i, j)
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs)
+                ibc = 0 if i is None else i
+                jbc = 0 if j is None else j
+                row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
+
+                i = Ellipsis if i is None else i
+                j = Ellipsis if j is None else j
+
+                submat = matrix.M[i, j]
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat)
+                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat)
                 lgmaps.append((i, j, rlgmap, clgmap))
             return tuple(lgmaps)
         else:
@@ -2009,27 +2019,19 @@ def _is_real_space(space):
 
 
 @contextlib.contextmanager
-def _modified_lgmaps(mat, form, lgmaps):
+def _modified_lgmaps(mat, lgmaps):
     if lgmaps is None:
         yield mat
         return
 
     if mat.nested:
         raise NotImplementedError("Think about extracting the right sub-blocks")
-    else:
-        rspace, cspace = (a.function_space() for a in form.arguments())
 
-        orig_lgmaps = []
-        for i, j, rlgmap, clgmap in lgmaps:
-            rowis = rspace._local_ises[i]
-            colis = cspace._local_ises[j]
-            submat = mat.mat.getLocalSubMatrix(rowis, colis)
+    # TODO: Fixup API so this isn't needed
+    (i, j, row_lgmap, column_lgmap), = lgmaps
+    orig_rlgmap, orig_clgmap = mat.mat.getLGMap()
+    mat.mat.setLGMap(row_lgmap, column_lgmap)
 
-            orig_lgmaps.append((submat, *submat.getLGMap()))
-            submat.setLGMap(rlgmap, clgmap)
+    yield mat
 
-    yield type(mat)(mat.raxes, mat.caxes, mat.mat_type, submat, name=mat.name)
-
-    mat.mat.restoreLocalSubMatrix(rowis, colis, submat)
-    # for submat, orig_rlgmap, orig_clgmap in orig_lgmaps:
-    #     submat.setLGMap(orig_rlgmap, orig_clgmap)
+    mat.mat.setLGMap(orig_rlgmap, orig_clgmap)

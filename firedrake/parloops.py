@@ -1037,16 +1037,6 @@ def _orientations(mesh, perms, cell, integral_type):
     for dim in range(mesh.dimension+1):
         perms_ = perms[dim]
 
-        # mymap = closure_dats[dim]
-        # for i in range(mymap.arity):
-        #     subset = op3.AffineSliceComponent(mymap.target_component, i, i+1)
-        #     subsets.append(subset)
-        #
-        #     # perm = perms_[orientations[dim][closure_dat[cell, i]]]
-        #     perm = perms_[orientations[dim][cell, i]]
-        #     subtree = op3.Slice("dof", [op3.Subset("XXX", perm)])
-        #     subtrees.append(subtree)
-
         mymap = closure_dats[dim]
         subset = op3.AffineSliceComponent(mymap.target_component, label=mymap.target_component)
         subsets.append(subset)
@@ -1071,13 +1061,12 @@ def _orientations(mesh, perms, cell, integral_type):
             (axis.id, cpt) for axis, cpt in source_path.items()
         ]
         target_path = op3.utils.merge_dicts(
-            inner_subset.target_paths.get(key, {}) for key in index_keys
+            inner_subset.axes.target_paths.get(key, {}) for key in index_keys
         )
         myindices = op3.utils.merge_dicts(
-            inner_subset.index_exprs.get(key, {}) for key in index_keys
+            inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
         )
         inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
-        # breakpoint()
 
         mypermindices = (
             op3.ScalarIndex(root_label, root_clabel, inner_subset_var),

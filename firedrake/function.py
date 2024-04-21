@@ -91,7 +91,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self
 
     @PETSc.Log.EventDecorator()
-    def copy(self, deepcopy=False):
+    def copy(self, *, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
         :kwarg deepcopy: If ``True``, the new

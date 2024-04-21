@@ -18,9 +18,6 @@ cimport numpy as np
 cimport mpi4py.MPI as MPI
 cimport petsc4py.PETSc as PETSc
 
-# debug
-from libc.stdio cimport printf
-
 np.import_array()
 
 include "petschdr.pxi"
@@ -1057,24 +1054,6 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     offset = entity_cone_map_offset[e]
     for i in range(coneSize):
         fiat_cone[i] = cell_closure_sub[cell, entity_cone_map[offset + i]]
-
-    print("check: ", cell_closure_sub[cell])
-
-    print(p)
-    printf("FIAT: ")
-    for i in range(coneSize):
-        printf("%d, ", fiat_cone[i])
-    printf("\n")
-
-    printf("check: ")
-    for i in range(coneSize):
-        printf("%d, ", cell_closure_sub[cell, i])
-    printf("\n")
-
-    printf("plex: ")
-    for i in range(coneSize):
-        printf("%d, ", cone[i])
-    printf("\n")
 
     if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \

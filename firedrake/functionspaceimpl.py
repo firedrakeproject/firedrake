@@ -840,8 +840,10 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs=()) -> PETSc.LGMap:
+    def mask_lgmap(self, bcs, axes, indices) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
+
+        # update this#
 
         Parameters
         ----------
@@ -851,12 +853,17 @@ class FunctionSpace:
 
         Returns
         -------
-        lgmap
+        PETSc.LGMap
             The local-to-global mapping.
 
         """
+        # The function space does not know if there is, say, a MATNEST or AIJ
+        # matrix and so the lgmap is taken from the matrix and passed in.
+        # if lgmap is None:
+        #     lgmap = self._lgmap
+
         if not bcs:
-            return self._lgmap
+            return indices
 
         for bc in bcs:
             fs = bc.function_space()
@@ -870,20 +877,25 @@ class FunctionSpace:
         # this space has been recursively split out from (e.g. inside
         # fieldsplit)
 
-        # NOTE: I should investigate whether or not we need unblocked lgmaps. Surely
-        # PETSc should be smart enough to cope?
-
         unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if unblocked:
-            indices = self._unblocked_lgmap.indices.copy()
-            idat = op3.HierarchicalArray(self.axes, data=indices)
+        # if unblocked:
+        if True:
+            # indices = lgmap.indices.copy()
+            # idat = op3.HierarchicalArray(self.axes, data=indices)
+            idat = indices.copy2()
             bsize = 1
         else:
-            # is block_indices right?
-            indices = self._lgmap.block_indices.copy()
+            raise NotImplementedError
+            indices = lgmap.block_indices.copy()
             idat = op3.HierarchicalArray(self.block_axes, data=indices)
-            bsize = self._lgmap.getBlockSize()
+            bsize = lgmap.getBlockSize()
             assert bsize == self.value_size
+
+            if bsize > 1:
+                raise NotImplementedError(
+                    "Think I need matbaij for this to work now. The lgmaps "
+                    "are now coming from the mats."
+                )
 
         for bc in bcs:
             p = self._mesh.points[bc.constrained_points].index()
@@ -895,6 +907,7 @@ class FunctionSpace:
                 index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
 
                 if component is not None:
+                    assert unblocked
                     component_slice = op3.ScalarIndex("dim0", "XXX", component)
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
@@ -904,7 +917,7 @@ class FunctionSpace:
                 p, idat[index_forest].assign(-1, eager=False)
             )
 
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
+        return PETSc.LGMap().create(indices.buffer.data_ro, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:

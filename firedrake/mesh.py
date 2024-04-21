@@ -347,25 +347,19 @@ class _FacetContext:
 
     @cached_property
     def _facet_axis(self):
+        nowned_facets = len(self._owned_facet_data)
+        nfacets = len(self._facet_data)
         return op3.Axis(
             op3.AxisComponent(
-                len(self._facet_data),
+                (nowned_facets, nfacets),
                 label=self._facet_label,
-                rank_equal=False
             ),
             self.mesh.topology.name,
         )
 
     @cached_property
     def _owned_facet_axis(self):
-        return op3.Axis(
-            op3.AxisComponent(
-                len(self._owned_facet_data),
-                label=self._owned_facet_label,
-                rank_equal=False
-            ),
-            self.mesh.topology.name,
-        )
+        return self._facet_axis.owned
 
     @cached_property
     def _facet_dat(self):
@@ -1230,7 +1224,7 @@ class AbstractMeshTopology(abc.ABC):
             if include_ghost_points:
                 arity_data = facet_support_dat.axes.leaf_component.count.data_ro
                 selected_arity_data = arity_data[selected_facets]
-                arity = op3.HierarchicalArray(facet_axis, data=selected_arity_data)
+                arity = op3.HierarchicalArray(facet_axis, data=selected_arity_data, max_value=2)
             else:
                 arity = 2
 
@@ -3135,6 +3129,7 @@ values from f.)"""
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
+        raise NotImplementedError("TODO pyop3 templating")
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
         import firedrake.function as function

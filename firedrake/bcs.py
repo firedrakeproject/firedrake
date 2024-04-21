@@ -70,6 +70,13 @@ class BCBase:
 
         return self._function_space
 
+    @utils.cached_property
+    def parent_function_space(self):
+        space = self._function_space
+        while space.parent is not None:
+            space = space.parent
+        return space
+
     def function_space_index(self):
         fs = self._function_space
         if fs.component is not None:
@@ -243,6 +250,15 @@ class BCBase:
     def extract_forms(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
+
+    # @utils.cached_property
+    # def nodes(self):
+    #     offsets = []
+    #     parent_space = self.parent_function_space
+    #     for pt in parent_space.axes[self.constrained_points].iter():
+    #         offset = parent_space.axes.offset(pt.target_exprs, path=pt.target_path)
+    #         offsets.append(offset)
+    #     return np.asarray(offsets, dtype=utils.IntType)
 
 
 class DirichletBC(BCBase, DirichletBCMixin):
