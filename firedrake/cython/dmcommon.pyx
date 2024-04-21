@@ -1195,9 +1195,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
-    
     :returns: An integer providing the total number of constrained nodes in the
-    Section
+        Section.
     """
     # We don't use DMPlexCreateSection because we only ever put one
     # field in each section.
