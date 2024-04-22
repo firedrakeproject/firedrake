@@ -34,7 +34,7 @@ class LinearEigenproblem():
     bc_shift: float
         The value to shift the boundary condition eigenvalues by. This value
         will be ignored if restrict==True.
-    restrict: boolean
+    restrict: bool
         If True, replace the function spaces of u and v with their restricted
         version. The output space remains unchanged.
 

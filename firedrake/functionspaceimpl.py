@@ -1148,8 +1148,9 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
 
     :arg function_space: The function space to be restricted.
-    :arg name: The name of the restricted function space.
-    :arg boundary_set: The boundary domains on which boundary conditions will be specified
+    :kwarg name: The name of the restricted function space.
+    :kwarg boundary_set: The boundary domains on which boundary conditions will
+       be specified
 
     .. warning::
 
