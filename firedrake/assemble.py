@@ -1592,6 +1592,7 @@ class _GlobalKernelBuilder:
         extruded = self._mesh.extruded
         extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
+        signature = self._form.signature() if hasattr(self._form, "signature") else None
 
         return op2.GlobalKernel(self._kinfo.kernel,
                                 kernel_args,
@@ -1601,7 +1602,7 @@ class _GlobalKernelBuilder:
                                 extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
                                 subset=self._needs_subset,
-                                signature=self._form.signature())
+                                signature=signature)
 
     @property
     def _integral_type(self):

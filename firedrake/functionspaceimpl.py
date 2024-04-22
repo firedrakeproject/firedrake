@@ -911,6 +911,7 @@ class MixedFunctionSpace(object):
         for s in spaces:
             label += "(" + s._label + ")_"
         self._label = label
+        self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
         self.comm = mesh.comm
