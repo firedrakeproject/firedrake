@@ -568,16 +568,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
-                self._cell_numbering = self.create_section(entity_dofs)[0]
+                self._cell_numbering, _ = self.create_section(entity_dofs)
                 if tdim == 0:
                     self._vertex_numbering = self._cell_numbering
                 else:
                     entity_dofs[:] = 0
                     entity_dofs[0] = 1
-                    self._vertex_numbering = self.create_section(entity_dofs)[0]
+                    self._vertex_numbering, _ = self.create_section(entity_dofs)
                     entity_dofs[:] = 0
                     entity_dofs[-2] = 1
-                    facet_numbering = self.create_section(entity_dofs)[0]
+                    facet_numbering, _ = self.create_section(entity_dofs)
                     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
         self.name = name

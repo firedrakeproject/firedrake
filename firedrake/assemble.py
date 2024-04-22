@@ -1746,7 +1746,10 @@ def _as_global_kernel_arg_output(_, self):
         elif any(V.ufl_element().family() == "Real" for V in Vs):
             el, = (create_element(V.ufl_element()) for V in Vs
                    if V.ufl_element().family() != "Real")
-            return self._make_dat_global_kernel_arg(el, V.boundary_set)
+            boundary_set = set()
+            for V in Vs:
+                boundary_set.union(set(V.boundary_set))
+            return self._make_dat_global_kernel_arg(el, frozenset(boundary_set))
         else:
             rel, cel = (create_element(V.ufl_element()) for V in Vs)
             rbset, cbset = (V.boundary_set for V in Vs)
