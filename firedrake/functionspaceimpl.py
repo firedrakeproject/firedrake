@@ -102,6 +102,7 @@ class WithGeometryBase:
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
+        self.extruded = mesh.extruded
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -698,7 +699,11 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
-        return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        # return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        cells = self.mesh().cells.owned
+        ncells = cells.size
+        packed_axes = self.axes[self.mesh().closure(cells.index())]
+        return packed_axes.tabulated_offsets.buffer.data.reshape((ncells, -1))
 
     @utils.cached_property
     def topological(self):
@@ -772,13 +777,13 @@ class FunctionSpace:
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        return self.node_set.total_size
+        return self.axes.size//self.value_size
 
     @utils.cached_property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.value_size
+        return self.axes.size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.

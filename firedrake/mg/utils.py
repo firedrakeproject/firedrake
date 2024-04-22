@@ -40,10 +40,40 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
-        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+        map_components = []
+        for map_dim, (size, data) in enumerate(
+            checked_zip(closure_sizes, closure_data)
+        ):
+            if size == 0:
+                continue
+
+            target_axis = self.name
+            target_dim = str(map_dim)
+
+            outer_axis = self.points[str(dim)].root
+            inner_axis = op3.Axis(size)
+            map_axes = op3.AxisTree.from_nest(
+                {outer_axis: inner_axis}
+            )
+            map_dat = op3.HierarchicalArray(
+                map_axes, data=data.flatten(), prefix="closure"
+            )
+            map_components.append(
+                op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
+            )
+        closures[freeze({self.name: str(dim)})] = map_componentsdes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
                                              values=fine_to_coarse_nodes))
+
+
+def coarse_to_fine_cell_map(coarse_mesh, fine_mesh, coarse_to_fine_data):
+    connectivity = {
+        freeze({coarse_mesh.name: coarse_mesh.cell_label}): [
+            op3.TabulatedMapComponent(fine_mesh.name, fine_mesh.cell_label, coarse_to_fine_data)
+        ]
+    }
+    return op3.Map(connectivity)
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):

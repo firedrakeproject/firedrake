@@ -708,7 +708,9 @@ class AbstractMeshTopology(abc.ABC):
                     op3.AxisComponent(self.num_entities(d), label=str(d))
                     for d in self.depth_strata_order
                 ],
-                numbering=self._dm_renumbering.indices,
+                # numbering=self._dm_renumbering.indices,
+                # FIXME dirty fix
+                numbering=np.arange(len(self._dm_renumbering.indices)),
                 label=self.name,
             )
             if self.comm.size > 1:

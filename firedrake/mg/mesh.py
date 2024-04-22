@@ -8,6 +8,7 @@ import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
+from firedrake.petsc import PETSc
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")
@@ -75,6 +76,74 @@ class HierarchyBase(object):
 
         :arg idx: The :func:`~.Mesh` to return"""
         return self.meshes[idx]
+
+
+def get_coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
+    """Return a map from (renumbered) cells in a coarse mesh to those
+    in a refined fine mesh.
+
+    :arg mc: the coarse mesh to create the map from.
+    :arg mf: the fine mesh to map to.
+    :arg clgmaps: coarse lgmaps (non-overlapped and overlapped)
+    :arg flgmaps: fine lgmaps (non-overlapped and overlapped)
+    :returns: Two arrays, one mapping coarse to fine cells, the second fine to coarse cells.
+    """
+    cdm = mc.topology_dm
+    fdm = mf.topology_dm
+    dim = cdm.getDimension()
+    nref = 2 ** dim
+    ncoarse = mc.cell_set.size
+    nfine = mf.cell_set.size
+    co2n, _ = impl.get_entity_renumbering(cdm, mc._cell_numbering, "cell")
+    _, fn2o = impl.get_entity_renumbering(fdm, mf._cell_numbering, "cell")
+    # FIXME dirty fix
+    co2n = np.arange(len(co2n))
+    fn2o = np.arange(len(fn2o))
+
+    coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
+    fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
+    # Walk owned fine cells:
+    cStart, cEnd = 0, nfine
+
+    if mc.comm.size > 1:
+        # Maybe this works in pararell?
+        co2n = clgmaps[1].indices
+        fn2o = flgmaps[1].indices
+        cno, co = clgmaps
+        fno, fo = flgmaps
+        # Compute global numbers of original cell numbers
+        fo.apply(fn2o, result=fn2o)
+        # Compute local numbers of original cells on non-overlapped mesh
+        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
+        # Need to permute order of co2n so it maps from non-overlapped
+        # cells to new cells (these may have changed order).  Need to
+        # map all known cells through.
+        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        # LocalToGlobal
+        co.apply(idx, result=idx)
+        # GlobalToLocal
+        # Drop values that did not exist on non-overlapped mesh
+        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
+        co2n = co2n[idx]
+
+    for c in range(cStart, cEnd):
+        # get original (overlapped) cell number
+        fcell = fn2o[c]
+        # The owned cells should map into non-overlapped cell numbers
+        # (due to parallel growth strategy)
+        assert 0 <= fcell < cEnd
+
+        # Find original coarse cell (fcell / nref) and then map
+        # forward to renumbered coarse cell (again non-overlapped
+        # cells should map into owned coarse cells)
+        ccell = co2n[fcell // nref]
+        assert 0 <= ccell < ncoarse
+        fine_to_coarse[c, 0] = ccell
+        for i in range(nref):
+            if coarse_to_fine[ccell, i] == -1:
+                coarse_to_fine[ccell, i] = c
+                break
+    return coarse_to_fine, fine_to_coarse
 
 
 def MeshHierarchy(mesh, refinement_levels,
@@ -190,7 +259,7 @@ def MeshHierarchy(mesh, refinement_levels,
     fine_to_coarse_cells = [None]
     for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
                                                   zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
+        c2f, f2c = get_coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
@@ -230,7 +299,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     """
     if not isinstance(base_hierarchy, HierarchyBase):
         raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
-    if any(m.cell_set._extruded for m in base_hierarchy):
+    if any(m.extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 
     if layers is None:
