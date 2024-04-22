@@ -519,6 +519,8 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
     plex = V.mesh().topology
 
     if V.ufl_element().family() == "Real":
+        if V.dim() == 1:
+            return ... # JB: Fix early return
         indices = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
     else:
         indices = op3.IndexTree.from_nest({

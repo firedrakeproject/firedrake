@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+#pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_scalar_constant():
