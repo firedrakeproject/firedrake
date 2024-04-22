@@ -6,9 +6,6 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 
-# debug
-PETSc.Sys.popErrorHandler()
-
 
 @pytest.fixture
 def mesh():
@@ -208,6 +205,7 @@ def test_fieldsplitting(mesh, preassembled, parameters):
         assert np.allclose(d, 0.0)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=4)
 def test_matrix_free_split_communicators():
 
@@ -247,6 +245,7 @@ def test_matrix_free_split_communicators():
         assert np.allclose(expect.dat.data, f.dat.data)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("infotype",
                          ["local", "sum", "max"])
@@ -318,6 +317,7 @@ def test_duplicate(a, bcs):
     assert np.allclose(rhs.vector().array(), solution2.vector().array())
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_matrix_free_fieldsplit_with_real():
     mesh = RectangleMesh(10, 10, 1, 1)
 

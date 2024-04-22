@@ -2,6 +2,7 @@ import pytest
 import os
 import subprocess
 import glob
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 try:

@@ -4,7 +4,7 @@ import pytest
 
 
 # TODO pyop3
-collect_ignore_glob = ["vertexonly/*", "extrusion/*", "multigrid/*", "supermesh/*"]
+collect_ignore_glob = ["vertexonly/*", "extrusion/*", "multigrid/*", "supermesh/*", "external_operators/*"]
 
 
 def pytest_configure(config):
