@@ -1409,7 +1409,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         sparsity = op3.Sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            mat_type=mat_type
+            mat_type=mat_type,
+            block_shape=test.function_space().value_size
         )
 
         # Pretend that we are doing assembly by looping over the right
