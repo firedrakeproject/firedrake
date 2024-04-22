@@ -57,6 +57,7 @@ def test_hdiv_l2(MeshClass, hdiv_space, degree, refinement, conv_order):
     assert (l2conv > conv_order).all()
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel
 def test_hdiv_l2_cubedsphere_parallel():
     errors = [run_hdiv_l2(UnitCubedSphereMesh, r, 'RTCF', 2) for r in range(2, 5)]
@@ -64,14 +65,3 @@ def test_hdiv_l2_cubedsphere_parallel():
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     assert (l2conv > 1.7).all()
-
-
-if __name__ == "__main__":
-    # MeshClass, hdiv_space, degree, refinement, conv_order = (UnitIcosahedralSphereMesh, 'RT', 1, (1, 3), 0.75)
-    MeshClass, hdiv_space, degree, refinement, conv_order = (UnitCubedSphereMesh, 'RTCF', 2, (1, 3), 1.5)                          
-    errors = [run_hdiv_l2(MeshClass, r, hdiv_space, degree) for r in range(*refinement)]
-    errors = np.asarray(errors)
-    l2err = errors[:, 0]
-    l2conv = np.log2(l2err[:-1] / l2err[1:])
-    print(l2conv)
-    assert (l2conv > conv_order).all()

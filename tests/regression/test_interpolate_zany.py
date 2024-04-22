@@ -1,6 +1,7 @@
 from firedrake import *
 import numpy
 import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module")

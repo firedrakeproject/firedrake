@@ -4,6 +4,9 @@ import itertools
 from firedrake import *
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param

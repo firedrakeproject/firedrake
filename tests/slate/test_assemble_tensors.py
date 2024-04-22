@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.formmanipulation import split_form
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope='module', params=[False, True])

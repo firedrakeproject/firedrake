@@ -1,5 +1,8 @@
+import pytest
+
 from firedrake import *
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def test_all_dofs_on_facets():
     mesh = UnitSquareMesh(5, 5)

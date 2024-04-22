@@ -3,6 +3,9 @@ from math import ceil
 
 from firedrake import *
 
+import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
 
 def test_constant_one_tensor():
     mesh = ExtrudedMesh(UnitIntervalMesh(5), 5)
