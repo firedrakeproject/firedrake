@@ -353,6 +353,7 @@ class _FacetContext:
             op3.AxisComponent(
                 (nowned_facets, nfacets),
                 label=self._facet_label,
+                rank_equal=False,
             ),
             self.mesh.topology.name,
         )
@@ -364,6 +365,7 @@ class _FacetContext:
             op3.AxisComponent(
                 (nowned_facets, nowned_facets),
                 label=(self._facet_label, "owned"),
+                rank_equal=False,
             ),
             self.mesh.topology.name,
         )
