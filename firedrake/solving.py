@@ -252,19 +252,18 @@ def _la_solve(A, x, b, **kwargs):
                              options_prefix=options_prefix)
     if isinstance(x, firedrake.Vector):
         x = x.function
-    # linear MG doesn't need RHS, supply zero.
-    L = 0
-    aP = None if P is None else P.a
-    lvp = vs.LinearVariationalProblem(A.a, L, x, bcs=A.bcs, aP=aP)
-    mat_type = A.mat_type
-    pmat_type = mat_type if P is None else P.mat_type
-    appctx = solver_parameters.get("appctx", {})
-    ctx = solving_utils._SNESContext(lvp,
-                                     mat_type=mat_type,
-                                     pmat_type=pmat_type,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix,
-                                     pre_apply_bcs=pre_apply_bcs)
+    if not isinstance(A, firedrake.matrix.AssembledMatrix):
+        # linear MG doesn't need RHS, supply zero.
+        lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=A.bcs)
+        mat_type = A.mat_type
+        appctx = solver_parameters.get("appctx", {})
+        ctx = solving_utils._SNESContext(lvp,
+                                        mat_type=mat_type,
+                                        pmat_type=mat_type,
+                                        appctx=appctx,
+                                        options_prefix=options_prefix)
+    else:
+        ctx = None
     dm = solver.ksp.dm
 
     with dmhooks.add_hooks(dm, solver, appctx=ctx):

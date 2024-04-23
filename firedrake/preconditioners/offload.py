@@ -1,5 +1,3 @@
-import abc
-
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
@@ -7,16 +5,11 @@ from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space
 
-import petsc4py.PETSc # in firedrake.petsc?
-
-# outside: ksp.setOperators(A)
-# todo: for densecuda later- now only cusparse
-
 __all__ = ("OffloadPC",)
 
 
 class OffloadPC(PCBase):
-    """Offload to GPU as PC to solve.
+    """Offload PC from CPU to GPU and back.
 
     Internally this makes a PETSc PC object that can be controlled by
     options using the extra options prefix ``offload_``.
@@ -41,28 +34,29 @@ class OffloadPC(PCBase):
 
         (a, bcs) = self.form(pc, test, trial)
 
-        if P.type == "assembled":  # not python value error - only assembled (preconditioner)
+        if P.type == "assembled":
             context = P.getPythonContext()
             # It only makes sense to preconditioner/invert a diagonal
             # block in general.  That's all we're going to allow.
-            if not context.on_diag:  # still? diagonal block?
+            if not context.on_diag:
                 raise ValueError("Only makes sense to invert diagonal block")
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
 
-        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "cusparse")  # cuda?
+        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "cusparse")
 
-        # matrix to cuda
+        # Convert matrix to ajicusparse
         P_cu = P.convert(mat_type='aijcusparse')
-        # eventually change allocate_matrix from assembled.py
 
+        # Transfer nullspace
         P_cu.setNullSpace(P.getNullSpace())
         tnullsp = P.getTransposeNullSpace()
         if tnullsp.handle != 0:
             P_cu.setTransposeNullSpace(tnullsp)
         P_cu.setNearNullSpace(P.getNearNullSpace())
 
+        # PC object set-up
         pc = PETSc.PC().create(comm=outer_pc.comm)
         pc.incrementTabLevel(1, parent=outer_pc)
 
@@ -95,16 +89,16 @@ class OffloadPC(PCBase):
             context = dmhooks.get_appctx(pc.getDM())
             return (context.Jp or context.J, context._problem.bcs)
 
-# vectors and solve
-    def apply(self, pc, x, y):  # y=b?
+    # Convert vectors to CUDA, solve and get solution on CPU back
+    def apply(self, pc, x, y):
         dm = pc.getDM()
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            b_cu = PETSc.Vec()
-            b_cu.createCUDAWithArrays(y)
-            u = PETSc.Vec()
-            u.createCUDAWithArrays(x)
-            self.pc.apply(x, y)  # solve is here
-            u.getArray()  # return vector
+            y_cu = PETSc.Vec()
+            y_cu.createCUDAWithArrays(y)
+            x_cu = PETSc.Vec()
+            x_cu.createCUDAWithArrays(x)
+            self.pc.apply(x_cu, y_cu)
+        y.copy(y_cu)
 
     def applyTranspose(self, pc, X, Y):
         raise NotImplementedError
