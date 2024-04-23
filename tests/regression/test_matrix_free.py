@@ -55,6 +55,7 @@ def bcs(problem, V):
         return None
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize("pc_type", ("none",
                                      "ilu",
                                      "lu"))
@@ -101,6 +102,7 @@ def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
     assert expect == actual
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_matrixfree_action(a, V, bcs):

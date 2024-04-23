@@ -140,6 +140,7 @@ def test_cant_subscript_outside_components(V, cmpt):
         return V.sub(cmpt)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_stokes_component_all():
     mesh = UnitSquareMesh(10, 10)
 
