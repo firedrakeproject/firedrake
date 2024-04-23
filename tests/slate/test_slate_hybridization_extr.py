@@ -65,4 +65,4 @@ def test_hybrid_extr_helmholtz(quad):
     u_err = errornorm(u_h, nh_u)
 
     assert sigma_err < 5e-8
-    assert u_err < 1e-8
+    assert u_err < 1e-

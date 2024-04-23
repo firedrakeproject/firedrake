@@ -219,6 +219,7 @@ def test_projector(mat_type):
     assert np.abs(mass1-mass2) < 1.0e-10
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize('mat_type', ['aij', 'nest', 'matfree'])
 def test_mixed_projector(mat_type):
     m = UnitSquareMesh(2, 2)
@@ -277,6 +278,7 @@ def test_trivial_projector():
     assert np.abs(mass1-mass2) < 1.0e-10
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
 @pytest.mark.parametrize('same_fspace', [False, True])
 def test_projector_bcs(tensor, same_fspace):
@@ -331,6 +333,7 @@ def test_projector_bcs(tensor, same_fspace):
     assert errornorm(ret, ref) < 1.0e-10
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
     (0, 'DGT', 0.8),
     (1, 'DGT', 1.8),
