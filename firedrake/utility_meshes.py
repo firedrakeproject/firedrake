@@ -26,6 +26,8 @@ from firedrake import (
     SpatialCoordinate,
     conditional,
     gt,
+    as_tensor,
+    dot,
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -302,7 +304,7 @@ def PeriodicUnitIntervalMesh(
     distribution_name=None,
     permutation_name=None,
 ):
-    """Generate a periodic mesh of the unit interval
+    """Generate a periodic mesh of the unit interval.
 
     :arg ncells: The number of cells in the interval.
     :kwarg distribution_parameters: options controlling mesh
@@ -3015,7 +3017,7 @@ def PartiallyPeriodicRectangleMesh(
     distribution_name=None,
     permutation_name=None,
 ):
-    """Generates RectangleMesh that is periodic in the x or y direction.
+    """Generate a RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
@@ -3047,14 +3049,13 @@ def PartiallyPeriodicRectangleMesh(
     * 1: plane x == 0
     * 2: plane x == Lx
     """
-
     if direction not in ("x", "y"):
         raise ValueError("Unsupported periodic direction '%s'" % direction)
 
     # handle x/y directions: na, La are for the periodic axis
-    na, nb, La, Lb = nx, ny, Lx, Ly
+    na, nb = nx, ny
     if direction == "y":
-        na, nb, La, Lb = ny, nx, Ly, Lx
+        na, nb = ny, nx
 
     if na < 3:
         raise ValueError(
@@ -3078,52 +3079,29 @@ def PartiallyPeriodicRectangleMesh(
     )
     coord_family = "DQ" if quadrilateral else "DG"
     cell = "quadrilateral" if quadrilateral else "triangle"
+    indicator = Function(FunctionSpace(m, coord_family, 0))
     coord_fs = VectorFunctionSpace(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
-
-    # make x-periodic mesh
-    # unravel x coordinates like in periodic interval
-    # set y coordinates to z coordinates
-    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    instructions = f"""
-    <{RealType}> Y = 0
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> oc[k, l] = real(old_coords[k, l])
-    for i
-        Y = Y + oc[i, 1]
-    end
-    for j
-        <{RealType}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
-        nc0 = nc0 + 1 if nc0 < 0 else nc0
-        nc0 = 1 if nc0 == 0 and Y < 0 else nc0
-        new_coords[j, 0] = nc0 * Lx[0]
-        new_coords[j, 1] = old_coords[j, 2] * Ly[0]
-    end
-    """
-
-    cLx = Constant(La)
-    cLy = Constant(Lb)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "Lx": (cLx, READ),
-            "Ly": (cLy, READ),
-        },
-    )
-
-    if direction == "y":
-        # flip x and y coordinates
-        operator = np.asarray([[0, 1], [1, 0]])
-        new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
+    x, y, z = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator.interpolate(conditional(gt(y, 0), 0., 1.))
+    if direction == "x":
+        transform = as_tensor([[Lx, 0.], [0., Ly]])
+    else:
+        transform = as_tensor([[0., Lx], [Ly, 0]])
+    new_coordinates.interpolate(dot(
+        transform,
+        as_vector((
+            conditional(gt(x, 1. - eps), indicator,  # Periodic break.
+                        # Unwrap rest of circle.
+                        atan2(-y, -x)/(2 * pi) + 0.5),
+            z
+        ))
+    ))
 
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,
