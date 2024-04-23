@@ -7,11 +7,11 @@ def compare_function_space_assembly(function_space, restricted_function_space,
                                     bcs, res_bcs=[]):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
-    original_form = inner(u, v)*dx
+    original_form = inner(u, v) * dx
 
     u2 = TrialFunction(restricted_function_space)
     v2 = TestFunction(restricted_function_space)
-    restricted_form = inner(u2, v2)*dx
+    restricted_form = inner(u2, v2) * dx
 
     normal_fs_matrix = assemble(original_form, bcs=bcs)
     restricted_fs_matrix = assemble(restricted_form, bcs=res_bcs)
@@ -67,7 +67,7 @@ def test_poisson_homogeneous_bcs():
     f.interpolate(16 * pi**2 * (y-1)**2 * y**2 - 2 * (y-1)**2 - 8 * (y-1)*y
                   - 2*y**2)*sin(4*pi*x)
 
-    original_form = inner(grad(u), grad(v))*dx
+    original_form = inner(grad(u), grad(v)) * dx
 
     bc = DirichletBC(V, 0, 1)
     V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[1])
@@ -78,10 +78,10 @@ def test_poisson_homogeneous_bcs():
 
     u2 = TrialFunction(V_res)
     v2 = TestFunction(V_res)
-    restricted_form = inner(grad(u2), grad(v2))*dx
+    restricted_form = inner(grad(u2), grad(v2)) * dx
 
-    L = inner(f, v)*dx
-    L_res = inner(f2, v2)*dx
+    L = inner(f, v) * dx
+    L_res = inner(f2, v2) * dx
 
     u = Function(V)
     bc2 = DirichletBC(V_res, Constant(0), 1)
@@ -101,9 +101,9 @@ def test_poisson_inhomogeneous_bcs():
     bc2 = DirichletBC(V_res, 1, 2)
     u2 = TrialFunction(V_res)
     v2 = TestFunction(V_res)
-    restricted_form = inner(grad(u2), grad(v2))*dx
+    restricted_form = inner(grad(u2), grad(v2)) * dx
     u = Function(V_res)
-    rhs = Constant(0) * v2*dx
+    rhs = inner(Constant(0), v2) * dx
 
     solve(restricted_form == rhs, u, bcs=[bc, bc2])
 
@@ -130,19 +130,34 @@ def test_poisson_inhomogeneous_bcs_2(j):
     u2 = TrialFunction(V_res)
     v2 = TestFunction(V_res)
 
-    original_form = inner(grad(u), grad(v))*dx
-    restricted_form = inner(grad(u2), grad(v2))*dx
+    original_form = inner(grad(u), grad(v)) * dx
+    restricted_form = inner(grad(u2), grad(v2)) * dx
 
     u = Function(V)
     u2 = Function(V_res)
 
-    rhs = Constant(0) * v*dx
-    rhs2 = Constant(0) * v2*dx
+    rhs = inner(Constant(0), v) * dx
+    rhs2 = inner(Constant(0), v2) * dx
 
     solve(original_form == rhs, u, bcs=[bc3, bc4])
     solve(restricted_form == rhs2, u2, bcs=[bc, bc2])
 
     assert errornorm(u, u2) < 1.e-12
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_poisson_inhomogeneous_bcs_high_level_interface():
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 2)
+    bc1 = DirichletBC(V, 0., 1)
+    bc2 = DirichletBC(V, 1., 2)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    u = Function(V)
+    L = inner(Constant(0), v) * dx
+    solve(a == L, u, bcs=[bc1, bc2], restrict=True)
+    assert errornorm(SpatialCoordinate(mesh)[0], u) < 1.e-12
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])
@@ -175,15 +190,15 @@ def test_restricted_mixed_spaces(i, j):
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
-    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v))*dx
-    a2 = (inner(sigma2, tau2) + inner(u2, div(tau2)) + inner(div(sigma2), v2))*dx
+    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    a2 = (inner(sigma2, tau2) + inner(u2, div(tau2)) + inner(div(sigma2), v2)) * dx
 
     w = Function(W)
     w2 = Function(W_res)
 
     f = Constant(1)
-    L = - inner(f, v)*dx
-    L2 = - inner(f, v2)*dx
+    L = - inner(f, v) * dx
+    L2 = - inner(f, v2) * dx
 
     solve(a == L, w, bcs=[bc])
     solve(a2 == L2, w2, bcs=[bc_res])
@@ -218,13 +233,13 @@ def test_restricted_eigenvalue_problem():
     v, u = TestFunction(V), TrialFunction(V)
     v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
 
-    M = -inner(grad(u), grad(v))*dx - inner(u, v)*dx
-    eigenproblem = LinearEigenproblem(A=inner(v, u.dx(0))*dx, M=M, bcs=bc,
+    M = -inner(grad(u), grad(v)) * dx - inner(u, v) * dx
+    eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, M=M, bcs=bc,
                                       bc_shift=100, restrict=True)
     eigensolver = LinearEigensolver(eigenproblem, n_evals=2)
 
-    M_res = -inner(grad(u_res), grad(v_res))*dx - inner(u_res, v_res)*dx
-    other_eigenproblem = LinearEigenproblem(A=inner(v_res, u_res.dx(0))*dx, M=M_res,
+    M_res = -inner(grad(u_res), grad(v_res)) * dx - inner(u_res, v_res) * dx
+    other_eigenproblem = LinearEigenproblem(A=inner(u_res.dx(0), v_res) * dx, M=M_res,
                                             bcs=bc_res, bc_shift=100, restrict=False)
     other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
 
@@ -237,10 +252,10 @@ def test_restricted_eigenvalue_problem_2():
     V = FunctionSpace(mesh, "CG", 1)
     bc = DirichletBC(V, 0, 1)
     v, u = TestFunction(V), TrialFunction(V)
-    eigenproblem = LinearEigenproblem(A=inner(v, u.dx(0))*dx, bcs=bc,
+    eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, bcs=bc,
                                       bc_shift=100, restrict=False)
     eigensolver = LinearEigensolver(eigenproblem, n_evals=4)
-    other_eigenproblem = LinearEigenproblem(A=inner(v, u.dx(0))*dx, bcs=bc,
+    other_eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, bcs=bc,
                                             bc_shift=100, restrict=True)
     other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
     compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)

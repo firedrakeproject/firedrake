@@ -38,8 +38,6 @@ def evals(n, degree=1, mesh=None):
 
         estimates[k] = eigensolver.eigenvalue(k).real
 
-    true_values[-1] = eigenprob.bc_shift
-
     # sort in case order of numerical and analytic values differs.
     return sorted(true_values), sorted(estimates)
 
