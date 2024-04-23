@@ -293,8 +293,7 @@ class GlobalKernel(Cached):
                  constant_layers=False,
                  subset=False,
                  iteration_region=None,
-                 pass_layer_arg=False,
-                 signature=None):
+                 pass_layer_arg=False):
         if self._initialized:
             return
 
@@ -329,7 +328,6 @@ class GlobalKernel(Cached):
         self._subset = subset
         self._iteration_region = iteration_region
         self._pass_layer_arg = pass_layer_arg
-        self.signature = signature
 
         # Cache for stashing the compiled code
         self._func_cache = {}
