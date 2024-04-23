@@ -195,3 +195,19 @@ def test_mesh_with_no_facet_markers():
     mesh.init()
     with pytest.raises(LookupError):
         mesh.exterior_facets.subset((10,))
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_exterior_integral():
+    m = UnitSquareMesh(2, 1)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * ds(domain=m))
+    assert(abs(v - 4.0) < 1.e-16)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_interior_integral():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * dS(domain=m))
+    assert(abs(v - (2. + sqrt(2) * 2)) < 1.e-16)
