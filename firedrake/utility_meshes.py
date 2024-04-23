@@ -3,10 +3,12 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
+from firedrake.__future__ import interpolate
 from firedrake.utils import IntType, RealType, ScalarType
 
 from firedrake import (
     VectorFunctionSpace,
+    FunctionSpace,
     Function,
     Constant,
     par_loop,
@@ -18,6 +20,12 @@ from firedrake import (
     FiniteElement,
     interval,
     tetrahedron,
+    atan2,
+    pi,
+    as_vector,
+    SpatialCoordinate,
+    conditional,
+    gt,
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -259,44 +267,20 @@ cells are not currently supported"
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
+    indicator = Function(FunctionSpace(m, "DG", 0))
     coord_fs = VectorFunctionSpace(
         m, FiniteElement("DG", interval, 1, variant="equispaced"), dim=1
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
-
-    domain = "{ [i, j] : 0 <= i, j < 2 }"
-    instructions = f"""
-    <{RealType}> eps = 1e-12
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> oc[i, j] = real(old_coords[i, j])
-    <{RealType}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
-    <{RealType}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
-    <{IntType}> swap = 1 if a >= b else 0
-    <{RealType}> aa = fmin(a, b)
-    <{RealType}> bb = fmax(a, b)
-    <{RealType}> bb_abs = abs(bb)
-    bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
-    aa = aa + 1 if aa < -eps else aa
-    bb = bb + 1 if bb < -eps else bb
-    a = bb if swap == 1 else aa
-    b = aa if swap == 1 else bb
-    new_coords[0] = a * L[0]
-    new_coords[1] = b * L[0]
-    """
-
-    cL = Constant(length)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "L": (cL, READ),
-        },
+    x, y = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator.interpolate(conditional(gt(y, 0), 0., 1.))
+    new_coordinates.interpolate(
+        as_vector((conditional(gt(x, 1. - eps), indicator,  # Periodic break.
+                               # Unwrap rest of circle.
+                               atan2(-y, -x)/(2 * pi) + 0.5) * length,))
     )
 
     return _postprocess_periodic_mesh(new_coordinates,
