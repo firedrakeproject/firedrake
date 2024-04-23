@@ -28,6 +28,7 @@ from firedrake import (
     gt,
     as_tensor,
     dot,
+    And,
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -978,6 +979,7 @@ def PeriodicRectangleMesh(
     )
     coord_family = "DQ" if quadrilateral else "DG"
     cell = "quadrilateral" if quadrilateral else "triangle"
+
     coord_fs = VectorFunctionSpace(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
@@ -985,6 +987,18 @@ def PeriodicRectangleMesh(
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
+    x, y, z = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator_y = Function(FunctionSpace(m, coord_family, 0))
+    indicator_y.interpolate(conditional(gt(y, 0), 0., 1.))
+    x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
+    x_coord.interpolate(
+        conditional(And(gt(eps, abs(y)), gt(x, 0.)), indicator_y,  # Periodic break.
+                    # Unwrap rest of circle.
+                    atan2(-y, -x)/(2*pi)+0.5)
+    )
+    phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord), 0.0])
+
 
     domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
     instructions = f"""
