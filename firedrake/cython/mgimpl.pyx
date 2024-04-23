@@ -85,7 +85,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
     ndof = fine_per_cell * fine_cell_per_coarse_cell
     if extruded:
         ndof *= ratio
-    coarse_to_fine_map = np.full((coarse_cells,
+    coarse_to_fine_map = np.full((Vc.node_count,
                                   ndof),
                                  -1,
                                  dtype=IntType)
@@ -142,7 +142,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((fine_cells,
+    fine_to_coarse_map = np.full((Vf.node_count,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)

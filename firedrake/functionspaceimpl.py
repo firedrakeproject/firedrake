@@ -698,16 +698,29 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
+        from firedrake.parloops import pack_pyop3_tensor
         cells = self.mesh().cells
-        ncells = cells.size
-        packed_axes = self.block_axes[self.mesh().closure(cells.index())]
-
-        return packed_axes.tabulated_offsets.buffer.data.reshape((ncells, -1))
+        # Pass self.sub(0) to get nodes from the scalar version of this function space
+        packed_axes = pack_pyop3_tensor(self.block_axes, self.sub(0), cells.index(include_ghost_points=True), "cell")
+        return packed_axes.tabulated_offsets.buffer.data_rw_with_halos.reshape((cells.size, -1))
 
     @utils.cached_property
     def owned_cell_node_list(self):
         r"""A numpy array mapping owned mesh cells to function space nodes."""
-        return self.cell_node_list[:self.mesh().owned_cells.size]
+        cells = self.mesh().cells
+        return self.cell_node_list[:cells.owned.size]
+
+    @utils.cached_property
+    def nodes(self):
+        if self.value_size > 1:
+            raise NotImplementedError("TODO")
+        ax = self.block_axes
+        return op3.Axis([op3.AxisComponent((ax.owned.size, ax.size),
+                         "XXX", rank_equal=False)], "nodes", numbering=None, sf=ax.sf)
+
+    @utils.cached_property
+    def nodal_axes(self):
+        return op3.AxisTree(self.nodes)
 
     @utils.cached_property
     def topological(self):

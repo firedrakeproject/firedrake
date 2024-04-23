@@ -324,3 +324,10 @@ def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
         run_injection(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
     run_prolongation(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
     run_restriction(periodic_hierarchy, vector, periodic_space, degrees)
+
+
+if __name__ == "__main__":
+    bmesh = UnitIntervalMesh(3)
+    mh = MeshHierarchy(bmesh, 1)
+
+    run_restriction(mh, False, "CG", [1])

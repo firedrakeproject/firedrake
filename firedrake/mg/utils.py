@@ -1,17 +1,27 @@
 import numpy
 from fractions import Fraction
-from pyop2 import op2
+import pyop3 as op3
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
+from pyrsistent import freeze
+
+
+def coarse_to_fine_cell_map(coarse_mesh, fine_mesh, coarse_to_fine_data):
+    connectivity = {
+        freeze({coarse_mesh.name: coarse_mesh.cell_label}): [
+            op3.TabulatedMapComponent(fine_mesh.name, fine_mesh.cell_label, coarse_to_fine_data)
+        ]
+    }
+    return op3.Map(connectivity)
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op3.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -40,48 +50,22 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
-        map_components = []
-        for map_dim, (size, data) in enumerate(
-            checked_zip(closure_sizes, closure_data)
-        ):
-            if size == 0:
-                continue
+        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
 
-            target_axis = self.name
-            target_dim = str(map_dim)
-
-            outer_axis = self.points[str(dim)].root
-            inner_axis = op3.Axis(size)
-            map_axes = op3.AxisTree.from_nest(
-                {outer_axis: inner_axis}
-            )
-            map_dat = op3.HierarchicalArray(
-                map_axes, data=data.flatten(), prefix="closure"
-            )
-            map_components.append(
-                op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
-            )
-        closures[freeze({self.name: str(dim)})] = map_componentsdes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-
-
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
-                                             fine_to_coarse_nodes.shape[1],
-                                             values=fine_to_coarse_nodes))
-
-
-def coarse_to_fine_cell_map(coarse_mesh, fine_mesh, coarse_to_fine_data):
-    connectivity = {
-        freeze({coarse_mesh.name: coarse_mesh.cell_label}): [
-            op3.TabulatedMapComponent(fine_mesh.name, fine_mesh.cell_label, coarse_to_fine_data)
-        ]
-    }
-    return op3.Map(connectivity)
+        axes = op3.AxisTree.from_iterable([Vf.nodes, fine_to_coarse_nodes.shape[1]])
+        fine_to_coarse_node_dat = op3.HierarchicalArray(axes, data=fine_to_coarse_nodes)
+        fine_to_coarse_node_map = op3.Map({
+            freeze({"nodes": "XXX"}): [
+                op3.TabulatedMapComponent("nodes", "XXX", fine_to_coarse_node_dat)
+            ]
+        })
+        return cache.setdefault(key, fine_to_coarse_node_map)
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op3.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -111,15 +95,21 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             coarse_to_fine_nodes.shape[1],
-                                             values=coarse_to_fine_nodes))
+
+        axes = op3.AxisTree.from_iterable([Vc.nodes, coarse_to_fine_nodes.shape[1]])
+        coarse_to_fine_node_dat = op3.HierarchicalArray(axes, data=coarse_to_fine_nodes)
+        coarse_to_fine_node_map = op3.Map({
+            freeze({"nodes": "XXX"}): [
+                op3.TabulatedMapComponent("nodes", "XXX", coarse_to_fine_node_dat)
+            ]
+        })
+        return cache.setdefault(key, coarse_to_fine_node_map)
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op3.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -157,12 +147,17 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             coarse_to_fine_nodes[:iterset.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
         else:
             coarse_to_fine_nodes[:iterset.size, :] = values
-        offset = Vf.offset
-        if offset is not None:
-            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
-        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
-                                             offset=offset))
+        if Vf.extruded:
+            offset = numpy.tile(Vf.offset*level_ratio, ncell*level_ratio)
+
+        axes = op3.AxisTree.from_iterable([Vc.nodes, arity*level_ratio])
+        coarse_cell_to_fine_node_dat = op3.HierarchicalArray(axes, data=coarse_to_fine_nodes)
+        coarse_cell_to_fine_node_map = op3.Map({
+            freeze({Vc.mesh().topology.name: Vc.mesh().cell_label}): [
+                op3.TabulatedMapComponent("nodes", "XXX", coarse_cell_to_fine_node_dat)
+            ]
+        })
+        return cache.setdefault(key, coarse_cell_to_fine_node_map)
 
 
 def physical_node_locations(V):

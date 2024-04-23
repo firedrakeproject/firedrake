@@ -381,6 +381,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self)
 
+    def nodal_dat(self):
+        return op3.HierarchicalArray(self.function_space().nodal_axes, data=self.dat.data_rw_with_halos)
+
     @PETSc.Log.EventDecorator()
     def interpolate(
         self,

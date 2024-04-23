@@ -370,6 +370,60 @@ def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
 
 @pack_pyop3_tensor.register
 def _(
+    axes: op3.AxisTree,
+    V: WithGeometry,
+    index: op3.LoopIndex,
+    integral_type: str,
+):
+    plex = V.mesh().topology
+
+    if integral_type == "cell":
+        # TODO ideally the FIAT permutation would not need to be known
+        # about by the mesh topology and instead be handled here. This
+        # would probably require an oriented mesh
+        # (see https://github.com/firedrakeproject/firedrake/pull/3332)
+        # indexed = array.getitem(plex._fiat_closure(index), strict=True)
+        pack_indices = _cell_integral_pack_indices(V, index)
+    elif integral_type in {"exterior_facet", "interior_facet"}:
+        pack_indices = _facet_integral_pack_indices(V, index)
+    else:
+        raise NotImplementedError
+
+    indexed = axes.getitem(pack_indices, strict=True)
+
+    if plex.ufl_cell().is_simplex():
+        return indexed
+
+    if plex.ufl_cell() == ufl.hexahedron:
+        perms = _entity_permutations(V)
+        mytree = _orientations(plex, perms, index, integral_type)
+        mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
+
+        indexed = indexed.getitem(mytree, strict=True)
+
+    tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V.finat_element.product)
+    tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
+
+    # This should be cleaned up - basically we need to accumulate the target_paths
+    # and index_exprs along the nodes. This is done inside index_axes in pyop3.
+    from pyop3.itree.tree import _acc_target_paths
+    ttarget_paths = _acc_target_paths(tensor_axes, ttarget_paths)
+    tindex_exprs = _acc_target_paths(tensor_axes, tindex_exprs)
+
+    tensor_axes = op3.IndexedAxisTree(
+        tensor_axes.node_map,
+        indexed.axes.unindexed,
+        target_paths=ttarget_paths,
+        index_exprs=tindex_exprs,
+        layout_exprs={},
+        outer_loops=indexed.axes.outer_loops,
+    )
+    composed_axes = compose_axes(tensor_axes, indexed.axes)
+    return composed_axes
+
+
+@pack_pyop3_tensor.register
+def _(
     array: op3.HierarchicalArray,
     V: WithGeometry,
     index: op3.LoopIndex,

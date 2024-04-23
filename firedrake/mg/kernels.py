@@ -1,7 +1,7 @@
 import numpy
 import string
 from fractions import Fraction
-from pyop2 import op2
+import pyop3 as op3
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
@@ -225,17 +225,12 @@ def prolong_kernel(expression):
         return cache[key]
     except KeyError:
         mesh = extract_unique_domain(coordinates)
-        eval_code = compile_element(expression)
+        evaluate_code = compile_element(expression)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
-        {
+        kernel = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -276,9 +271,7 @@ def prolong_kernel(expression):
                 R[i] = 0;
             }
             pyop2_kernel_evaluate(R, coarsei, Xref);
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": eval_code,
+        """ % {
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": numpy.prod(element.value_shape),
@@ -286,9 +279,27 @@ def prolong_kernel(expression):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": mesh.topological_dimension()}
-
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+               "tdim": mesh.topological_dimension(),
+        }
+        domain = "{ [i]: 0 < i <= 1 }"
+        preambles = [("XXX", "#include <petsc.h>"),
+                     ("YYY", str(to_reference_kernel)),
+                     ("ZZZ", evaluate_code)]
+        varnames = ["R", "f", "X", "Xc"]
+        intents = [op3.WRITE, op3.READ, op3.READ, op3.READ]
+        loopy_kernel = lp.make_kernel(domain,
+            [lp.CInstruction((), kernel, frozenset(varnames[1:]), varnames[:1])],
+            [lp.GlobalArg(varnames[0], ScalarType, None, is_input=False, is_output=True),
+             lp.GlobalArg(varnames[1], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[2], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[3], ScalarType, None, is_input=True, is_output=False),
+            ],
+            name="pyop2_kernel_prolong",
+            preambles=preambles,
+            target=tsfc.parameters.target,
+            lang_version=(2018, 2),
+            )
+        return cache.setdefault(key, op3.Function(loopy_kernel, intents))
 
 
 def restrict_kernel(Vf, Vc):
@@ -313,13 +324,7 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
-        {
+        kernel = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -361,18 +366,35 @@ def restrict_kernel(Vf, Vc):
             const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
             pyop2_kernel_evaluate(Ri, b, Xref);
             }
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
+        """ % {
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "spacedim": element.cell.get_spatial_dimension(),
-               "tdim": mesh.topological_dimension()}
-
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
+               "tdim": mesh.topological_dimension(),
+        }
+        domain = "{ [i]: 0 < i <= 1 }"
+        preambles = [("XXX", "#include <petsc.h>"),
+                     ("YYY", str(to_reference_kernel)),
+                     ("ZZZ", evaluate_code)]
+        varnames = ["R", "b", "X", "Xc"]
+        intents = [op3.INC, op3.READ, op3.READ, op3.READ]
+        loopy_kernel = lp.make_kernel(
+            domain,
+            [lp.CInstruction((), kernel, frozenset(varnames[1:]), varnames[:1])],
+            [lp.GlobalArg(varnames[0], ScalarType, None, is_input=True, is_output=True),
+             lp.GlobalArg(varnames[1], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[2], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[3], ScalarType, None, is_input=True, is_output=False),
+            ],
+            name="pyop2_kernel_restrict",
+            preambles=preambles,
+            target=tsfc.parameters.target,
+            lang_version=(2018, 2),
+            )
+        return cache.setdefault(key, op3.Function(loopy_kernel, intents))
 
 
 def inject_kernel(Vf, Vc):
@@ -404,12 +426,6 @@ def inject_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         Vf_element = create_element(Vf.ufl_element())
         kernel = """
-        %(to_reference)s
-        %(evaluate)s
-
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_inject(PetscScalar *R, const PetscScalar *X, const PetscScalar *f, const PetscScalar *Xf)
-        {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -449,10 +465,7 @@ def inject_kernel(Vf, Vc):
                 R[i] = 0;
             }
             pyop2_kernel_evaluate(R, fi, Xref);
-        }
         """ % {
-            "to_reference": str(to_reference_kernel),
-            "evaluate": evaluate_code,
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
@@ -460,9 +473,28 @@ def inject_kernel(Vf, Vc):
             "ncandidate": ncandidate,
             "Rdim": numpy.prod(Vf_element.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
-            "f_cell_inc": Vf_element.space_dimension()
+            "f_cell_inc": Vf_element.space_dimension(),
         }
-        return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
+        domain = "{ [i]: 0 < i <= 1 }"
+        preambles = [("XXX", "#include <petsc.h>"),
+                     ("YYY", str(to_reference_kernel)),
+                     ("ZZZ", evaluate_code)]
+        varnames = ["R", "X", "f", "Xf"]
+        intents = [op3.INC, op3.READ, op3.READ, op3.READ]
+        loopy_kernel = lp.make_kernel(
+            domain,
+            [lp.CInstruction((), kernel, frozenset(varnames[1:]), varnames[:1])],
+            [lp.GlobalArg(varnames[0], ScalarType, None, is_input=True, is_output=True),
+             lp.GlobalArg(varnames[1], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[2], ScalarType, None, is_input=True, is_output=False),
+             lp.GlobalArg(varnames[3], ScalarType, None, is_input=True, is_output=False),
+            ],
+            name="pyop2_kernel_inject",
+            preambles=preambles,
+            target=tsfc.parameters.target,
+            lang_version=(2018, 2),
+            )
+        return cache.setdefault(key, (op3.Function(loopy_kernel, intents), False))
 
 
 class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
@@ -707,9 +739,12 @@ def dg_injection_kernel(Vf, Vc, ncell):
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels])
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+    kernel = kernel.with_entrypoints({kernel_name})
+    intents = [op3.INC, op3.READ, op3.READ, op3.READ]
+    return op3.Function(kernel, intents)
+    #return op2.Kernel(
+        #kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+        #headers=Ainv.headers, events=Ainv.events)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
