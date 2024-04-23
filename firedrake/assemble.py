@@ -1186,7 +1186,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
     def result(self, tensor):
         # NOTE: If we could return the tensor here then that would avoid a
         # halo exchange. That would be a very significant API change though.
-        tensor.assemble()
+        tensor.assemble(update_leaves=True)
         return op3.utils.just_one(tensor.buffer._data)
 
 
