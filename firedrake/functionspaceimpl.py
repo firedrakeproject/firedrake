@@ -706,8 +706,7 @@ class FunctionSpace:
     @utils.cached_property
     def owned_cell_node_list(self):
         r"""A numpy array mapping owned mesh cells to function space nodes."""
-        ncells = self.mesh().cells.owned.size
-        return self.cell_node_list[:ncells]
+        return self.cell_node_list[:self.cell_set.size]
 
     @utils.cached_property
     def topological(self):

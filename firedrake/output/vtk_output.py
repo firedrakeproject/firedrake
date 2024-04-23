@@ -190,7 +190,7 @@ def get_topology(coordinates):
 
     # Repeat up the column
     num_cells = mesh.cell_set.size
-    if not mesh.cell_set._extruded:
+    if not mesh.extruded:
         cell_layers = 1
         offsets = 0
     else:

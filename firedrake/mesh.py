@@ -779,7 +779,6 @@ class AbstractMeshTopology(abc.ABC):
 
     def _entity_numbering(self, label):
         component_index = tuple(c.label for c in self.points.components).index(label)
-        print("component_index", component_index, flush=True)
 
         section = PETSc.Section().create(self._comm)
         section.setChart(*self.topology_dm.getChart())

@@ -1224,8 +1224,8 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
     if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
     variable = mesh.variable_layers
-    extruded = mesh.cell_set._extruded
-    extruded_periodic = mesh.cell_set._extruded_periodic
+    extruded = mesh.extruded
+    extruded_periodic = mesh.extruded_periodic
     on_base_ = on_base
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
     if variable:

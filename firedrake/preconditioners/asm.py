@@ -143,7 +143,7 @@ class ASMStarPC(ASMPatchPC):
     def get_patches(self, V):
         mesh = V._mesh
         mesh_dm = mesh.topology_dm
-        if mesh.cell_set._extruded:
+        if mesh.extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -286,7 +286,7 @@ class ASMLinesmoothPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        assert mesh.cell_set._extruded
+        assert mesh.extruded
         dm = mesh.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
@@ -387,7 +387,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         mesh = V.mesh()
         mesh_dm = mesh.topology_dm
         nlayers = mesh.layers
-        if not mesh.cell_set._extruded:
+        if not mesh.extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
 
         # Obtain the topological entities to use to construct the stars

@@ -213,10 +213,10 @@ def prolong_kernel(expression):
     levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = extract_unique_domain(expression).coordinates
-    if meshc.cell_set._extruded:
+    if meshc.extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        assert hierarchy._meshes[int(idx)].cell_set._extruded
+        assert hierarchy._meshes[int(idx)].extruded
     key = (("prolong",)
            + expression.ufl_element().value_shape
            + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
