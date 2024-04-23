@@ -1140,7 +1140,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "ext_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
@@ -1148,7 +1148,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: ("ext_facets", "owned")})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=False),
                 label="XXX",  # needed?
             ),
@@ -1156,7 +1156,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "int_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("interior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
