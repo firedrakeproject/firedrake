@@ -71,7 +71,6 @@ def test_dg_advection_icosahedral_sphere():
     run_test(UnitIcosahedralSphereMesh(refinement_level=3))
 
 
-@pytest.mark.skip("pyop3 losing mass")
 @pytest.mark.parallel(nprocs=3)
 def test_dg_advection_icosahedral_sphere_parallel():
     run_test(UnitIcosahedralSphereMesh(refinement_level=3))

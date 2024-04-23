@@ -1263,7 +1263,7 @@ class AbstractMeshTopology(abc.ABC):
                 for fi, facet in enumerate(selected_facets):
                     # This loop must be ragged because some interior facets
                     # only have 1 incident cell.
-                    for ci in range(arity_data[fi]):
+                    for ci in range(arity_data[facet]):
                         cell = facet_support_dat.get_value([facet, ci])
                         selected_facet_support_dat.set_value([fi, ci], cell)
             else:
