@@ -29,6 +29,8 @@ from firedrake import (
     as_tensor,
     dot,
     And,
+    sin,
+    cos
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -983,7 +985,6 @@ def PeriodicRectangleMesh(
     coord_fs = VectorFunctionSpace(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
@@ -993,58 +994,22 @@ def PeriodicRectangleMesh(
     indicator_y.interpolate(conditional(gt(y, 0), 0., 1.))
     x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
     x_coord.interpolate(
-        conditional(And(gt(eps, abs(y)), gt(x, 0.)), indicator_y,  # Periodic break.
+        # Periodic break.
+        conditional(And(gt(eps, abs(y)), gt(x, 0.)), indicator_y,
                     # Unwrap rest of circle.
                     atan2(-y, -x)/(2*pi)+0.5)
     )
-    phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord), 0.0])
-
-
-    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    instructions = f"""
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> eps = 1e-12
-    <{RealType}> bigeps = 1e-1
-    <{RealType}> oc[k, l] = real(old_coords[k, l])
-    <{RealType}> Y = 0
-    <{RealType}> Z = 0
-    for i
-        Y = Y + oc[i, 1]
-        Z = Z + oc[i, 2]
-    end
-    for j
-        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
-        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
-        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
-        <{RealType}> abssin = abs(sin(phi))
-        <{RealType}> theta = theta1 if abssin > bigeps else theta2
-        <{RealType}> nc0 = phi / (2 * pi)
-        <{RealType}> absnc = 0
-        nc0 = nc0 + 1 if nc0 < -eps else nc0
-        absnc = abs(nc0)
-        nc0 = 1 if absnc < eps and Y < 0 else nc0
-        <{RealType}> nc1 = theta / (2 * pi)
-        nc1 = nc1 + 1 if nc1 < -eps else nc1
-        absnc = abs(nc1)
-        nc1 = 1 if absnc < eps and Z < 0 else nc1
-        new_coords[j, 0] = nc0 * Lx[0]
-        new_coords[j, 1] = nc1 * Ly[0]
-    end
-    """
-
-    cLx = Constant(Lx)
-    cLy = Constant(Ly)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "Lx": (cLx, READ),
-            "Ly": (cLy, READ),
-        },
-    )
+    phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
+    dr = dot(as_vector((x, y))-phi_coord, phi_coord)
+    indicator_z = Function(FunctionSpace(m, coord_family, 0))
+    indicator_z.interpolate(conditional(gt(z, 0), 0., 1.))
+    new_coordinates.interpolate(as_vector((
+        x_coord * Lx,
+        # Periodic break.
+        conditional(And(gt(eps, abs(z)), gt(dr, 0.)), indicator_z,
+                    # Unwrap rest of circle.
+                    atan2(-z, -dr)/(2*pi)+0.5) * Ly
+    )))
 
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,
