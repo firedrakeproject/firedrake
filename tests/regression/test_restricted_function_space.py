@@ -210,15 +210,22 @@ def test_restricted_mixed_spaces(i, j):
 def compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver):
     nconv = eigensolver.solve()
     other_nconv = other_eigensolver.solve()
+    evals = []
+    other_evals = []
     for i in range(min(nconv, other_nconv)):
         eval = eigensolver.eigenvalue(i)
         other_eval = other_eigensolver.eigenvalue(i)
-        assert abs(eval - other_eval) < 1.e-12
-        eigenmode_real, eigenmode_imag = eigensolver.eigenfunction(i)
-        other_eigenmode_real, other_eigenmode_imag = eigensolver.eigenfunction(i)
+        evals.append(eval)
+        other_evals.append(other_eval)
+    args = np.argsort(evals)
+    other_args = np.argsort(other_evals)
+    for i in range(len(args)):
+        eigenmode_real, eigenmode_imag = eigensolver.eigenfunction(args[i])
+        other_eigenmode_real, other_eigenmode_imag = eigensolver.eigenfunction(other_args[i])
         if eigensolver._problem.output_space != other_eigensolver._problem.output_space:
             other_eigenmode_real = Function(eigensolver._problem.output_space).interpolate(other_eigenmode_real)
             other_eigenmode_imag = Function(eigensolver._problem.output_space).interpolate(other_eigenmode_imag)
+        assert abs(evals[args[i]] - other_evals[other_args[i]]) < 1.e-12
         assert errornorm(eigenmode_real, other_eigenmode_real) < 1.e-12
         assert errornorm(eigenmode_imag, other_eigenmode_imag) < 1.e-12
 
@@ -232,16 +239,15 @@ def test_restricted_eigenvalue_problem():
     bc_res = DirichletBC(V_res, 0, 1)
     v, u = TestFunction(V), TrialFunction(V)
     v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-    opts = {"eps_largest_imaginary": None}
     M = -inner(grad(u), grad(v)) * dx - inner(u, v) * dx
     eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, M=M, bcs=bc,
                                       bc_shift=100, restrict=True)
-    eigensolver = LinearEigensolver(eigenproblem, n_evals=2, solver_parameters=opts)
+    eigensolver = LinearEigensolver(eigenproblem, n_evals=2)
 
     M_res = -inner(grad(u_res), grad(v_res)) * dx - inner(u_res, v_res) * dx
     other_eigenproblem = LinearEigenproblem(A=inner(u_res.dx(0), v_res) * dx, M=M_res,
                                             bcs=bc_res, bc_shift=100, restrict=False)
-    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2, solver_parameters=opts)
+    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
 
     compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)
 
@@ -252,11 +258,10 @@ def test_restricted_eigenvalue_problem_2():
     V = FunctionSpace(mesh, "CG", 1)
     bc = DirichletBC(V, 0, 1)
     v, u = TestFunction(V), TrialFunction(V)
-    opts = {"eps_largest_imaginary": None}
     eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, bcs=bc,
                                       bc_shift=100, restrict=False)
-    eigensolver = LinearEigensolver(eigenproblem, n_evals=4, solver_parameters=opts)
+    eigensolver = LinearEigensolver(eigenproblem, n_evals=4)
     other_eigenproblem = LinearEigenproblem(A=inner(u.dx(0), v) * dx, bcs=bc,
                                             bc_shift=100, restrict=True)
-    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2, solver_parameters=opts)
+    other_eigensolver = LinearEigensolver(other_eigenproblem, n_evals=2)
     compare_eigenvalue_eigenmodes(eigensolver, other_eigensolver)
