@@ -1412,19 +1412,53 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             mat_type=mat_type
         )
 
+        if isinstance(test.function_space().ufl_element(),
+                      finat.ufl.MixedElement):
+            n = len(test.function_space())
+            diag_blocks = set([(i, i) for i in range(n)])
+        
+
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
         for iter_index, rmap, cmap, indices in maps_and_regions:
             rindex, cindex = indices
+            if isinstance(test.function_space().ufl_element(),
+                          finat.ufl.MixedElement) and rindex == cindex:
+                if rindex is None and cindex is None:
+                    diag_blocks.remove((0, 0))
+                else:
+                    diag_blocks.remove((rindex, cindex))
+
             if rindex is None:
+                if isinstance(test.function_space().ufl_element(),
+                          finat.ufl.MixedElement) and cindex == 0:
+                    diag_blocks.remove((0, 0))
                 rindex = Ellipsis
             if cindex is None:
+                if isinstance(test.function_space().ufl_element(),
+                          finat.ufl.MixedElement) and rindex == 0:
+                    diag_blocks.remove((0, 0))
                 cindex = Ellipsis
 
+            
             op3.do_loop(
                 iter_index,
                 sparsity[rindex, cindex][rmap, cmap].assign(666, eager=False)
             )
+
+        if isinstance(test.function_space().ufl_element(), finat.ufl.MixedElement) and len(diag_blocks) > 0:
+            for rindex, cindex in diag_blocks:
+
+                if sparsity.nested and sparsity.mat_type[rindex, cindex] == "dat":
+                    continue
+                # if any([_is_real_space(sub) for sub in test.ufl_function_space()._spaces]):
+                #     sparsity[rindex, cindex].assign(666)
+                else:
+                    op3.do_loop(
+                        p := test.ufl_domain().points.index(),
+                        sparsity[rindex, cindex][p, p].assign(666, eager=False)
+                    )
+                    
 
         sparsity.assemble()
         return sparsity
@@ -1581,10 +1615,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
                 index_forest[ctx] = index_tree
 
+            
             op3.do_loop(
                 p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
             )
-
+            
             mat.assemble()
 
             # Handle off-diagonal block involving real function space.

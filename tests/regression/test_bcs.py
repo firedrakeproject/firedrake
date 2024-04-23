@@ -61,7 +61,6 @@ def test_assemble_bcs_wrong_fs(V, measure):
         assemble(inner(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_assemble_bcs_wrong_fs_interior(V):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
     u, v = TrialFunction(V), TestFunction(V)
@@ -328,11 +327,15 @@ def test_mixed_bcs(diagonal):
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
-    if diagonal:
-        data = A.dat[1].data
-    else:
-        data = A.M[1, 1].values.diagonal()
-    assert np.allclose(data[bc.nodes], 1.0)
+    for pt in V.axes[bc.constrained_points].iter():
+        if diagonal:
+            assert A.dat[1].get_value(pt.target_exprs, path=pt.target_path) == 1.0
+        else:
+            data = A.M[1, 1]
+            row_offset = data.raxes.offset(pt.target_exprs, path=pt.target_path)
+            col_offset = data.caxes.offset(pt.target_exprs, path=pt.target_path)
+            assert data.values[row_offset, col_offset] == 1.0
+
 
 
 def test_bcs_rhs_assemble(a, V):
@@ -408,10 +411,11 @@ def test_bc_nodes_cover_ghost_dofs():
         assert np.allclose(bc.nodes, [1, 2])
 
 
-#@pytest.mark.skip(reason="pyop3 TODO")
+@pytest.mark.xfail(reason="pyop3 TODO extruded mesh needs fixing")
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)
+
     baseh = MeshHierarchy(base, 1)
     mh = ExtrudedMeshHierarchy(baseh, height=2, base_layer=N)
     mesh = mh[-1]
@@ -428,7 +432,7 @@ def test_bcs_string_bc_list():
     assert np.allclose(u0.dat.data, u1.dat.data)
 
 
-# @pytest.mark.skip(reason="pyop3 TODO")
+@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = FunctionSpace(mesh, "CG", 1)
@@ -443,7 +447,7 @@ def test_bcs_mixed_real():
     assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
 
 
-# @pytest.mark.skip(reason="pyop3 TODO")
+@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real_vector():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = VectorFunctionSpace(mesh, "CG", 1)
