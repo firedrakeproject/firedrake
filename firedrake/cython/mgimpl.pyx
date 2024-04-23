@@ -124,8 +124,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
-    fine_map = Vf.cell_node_list
-    coarse_map = Vc.cell_node_list
+    fine_map = Vf.owned_cell_node_list
+    coarse_map = Vc.owned_cell_node_list
 
     extruded = Vc.extruded
 

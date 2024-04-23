@@ -62,6 +62,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
                 op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
             )
         closures[freeze({self.name: str(dim)})] = map_componentsdes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+
+
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
                                              values=fine_to_coarse_nodes))

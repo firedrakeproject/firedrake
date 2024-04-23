@@ -698,12 +698,17 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_list(self):
-        r"""A numpy array mapping mesh cells to function space nodes."""
-        # return self._shared_data.entity_node_lists[self.mesh().cell_set]
-        cells = self.mesh().cells.owned
+        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
+        cells = self.mesh().cells
         ncells = cells.size
         packed_axes = self.axes[self.mesh().closure(cells.index())]
         return packed_axes.tabulated_offsets.buffer.data.reshape((ncells, -1))
+
+    @utils.cached_property
+    def owned_cell_node_list(self):
+        r"""A numpy array mapping owned mesh cells to function space nodes."""
+        ncells = self.mesh().cells.owned.size
+        return self.cell_node_list[:ncells]
 
     @utils.cached_property
     def topological(self):

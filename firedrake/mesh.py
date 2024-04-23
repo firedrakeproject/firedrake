@@ -708,9 +708,7 @@ class AbstractMeshTopology(abc.ABC):
                     op3.AxisComponent(self.num_entities(d), label=str(d))
                     for d in self.depth_strata_order
                 ],
-                # numbering=self._dm_renumbering.indices,
-                # FIXME dirty fix
-                numbering=np.arange(len(self._dm_renumbering.indices)),
+                numbering=self._dm_renumbering.indices,
                 label=self.name,
             )
             if self.comm.size > 1:
@@ -779,6 +777,7 @@ class AbstractMeshTopology(abc.ABC):
 
     def _entity_numbering(self, label):
         component_index = tuple(c.label for c in self.points.components).index(label)
+        print("component_index", component_index, flush=True)
 
         section = PETSc.Section().create(self._comm)
         section.setChart(*self.topology_dm.getChart())
@@ -787,6 +786,7 @@ class AbstractMeshTopology(abc.ABC):
         for old_component_num, new_component_num in enumerate(renumbering):
             old_pt = old_component_num + self.points._component_offsets[component_index]
             section.setOffset(old_pt, new_component_num)
+            section.setDof(old_pt, 1)
 
         return section
 

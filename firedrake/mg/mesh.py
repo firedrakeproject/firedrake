@@ -96,10 +96,6 @@ def get_coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     nfine = mf.cell_set.size
     co2n, _ = impl.get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = impl.get_entity_renumbering(fdm, mf._cell_numbering, "cell")
-    # FIXME dirty fix
-    co2n = np.arange(len(co2n))
-    fn2o = np.arange(len(fn2o))
-
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
     fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
@@ -107,8 +103,6 @@ def get_coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
 
     if mc.comm.size > 1:
         # Maybe this works in pararell?
-        co2n = clgmaps[1].indices
-        fn2o = flgmaps[1].indices
         cno, co = clgmaps
         fno, fo = flgmaps
         # Compute global numbers of original cell numbers
@@ -118,7 +112,7 @@ def get_coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        idx = np.arange(mc.cells.owned.size, dtype=PETSc.IntType)
         # LocalToGlobal
         co.apply(idx, result=idx)
         # GlobalToLocal
