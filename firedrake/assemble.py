@@ -1592,7 +1592,6 @@ class _GlobalKernelBuilder:
         extruded = self._mesh.extruded
         extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
-        signature = self._form.signature() if hasattr(self._form, "signature") else None
 
         return op2.GlobalKernel(self._kinfo.kernel,
                                 kernel_args,
@@ -1601,8 +1600,7 @@ class _GlobalKernelBuilder:
                                 extruded=extruded,
                                 extruded_periodic=extruded_periodic,
                                 constant_layers=constant_layers,
-                                subset=self._needs_subset,
-                                signature=signature)
+                                subset=self._needs_subset)
 
     @property
     def _integral_type(self):
@@ -1744,12 +1742,12 @@ def _as_global_kernel_arg_output(_, self):
         if all(V.ufl_element().family() == "Real" for V in Vs):
             return op2.GlobalKernelArg((1,))
         elif any(V.ufl_element().family() == "Real" for V in Vs):
-            el, = (create_element(V.ufl_element()) for V in Vs
-                   if V.ufl_element().family() != "Real")
-            boundary_set = set()
             for V in Vs:
-                boundary_set.union(set(V.boundary_set))
-            return self._make_dat_global_kernel_arg(el, frozenset(boundary_set))
+                if V.ufl_element().family() != "Real":
+                    el = create_element(V.ufl_element())
+                    boundary_set = V.boundary_set
+                    break
+            return self._make_dat_global_kernel_arg(el, boundary_set)
         else:
             rel, cel = (create_element(V.ufl_element()) for V in Vs)
             rbset, cbset = (V.boundary_set for V in Vs)

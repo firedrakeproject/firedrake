@@ -684,10 +684,7 @@ class FunctionSpace(object):
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        node_count = self.node_count
-        for sub_domain in self.boundary_set:
-            node_count -= len(self._shared_data.boundary_nodes(self, sub_domain))
-        return node_count*self.value_size
+        return self.node_count*self.value_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
