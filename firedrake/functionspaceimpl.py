@@ -563,7 +563,7 @@ class FunctionSpace:
                 mesh._shared_data_cache[key] = (axes, block_axes)
 
         self.axes = axes
-        self.block_axes = axes
+        self.block_axes = block_axes
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -700,13 +700,14 @@ class FunctionSpace:
         r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
         cells = self.mesh().cells
         ncells = cells.size
-        packed_axes = self.axes[self.mesh().closure(cells.index())]
+        packed_axes = self.block_axes[self.mesh().closure(cells.index())]
+
         return packed_axes.tabulated_offsets.buffer.data.reshape((ncells, -1))
 
     @utils.cached_property
     def owned_cell_node_list(self):
         r"""A numpy array mapping owned mesh cells to function space nodes."""
-        return self.cell_node_list[:self.cell_set.size]
+        return self.cell_node_list[:self.mesh().owned_cells.size]
 
     @utils.cached_property
     def topological(self):
@@ -780,7 +781,7 @@ class FunctionSpace:
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        return self.axes.size//self.value_size
+        return self.block_axes.size
 
     @utils.cached_property
     def dof_count(self):

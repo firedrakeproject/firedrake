@@ -147,16 +147,16 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cell_set
+        iterset = Vc.mesh().owned_cells
         arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().cells.size, arity*level_ratio), -1, dtype=IntType)
+        values = Vf.owned_cell_node_list[coarse_to_fine, :].reshape(iterset.size, arity)
 
         if Vc.extruded:
             off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
+            coarse_to_fine_nodes[:iterset.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
         else:
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
+            coarse_to_fine_nodes[:iterset.size, :] = values
         offset = Vf.offset
         if offset is not None:
             offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
