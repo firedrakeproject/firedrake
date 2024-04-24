@@ -181,3 +181,15 @@ def test_matrix_types(W):
     A = assemble(a, mat_type="nest", sub_mat_type="baij")
 
     assert A.M[1, 1].handle.getType() == "seqbaij"
+
+
+def test_block_matrix_type():
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v)*dx
+
+    A = assemble(a, mat_type="aij")
+    B = assemble(a, mat_type="baij")
+    assert A.M.mat.view() == B.M.mat.view()
