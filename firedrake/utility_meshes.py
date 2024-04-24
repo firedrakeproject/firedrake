@@ -3,7 +3,6 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from firedrake.__future__ import interpolate
 from firedrake.utils import IntType, RealType, ScalarType
 
 from firedrake import (
