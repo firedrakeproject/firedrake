@@ -675,6 +675,10 @@ class FunctionSpace:
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
+        if self._ufl_function_space.ufl_element().family() == "Real":
+            # If real we don't need to populate the section
+            return section
+
         points = self._mesh.points
         section.setChart(0, points.size)
 

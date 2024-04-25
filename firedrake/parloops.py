@@ -377,6 +377,9 @@ def _(
 ):
     plex = V.mesh().topology
 
+    if V.ufl_element().family() == "Real":
+        return array
+
     if integral_type == "cell":
         # TODO ideally the FIAT permutation would not need to be known
         # about by the mesh topology and instead be handled here. This
@@ -518,32 +521,24 @@ def _(
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     plex = V.mesh().topology
 
-    if V.ufl_element().family() == "Real":
-        if V.dim() == 1:
-            return ... # JB: Fix early return
-        indices = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
-    else:
-        indices = op3.IndexTree.from_nest({
-            plex._fiat_closure(cell): [
-                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                for _ in range(plex.dimension+1)
-            ]
-        })
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(cell): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
     return _with_shape_indices(V, indices)
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
     plex = V.ufl_domain().topology
 
-    if V.ufl_element().family() == "Real":
-        indices = op3.IndexTree(op3.ScalarIndex(plex.name, "XXX", 0))
-    else:
-        indices = op3.IndexTree.from_nest({
-            plex._fiat_closure(plex.support(facet)): [
-                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                for _ in range(plex.dimension+1)
-            ]
-        })
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(plex.support(facet)): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
     # don't add support as an extra axis here, done already
     return _with_shape_indices(V, indices, and_support=False)
 
