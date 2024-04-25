@@ -123,8 +123,7 @@ def solve(*args, **kwargs):
 
     To exclude Dirichlet boundary condition nodes through the use of a
     :class`.RestrictedFunctionSpace`, set the ``restrict`` keyword
-    argument to be True. If you do not want to use this behaviour, you should
-    set ``restrict`` to be False, as True is the default setting used.
+    argument to be True.
     """
 
     assert len(args) > 0
@@ -328,7 +327,7 @@ def _extract_args(*args, **kwargs):
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
-    restrict = kwargs.get("restrict", True)
+    restrict = kwargs.get("restrict", False)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
