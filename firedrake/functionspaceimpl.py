@@ -102,6 +102,7 @@ class WithGeometryBase:
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
+        self.extruded = mesh.extruded
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -914,12 +915,11 @@ class FunctionSpace:
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
                 index_forest[ctx] = index_tree
-
+        
             op3.do_loop(
                 p, idat[index_forest].assign(-1, eager=False)
             )
-
-        return PETSc.LGMap().create(indices.buffer.data_ro, bsize=bsize, comm=self.comm)
+        return PETSc.LGMap().create(idat.data_ro, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
