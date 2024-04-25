@@ -300,7 +300,7 @@ class ImplicitMatrixContext(object):
 
         if len(self.bcs) > 0:
             # Accumulate values in self._x
-            self._xstar.dat.eager_zero()
+            self._xstar.dat.zero()
             # Apply actionTs in sorted order
             for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
