@@ -807,8 +807,11 @@ class RestrictedFunctionSpace(FunctionSpace):
     If a :class:`FunctionSpace` is represented as V, we can decompose V into
     V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
     the boundary where a boundary condition is applied, and VΓ contains all
-    other basis functions. This means that the :class:`RestrictedFunctionSpace`
-    corresponding to V is V0.
+    other basis functions. The :class:`RestrictedFunctionSpace`
+    corresponding to V takes functions only from V0 when solving problems, or
+    when creating a TestFunction and TrialFunction. The values on the boundary
+    set will remain constant when solving, but are present in the
+    output of the solver.
 
     :arg function_space: The :class:`FunctionSpace` to restrict.
     :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,

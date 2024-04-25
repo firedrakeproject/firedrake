@@ -120,6 +120,11 @@ def solve(*args, **kwargs):
 
     In the same fashion you can add the near nullspace using the
     ``near_nullspace`` keyword argument.
+
+    To exclude Dirichlet boundary condition nodes through the use of a
+    :class`.RestrictedFunctionSpace`, set the ``restrict`` keyword
+    argument to be True. If you do not want to use this behaviour, you should
+    set ``restrict`` to be False, as True is the default setting used.
     """
 
     assert len(args) > 0
