@@ -712,15 +712,13 @@ class FunctionSpace:
 
     @utils.cached_property
     def nodes(self):
-        if self.value_size > 1:
-            raise NotImplementedError("TODO")
         ax = self.block_axes
         return op3.Axis([op3.AxisComponent((ax.owned.size, ax.size),
                          "XXX", rank_equal=False)], "nodes", numbering=None, sf=ax.sf)
 
     @utils.cached_property
     def nodal_axes(self):
-        return op3.AxisTree(self.nodes)
+        return op3.AxisTree.from_iterable([self.nodes, self.value_size])
 
     @utils.cached_property
     def topological(self):

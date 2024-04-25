@@ -18,6 +18,31 @@ def coarse_to_fine_cell_map(coarse_mesh, fine_mesh, coarse_to_fine_data):
     return op3.Map(connectivity)
 
 
+def create_node_map(iterset, toset, arity=1, values=None):
+    axes = op3.AxisTree.from_iterable([iterset, arity])
+    if values is None:
+        values = numpy.arange(iterset.size, dtype=IntType)
+    dat = op3.HierarchicalArray(axes, data=values)
+    return op3.Map({
+        freeze({"nodes": iterset.owned.component.label}): [
+            op3.TabulatedMapComponent("nodes", toset.component.label, dat)
+        ]
+    })
+
+
+def owned_node_map(V):
+    """ This should not be necessary
+    """
+    mesh = V.mesh()
+    key = entity_dofs_key(V.finat_element.entity_dofs())
+    cache = mesh._shared_data_cache["owned_node_map"]
+    try:
+        return cache[key]
+    except KeyError:
+        node_map = create_node_map(V.nodes.owned, V.nodes)
+        return cache.setdefault(key, node_map)
+
+
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
@@ -51,15 +76,9 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-
-        axes = op3.AxisTree.from_iterable([Vf.nodes, fine_to_coarse_nodes.shape[1]])
-        fine_to_coarse_node_dat = op3.HierarchicalArray(axes, data=fine_to_coarse_nodes)
-        fine_to_coarse_node_map = op3.Map({
-            freeze({"nodes": "XXX"}): [
-                op3.TabulatedMapComponent("nodes", "XXX", fine_to_coarse_node_dat)
-            ]
-        })
-        return cache.setdefault(key, fine_to_coarse_node_map)
+        return cache.setdefault(key, create_node_map(Vf.nodes, Vc.nodes,
+                                                     arity=fine_to_coarse_nodes.shape[1],
+                                                     values=fine_to_coarse_nodes))
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
@@ -95,15 +114,9 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-
-        axes = op3.AxisTree.from_iterable([Vc.nodes, coarse_to_fine_nodes.shape[1]])
-        coarse_to_fine_node_dat = op3.HierarchicalArray(axes, data=coarse_to_fine_nodes)
-        coarse_to_fine_node_map = op3.Map({
-            freeze({"nodes": "XXX"}): [
-                op3.TabulatedMapComponent("nodes", "XXX", coarse_to_fine_node_dat)
-            ]
-        })
-        return cache.setdefault(key, coarse_to_fine_node_map)
+        return cache.setdefault(key, create_node_map(Vc.nodes, Vf.nodes,
+                                                     arity=coarse_to_fine_nodes.shape[1],
+                                                     values=coarse_to_fine_nodes))
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
@@ -153,8 +166,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         axes = op3.AxisTree.from_iterable([Vc.nodes, arity*level_ratio])
         coarse_cell_to_fine_node_dat = op3.HierarchicalArray(axes, data=coarse_to_fine_nodes)
         coarse_cell_to_fine_node_map = op3.Map({
-            freeze({Vc.mesh().topology.name: Vc.mesh().cell_label}): [
-                op3.TabulatedMapComponent("nodes", "XXX", coarse_cell_to_fine_node_dat)
+            freeze({Vc.mesh().topology.name: Vc.mesh().cells.owned.label}): [
+                op3.TabulatedMapComponent("nodes", Vf.nodes.component.label, coarse_cell_to_fine_node_dat)
             ]
         })
         return cache.setdefault(key, coarse_cell_to_fine_node_map)

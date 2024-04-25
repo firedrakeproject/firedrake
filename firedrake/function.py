@@ -382,7 +382,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         return vector.Vector(self)
 
     def nodal_dat(self):
-        return op3.HierarchicalArray(self.function_space().nodal_axes, data=self.dat.data_rw_with_halos)
+        return op3.HierarchicalArray(self.function_space().nodal_axes,
+                                     data=self.dat.data_rw_with_halos)
 
     @PETSc.Log.EventDecorator()
     def interpolate(

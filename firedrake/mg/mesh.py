@@ -8,7 +8,6 @@ import firedrake
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
-from firedrake.petsc import PETSc
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy")

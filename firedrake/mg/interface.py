@@ -83,17 +83,13 @@ def prolong(coarse, fine):
         for d in [coarse, coarse_coords]:
             d.dat.assemble()
 
-        #op2.par_loop(kernel, next.node_set,
-        #             next.dat(op2.WRITE),
-        #             coarse.dat(op2.READ, fine_to_coarse),
-        #             node_locations.dat(op2.READ),
-        #             coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+        id_map = utils.owned_node_map(Vf)
         op3.do_loop(
-            n := Vf.nodes.index(),
+            n := Vf.nodes.owned.index(),
             kernel(
-                next.nodal_dat()[n],
+                next.nodal_dat()[id_map(n)],
                 coarse.nodal_dat()[fine_to_coarse(n)],
-                node_locations.nodal_dat()[n],
+                node_locations.nodal_dat()[id_map(n)],
                 coarse_coords.nodal_dat()[fine_to_coarse_coords(n)],
             ),
         )
@@ -153,17 +149,14 @@ def restrict(fine_dual, coarse_dual):
         for d in [coarse_coords]:
             d.dat.assemble()
         kernel = kernels.restrict_kernel(Vf, Vc)
-        #op2.par_loop(kernel, fine_dual.node_set,
-        #             next.dat(op2.INC, fine_to_coarse),
-        #             fine_dual.dat(op2.READ),
-        #             node_locations.dat(op2.READ),
-        #             coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+
+        id_map = utils.owned_node_map(Vf)
         op3.do_loop(
-            n := Vf.nodes.index(),
+            n := Vf.nodes.owned.index(),
             kernel(
                 next.nodal_dat()[fine_to_coarse(n)],
-                fine_dual.nodal_dat()[n],
-                node_locations.nodal_dat()[n],
+                fine_dual.nodal_dat()[id_map(n)],
+                node_locations.nodal_dat()[id_map(n)],
                 coarse_coords.nodal_dat()[fine_to_coarse_coords(n)],
             ),
         )
@@ -235,16 +228,13 @@ def inject(fine, coarse):
             # this expanded stencil
             for d in [fine, fine_coords]:
                 d.dat.assemble()
-            #op2.par_loop(kernel, next.node_set,
-            #             next.dat(op2.INC),
-            #             node_locations.dat(op2.READ),
-            #             fine.dat(op2.READ, coarse_node_to_fine_nodes),
-            #             fine_coords.dat(op2.READ, coarse_node_to_fine_coords))
+
+            id_map = utils.owned_node_map(Vc)
             op3.do_loop(
-                n := Vc.nodes.index(),
+                n := Vc.nodes.owned.index(),
                 kernel(
-                    next.nodal_dat()[n],
-                    node_locations.nodal_dat()[n],
+                    next.nodal_dat()[id_map(n)],
+                    node_locations.nodal_dat()[id_map(n)],
                     fine.nodal_dat()[coarse_node_to_fine_nodes(n)],
                     fine_coords.nodal_dat()[coarse_node_to_fine_coords(n)],
                 ),
@@ -264,7 +254,7 @@ def inject(fine, coarse):
             #             fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
             #             coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
             op3.do_loop(
-                c := Vc.mesh().cells.index(),
+                c := Vc.mesh().cells.owned.index(),
                 kernel(
                     next.dat[c],
                     fine.nodal_dat()[coarse_cell_to_fine_nodes(c)],

@@ -21,16 +21,15 @@ def space(request, cell):
         return request.param
 
 
-@pytest.fixture(params=[1, 2], scope="module")
-def refinements_per_level(request):
+@pytest.fixture(params=[(1, 1), (2, 1), (1, 2)], scope="module")
+def nref_refinements_per_level(request):
     return request.param
 
 
 @pytest.fixture(scope="module")
-def hierarchy(cell, refinements_per_level):
+def hierarchy(cell, nref_refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
-        return MeshHierarchy(mesh, 2)
     elif cell in {"triangle", "triangle-nonnested", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
     elif cell in {"quadrilateral", "hexahedron"}:
@@ -38,7 +37,7 @@ def hierarchy(cell, refinements_per_level):
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
 
-    nref = {2: 1, 1: 2}[refinements_per_level]
+    nref, refinements_per_level = nref_refinements_per_level
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
 
     if cell in {"prism", "hexahedron"}:
@@ -328,6 +327,5 @@ def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
 
 if __name__ == "__main__":
     bmesh = UnitIntervalMesh(3)
-    mh = MeshHierarchy(bmesh, 1)
-
-    run_restriction(mh, False, "CG", [1])
+    mh = MeshHierarchy(bmesh, 2, refinements_per_level=1)
+    run_prolongation(mh, False, "CG", [1])
