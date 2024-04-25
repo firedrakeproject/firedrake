@@ -5,8 +5,6 @@ import numpy as np
 import pytest
 
 
-
-
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
         c = Constant(1, domain=m)

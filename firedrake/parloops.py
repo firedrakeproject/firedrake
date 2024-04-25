@@ -621,13 +621,19 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     trees_ = []
     for space, tree in zip(spaces, trees):
         if space.shape:
-            for leaf in tree.leaves:
-                for i, dim in enumerate(space.shape):
-                    label = f"dim{i}"
-                    subaxis = op3.Axis({"XXX": dim}, label)
-                    tree = tree.add_axis(subaxis, *leaf)
-                    new_target_paths[subaxis.id, "XXX"] = pmap({label: "XXX"})
-                    new_index_exprs[subaxis.id, "XXX"] = pmap({label: op3.AxisVariable(label)})
+            for parent, component in tree.leaves:
+                axis_list = [
+                    op3.Axis({"XXX": dim}, f"dim{ii}")
+                    for ii, dim in enumerate(space.shape)
+                ]
+                tree = tree.add_subtree(
+                    op3.AxisTree.from_iterable(axis_list),
+                    parent=parent,
+                    component=component
+                )
+                for axis in axis_list:
+                    new_target_paths[axis.id, "XXX"] = pmap({axis.label: "XXX"})
+                    new_index_exprs[axis.id, "XXX"] = pmap({axis.label: op3.AxisVariable(axis.label)})
 
         trees_.append(tree)
     trees = tuple(trees_)
