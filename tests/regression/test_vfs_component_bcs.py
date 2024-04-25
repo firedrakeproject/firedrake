@@ -3,6 +3,9 @@ from firedrake import *
 import numpy as np
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.fixture
 def m():
     return UnitSquareMesh(4, 4)

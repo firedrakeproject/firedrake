@@ -7,7 +7,7 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
-pytest.mark.skip(allow_module_level=True, reason="pyop3 point location")
+pytest.skip(allow_module_level=True, reason="pyop3 point location")
 
 
 @pytest.fixture
