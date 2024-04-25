@@ -259,7 +259,7 @@ class Assigner:
         else:
             cdim = self._assignee.function_space().value_size
             if rvalue.shape != (cdim,):
-                raise DataValueError("Assignee and asignment values are different shapes")
+                raise DataValueError("Assignee and assignment values are different shapes")
             assignee.reshape((-1, cdim))[...] = rvalue
 
     def _compute_rvalue(self, func_data):

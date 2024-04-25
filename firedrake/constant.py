@@ -195,10 +195,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         self
 
         """
-        if self.ufl_shape() != ():
-            shape = np.array(value).shape
-            if shape != self.ufl_shape():
-                raise DataValueError("Cannot assign to constant, value has incorrect shape")
+        if self.ufl_shape() and np.array(value).shape != self.ufl_shape():
+            raise DataValueError("Cannot assign to constant, value has incorrect shape")
         self.dat.data_wo[...] = value
         return self
 
