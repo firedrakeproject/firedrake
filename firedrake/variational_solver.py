@@ -48,7 +48,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False, restrict=False):
+                 is_linear=False, restrict=True):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -61,10 +61,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
-        :param restrict: (optional) flag indicating whetehr or not to change
-            the function space the arguments of the forms are defined on
-            to their restricted counterpart, based off the bcs. The output
-            space remains the same.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces. 
         """
         V = u.function_space()
         self.output_space = V
@@ -78,6 +77,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
+        for bc in bcs:
+            if isinstance(bc, EquationBC):
+                restrict = False
         self.restrict = restrict
 
         if restrict and bcs:
@@ -343,10 +345,9 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian does not change, set
                  this flag to ``True``.
-        :param restrict: (optional) flag indicating whetehr or not to change
-                 the function space the arguments of the forms are defined on
-                 to their restricted counterpart, based off the bcs. The output
-                 space remains the same.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces. 
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
