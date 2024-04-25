@@ -1876,63 +1876,32 @@ def PeriodicBoxMesh(
         comm=comm,
     )
 
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         VectorFunctionSpace(
             m, FiniteElement("DG", tetrahedron, 1, variant="equispaced")
         ),
         name=mesh._generate_default_mesh_coordinates_name(name),
     )
+    new_coordinates.interpolate(m.coordinates)
 
-    domain = ""
-    instructions = f"""
-    <{RealType}> x0 = real(old_coords[0, 0])
-    <{RealType}> x1 = real(old_coords[1, 0])
-    <{RealType}> x2 = real(old_coords[2, 0])
-    <{RealType}> x3 = real(old_coords[3, 0])
-    <{RealType}> x_max = fmax(fmax(fmax(x0, x1), x2), x3)
-    <{RealType}> y0 = real(old_coords[0, 1])
-    <{RealType}> y1 = real(old_coords[1, 1])
-    <{RealType}> y2 = real(old_coords[2, 1])
-    <{RealType}> y3 = real(old_coords[3, 1])
-    <{RealType}> y_max = fmax(fmax(fmax(y0, y1), y2), y3)
-    <{RealType}> z0 = real(old_coords[0, 2])
-    <{RealType}> z1 = real(old_coords[1, 2])
-    <{RealType}> z2 = real(old_coords[2, 2])
-    <{RealType}> z3 = real(old_coords[3, 2])
-    <{RealType}> z_max = fmax(fmax(fmax(z0, z1), z2), z3)
+    coords_by_cell = new_coordinates.dat.data.reshape((-1, 4, 3)).transpose(1, 0, 2)
 
-    new_coords[0, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[0, 0] == 0.) else old_coords[0, 0]
-    new_coords[0, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[0, 1] == 0.) else old_coords[0, 1]
-    new_coords[0, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[0, 2] == 0.) else old_coords[0, 2]
+    # ensure we really got a view:
+    assert coords_by_cell.base is new_coordinates.dat.data.base
 
-    new_coords[1, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[1, 0] == 0.) else old_coords[1, 0]
-    new_coords[1, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[1, 1] == 0.) else old_coords[1, 1]
-    new_coords[1, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[1, 2] == 0.) else old_coords[1, 2]
-
-    new_coords[2, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[2, 0] == 0.) else old_coords[2, 0]
-    new_coords[2, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[2, 1] == 0.) else old_coords[2, 1]
-    new_coords[2, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[2, 2] == 0.) else old_coords[2, 2]
-
-    new_coords[3, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[3, 0] == 0.) else old_coords[3, 0]
-    new_coords[3, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[3, 1] == 0.) else old_coords[3, 1]
-    new_coords[3, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[3, 2] == 0.) else old_coords[3, 2]
-    """
-    hx = Constant(Lx / nx)
-    hy = Constant(Ly / ny)
-    hz = Constant(Lz / nz)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "hx": (hx, READ),
-            "hy": (hy, READ),
-            "hz": (hz, READ),
-        },
+    # Find the cells that are too big in each direction because they are
+    # wrapped.
+    cell_is_wrapped = (
+        (coords_by_cell.max(axis=0) - coords_by_cell.min(axis=0))
+        / (Lx/nx, Ly/ny, Lz/nz) > 1.1
     )
+
+    # Move wrapped coordinates to the other end of the domain.
+    for i, extent in enumerate((Lx, Ly, Lz)):
+        coords = coords_by_cell[:, :, i]
+        coords[np.logical_and(cell_is_wrapped[:, i], np.isclose(coords, 0))] \
+            = extent
+
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,
                                       distribution_parameters,
