@@ -596,7 +596,7 @@ class MixedSet(Set, caching.ObjectCached):
 
     @utils.cached_property
     def constrained_size(self):
-        """Set size, owned elements."""
+        """Set size, owned constrained elements."""
         return sum(s.constrained_size for s in self._sets)
 
     @utils.cached_property
