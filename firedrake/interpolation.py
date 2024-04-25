@@ -947,7 +947,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             target_plex = target_mesh.topology
             op3.do_loop(
                 c := target_plex.owned_cells.index(),
-                sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666),
+                sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666, eager=False),
             )
             tensor = op3.Mat.from_sparsity(sparsity)
         f = tensor
