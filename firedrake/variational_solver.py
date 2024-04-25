@@ -8,7 +8,7 @@ from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.function import Function
 from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.bcs import DirichletBC
+from firedrake.bcs import DirichletBC, EquationBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import replace
 
@@ -63,7 +63,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             are given either in 'A == b' style or in 'F == 0' style.
         :param restrict: (optional) If `True`, use restricted function spaces,
             that exclude Dirichlet boundary condition nodes,  internally for
-            the test and trial spaces. 
+            the test and trial spaces.
         """
         V = u.function_space()
         self.output_space = V
@@ -347,7 +347,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  this flag to ``True``.
         :param restrict: (optional) If `True`, use restricted function spaces,
             that exclude Dirichlet boundary condition nodes,  internally for
-            the test and trial spaces. 
+            the test and trial spaces.
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
