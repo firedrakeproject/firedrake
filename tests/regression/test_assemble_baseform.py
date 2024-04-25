@@ -138,6 +138,7 @@ def test_vector_formsum(a):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)

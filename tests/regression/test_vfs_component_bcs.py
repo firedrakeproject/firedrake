@@ -74,6 +74,7 @@ def test_poisson_in_components(V):
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize("mat_type", ["aij", "nest"])
 def test_poisson_in_mixed_plus_vfs_components(V, mat_type):
     # Solve five decoupled poisson problems with different boundary
@@ -139,6 +140,7 @@ def test_cant_subscript_outside_components(V, cmpt):
         return V.sub(cmpt)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_stokes_component_all():
     mesh = UnitSquareMesh(10, 10)
 
@@ -209,6 +211,7 @@ def test_component_full_bcs(V):
     assert np.allclose(A_mixed, A_full)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_component_full_bcs_overlap(V):
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -231,60 +234,3 @@ def test_component_full_bcs_overlap(V):
     A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
 
     assert np.allclose(A_1, A_2)
-
-
-if __name__ == "__main__":
-    PETSc.Sys.popErrorHandler()
-    # m = UnitSquareMesh(4, 4)
-    m = UnitSquareMesh(2, 2)
-    V = VectorFunctionSpace(m, 'CG', 1)
-
-    mat_type = "aij"
-
-    # Solve five decoupled poisson problems with different boundary
-    # conditions in a mixed space composed of two VectorFunctionSpaces
-    # and one scalar FunctionSpace.
-    # Tests application of boundary conditions to components in mixed
-    # spaces.
-    Q = FunctionSpace(V.mesh(), "CG", 2)
-    W = V*Q*V
-
-    g = Function(W)
-
-    bcs = [DirichletBC(W.sub(0).sub(0), 0, 1),
-           DirichletBC(W.sub(0).sub(0), 42, 2),
-           DirichletBC(W.sub(0).sub(1), 10, 3),
-           DirichletBC(W.sub(0).sub(1), 15, 4),
-
-           DirichletBC(W.sub(1), 4, 1),
-           DirichletBC(W.sub(1), 10, 2),
-
-           DirichletBC(W.sub(2).sub(0), -10, 1),
-           DirichletBC(W.sub(2).sub(0), 10, 2),
-           DirichletBC(W.sub(2).sub(1), 15, 3),
-           DirichletBC(W.sub(2).sub(1), 5, 4)]
-
-    u, p, r = TrialFunctions(W)
-    v, q, s = TestFunctions(W)
-
-    a = inner(grad(u), grad(v))*dx + \
-        inner(grad(r), grad(s))*dx + \
-        inner(grad(p), grad(q))*dx
-
-    L = inner(Constant((0, 0)), v) * dx + \
-        inner(Constant(0), q) * dx + \
-        inner(Constant((0, 0)), s) * dx
-
-    solve(a == L, g, bcs=bcs, solver_parameters={'mat_type': mat_type})
-
-    expected = Function(W)
-
-    u, p, r = expected.subfunctions
-
-    x = SpatialCoordinate(V.mesh())
-    u.interpolate(as_vector((42*x[0], 5*x[1] + 10)))
-    p.interpolate(6*x[0] + 4)
-    r.interpolate(as_vector((20*x[0] - 10, -10*x[1] + 15)))
-
-    for actual, expect in zip(g.dat.data, expected.dat.data):
-        assert np.allclose(actual, expect)

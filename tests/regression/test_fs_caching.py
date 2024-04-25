@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.mesh import MeshTopology, MeshGeometry
 import gc
+import pytest
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
