@@ -208,6 +208,7 @@ def test_constant_names_are_not_used_in_generated_code():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.xfail(reason="requires matnest")
 def test_correct_constants_are_used_in_split_form():
     # see https://github.com/firedrakeproject/firedrake/issues/3091
     mesh = UnitSquareMesh(3, 3)
