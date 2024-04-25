@@ -77,9 +77,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
-        for bc in bcs:
-            if isinstance(bc, EquationBC):
-                restrict = False
+        if bcs:
+            for bc in bcs:
+                if isinstance(bc, EquationBC):
+                    restrict = False
         self.restrict = restrict
 
         if restrict and bcs:
