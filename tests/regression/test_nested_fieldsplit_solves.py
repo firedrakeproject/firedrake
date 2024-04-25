@@ -184,12 +184,13 @@ def test_matrix_types(W):
 
 
 def test_block_matrix_type():
-    mesh = UnitSquareMesh(1, 1)
-    V = VectorFunctionSpace(mesh, "DG", 0)
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     a = inner(u, v)*dx
-
-    A = assemble(a, mat_type="aij")
-    B = assemble(a, mat_type="baij")
-    assert A.M.mat.view() == B.M.mat.view()
+    f = Function(V)
+    f.interpolate(Constant((1, 2)))
+    result = Function(V)
+    solve(a == inner(f, v)*dx, result, solver_parameters={'mat_type':'baij'})
+    assert errornorm(f, result) < 1e-10
