@@ -5,9 +5,6 @@ from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param
@@ -53,7 +50,6 @@ def test_init_bcs_illegal(mesh, v):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize('measure', [dx, ds])
 def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
@@ -244,7 +240,6 @@ def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     assert np.allclose(b_vals, b.dat.data_ro)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_preassembly_bcs_caching(V):
     bc1 = DirichletBC(V, 0, 1)
     bc2 = DirichletBC(V, 1, 2)
@@ -271,6 +266,7 @@ def test_preassembly_bcs_caching(V):
     assert not any(Aneither.M.values.diagonal() == 0)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_assemble_mass_bcs_2d(V):
     if V.value_size > 1:
         pytest.skip(reason="pyop3 TODO")
@@ -298,6 +294,7 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(inner((w - f), (w - f))*dx) < 1e-12
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize("quad",
                          [False, True],
                          ids=["triangle", "quad"])
