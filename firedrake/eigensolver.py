@@ -7,7 +7,7 @@ from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
 from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
-from ufl import replace
+from ufl import replace, inner, dx
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -67,10 +67,7 @@ class LinearEigenproblem():
         self.bc_shift = bc_shift
         self.restrict = restrict
 
-        if M:
-            pass
-        else:
-            from ufl import inner, dx
+        if not M:
             M = inner(u, v) * dx
 
         if restrict and bcs:  # assumed u and v are in the same space here
