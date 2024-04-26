@@ -84,7 +84,6 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch pyop2 emmarothwell1/restricted_function_space_review \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
