@@ -2,7 +2,6 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.skip(reason="pyop3 TODO: Hitting minor issues in layout tabulation")
 @pytest.mark.parallel(nprocs=8)
 def test_mark_entities_mark_points_with_function_array():
     # Mark cells in f0.
@@ -48,7 +47,6 @@ def test_mark_entities_mark_points_with_function_array():
     assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
 
 
-@pytest.mark.skip(reason="pyop3 TODO: Hitting minor issues in layout tabulation")
 @pytest.mark.parallel(nprocs=7)
 def test_mark_entities_overlapping_facet_subdomains():
     my_facet_label = 777

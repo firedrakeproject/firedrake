@@ -521,8 +521,6 @@ class FunctionSpace:
         # without its own constructor. Perhaps introduce a BaseFunctionSpace
         # parent class.
         if isinstance(self, RealFunctionSpace):
-            if self._comm.size > 1:
-                raise NotImplementedError("Hitting minor issues in layout tabulation")
             # it is important to mark as unit here so we can distinguish row and column
             # matrices.
             axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
