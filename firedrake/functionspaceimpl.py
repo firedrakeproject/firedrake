@@ -676,19 +676,22 @@ class FunctionSpace:
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
+        if self._ufl_function_space.ufl_element().family() == "Real":
+            # If real we don't need to populate the section
+            return section
+
         points = self._mesh.points
         section.setChart(0, points.size)
-
+        perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
+        section.setPermutation(perm)
         for p in points.iter(include_ghost_points=True):
             pi = just_one(p.source_exprs.values())
-            stratum_label = just_one(p.source_path.values())
+            stratum_label = just_one(p.source_path.values())  # p.source_path[self._mesh.topology.name]
             pi_plex = points.component_to_axis_number(stratum_label, pi)
-            offset = self.axes.offset(p.source_exprs, p.source_path)
-            section.setOffset(pi_plex, offset)
-
-        # could also try setting a permutation? this seems to work
-        # perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
-        # section.setPermutation(perm)
+            pt_dim = int(stratum_label)
+            ndofs, = set(len(values) for values in self.finat_element.entity_dofs()[pt_dim].values())
+            section.setDof(pi_plex, ndofs)
+        section.setUp()
         return section
 
     # TODO: This is identical to value_size, remove

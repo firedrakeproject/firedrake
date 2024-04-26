@@ -243,8 +243,16 @@ class _FacetContext:
                 return self._subsets[key]
             except KeyError:
                 unmarked_points = self._collect_unmarked_points(all_integer_subdomain_ids)
-                _, indices, _ = np.intersect1d(self.facets, unmarked_points, return_indices=True)
-                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
+                _, indices, _ = np.intersect1d(
+                    self._owned_facet_data,
+                    unmarked_points,
+                    return_indices=True)
+                indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
+                subset = op3.Slice(
+                    self.mesh.topology.name,
+                    [op3.Subset(self._owned_facet_label, indices_dat)],
+                )
+                return self._subsets.setdefault(key, subset)
         else:
             return self._subset(subdomain_id)
 
@@ -1140,7 +1148,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "ext_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
@@ -1148,7 +1156,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: ("ext_facets", "owned")})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("exterior", include_ghost_points=False),
                 label="XXX",  # needed?
             ),
@@ -1156,7 +1164,7 @@ class AbstractMeshTopology(abc.ABC):
         supports[freeze({self.name: "int_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
-                self.owned_cell_label,
+                self.cell_label,
                 self._facet_support_dat("interior", include_ghost_points=True),
                 label="XXX",  # needed?
             ),
@@ -1263,7 +1271,7 @@ class AbstractMeshTopology(abc.ABC):
                 for fi, facet in enumerate(selected_facets):
                     # This loop must be ragged because some interior facets
                     # only have 1 incident cell.
-                    for ci in range(arity_data[fi]):
+                    for ci in range(arity_data[facet]):
                         cell = facet_support_dat.get_value([facet, ci])
                         selected_facet_support_dat.set_value([fi, ci], cell)
             else:
@@ -1428,7 +1436,14 @@ class AbstractMeshTopology(abc.ABC):
                 indices = dmcommon.get_cell_markers(self.topology_dm,
                                                     self._cell_numbering,
                                                     subdomain_id)
-            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+            # Explicitly cull ghost cells:
+            # Ideally self.points[slce].owned with full indices would just work.
+            num_owned = self.points.owned_count_per_component[self.cell_label]
+            indices = indices[indices < num_owned]
+            n, = indices.shape
+            harray = op3.HierarchicalArray(op3.Axis(n), data=indices, prefix="subset", dtype=utils.IntType)
+            slce = op3.Slice(self.points.label, [op3.Subset(self.cell_label, harray)])
+            return self._subsets.setdefault(key, self.points[slce])
 
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,

@@ -597,6 +597,8 @@ def closure_ordering(mesh, closure_data, closure_sizes):
     CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
     closure_data_reord = tuple(np.empty_like(d) for d in closure_data)
+    # Must call this before loop collectively.
+    mesh._global_vertex_numbering
     for cell in range(mesh.num_cells()):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data[0][cell]):

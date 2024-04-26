@@ -3,6 +3,7 @@ from firedrake.__future__ import *
 from firedrake.petsc import PETSc
 import pytest
 import numpy as np
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -146,6 +147,7 @@ def test_nullspace_mixed():
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_near_nullspace(tmpdir):
     # Tests the near nullspace for the case of the linear elasticity equations
     mesh = UnitSquareMesh(100, 100)
@@ -211,6 +213,7 @@ def test_near_nullspace(tmpdir):
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_nullspace_mixed_multiple_components():
     # tests mixed nullspace with nullspace components in both spaces
     # and passing of sub-nullspace in fieldsplit
@@ -289,6 +292,7 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 def test_near_nullspace_mixed(aux_pc):

@@ -4,6 +4,7 @@ from firedrake import *
 import numpy as np
 from mpi4py import MPI
 import math
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module",

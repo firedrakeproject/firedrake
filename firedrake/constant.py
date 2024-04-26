@@ -3,8 +3,8 @@ import ufl
 import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
-from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
+from pyop3.exceptions import DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -29,15 +29,12 @@ def _create_const(value, comm):
     shape = data.shape
     rank = len(shape)
 
-    if comm is not None:
-        raise NotImplementedError("Won't be a back door for real space here, do elsewhere")
-
     if rank == 0:
-        axes = op3.AxisTree(op3.Axis(1))
+        axes = op3.AxisTree()
     else:
-        axes = op3.AxisTree(op3.Axis(shape[0]))
-        for size in shape[1:]:
-            axes = axes.add_axis(op3.Axis(size), *axes.leaf)
+        axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
+        for i, s in enumerate(shape[1:]):
+            axes = axes.add_axis(op3.Axis({"XXX": s}, label=f"dim{i+1}"), *axes.leaf)
     dat = op3.HierarchicalArray(axes, data=data.flatten())
     return dat, rank, shape
 
@@ -198,11 +195,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         self
 
         """
+        if self.ufl_shape() and np.array(value).shape != self.ufl_shape():
+            raise DataValueError("Cannot assign to constant, value has incorrect shape")
         self.dat.data_wo[...] = value
         return self
-        # TODO pyop3
-        # except (DataTypeError, DataValueError) as e:
-        #     raise ValueError(e)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
