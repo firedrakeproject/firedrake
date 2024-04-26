@@ -15,7 +15,7 @@ __all__ = ('set_level', 'set_log_level', 'set_log_handlers',
            "RED", "GREEN", "BLUE")
 
 
-packages = ("pyop2", "tsfc", "firedrake", "UFL")
+packages = ("pyop2", "pyop3", "tsfc", "firedrake", "UFL")
 
 
 logger = logging.getLogger("firedrake")

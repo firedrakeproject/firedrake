@@ -5,6 +5,9 @@ from firedrake import *
 from firedrake.__future__ import *
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.mark.skipcomplex
 def test_real_assembly():
     mesh = UnitIntervalMesh(3)

@@ -377,6 +377,9 @@ def _(
 ):
     plex = V.mesh().topology
 
+    if V.ufl_element().family() == "Real":
+        return array
+
     if integral_type == "cell":
         # TODO ideally the FIAT permutation would not need to be known
         # about by the mesh topology and instead be handled here. This
@@ -518,30 +521,24 @@ def _(
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     plex = V.mesh().topology
 
-    if V.ufl_element().family() == "Real":
-        indices = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
-    else:
-        indices = op3.IndexTree.from_nest({
-            plex._fiat_closure(cell): [
-                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                for _ in range(plex.dimension+1)
-            ]
-        })
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(cell): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
     return _with_shape_indices(V, indices)
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
     plex = V.ufl_domain().topology
 
-    if V.ufl_element().family() == "Real":
-        indices = op3.IndexTree(op3.ScalarIndex(plex.name, "XXX", 0))
-    else:
-        indices = op3.IndexTree.from_nest({
-            plex._fiat_closure(plex.support(facet)): [
-                op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                for _ in range(plex.dimension+1)
-            ]
-        })
+    indices = op3.IndexTree.from_nest({
+        plex._fiat_closure(plex.support(facet)): [
+            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            for _ in range(plex.dimension+1)
+        ]
+    })
     # don't add support as an extra axis here, done already
     return _with_shape_indices(V, indices, and_support=False)
 
@@ -624,13 +621,19 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     trees_ = []
     for space, tree in zip(spaces, trees):
         if space.shape:
-            for leaf in tree.leaves:
-                for i, dim in enumerate(space.shape):
-                    label = f"dim{i}"
-                    subaxis = op3.Axis({"XXX": dim}, label)
-                    tree = tree.add_axis(subaxis, *leaf)
-                    new_target_paths[subaxis.id, "XXX"] = pmap({label: "XXX"})
-                    new_index_exprs[subaxis.id, "XXX"] = pmap({label: op3.AxisVariable(label)})
+            for parent, component in tree.leaves:
+                axis_list = [
+                    op3.Axis({"XXX": dim}, f"dim{ii}")
+                    for ii, dim in enumerate(space.shape)
+                ]
+                tree = tree.add_subtree(
+                    op3.AxisTree.from_iterable(axis_list),
+                    parent=parent,
+                    component=component
+                )
+                for axis in axis_list:
+                    new_target_paths[axis.id, "XXX"] = pmap({axis.label: "XXX"})
+                    new_index_exprs[axis.id, "XXX"] = pmap({axis.label: op3.AxisVariable(axis.label)})
 
         trees_.append(tree)
     trees = tuple(trees_)

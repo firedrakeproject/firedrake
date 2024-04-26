@@ -4,9 +4,6 @@ import itertools
 from firedrake import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     quadrilateral = request.param
@@ -20,12 +17,10 @@ domains = [(1, 2),
            (1, 2, 3, 4)]
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_ds_dx(mesh):
     assert np.allclose(assemble(1*dx(domain=mesh) + 1*ds(domain=mesh)), 5.0)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize('domains', domains)
 def test_dsn(mesh, domains):
 
@@ -38,7 +33,7 @@ def test_dsn(mesh, domains):
     assert np.allclose(assemble(form), len(domains))
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
+@pytest.mark.skip(reason="pyop3 parallel")
 @pytest.mark.parallel
 def test_dsn_parallel(mesh):
     for d in domains:
@@ -67,9 +62,6 @@ def test_dsn_parallel(mesh):
                                            ['function', 'constant'],
                                            ['scalar', 'vector', 'tensor']))
 def test_math_functions(mesh, expr, value, typ, fs_type):
-    if mesh.ufl_cell().cellname == "quadrilateral":
-        pytest.skip("pyop3 TODO")
-
     if typ == 'function':
         family, degree = 'CG', 1
     elif typ == 'constant':
