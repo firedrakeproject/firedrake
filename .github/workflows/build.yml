@@ -86,6 +86,7 @@ jobs:
             --install asQ \
             --package-branch tsfc connorjward/pyop3 \
             --package-branch petsc connorjward/pyop3 \
+            --package-branch pyop3 connorjward/api-cleanup \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
