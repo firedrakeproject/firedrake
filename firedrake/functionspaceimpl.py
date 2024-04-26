@@ -696,21 +696,6 @@ class FunctionSpace:
         return self.value_size
 
     @utils.cached_property
-    def cell_node_list(self):
-        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
-        from firedrake.parloops import pack_pyop3_tensor
-        cells = self.mesh().cells
-        # Pass self.sub(0) to get nodes from the scalar version of this function space
-        packed_axes = pack_pyop3_tensor(self.block_axes, self.sub(0), cells.index(include_ghost_points=True), "cell")
-        return packed_axes.tabulated_offsets.buffer.data_rw_with_halos.reshape((cells.size, -1))
-
-    @utils.cached_property
-    def owned_cell_node_list(self):
-        r"""A numpy array mapping owned mesh cells to function space nodes."""
-        cells = self.mesh().cells
-        return self.cell_node_list[:cells.owned.size]
-
-    @utils.cached_property
     def nodes(self):
         ax = self.block_axes
         return op3.Axis([op3.AxisComponent((ax.owned.size, ax.size),
@@ -719,6 +704,35 @@ class FunctionSpace:
     @utils.cached_property
     def nodal_axes(self):
         return op3.AxisTree.from_iterable([self.nodes, self.value_size])
+
+    @utils.cached_property
+    def cell_node_dat(self):
+        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
+        from firedrake.parloops import pack_pyop3_tensor
+        cells = self.mesh().cells
+        # Pass self.sub(0) to get nodes from the scalar version of this function space
+        packed_axes = pack_pyop3_tensor(self.block_axes, self.sub(0), cells.index(include_ghost_points=True), "cell")
+        return packed_axes.tabulated_offsets
+
+    @utils.cached_property
+    def cell_node_map(self):
+        from pyrsistent import freeze
+        return op3.Map({
+            freeze({self.mesh().topology.name: self.mesh().cells.owned.root.component.label}): [
+                op3.TabulatedMapComponent(self.nodes.label, self.nodes.component.label, self.cell_node_dat)
+            ]
+        })
+
+    @utils.cached_property
+    def cell_node_list(self):
+        cells = self.mesh().cells
+        return self.cell_node_dat.buffer.data_rw_with_halos.reshape((cells.size, -1))
+
+    @utils.cached_property
+    def owned_cell_node_list(self):
+        r"""A numpy array mapping owned mesh cells to function space nodes."""
+        cells = self.mesh().cells
+        return self.cell_node_list[:cells.owned.size]
 
     @utils.cached_property
     def topological(self):

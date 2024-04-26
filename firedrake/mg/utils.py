@@ -24,8 +24,8 @@ def create_node_map(iterset, toset, arity=1, values=None):
         values = numpy.arange(iterset.size, dtype=IntType)
     dat = op3.HierarchicalArray(axes, data=values)
     return op3.Map({
-        freeze({"nodes": iterset.owned.component.label}): [
-            op3.TabulatedMapComponent("nodes", toset.component.label, dat)
+        freeze({iterset.label: iterset.owned.component.label}): [
+            op3.TabulatedMapComponent(toset.label, toset.component.label, dat)
         ]
     })
 
@@ -166,8 +166,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         axes = op3.AxisTree.from_iterable([Vc.nodes, arity*level_ratio])
         coarse_cell_to_fine_node_dat = op3.HierarchicalArray(axes, data=coarse_to_fine_nodes)
         coarse_cell_to_fine_node_map = op3.Map({
-            freeze({Vc.mesh().topology.name: Vc.mesh().cells.owned.label}): [
-                op3.TabulatedMapComponent("nodes", Vf.nodes.component.label, coarse_cell_to_fine_node_dat)
+            freeze({Vc.mesh().topology.name: Vc.mesh().cell_label}): [
+                op3.TabulatedMapComponent(Vf.nodes.label, Vf.nodes.component.label, coarse_cell_to_fine_node_dat)
             ]
         })
         return cache.setdefault(key, coarse_cell_to_fine_node_map)

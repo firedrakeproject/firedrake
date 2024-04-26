@@ -21,7 +21,7 @@ def space(request, cell):
         return request.param
 
 
-@pytest.fixture(params=[(1, 1), (2, 1), (1, 2)], scope="module")
+@pytest.fixture(params=[(1, 1), (2, 1), (1, 2)], ids=["1-1", "2-1", "1-2"], scope="module")
 def nref_refinements_per_level(request):
     return request.param
 

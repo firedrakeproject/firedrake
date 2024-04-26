@@ -130,7 +130,7 @@ def restrict(fine_dual, coarse_dual):
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse_dual.dat.eager_zero()
+            coarse_dual.dat.zero()
             next = coarse_dual
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
@@ -211,7 +211,7 @@ def inject(fine, coarse):
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse.dat.eager_zero()
+            coarse.dat.zero()
             next = coarse
             Vc = next.function_space()
         else:
@@ -248,18 +248,13 @@ def inject(fine, coarse):
             # this expanded stencil
             for d in [fine, fine_coords]:
                 d.dat.assemble()
-            #op2.par_loop(kernel, Vc.mesh().cell_set,
-            #             next.dat(op2.INC, next.cell_node_map()),
-            #             fine.dat(op2.READ, coarse_cell_to_fine_nodes),
-            #             fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
-            #             coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
             op3.do_loop(
                 c := Vc.mesh().cells.owned.index(),
                 kernel(
                     next.dat[c],
                     fine.nodal_dat()[coarse_cell_to_fine_nodes(c)],
                     fine_coords.nodal_dat()[coarse_cell_to_fine_coords(c)],
-                    coarse_coords.nodal_dat()[coarse_coords(c)],
+                    coarse_coords.nodal_dat()[coarse_coords.function_space().cell_node_map(c)],
                 ),
             )
 
