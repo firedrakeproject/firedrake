@@ -1413,7 +1413,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             block_shape=test.function_space().value_size
         )
 
-        # As discussed on the final day of the sprint, this doesn't quite allocate the correct 
+        # As discussed on the final day of the sprint, this doesn't quite allocate the correct
         # diagonals for mixed/vector spaces. They come out as blocks of all 1 along the diagonal
         if isinstance(test.function_space().ufl_element(),
                       finat.ufl.MixedElement):
@@ -1426,7 +1426,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 diag_blocks = set([(i, i) for i in range(n)])
         else:
             diag_blocks = set([(Ellipsis, Ellipsis)])
-        
+
         for rindex, cindex in diag_blocks:
             op3.do_loop(
                     p := test.ufl_domain().points.index(),
@@ -1442,7 +1442,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             if cindex is None:
                 cindex = Ellipsis
 
-            
             op3.do_loop(
                 iter_index,
                 sparsity[rindex, cindex][rmap, cmap].assign(666, eager=False)
@@ -1454,7 +1453,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions(self):
         test, trial = self._form.arguments()
 
-                
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, self._allocation_integral_types
@@ -1527,7 +1525,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         Vrow = test.function_space()
         Vcol = trial.function_space()
 
-        
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
         # reusability.
@@ -1603,7 +1600,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
 
                 if component is not None:
-                    component_slice  = op3.ScalarIndex("dim0", "XXX", component)
+                    component_slice = op3.ScalarIndex("dim0", "XXX", component)
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
                 index_forest[ctx] = index_tree
@@ -1611,7 +1608,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             op3.do_loop(
                 p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
             )
-            
+
             mat.assemble()
 
             # Handle off-diagonal block involving real function space.
@@ -1840,12 +1837,11 @@ class ParloopBuilder:
                     assert matrix.M.mat_type == "baij"
                     row_bsize = self.test_function_space[ibc].value_size
                     col_bsize = self.trial_function_space[jbc].value_size
-                
+
                 submat = matrix.M[i, j]
                 rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat, row_bsize)
                 clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat, col_bsize)
                 lgmaps.append((i, j, rlgmap, clgmap))
-
 
             return tuple(lgmaps)
         else:

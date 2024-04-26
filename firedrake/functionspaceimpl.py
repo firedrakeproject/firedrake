@@ -889,7 +889,7 @@ class FunctionSpace:
             bsize = 1
         else:
             idat = indices.copy2()
-            
+
         for bc in bcs:
             p = self._mesh.points[bc.constrained_points].index()
 
@@ -905,7 +905,6 @@ class FunctionSpace:
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
                 index_forest[ctx] = index_tree
-        
             op3.do_loop(
                 p, idat[index_forest].assign(-1, eager=False)
             )
