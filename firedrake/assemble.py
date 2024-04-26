@@ -1409,35 +1409,37 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         sparsity = op3.Sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            mat_type=mat_type
+            mat_type=mat_type,
+            block_shape=test.function_space().value_size
         )
 
+        # As discussed on the final day of the sprint, this doesn't quite allocate the correct 
+        # diagonals for mixed/vector spaces. They come out as blocks of all 1 along the diagonal
         if isinstance(test.function_space().ufl_element(),
                       finat.ufl.MixedElement):
             n = len(test.function_space())
-            diag_blocks = set([(i, i) for i in range(n)])
+            if n == 1:
+                # if vector function space revert to standard case
+                diag_blocks = set([(Ellipsis, Ellipsis)])
+            else:
+                # otherwise treat each block separately
+                diag_blocks = set([(i, i) for i in range(n)])
+        else:
+            diag_blocks = set([(Ellipsis, Ellipsis)])
         
+        for rindex, cindex in diag_blocks:
+            op3.do_loop(
+                    p := test.ufl_domain().points.index(),
+                    sparsity[rindex, cindex][p, p].assign(666, eager=False)
+                )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
         for iter_index, rmap, cmap, indices in maps_and_regions:
             rindex, cindex = indices
-            if isinstance(test.function_space().ufl_element(),
-                          finat.ufl.MixedElement) and rindex == cindex:
-                if rindex is None and cindex is None:
-                    diag_blocks.remove((0, 0))
-                else:
-                    diag_blocks.remove((rindex, cindex))
-
             if rindex is None:
-                if isinstance(test.function_space().ufl_element(),
-                          finat.ufl.MixedElement) and cindex == 0:
-                    diag_blocks.remove((0, 0))
                 rindex = Ellipsis
             if cindex is None:
-                if isinstance(test.function_space().ufl_element(),
-                          finat.ufl.MixedElement) and rindex == 0:
-                    diag_blocks.remove((0, 0))
                 cindex = Ellipsis
 
             
@@ -1446,25 +1448,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 sparsity[rindex, cindex][rmap, cmap].assign(666, eager=False)
             )
 
-        if isinstance(test.function_space().ufl_element(), finat.ufl.MixedElement) and len(diag_blocks) > 0:
-            for rindex, cindex in diag_blocks:
-
-                if sparsity.nested and sparsity.mat_type[rindex, cindex] == "dat":
-                    continue
-                # if any([_is_real_space(sub) for sub in test.ufl_function_space()._spaces]):
-                #     sparsity[rindex, cindex].assign(666)
-                else:
-                    op3.do_loop(
-                        p := test.ufl_domain().points.index(),
-                        sparsity[rindex, cindex][p, p].assign(666, eager=False)
-                    )
-                    
-
         sparsity.assemble()
         return sparsity
 
     def _make_maps_and_regions(self):
         test, trial = self._form.arguments()
+
+                
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, self._allocation_integral_types
@@ -1537,6 +1527,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         Vrow = test.function_space()
         Vcol = trial.function_space()
 
+        
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
         # reusability.
@@ -1594,9 +1585,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = Ellipsis if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if space != spaces[0]:
+            # if fs.topological != self.topological:
+            #     raise RuntimeError("Dirichlet BC defined on a different function space")
+            if space.topological != spaces[0].topological:
                 raise TypeError("bc space does not match the test function space")
-            elif space != spaces[1]:
+            elif space.topological != spaces[1].topological:
                 raise TypeError("bc space does not match the trial function space")
 
             # for some reason I need to do this first, is this still the case?
@@ -1615,7 +1608,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
                 index_forest[ctx] = index_tree
 
-            
             op3.do_loop(
                 p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
             )
@@ -1751,7 +1743,7 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
-
+        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
@@ -1826,7 +1818,10 @@ class ParloopBuilder:
         This is only needed when applying boundary conditions to 2-forms.
 
         """
+
         if len(self._form.arguments()) == 2 and not self._diagonal:
+            if matrix.M.nested:
+                raise NotImplementedError("Mat nest not yet implemented")
             if not self._bcs:
                 return None
             lgmaps = []
@@ -1838,10 +1833,20 @@ class ParloopBuilder:
                 i = Ellipsis if i is None else i
                 j = Ellipsis if j is None else j
 
+                if matrix.M.mat_type == "aij":
+                    row_bsize = 1
+                    col_bsize = 1
+                else:
+                    assert matrix.M.mat_type == "baij"
+                    row_bsize = self.test_function_space[ibc].value_size
+                    col_bsize = self.trial_function_space[jbc].value_size
+                
                 submat = matrix.M[i, j]
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat)
-                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat)
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat, row_bsize)
+                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat, col_bsize)
                 lgmaps.append((i, j, rlgmap, clgmap))
+
+
             return tuple(lgmaps)
         else:
             return None

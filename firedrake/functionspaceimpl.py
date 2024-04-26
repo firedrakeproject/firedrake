@@ -844,7 +844,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, axes, indices) -> PETSc.LGMap:
+    def mask_lgmap(self, bcs, axes, indices, bsize) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         # update this#
@@ -884,25 +884,12 @@ class FunctionSpace:
         # fieldsplit)
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
-        # if unblocked:
-        if True:
-            # indices = lgmap.indices.copy()
-            # idat = op3.HierarchicalArray(self.axes, data=indices)
+        if unblocked:
             idat = indices.copy2()
             bsize = 1
         else:
-            raise NotImplementedError
-            indices = lgmap.block_indices.copy()
-            idat = op3.HierarchicalArray(self.block_axes, data=indices)
-            bsize = lgmap.getBlockSize()
-            assert bsize == self.value_size
-
-            if bsize > 1:
-                raise NotImplementedError(
-                    "Think I need matbaij for this to work now. The lgmaps "
-                    "are now coming from the mats."
-                )
-
+            idat = indices.copy2()
+            
         for bc in bcs:
             p = self._mesh.points[bc.constrained_points].index()
 
