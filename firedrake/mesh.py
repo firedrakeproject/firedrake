@@ -568,16 +568,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
-                self._cell_numbering = self.create_section(entity_dofs)
+                self._cell_numbering, _ = self.create_section(entity_dofs)
                 if tdim == 0:
                     self._vertex_numbering = self._cell_numbering
                 else:
                     entity_dofs[:] = 0
                     entity_dofs[0] = 1
-                    self._vertex_numbering = self.create_section(entity_dofs)
+                    self._vertex_numbering, _ = self.create_section(entity_dofs)
                     entity_dofs[:] = 0
                     entity_dofs[-2] = 1
-                    facet_numbering = self.create_section(entity_dofs)
+                    facet_numbering, _ = self.create_section(entity_dofs)
                     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
         self.name = name
@@ -737,16 +737,18 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1, boundary_set=None):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
         :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
+        :arg boundary_set: A set of boundary markers, indicating the subdomains
+            a boundary condition is specified on.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
@@ -1063,7 +1065,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             # No reordering
             reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)[0]
 
     @utils.cached_property
     def cell_closure(self):
@@ -1617,7 +1619,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
