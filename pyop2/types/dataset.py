@@ -113,7 +113,7 @@ class DataSet(caching.ObjectCached):
         indices for this :class:`DataSet`.
         """
         lgmap = PETSc.LGMap()
-        if self.comm.size == 1:
+        if self.comm.size == 1 and self.halo is None:
             lgmap.create(indices=np.arange(self.size, dtype=dtypes.IntType),
                          bsize=self.cdim, comm=self.comm)
         else:
@@ -183,7 +183,7 @@ class DataSet(caching.ObjectCached):
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this DataSet."""
         vec = PETSc.Vec().create(comm=self.comm)
-        size = (self.size * self.cdim, None)
+        size = ((self.size - self.set.constrained_size) * self.cdim, None)
         vec.setSizes(size, bsize=self.cdim)
         vec.setUp()
         return vec
@@ -449,8 +449,8 @@ class MixedDataSet(DataSet):
         indices for this :class:`MixedDataSet`.
         """
         lgmap = PETSc.LGMap()
-        if self.comm.size == 1:
-            size = sum(s.size * s.cdim for s in self)
+        if self.comm.size == 1 and self.halo is None:
+            size = sum((s.size - s.constrained_size) * s.cdim for s in self)
             lgmap.create(indices=np.arange(size, dtype=dtypes.IntType),
                          bsize=1, comm=self.comm)
             return lgmap
@@ -479,7 +479,7 @@ class MixedDataSet(DataSet):
         # current field offset.
         idx_size = sum(s.total_size*s.cdim for s in self)
         indices = np.full(idx_size, -1, dtype=dtypes.IntType)
-        owned_sz = np.array([sum(s.size * s.cdim for s in self)],
+        owned_sz = np.array([sum((s.size - s.constrained_size) * s.cdim for s in self)],
                             dtype=dtypes.IntType)
         field_offset = np.empty_like(owned_sz)
         self.comm.Scan(owned_sz, field_offset)
@@ -493,7 +493,7 @@ class MixedDataSet(DataSet):
         current_offsets = np.zeros(self.comm.size + 1, dtype=dtypes.IntType)
         for s in self:
             idx = indices[start:start + s.total_size * s.cdim]
-            owned_sz[0] = s.size * s.cdim
+            owned_sz[0] = (s.size - s.set.constrained_size) * s.cdim
             self.comm.Scan(owned_sz, field_offset)
             self.comm.Allgather(field_offset, current_offsets[1:])
             # Find the ranks each entry in the l2g belongs to

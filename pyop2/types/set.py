@@ -64,7 +64,7 @@ class Set:
 
     @utils.validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), ex.SizeTypeError),
                          ('name', str, ex.NameTypeError))
-    def __init__(self, size, name=None, halo=None, comm=None):
+    def __init__(self, size, name=None, halo=None, comm=None, constrained_size=0):
         self.comm = mpi.internal_comm(comm, self)
         if isinstance(size, numbers.Integral):
             size = [size] * 3
@@ -75,6 +75,8 @@ class Set:
         self._name = name or "set_#x%x" % id(self)
         self._halo = halo
         self._partition_size = 1024
+        self._constrained_size = constrained_size
+
         # A cache of objects built on top of this set
         self._cache = {}
 
@@ -87,6 +89,10 @@ class Set:
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
         return self._sizes[Set._CORE_SIZE]
+
+    @utils.cached_property
+    def constrained_size(self):
+        return self._constrained_size
 
     @utils.cached_property
     def size(self):
@@ -587,6 +593,11 @@ class MixedSet(Set, caching.ObjectCached):
     def core_size(self):
         """Core set size. Owned elements not touching halo elements."""
         return sum(s.core_size for s in self._sets)
+
+    @utils.cached_property
+    def constrained_size(self):
+        """Set size, owned constrained elements."""
+        return sum(s.constrained_size for s in self._sets)
 
     @utils.cached_property
     def size(self):
