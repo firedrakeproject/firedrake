@@ -396,7 +396,7 @@ def par_loop(kernel_domains, kernel_instructions, measure, kernel_args_dict, com
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
                     dtype = func.dat.dtype
-        kernel_args_list.append(loopy.GlobalArg(
+        loopy_kernel_args.append(loopy.GlobalArg(
             var,
             dtype=dtype,
             shape=None,
@@ -419,7 +419,7 @@ def par_loop(kernel_domains, kernel_instructions, measure, kernel_args_dict, com
 
     return op3.do_loop(
         p := iterset.index(),
-        kernel(*[
+        loopy_function(*[
             pack_tensor(func, p, measure.integral_type())
             for func, intent in kernel_args_dict.values()
         ]),
@@ -528,6 +528,8 @@ def _(
         pack_indices = _cell_integral_pack_indices(V, index)
     elif integral_type in {"exterior_facet", "interior_facet"}:
         pack_indices = _facet_integral_pack_indices(V, index)
+    elif integral_type == "direct":
+        pack_indices = _with_shape_indices(V, ...)
     else:
         raise NotImplementedError
 
@@ -590,6 +592,9 @@ def _(
     elif integral_type in {"exterior_facet", "interior_facet"}:
         rmap = _facet_integral_pack_indices(Vrow, index)
         cmap = _facet_integral_pack_indices(Vcol, index)
+    elif integral_type == "direct":
+        rmap = _facet_integral_pack_indices(Vrow, ...)
+        cmap = _facet_integral_pack_indices(Vcol, ...)
     else:
         raise NotImplementedError
 
