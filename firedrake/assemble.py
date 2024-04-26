@@ -1001,7 +1001,7 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         if needs_zeroing:
-            self._as_pyop3_type(tensor).eager_zero()
+            self._as_pyop3_type(tensor).zero()
 
         for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = _FormHandler.index_tensor(
@@ -1612,7 +1612,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         dat = op2tensor[i, j].handle.getPythonContext().dat
         if component is not None:
             dat = op2.DatView(dat, component)
-        dat.eager_zero(subset=node_set)
+        dat.zero(subset=node_set)
 
     def _check_tensor(self, tensor):
         if tensor is not None and tensor.a.arguments() != self._form.arguments():

@@ -121,7 +121,7 @@ class LinearSolver(OptionsManager):
 
     def _lifted(self, b):
         u, update, blift = self._rhs
-        u.dat.eager_zero()
+        u.dat.zero()
         for bc in self.A.bcs:
             bc.apply(u)
         update(tensor=blift)
