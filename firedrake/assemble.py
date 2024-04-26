@@ -1323,8 +1323,8 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
 
-    if has_real_subspace and mat_type != "nest":
-        raise ValueError
+    if has_real_subspace and mat_type not in ["nest", "matfree"]:
+        raise ValueError("Matrices containing real space arguments must have type 'nest' or 'matfree'")
     if sub_mat_type not in {"aij", "baij"}:
         raise ValueError(
             f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')"

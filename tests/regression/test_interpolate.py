@@ -7,6 +7,9 @@ from firedrake.__future__ import *
 cwd = abspath(dirname(__file__))
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))

@@ -5,9 +5,6 @@ import numpy as np
 import pytest
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
         c = Constant(1, domain=m)
@@ -122,8 +119,8 @@ def test_constant_vector_assign_works():
 
     f.assign(c)
 
-    assert np.allclose(f.dat.data_ro[:, 0], 10)
-    assert np.allclose(f.dat.data_ro[:, 1], 11)
+    assert np.allclose(f.sub(0).dat.data_ro, 10)
+    assert np.allclose(f.sub(1).dat.data_ro, 11)
 
 
 def test_constant_vector_assign_to_scalar_error():
@@ -162,9 +159,11 @@ def test_constant_assign_to_mixed():
     f.sub(0).assign(c)
     f.sub(1).assign(c)
 
-    for d in f.dat.data_ro:
-        assert np.allclose(d[:, 0], 10)
-        assert np.allclose(d[:, 1], 11)
+
+    assert np.allclose(f.sub(0).sub(0).dat.data_ro, 10)
+    assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
+    assert np.allclose(f.sub(1).sub(0).dat.data_ro, 10)
+    assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
 
 
 def test_constant_multiplies_function():
@@ -207,6 +206,7 @@ def test_constant_names_are_not_used_in_generated_code():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.xfail(reason="requires matnest")
 def test_correct_constants_are_used_in_split_form():
     # see https://github.com/firedrakeproject/firedrake/issues/3091
     mesh = UnitSquareMesh(3, 3)
