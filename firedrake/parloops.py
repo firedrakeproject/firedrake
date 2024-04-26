@@ -11,10 +11,11 @@ import loopy
 import numpy as np
 import pyop3 as op3
 import ufl
-from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
+from pyop2 import op2
 from pyop3.axtree.tree import ExpressionEvaluator
 from pyop3.array.harray import ArrayVar
 from pyop3.itree.tree import compose_axes
+from pyop3.lang import READ, WRITE, RW, INC #, MIN, MAX (coming soon?)
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -37,7 +38,7 @@ from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 kernel_cache = LRUCache(maxsize=128)
 
 
-__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
+__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC'] #, 'MIN', 'MAX']
 
 
 class _DirectLoop(object):
@@ -49,14 +50,10 @@ class _DirectLoop(object):
         return "direct"
 
     def __repr__(self):
-
         return "direct"
 
 
 direct = _DirectLoop()
-r"""A singleton object which can be used in a :func:`par_loop` in place
-of the measure in order to indicate that the loop is a direct loop
-over degrees of freedom."""
 
 
 def indirect_measure(mesh, measure):
@@ -145,7 +142,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
 
 @PETSc.Log.EventDecorator()
-def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
+def old_par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
@@ -340,6 +337,94 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
     return op2.parloop(*op2args, **kwargs)
+
+
+@PETSc.Log.EventDecorator()
+def par_loop(kernel_domains, kernel_instructions, measure, kernel_args_dict, compiler_parameters=None):
+    # Modify kernel domains only if not specified
+    if kernel_domains == "":
+        kernel_domains = "[] -> {[]}"
+
+    if measure is direct:
+        iterset = None
+        for (func, intent) in kernel_args_dict.values():
+            if isinstance(func, Indexed):
+                c, i = func.ufl_operands
+                idx = i._indices[0]._value
+                if iterset and c.node_set[idx] is not iterset:
+                    raise ValueError("Cannot mix sets in direct loop.")
+                #mesh = c.node_set[idx]
+                iterset = c.function_space()[idx].nodes
+            else:
+                if iterset and func.function_space().nodes is not iterset:
+                    raise ValueError("Cannot mix sets in direct loop.")
+                iterset = func.function_space().nodes
+        if not iterset:
+            raise TypeError("No Functions passed to direct par_loop")
+    else:
+        domains = []
+        for func, _ in args.values():
+            domains.extend(extract_domains(func))
+        domains = join_domains(domains)
+        # Assume only one domain
+        iterset, = domains
+        loop_index = iterset.topology.owned_cells.index()
+
+    map_type = _maps[measure.integral_type()]
+
+    loopy_kernel_args = []
+    for var, (func, intent) in kernel_args_dict.items():
+        # Establish kernel argument intent
+        # Add MAX and MIN once they are implemented in pyop3
+        is_input = intent in [INC, READ, RW]
+        is_output = intent in [INC, RW, WRITE]
+        # Validate and extract dtype from kernel arguments that are constants
+        if isinstance(func, constant.Constant):
+            if intent is not READ:
+                raise RuntimeError("Only READ access is allowed to Constant")
+            dtype = func.dat.dtype
+        # Validate and extract dtype from kernel arguments that are functions
+        else:
+            if isinstance(func, Indexed):
+                c, i = func.ufl_operands
+                idx = i._indices[0]._value
+                dtype = c.dat[idx].dtype
+            else:
+                if func.function_space().ufl_element().family() == "Real":
+                    dtype = func.dat.dtype
+                else:
+                    if len(func.function_space()) > 1:
+                        raise NotImplementedError("Must index mixed function in par_loop.")
+                    dtype = func.dat.dtype
+        kernel_args_list.append(loopy.GlobalArg(
+            var,
+            dtype=dtype,
+            shape=None,
+            is_input=is_input,
+            is_output=is_output
+        ))
+
+    loopy_function = loopy.make_function(
+        kernel_domains,
+        kernel_instructions,
+        loopy_kernel_args,
+        name="par_loop_kernel",
+        target=target,
+        seq_dependencies=True,
+        silenced_warnings=["summing_if_branches_ops"]
+    )
+
+    if compiler_parameters is None:
+        compiler_parameters = {}
+
+    return op3.do_loop(
+        p := iterset.index(),
+        kernel(*[
+            pack_tensor(func, p, measure.integral_type())
+            for func, intent in kernel_args_dict.values()
+        ]),
+        compiler_parameters=compiler_parameters
+    )
 
 
 @functools.singledispatch

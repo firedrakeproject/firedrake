@@ -2,12 +2,17 @@ from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
-from firedrake.parloops import par_loop, READ, RW, MIN, MAX
+from firedrake.parloops import par_loop, READ, RW #, MIN, MAX
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake import utils
 from ufl import inner
 __all__ = ("VertexBasedLimiter",)
+
+
+# REMOVE:
+MIN = None
+MAX = None
 
 
 class VertexBasedLimiter(Limiter):
