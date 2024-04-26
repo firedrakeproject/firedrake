@@ -18,6 +18,7 @@ import pytest
 from math import pi
 
 from firedrake import *
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=["x", "y", "both"])

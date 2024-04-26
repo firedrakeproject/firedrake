@@ -1,11 +1,14 @@
 import functools
+import numbers
 import operator
 
+import finat.ufl
 import numpy as np
+import pyop3 as op3
+from pyop3.exceptions import DataValueError
+import pytools
 from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
-import pytools
-import finat.ufl
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -114,7 +117,7 @@ class CoefficientCollector(MultiFunction):
         are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
         in both cases ``c.dat.dim`` must have shape ``(1,)``.
         """
-        return all(_isconstant(c) and c.dat.dim == (1,) for (c, _) in weighted_coefficients)
+        return all(_isconstant(c) and c.dat.size == 1 for (c, _) in weighted_coefficients)
 
     def _as_scalar(self, weighted_coefficients):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
@@ -163,7 +166,7 @@ class Assigner:
 
         self._assignee = assignee
         self._expression = expression
-        self._subset = subset
+        self._subset = subset or Ellipsis
 
     def __str__(self):
         return f"{self._assignee} {self.symbol} {self._expression}"
@@ -195,23 +198,27 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
 
-        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
+        # TODO Does pyop3 know this already? Could it?
+
+        func_halos_valid = all(f.dat.buffer.leaves_valid for f in self._functions)
         assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
+            func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
 
         if assign_to_halos:
-            subset_indices = self._subset.indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro_with_halos")
         else:
-            subset_indices = self._subset.owned_indices if self._subset else ...
             data_ro = operator.attrgetter("data_ro")
 
         # If mixed, loop over individual components
-        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
-                                       *(f.dat.split for f in self._functions)):
-            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
-            rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
+        # for lhs, *funcs in zip(self._assignee.subfunctions,
+        #                        *(f.subfunctions for f in self._functions)):
+        lhs = self._assignee
+        funcs = self._functions
+
+        func_data = np.array([data_ro(f.dat[self._subset]) for f in funcs])
+        rvalue = self._compute_rvalue(func_data)
+
+        self._assign_single_dat(lhs.dat, self._subset, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:
@@ -233,11 +240,27 @@ class Assigner:
     def _function_weights(self):
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
-    def _assign_single_dat(self, lhs_dat, indices, rvalue, assign_to_halos):
-        if assign_to_halos:
-            lhs_dat.data_wo_with_halos[indices] = rvalue
+    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+        try:
+            if assign_to_halos:
+                assignee = lhs[subset].data_wo_with_halos
+            else:
+                assignee = lhs[subset].data_wo
+        except op3.FancyIndexWriteException:
+            if not isinstance(rvalue, numbers.Number):
+                # convert rvalue to a pyop3 object
+                axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
+                rvalue = op3.HierarchicalArray(axes, data=rvalue)
+            lhs[subset].assign(rvalue)
+            return
+
+        if isinstance(rvalue, numbers.Number) or rvalue.shape in {(1,), assignee.shape}:
+            assignee[...] = rvalue
         else:
-            lhs_dat.data_wo[indices] = rvalue
+            cdim = self._assignee.function_space().value_size
+            if rvalue.shape != (cdim,):
+                raise DataValueError("Assignee and assignment values are different shapes")
+            assignee.reshape((-1, cdim))[...] = rvalue
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
@@ -245,7 +268,15 @@ class Assigner:
         func_rvalue = (func_data.T @ self._function_weights).T
         const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
         const_rvalue = const_data.T @ self._constant_weights
-        return func_rvalue + const_rvalue
+
+        retval = func_rvalue + const_rvalue
+        # This is a (bad) trick to handle some cases where we are assigning
+        # numbers to arrays. Currently this will only work with scalars.
+        # The proper fix is for pyop3 to work with array expressions.
+        if isinstance(retval, np.ndarray) and retval.shape == (1,):
+            return retval[0]
+        else:
+            return retval
 
     @cached_property
     def _weighted_coefficients(self):
@@ -259,22 +290,34 @@ class IAddAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__iadd__``."""
     symbol = "+="
 
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
-        if assign_to_halos:
-            lhs.data_with_halos[indices] += rvalue
-        else:
-            lhs.data[indices] += rvalue
+    def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
+        # convert to a numpy type
+        rval = rvalue.data_ro if isinstance(rvalue, op3.HierarchicalArray) else rvalue
+
+        try:
+            if assign_to_halos:
+                lhs_dat[subset].data_wo_with_halos[...] += rval
+            else:
+                lhs_dat[subset].data_wo[...] += rval
+        except op3.FancyIndexWriteException:
+            raise NotImplementedError("Need expression assignment")
 
 
 class ISubAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__isub__``."""
     symbol = "-="
 
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
-        if assign_to_halos:
-            lhs.data_with_halos[indices] -= rvalue
-        else:
-            lhs.data[indices] -= rvalue
+    def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
+        # convert to a numpy type
+        rval = rvalue.data_ro if isinstance(rvalue, op3.HierarchicalArray) else rvalue
+
+        try:
+            if assign_to_halos:
+                lhs_dat[subset].data_wo_with_halos[...] -= rval
+            else:
+                lhs_dat[subset].data_wo[...] -= rval
+        except op3.FancyIndexWriteException:
+            raise NotImplementedError("Need expression assignment")
 
 
 class IMulAssigner(Assigner):
@@ -286,9 +329,9 @@ class IMulAssigner(Assigner):
             raise ValueError("Only multiplication by scalars is supported")
 
         if assign_to_halos:
-            lhs.data_with_halos[indices] *= rvalue
+            lhs[indices].data_wo_with_halos[...] *= rvalue
         else:
-            lhs.data[indices] *= rvalue
+            lhs[indices].data_wo[...] *= rvalue
 
 
 class IDivAssigner(Assigner):
@@ -300,6 +343,7 @@ class IDivAssigner(Assigner):
             raise ValueError("Only division by scalars is supported")
 
         if assign_to_halos:
-            lhs.data_with_halos[indices] /= rvalue
+            # TODO set modified
+            lhs[indices].buffer._data[...] /= rvalue
         else:
-            lhs.data[indices] /= rvalue
+            lhs[indices].data_wo[...] /= rvalue

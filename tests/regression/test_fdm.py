@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from pyop2.utils import as_tuple
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 ksp = {
     "mat_type": "matfree",

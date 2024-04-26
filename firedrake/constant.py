@@ -3,8 +3,8 @@ import ufl
 import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
-from pyop2 import op2
-from pyop2.exceptions import DataTypeError, DataValueError
+import pyop3 as op3
+from pyop3.exceptions import DataValueError
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -24,17 +24,18 @@ from firedrake.adjoint_utils.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _create_dat(op2type, value, comm):
-    if op2type is op2.Global and comm is None:
-        raise ValueError("Attempted to create pyop2 Global with no communicator")
-
+def _create_const(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
+
     if rank == 0:
-        dat = op2type(1, data, comm=comm)
+        axes = op3.AxisTree()
     else:
-        dat = op2type(shape, data, comm=comm)
+        axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
+        for i, s in enumerate(shape[1:]):
+            axes = axes.add_axis(op3.Axis({"XXX": s}, label=f"dim{i+1}"), *axes.leaf)
+    dat = op3.HierarchicalArray(axes, data=data.flatten())
     return dat, rank, shape
 
 
@@ -75,7 +76,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
                 "create a Function in the Real space.", FutureWarning
             )
 
-            dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
+            dat, rank, shape = _create_const(value, domain._comm)
 
             if not isinstance(domain, ufl.AbstractDomain):
                 cell = ufl.as_cell(domain)
@@ -102,7 +103,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
+        self.dat, rank, self._ufl_shape = _create_const(value, None)
 
         self.uid = utils._new_uid()
         self.name = name or 'constant_%d' % self.uid
@@ -180,17 +181,24 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
-    @PETSc.Log.EventDecorator()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
 
-        :arg value: A value of the appropriate shape"""
-        try:
-            self.dat.data = value
-            return self
-        except (DataTypeError, DataValueError) as e:
-            raise ValueError(e)
+        Parameters
+        ----------
+        value :
+            The value to set. It must have the appropriate shape.
+
+        Returns
+        -------
+        self
+
+        """
+        if self.ufl_shape() and np.array(value).shape != self.ufl_shape():
+            raise DataValueError("Cannot assign to constant, value has incorrect shape")
+        self.dat.data_wo[...] = value
+        return self
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")

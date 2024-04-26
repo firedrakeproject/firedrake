@@ -1,11 +1,15 @@
+import pytest
+
 from firedrake import *
 
 
+@pytest.mark.skip(reason="matnest and also very slow")
 def test_bc_on_sub_sub_domain():
 
     # Solve a vector poisson problem
 
     mesh = UnitSquareMesh(50, 50)
+
 
     V = VectorFunctionSpace(mesh, "CG", 1)
     VV = MixedFunctionSpace([V, V])

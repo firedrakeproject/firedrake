@@ -1,8 +1,8 @@
 from itertools import chain
 
 import numpy
+import pyop3 as op3
 
-from pyop2 import op2
 from firedrake_configuration import get_config
 from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
@@ -325,9 +325,8 @@ class _SNESContext(object):
         problem = self._problem
         splitter = ExtractSubBlock()
         for field in fields:
-            F = splitter.split(problem.F, argument_indices=(field, ))
+            F = splitter.split(problem.F, argument_indices=(field,))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
@@ -336,20 +335,25 @@ class _SNESContext(object):
             # anyway.
             # So we pull it apart and will make a new function on the
             # subspace that shares data.
-            pieces = [us[i].dat for i in field]
-            if len(pieces) == 1:
-                val, = pieces
+            if len(field) == 1:
+                i, = field
+                index = op3.ScalarIndex("field", i, 0)
+                val = problem.u.dat[index]
                 subu = function.Function(V, val=val)
-                subsplit = (subu, )
+                subsplit = (subu,)
             else:
-                val = op2.MixedDat(pieces)
+                index = op3.Slice(
+                    "field",
+                    [op3.AffineSliceComponent(f, label=i) for i, f in enumerate(field)],
+                )
+                val = problem.u.dat[index]
                 subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             # Permutation from field indexing to indexing of pieces
             field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
-            for i, u in enumerate(us):
+            for i, u in enumerate(problem.u.subfunctions):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the

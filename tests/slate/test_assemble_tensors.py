@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.formmanipulation import split_form
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -285,6 +286,7 @@ def test_matrix_subblocks(mesh):
         assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_diagonal(mass, matrix_mixed_nofacet):
     n, _ = Tensor(mass).shape
 

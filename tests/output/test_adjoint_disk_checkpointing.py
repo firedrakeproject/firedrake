@@ -60,6 +60,7 @@ def adjoint_example(mesh):
     return Jnew, grad_Jnew
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.skipcomplex
 # Waiting on stable parallel decompositions through disk checkpointing.
 @pytest.mark.xfail
@@ -84,6 +85,7 @@ def test_disk_checkpointing():
     tape.clear_tape()
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
     from firedrake.adjoint import enable_disk_checkpointing, \

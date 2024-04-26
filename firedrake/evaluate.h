@@ -19,11 +19,20 @@ struct Function {
 
 	/* Coordinate values and node mapping */
 	PetscScalar *coords;
-	PetscInt *coords_map;
+	PetscInt *section0;
+	PetscInt *section1;
+	PetscInt *section2;
+	PetscInt *section3;
 
 	/* Field values and node mapping */
 	PetscScalar *f;
 	PetscInt *f_map;
+
+	/* Closure per entity type, for meshes with dimension < 3 some will be null */
+	PetscInt *closure0;
+	PetscInt *closure1; 
+	PetscInt *closure2;
+	PetscInt *closure3;
 
 	/* Spatial index */
 	void *sidx;

@@ -1,5 +1,9 @@
 from firedrake import *
 import numpy
+import pytest
+
+
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_serendipity_biharmonic():

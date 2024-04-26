@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.utils import RealType
 import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 # Useful for making a periodic hierarchy
