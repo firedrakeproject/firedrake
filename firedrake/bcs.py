@@ -198,7 +198,7 @@ class BCBase:
         if r.function_space() != self._function_space:
             raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
-        r.dat.eager_zero(subset=self.constrained_points)
+        r.dat.zero(subset=self.constrained_points)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
