@@ -707,7 +707,6 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_dat(self):
-        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
         from firedrake.parloops import pack_pyop3_tensor
         cells = self.mesh().cells
         # Pass self.sub(0) to get nodes from the scalar version of this function space
@@ -725,6 +724,7 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_list(self):
+        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
         cells = self.mesh().cells
         return self.cell_node_dat.buffer.data_rw_with_halos.reshape((cells.size, -1))
 
