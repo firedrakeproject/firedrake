@@ -264,6 +264,7 @@ latex_elements = {
 \sphinxDUC{22C5}{$\cdot$}
 \sphinxDUC{25A3}{$\boxdot$}
 \sphinxDUC{03BB}{$\lambda$}
+\sphinxDUC{0393}{$\Gamma$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
