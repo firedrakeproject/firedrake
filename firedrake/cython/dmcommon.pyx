@@ -1179,7 +1179,7 @@ def entity_orientations(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
+def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary_set=None):
     """Create the section describing a global numbering.
 
     :arg mesh: The mesh.
@@ -1188,11 +1188,15 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         extruded, the number of nodes on, and on top of, each
         topological entity in the base mesh.
     :arg on_base: If True, assume extruded space is actually Foo x Real.
+    :arg boundary_set: A set of boundary markers, indicating the sub-domains 
+        a boundary condition is specified on. 
     :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
         to get the true data layout.
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
+    :returns: An integer providing the total number of constrained nodes in the
+        Section.
     """
     # We don't use DMPlexCreateSection because we only ever put one
     # field in each section.
@@ -1200,10 +1204,13 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
         PETSc.DM dm
         PETSc.Section section
         PETSc.IS renumbering
-        PetscInt i, p, layers, pStart, pEnd
+        PetscInt i, p, layers, pStart, pEnd, dof, j
         PetscInt dimension, ndof
+        PetscInt *dof_array = NULL
+        PetscInt *entity_point_map 
         np.ndarray[PetscInt, ndim=2, mode="c"] nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=1, mode="c"] points
         bint variable, extruded, on_base_
 
     dm = mesh.topology_dm
@@ -1227,12 +1234,20 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
     section = PETSc.Section().create(comm=mesh._comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
-    renumbering = mesh._dm_renumbering
+
+    if boundary_set:
+        renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm, 
+            mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
+    else:
+        renumbering = mesh._dm_renumbering
+        constrainedStart = -1
+        constrainedEnd = -1
+
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     dimension = get_topological_dimension(dm)
     nodes = nodes_per_entity.reshape(dimension + 1, -1)
     for i in range(dimension + 1):
-        get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+        get_depth_stratum(dm.dm, i, &pStart, &pEnd) # gets all points at dim i 
         if not variable:
             ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
@@ -1243,8 +1258,55 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1):
                     layers = layer_extents[p, 1] - layer_extents[p, 0]
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
+    
+    if boundary_set:
+        for marker in boundary_set:
+            if marker == "on_boundary":
+                label = "exterior_facets"
+                marker = 1
+            else:
+                label = FACE_SETS_LABEL
+            n = dm.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = dm.getStratumIS(label, marker).indices
+            for i in range(n):
+                p = points[i]
+                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+                CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
     section.setUp()
-    return section
+    
+    if boundary_set:
+        # have to loop again as we need to call section.setUp() first
+        for marker in boundary_set:
+            if marker == "on_boundary":
+                label = "exterior_facets"
+                marker = 1
+            else:
+                label = FACE_SETS_LABEL
+            n = dm.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = dm.getStratumIS(label, marker).indices
+            CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
+            CHKERR(PetscMalloc1(dof, &dof_array))
+            for i in range(n):
+                p = points[i]
+                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+                for j in range(dof):
+                    dof_array[j] = j
+                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+            CHKERR(PetscFree(dof_array))
+    
+    constrained_nodes = 0 
+
+    CHKERR(ISGetIndices(renumbering.iset, &entity_point_map))
+    for entity in range(constrainedStart, constrainedEnd):
+        CHKERR(PetscSectionGetDof(section.sec, entity_point_map[entity], &dof))
+        constrained_nodes += dof
+    CHKERR(ISRestoreIndices(renumbering.iset, &entity_point_map))
+
+    return section, constrained_nodes
 
 
 @cython.boundscheck(False)
@@ -2262,7 +2324,8 @@ def validate_mesh(PETSc.DM dm):
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
                      np.ndarray entity_classes,
-                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
+                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
+                     boundary_set=None):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -2275,10 +2338,16 @@ def plex_renumbering(PETSc.DM plex,
          DMPlexGetOrdering).  Optional, if not provided (or ``None``),
          no reordering is applied and the plex is traversed in
          original order.
+    :arg boundary_set: A set of boundary subdomains, where a DirichletBC is to
+         be applied. This is None if working with a FunctionSpace object, and 
+         non-empty if working with a RestrictedFunctionSpace object. If one is 
+         provided, this will move all core or owned boundary points to the end 
+         of the core+owned block. 
 
     The node permutation is derived from a depth-first traversal of
     the Plex graph over each entity class in turn. The returned IS
-    is the Plex -> PyOP2 permutation.
+    is the Plex -> PyOP2 permutation. A tuple indicating the start and end of 
+    the core/owned constrained block is returned, for use in create_section. 
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
@@ -2290,6 +2359,7 @@ def plex_renumbering(PETSc.DM plex,
         PETSc.IS facet_is = None
         PETSc.IS perm_is = None
         PetscBT seen = NULL
+        PetscBT seen_boundary = NULL
         PetscBool has_point
         DMLabel labels[3]
         bint reorder = reordering is not None
@@ -2299,40 +2369,75 @@ def plex_renumbering(PETSc.DM plex,
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
+    if boundary_set:
+        CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
     ncells = np.zeros(3, dtype=IntType)
 
     # Get label pointers and label-specific array indices
     CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &labels[0]))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &labels[1]))
     CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &labels[2]))
-    for l in range(3):
-        CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
+    for idx in range(3):
+        CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
     entity_classes = entity_classes.astype(IntType)
-    lidx = np.zeros(3, dtype=IntType)
-    lidx[1] = sum(entity_classes[:, 0])
-    lidx[2] = sum(entity_classes[:, 1])
 
+    # Get boundary points (if the boundary_set exists) and count each type
+    constrained_core = 0
+    constrained_owned = 0
+    if boundary_set:
+        for marker in boundary_set:
+            if marker == "on_boundary":
+                label = "exterior_facets"
+                marker = 1
+            else:
+                label = FACE_SETS_LABEL
+            n = plex.getStratumSize(label, marker) 
+            if n == 0:
+                continue
+            points = plex.getStratumIS(label, marker).indices
+            for i in range(n):
+                p = points[i]
+                if not PetscBTLookup(seen_boundary, p):
+                    for idx in range(3):
+                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
+                        if has_point:
+                            PetscBTSet(seen_boundary, p)
+                            if idx == 1:
+                                constrained_owned += 1
+                            elif idx == 0:
+                                constrained_core += 1
+                            break
+    
+    # assign lists
+    lidx = np.zeros(4, dtype=IntType)
+    lidx[1] = sum(entity_classes[:, 0]) -  constrained_core
+    lidx[2] = sum(entity_classes[:, 1])
+    lidx[3] = lidx[2] - constrained_core - constrained_owned
+    
     for c in range(pStart, pEnd):
         if reorder:
             cell = reordering[c]
         else:
             cell = c
-
         # We always re-order cell-wise so that we inherit any cache
         # coherency from the reordering provided by the Plex
         if cStart <= cell < cEnd:
-
             # Get  cell closure
             get_transitive_closure(plex.dm, cell, PETSC_TRUE, &nclosure, &closure)
             for ci in range(nclosure):
                 p = closure[2*ci]
                 if not PetscBTLookup(seen, p):
-                    for l in range(3):
-                        CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
+                    for idx in range(3):
+                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
                         if has_point:
                             PetscBTSet(seen, p)
-                            perm[lidx[l]] = p
-                            lidx[l] += 1
+                            if boundary_set and PetscBTLookup(seen_boundary, p) and idx <= 1:
+                                # push boundary point to end of constrained owned dofs
+                                perm[lidx[3]] = p
+                                lidx[3] += 1
+                            else:
+                                perm[lidx[idx]] = p
+                                lidx[idx] += 1
                             break
 
     if closure != NULL:
@@ -2341,11 +2446,15 @@ def plex_renumbering(PETSc.DM plex,
         CHKERR(DMLabelDestroyIndex(labels[c]))
 
     CHKERR(PetscBTDestroy(&seen))
+
+    if boundary_set:
+        CHKERR(PetscBTDestroy(&seen_boundary))
+
     perm_is = PETSc.IS().create(comm=plex.comm)
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
-    return perm_is
+    return perm_is, (lidx[1], lidx[3]) 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -2438,7 +2547,7 @@ cdef struct CommFacet:
     PetscInt global_u, global_v
     PetscInt local_facet
 
-cdef int CommFacet_cmp(void *x_, void *y_) nogil:
+cdef int CommFacet_cmp(const void *x_, const void *y_) nogil:
     """Three-way comparison C function for CommFacet structs."""
     cdef:
         CommFacet *x = <CommFacet *>x_
@@ -3194,7 +3303,7 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt c, p, pStart, pEnd, dof, loff, goff
+        PetscInt c, p, pStart, pEnd, dof, cdof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
     val = np.empty(lsec.getStorageSize(), dtype=IntType)
@@ -3202,12 +3311,17 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
 
     for p in range(pStart, pEnd):
         CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
+        CHKERR(PetscSectionGetConstraintDof(lsec.sec, p, &cdof))
         if dof > 0:
             CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
             CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
-            goff = cabs(goff)
-            for c in range(dof):
-                val[loff + c] = goff + c
+            if cdof > 0:
+                for c in range(dof):
+                    val[loff + c] = -1
+            else:
+                goff = cabs(goff)
+                for c in range(dof):
+                    val[loff + c] = goff + c
     return val
 
 
