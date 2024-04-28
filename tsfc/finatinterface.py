@@ -46,6 +46,8 @@ supported_elements = {
     "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
     "HDiv Trace": finat.HDivTrace,
     "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
+    "Johnson-Mercier": finat.JohnsonMercier,
+    "Reduced-Johnson-Mercier": finat.ReducedJohnsonMercier,
     "Nonconforming Arnold-Winther": finat.ArnoldWintherNC,
     "Conforming Arnold-Winther": finat.ArnoldWinther,
     "Hermite": finat.Hermite,
