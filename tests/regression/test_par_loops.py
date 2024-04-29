@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.__future__ import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +53,7 @@ def test_direct_par_loop(f):
     instructions = """
     c[0, 0] = 1
     """
-    par_loop((domain, instructions), direct, {'c': (c, WRITE)})
+    par_loop(domain, instructions, direct, {'c': (c, WRITE)})
 
     assert np.allclose(c.dat.data, 1.0)
 
@@ -65,7 +64,7 @@ def test_mixed_direct_par_loop(f_mixed):
         instructions = """
         c[0, 0] = 1
         """
-        par_loop((domain, instructions), direct, {'c': (f_mixed, WRITE)})
+        par_loop(domain, instructions, direct, {'c': (f_mixed, WRITE)})
         assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.subfunctions)
 
 
@@ -75,7 +74,7 @@ def test_mixed_direct_par_loop_components(f_mixed, idx):
     instructions = """
     c[0, 0] = 1
     """
-    par_loop((domain, instructions), direct, {'c': (f_mixed[idx], WRITE)})
+    par_loop(domain, instructions, direct, {'c': (f_mixed[idx], WRITE)})
 
     assert np.allclose(f_mixed.dat[idx].data, 1.0)
 
@@ -88,7 +87,7 @@ def test_direct_par_loop_read_const(f, const):
     instructions = """
     c[0, 0] = constant[0]
     """
-    par_loop((domain, instructions), direct, {'c': (c, WRITE), 'constant': (const, READ)})
+    par_loop(domain, instructions, direct, {'c': (c, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(c.dat.data, const.dat.data)
 
@@ -103,7 +102,7 @@ def test_indirect_par_loop_read_const(f, const):
         d[i, 0] = constant[0]
     end
     """
-    par_loop((domain, instructions), dx, {'d': (d, WRITE), 'constant': (const, READ)})
+    par_loop(domain, instructions, dx, {'d': (d, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(d.dat.data, const.dat.data)
 
@@ -118,7 +117,7 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
             d[i, 0] = constant[0]
         end
         """
-        par_loop((domain, instructions), dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+        par_loop(domain, instructions, dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
         assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.subfunctions)
 
 
@@ -148,7 +147,7 @@ def test_dict_order_parallel():
         d[i, 0] = c10[0]
     end
     """
-    par_loop((domain, instructions), dx, arg)
+    par_loop(domain, instructions, dx, arg)
 
     assert np.allclose(d.dat.data, consts[10].dat.data)
 
@@ -163,7 +162,7 @@ def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
         d[i, 0] = constant[0]
     end
     """
-    par_loop((domain, instructions), dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
+    par_loop(domain, instructions, dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
 
     assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
 
@@ -175,7 +174,7 @@ def test_par_loop_const_write_error(f, const):
         instructions = """
         c[0] = d[0, 0]
         """
-        par_loop((domain, instructions), direct, {'c': (const, WRITE), 'd': (d, READ)})
+        par_loop(domain, instructions, direct, {'c': (const, WRITE), 'd': (d, READ)})
 
 
 def test_cg_max_field(f):
@@ -191,7 +190,7 @@ def test_cg_max_field(f):
         c[i, 0] = fmax(real_c, real_d)
     end
     """
-    par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)})
+    par_loop(domain, instructions, dx, {'c': (c, RW), 'd': (d, READ)})
 
     assert (c.dat.data == [1./4, 3./4, 3./4]).all()
 
@@ -210,7 +209,7 @@ def test_cg_max_field_extruded(f_extruded):
     end
     """
 
-    par_loop((domain, instructions), dx, {'c': (c, RW), 'd': (d, READ)})
+    par_loop(domain, instructions, dx, {'c': (c, RW), 'd': (d, READ)})
 
     assert (c.dat.data == [1./4, 1./4, 1./4,
                            3./4, 3./4, 3./4,
@@ -234,7 +233,7 @@ def test_cell_subdomain(subdomain):
         f[i, 0] = 1.0
     end
     """
-    par_loop((domain, instructions), dx(subdomain), {'f': (f, WRITE)})
+    par_loop(domain, instructions, dx(subdomain), {'f': (f, WRITE)})
 
     assert np.allclose(f.dat.data, expect.dat.data)
 
@@ -255,9 +254,9 @@ def test_walk_facets_rt():
         f2[i, 0] = f1[i, 0]
     end
     """
-    par_loop((domain, instructions), dS, {'f1': (f1, READ), 'f2': (f2, WRITE)})
+    par_loop(domain, instructions, dS, {'f1': (f1, READ), 'f2': (f2, WRITE)})
 
-    par_loop((domain, instructions), ds, {'f1': (f1, READ), 'f2': (f2, WRITE)})
+    par_loop(domain, instructions, ds, {'f1': (f1, READ), 'f2': (f2, WRITE)})
 
     assert errornorm(f1, f2, degree_rise=0) < 1e-10
 
@@ -270,10 +269,10 @@ def test_par_loop_respects_shape():
     domain = "{[i] : 0 <= i < A.dofs}"
     instructions = "A[i, 0] = 1"
 
-    par_loop((domain, instructions), dx, {'A': (f_vector, WRITE)})
+    par_loop(domain, instructions, dx, {'A': (f_vector, WRITE)})
     assert np.allclose(f_vector.dat.data[:, 0], 1.0)
 
-    par_loop((domain, instructions), dx, {'A': (f_scalar, WRITE)})
+    par_loop(domain, instructions, dx, {'A': (f_scalar, WRITE)})
     assert np.allclose(f_scalar.dat.data, 1.0)
 
 

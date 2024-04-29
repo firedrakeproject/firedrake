@@ -779,6 +779,7 @@ class AbstractMeshTopology(abc.ABC):
         for old_component_num, new_component_num in enumerate(renumbering):
             old_pt = old_component_num + self.points._component_offsets[component_index]
             section.setOffset(old_pt, new_component_num)
+            section.setDof(old_pt, 1)
 
         return section
 

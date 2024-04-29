@@ -64,8 +64,8 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
         PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.owned_cell_node_list
+    coarse_map = Vc.owned_cell_node_list
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
     extruded = Vc.extruded
@@ -85,7 +85,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
     ndof = fine_per_cell * fine_cell_per_coarse_cell
     if extruded:
         ndof *= ratio
-    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
+    coarse_to_fine_map = np.full((Vc.node_count,
                                   ndof),
                                  -1,
                                  dtype=IntType)
@@ -124,8 +124,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.owned_cell_node_list
+    coarse_map = Vc.owned_cell_node_list
 
     extruded = Vc.extruded
 
@@ -142,7 +142,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+    fine_to_coarse_map = np.full((Vf.node_count,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)
@@ -255,8 +255,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
+    ncoarse = mc.cells.owned.size
+    nfine = mf.cells.owned.size
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
@@ -274,7 +274,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        idx = np.arange(mc.cells.size, dtype=PETSc.IntType)
         # LocalToGlobal
         co.apply(idx, result=idx)
         # GlobalToLocal

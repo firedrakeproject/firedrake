@@ -103,7 +103,7 @@ def get_node_set(mesh, key):
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
-    extruded = mesh.cell_set._extruded
+    extruded = mesh.extruded
 
     assert global_numbering.getStorageSize() == node_set.total_size
     if not extruded and node_set.total_size >= (1 << (IntType.itemsize * 8 - 4)):
@@ -211,7 +211,7 @@ def get_boundary_masks(mesh, key, finat_element):
         with points in the closure of point p.  The basis function
         indices are in the index array, starting at section.getOffset(p).
     """
-    if not mesh.cell_set._extruded:
+    if not mesh.extruded:
         return None
     _, kind = key
     assert kind in {"cell", "interior_facet"}
@@ -453,7 +453,7 @@ class FunctionSpaceData(object):
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
-        self.extruded = mesh.cell_set._extruded
+        self.extruded = mesh.extruded
         self.mesh = mesh
         # self.global_numbering = global_numbering
 

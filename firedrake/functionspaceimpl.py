@@ -102,6 +102,7 @@ class WithGeometryBase:
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
+        self.extruded = mesh.extruded
 
     @classmethod
     def create(cls, function_space, mesh):
@@ -560,7 +561,7 @@ class FunctionSpace:
                 mesh._shared_data_cache[key] = (axes, block_axes)
 
         self.axes = axes
-        self.block_axes = axes
+        self.block_axes = block_axes
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -698,8 +699,28 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_list(self):
-        r"""A numpy array mapping mesh cells to function space nodes."""
-        return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        r"""A numpy array mapping mesh cells to function space nodes (includes halo)."""
+        from firedrake.parloops import pack_pyop3_tensor
+        cells = self.mesh().cells
+        # Pass self.sub(0) to get nodes from the scalar version of this function space
+        packed_axes = pack_pyop3_tensor(self.block_axes, self.sub(0), cells.index(include_ghost_points=True), "cell")
+        return packed_axes.tabulated_offsets.buffer.data_rw_with_halos.reshape((cells.size, -1))
+
+    @utils.cached_property
+    def owned_cell_node_list(self):
+        r"""A numpy array mapping owned mesh cells to function space nodes."""
+        cells = self.mesh().cells
+        return self.cell_node_list[:cells.owned.size]
+
+    @utils.cached_property
+    def nodes(self):
+        ax = self.block_axes
+        return op3.Axis([op3.AxisComponent((ax.owned.size, ax.size),
+                         "XXX", rank_equal=False)], "nodes", numbering=None, sf=ax.sf)
+
+    @utils.cached_property
+    def nodal_axes(self):
+        return op3.AxisTree.from_iterable([self.nodes, self.value_size])
 
     @utils.cached_property
     def topological(self):
@@ -773,13 +794,13 @@ class FunctionSpace:
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        return self.node_set.total_size
+        return self.block_axes.size
 
     @utils.cached_property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.value_size
+        return self.axes.size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
