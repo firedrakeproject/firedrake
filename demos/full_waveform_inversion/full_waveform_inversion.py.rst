@@ -1,81 +1,73 @@
 Full-waveform inversion with automated gradient and checkpointing
 =================================================================
 
-Full-waveform inversion (FWI) is a technique in general employed to
-estimate the physical parameters in a subsurface region. It is
-wave-equation-based seeking an optimal match between observed and
-predicted data. The former is recorded by a set of receivers in a real
-case. The latter consists of predicted data, which is obtained by
-solving numerically a wave equation with a forcing term representing a
-source of wave emission.
+Full-waveform inversion (FWI) is a technique in general employed to estimate the physical
+parameters in a subsurface region. It is wave-equation-based seeking an optimal match
+between observed and predicted data. The former is recorded by a set of receivers in a real
+case. The latter consists of predicted data, which is obtained by solving numerically a
+wave equation with a forcing term representing a source of wave emission.
 
-*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__*
+*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`_*
 
 
 Cost function
 -------------
 
-FWI consists of a local optimisation, where the goal is to minimise the
-misfit between observed and predicted seismogram data. Following
-:cite:`Tarantola:1984`, the misfit function can be measured by the
-:math:`L^2` norm, which can written as follows, in a continuous space:
+FWI consists of a local optimisation, where the goal is to minimise the misfit between
+observed and predicted seismogram data. Following :cite:`Tarantola:1984`, the misfit
+function can be measured by the :math:`L^2` norm, which can written as follows:
 
 .. math::
 
+       J = \\sum_{s=1}^{N_s} J_s(u, u^{obs})
 
-       J(u, u^{obs}) = \sum_{r=0}^{N-1} \int_\Omega \left(u(c,\mathbf{x},t)- u^{obs}(c, \mathbf{x},t)\right)^2 \delta(\mathbf{x} - \mathbf{x}_r) \, dx
+where :math:`N_s` is the number of sources, and :math:`J_s(u, u^{obs})` is
+the cost function for a single source, which is given by:
 
-where :math:`u = u(c, \mathbf{x},t)` and
-:math:`u_{obs} = u_{obs}(c,\mathbf{x},t)`, are respectively the computed
-and observed data, both recorded at a finite number of receivers
-(:math:`N_r`), located at the point positions
-:math:`\mathbf{x}_r \in \Omega`, in a time interval
-:math:`\tau\equiv[t_0, t_f]\subset \mathbb{R}`, where :math:`t_0` is the
-initial time and :math:`t_f` is the final time. The spatial domain of
-interest is defined as :math:`\Omega`.
+.. math::
+    
+    J_s(u, u^{obs}) = \\sum_{r=0}^{N-1} \\int_\Omega \left(u(c,\mathbf{x},t) - u^{obs}(c, \mathbf{x},t)\right)^2 \delta(\mathbf{x} - \mathbf{x}_r) \, dx
+
+
+where :math:`u = u(c, \mathbf{x},t)` and :math:`u_{obs} = u_{obs}(c,\mathbf{x},t)`,
+are respectively the computed and observed data, both recorded at a finite number
+of receivers (:math:`N_r`), located at the point positions :math:`\mathbf{x}_r \in \Omega`,
+in a time interval :math:`\tau\equiv[t_0, t_f]\subset \mathbb{R}`, where :math:`t_0` is the
+initial time and :math:`t_f` is the final time. The spatial domain of interest is defined
+as :math:`\Omega`.
 
 The predicted data is modeled here by an acoustic wave equation,
 
 .. math::
 
+    \\frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t) \tag{2}
 
-       \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t) \tag{2}
-
-where :math:`c(\mathbf{x}):\Omega\rightarrow \mathbb{R}` is the pressure
-wave velocity, which is assumed here a piecewise-constant and positive.
-The external force term
+where :math:`c(\mathbf{x}):\Omega\rightarrow \mathbb{R}` is the pressure wave velocity,
+which is assumed here a piecewise-constant and positive. The external force term
 :math:`f(\mathbf{x},t):\Omega\rightarrow \mathbb{R}`, models the source
-of waves and is usually described by a `Ricker
-Wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__. The
-acoustic wave equation should satisfy the initial conditions
-:math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We are employing
-no-reflective absorbing boundary condition :cite:`Engquist:1977`:
+of waves and is usually described by a `Ricker Wavelet
+<https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__. The acoustic wave equation
+should satisfy the initial conditions :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`.
+We are employing no-reflective absorbing boundary condition :cite:`Engquist:1977`:
 
 .. math::  \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, \forall \mathbf{x} \, \in \partial \Omega 
 
-To solve the wave equation, we consider the following weak form over the
-domain :math:`\Omega`:
+To solve the wave equation, we consider the following weak form over the domain :math:`\Omega`:
 
 .. math::
 
+    \int_{\Omega} \left(\frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right) \, dx = \int_{\Omega} f v \, dx,
 
-       \int_{\Omega} \left(\frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right) \, dx = \int_{\Omega} f v \, dx,
-
-for an arbitrary test function :math:`v\in V`, where :math:`V` is a
-function space. The weak form implementation in Firedrake is written as
-follows. You can find more details about the wave equation with mass lumping on this
-`link <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`__.
+for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. The weak form
+implementation in Firedrake is written as follows. You can find more details about the wave
+equation with mass lumping on this
+`Firedrake demos <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
 
 .. code:: ipython3
 
     import finat
-    import matplotlib.pyplot as plt
-    import numpy as np
     from firedrake import *
     from firedrake.__future__ import Interpolator, interpolate
-    from firedrake.pyplot import tricontourf
-    from firedrake import *
-    from firedrake.adjoint import *
     
     def wave_equation_solver(c, source_function, dt, V):
         u = TrialFunction(V)
@@ -93,28 +85,15 @@ follows. You can find more details about the wave equation with mass lumping on 
         solver = LinearVariationalSolver(lin_var, solver_parameters={"mat_type": "matfree", "ksp_type": "preonly", "pc_type": "jacobi"})
         return solver, u_np1, u_n, u_nm1
 
-The wave equation forcing :math:`f = f(\mathbf{x}_s, t)` represents a
-time-dependent wave source locate at the position :math:`\mathbf{x}_s`,
-and it is given by:
+The wave equation forcing :math:`f = f(\mathbf{x}_s, t)` represents a time-dependent wave source
+locate at the position :math:`\mathbf{x}_s`, and it is given by:
 
 .. math::
 
+    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)
 
-       f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)
-
-where :math:`r(t)` is the `Ricker
-wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
-:math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function.
-
-.. code:: ipython3
-
-    def wave_source_term(mesh, delta_loc, V):
-        vom_mesh = VertexOnlyMesh(mesh, delta_loc)
-        vom_space = FunctionSpace(vom_mesh, "DG", 0)
-        forcing_point = assemble(Constant(1.0)*TestFunction(vom_space)*dx)
-        return Cofunction(V.dual()).interpolate(forcing_point)
-
-The implementation of `Ricker
+where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
+:math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function. The implementation of `Ricker
 wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is
 given by the following code:
 
@@ -126,20 +105,36 @@ given by the following code:
         return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
-In this example, we consider a two dimensional square domain with side
-length 1.0 km. The wave sources and receivers are located on top and
-bottom of the domain, respectively.
 
-We create a ``setting_parameters`` dictionary containing the parameters
-necessary to solve the wave equation and the FWI problem.
+In Firedrake, we can execute the wave equation associated with different source location simultaneously 
+in parallel by using the `Ensemble` class. To this end, we instantiate an `Ensemble` object and pass the
+MPI communicator.
+
+.. code:: ipython3
+
+    from firedrake import Ensemble, COMM_WORLD
+    my_ensemble = Ensemble(COMM_WORLD, 1)
+
+
+.. code:: ipython3
+
+    num_sources = ensemble.ensemble_comm.size
+    source_number = ensemble.ensemble_comm.rank
+
+Here we consider a two dimensional square domain with side length 1.0 km. The mesh is defined over
+`my_ensemble.comm` communicator (explain better).
 
 .. code:: ipython3
 
     Lx, Lz = 1.0, 1.0
+    mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
+
+We create a ``setting_parameters`` dictionary containing the parameters necessary to solve the wave
+equation and the FWI problem.
+
+.. code:: ipython3
+
     num_receivers = 10
-    num_sources = 1
-    mesh = UnitSquareMesh(80, 80)
-    my_ensemble = Ensemble(COMM_WORLD, 1)
     setting_parameters = {
         "source_locations": np.linspace((0.3, 0.05), (0.7, 0.05), num_sources),
         "receiver_locations": np.linspace((0.2, 0.85), (0.8, 0.85), num_receivers),
@@ -150,6 +145,14 @@ necessary to solve the wave equation and the FWI problem.
         "syntetic_receiver_data": None,  # The syntetic receiver data to be used in the inversion.
         "frequency_peak": 7.0,  # The dominant frequency of the source.
     }
+
+
+The firedrake functions will be displayed using the following function:
+
+.. code:: ipython3
+
+    import matplotlib.pyplot as plt
+    from firedrake.pyplot import tricontourf
     
     def plot_function(function):
         # NBVAL_IGNORE_OUTPUT
@@ -160,14 +163,11 @@ necessary to solve the wave equation and the FWI problem.
         axes.set_aspect("equal")
         
 
-FWI seeks to estimate the pressure wave velocity based on the observed
-data stored at the receivers. The observed data is subject to influences
-of the subsurface medium while waves propagate from the source. In the
-current example, we emulate these data by solving the wave equation with
-a known pressure wave velocity model, i.e., a synthetic pressure wave
-velocity referred to as the true velocity model (``c_true``). For the
-sake of simplicity, we consider ``c_true`` consisting of a circle in the
-centre of the domain, as shown in the coming code cell.
+FWI seeks to estimate the pressure wave velocity based on the observed data stored at the receivers.
+The observed data is subject to influences a known pressure wave velocity model, i.e., a synthetic
+pressure wave velocity referred to as the true velocity model (``c_true``). For the sake of simplicity,
+we consider ``c_true`` consisting of a circle in the centre of the domain, as shown in the coming code
+cell.
 
 .. code:: ipython3
 
@@ -182,25 +182,48 @@ centre of the domain, as shown in the coming code cell.
 .. image:: c_true.png
 
 
-We get the synthetic data recorded on the receivers by executing the
-acoustic wave equation.
+Before to advance on this tutorial, let us define the receivers and source meshes. In addition, the
+function space where the wave equation solution will be computed, and the function space for the
+receiver data interpolation.
+
+.. code:: ipython3
+
+    # Function space for the wave equation solution.
+    V = setting_parameters["FunctionSpace"]
+    # Receiver mesh. 
+    receiver_mesh = VertexOnlyMesh(V, setting_parameters["receiver_locations"])
+    # Function space for the receiver data interpolation.
+    P0DG = FunctionSpace(receiver_mesh, "DG", 0)
+
+
+We also want to define the source term for the wave equation. To this end, we first define the source
+mesh and a `Cofunction` that is the result of the assembly of the source term onto the source space.
+
+.. code:: ipython3
+
+    # Source mesh.
+    source_mesh = VertexOnlyMesh(V, setting_parameters["source_locations"])
+    source_space = FunctionSpace(source_mesh, "DG", 0)
+    # Point force define at the source location.
+    forcing_point = assemble(Constant(1.0)*TestFunction(source_space)*dx)
+    # Interpolate the forcing point onto the the dual space of the wave equation solution.
+    source_cofunction = Cofunction(V.dual()).interpolate(forcing_point)
+
+We get the synthetic data recorded on the receivers by executing the acoustic wave equation with the
+true velocity model ``c_true``.
 
 .. code:: ipython3
 
     from firedrake.__future__ import interpolate
-    receiver_mesh = VertexOnlyMesh(setting_parameters["mesh"], setting_parameters["receiver_locations"])
-    P0DG = FunctionSpace(receiver_mesh, "DG", 0)
     true_data_receivers = []
-    source_number = 0
-    source_function = Cofunction(setting_parameters["FunctionSpace"].dual())
-    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, source_function, setting_parameters["dt"], setting_parameters["FunctionSpace"])
+    total_steps = int(setting_parameters["final_time"] / setting_parameters["dt"]) + 1
+    f = Cofunction(V.dual()) # Wave equation forcing term.
+    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, setting_parameters["dt"], V)
     interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
-    interpolate_sources = wave_source_term(setting_parameters["mesh"],
-                                           [setting_parameters["source_locations"][source_number]],
-                                           setting_parameters["FunctionSpace"])
-    for t in range(int(setting_parameters["final_time"] / setting_parameters["dt"]) + 1):
+
+    for t in range(total_steps):
         r = ricker_wavelet(t * setting_parameters["dt"], setting_parameters["frequency_peak"])
-        source_function.assign(assemble(r * interpolate_sources))
+        f.assign(r * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
@@ -238,48 +261,49 @@ The initial guess is set as a constant field with a value of 1.5 km/s.
 .. image:: c_initial.png
 
 
-Steps 2-4 are implemented in the following code cell. We use an
-automated adjoint-based gradient, which requires taping the forward
-problem with the command ``continue_annotation()``. We also employ
-checkpointing to handle the memory requirements of the adjoint
-computation. The checkpointing is enabled by setting
-``tape.enable_checkpointing(schedule)``. Firedrake can execute adjoint
+Steps 2-4 are implemented in the following code cell. We use an automated adjoint-based gradient,
+which requires taping the forward problem with the command ``continue_annotation()``. We also employ
+checkpointing to handle the memory requirements of the adjoint computation. The checkpointing is
+enabled by setting ``tape.enable_checkpointing(schedule)``. Firedrake can execute adjoint
 and checkpointing automatically, with the checkpoint schedules from the
-`checkpoint_schedules <https://www.firedrakeproject.org/checkpoint_schedules/>`__
-package.
+`checkpoint_schedules <https://www.firedrakeproject.org/checkpoint_schedules/>`__ package.
 
 .. code:: ipython3
 
-    from firedrake.__future__ import Interpolator
     from checkpoint_schedules import Revolve
     continue_annotation()
     tape = get_working_tape()
-    total_steps = int(setting_parameters["final_time"] / setting_parameters["dt"]) + 1
     # Enable checkpointing with a Revolve schedule.
     tape.enable_checkpointing(Revolve(total_steps, 100))
-    V = setting_parameters["FunctionSpace"]
-    source_function = Cofunction(V.dual())
-    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, source_function, setting_parameters["dt"], V)
-    interpolate_sources = wave_source_term(setting_parameters["mesh"],
-                                           [setting_parameters["source_locations"][source_number]],
-                                           setting_parameters["FunctionSpace"])
+    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, setting_parameters["dt"], V)
+
     interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
     J_val = 0.0
-    for step in tape.timestepper(iter(range(total_steps))):
+    for step in range(total_steps):
         r = ricker_wavelet(setting_parameters["dt"] * step, setting_parameters["frequency_peak"])
-        source_function.assign(assemble(r * interpolate_sources))
+        f.assign(r * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
         guess_receiver = assemble(interpolate_receivers)
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
-    
-    J_hat = ReducedFunctional(J_val, Control(c_guess))
+
+
+..code:: ipython3
+
+    J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), ensemble)
+
 
 .. code:: ipython3
 
-    J_hat.derivative()
+    opt_result = minimize(J_hat, options={"disp": True, "maxiter": 5}, bounds=(1.5, 3.5))
+
+    plot_function(opt_result, "c_opt_parallel.png")
+
+
+.. image:: c_opt_parallel.png
+
 
 .. rubric:: References
 
