@@ -5,30 +5,77 @@
 Interpolation
 =============
 
-Firedrake offers various ways to interpolate expressions onto fields
-(:py:class:`~.Function`\s).  Interpolation is often used to set up
-initial conditions and/or boundary conditions. The basic syntax for
-interpolation is:
+Firedrake offers highly flexible capabilities for interpolating expressions
+(functions of space) into finite element :py:class:`~.Function`\s.
+Interpolation is often used to set up initial conditions and/or boundary
+conditions. Mathematically, if :math:`e(x)` is a function of space and
+:math:`V` is a finite element functionspace then
+:math:`\operatorname{interpolate}(e, V)` is the :py:class:`~.Function`
+:math:`v_i \phi_i\in V` such that:
 
-.. code-block:: python3
+.. math::
 
-   # create new function f on function space V
-   f = interpolate(expression, V)
+   v_i = \bar{\phi}^*_i(e)
 
-   # alternatively:
-   f = Function(V).interpolate(expression)
-
-   # setting the values of an existing function
-   f.interpolate(expression)
+where :math:`\bar{\phi}^*_i` is the :math:`i`-th dual basis function to
+:math:`V` suitably extended such that its domain encompasses :math:`e`.
 
 .. note::
 
-   Interpolation is supported for most, but not all, of the elements
-   that Firedrake provides. In particular, higher-continuity elements
-   such as Argyris and Hermite do not presently support interpolation.
+   The extension of dual basis functions to :math:`e` usually follows from the
+   definition of the dual basis. For example, point evaluation and integral
+   nodes can naturally be extended to any expression which is evaluatable at
+   the relevant points, or integrable over that domain. 
+   
+   Firedrake will not impose any constraints on the expression to be
+   interpolated beyond that its value shape matches that of the space into
+   which it is interpolated. If the user interpolates an expression for which
+   the nodes are not well defined (for example point evaluation at a
+   discontinuity), the result is implementation-dependent. 
 
-The recommended way to specify the source expression is UFL.  UFL_
-produces clear error messages in case of syntax or type errors, yet
+The interpolate operator
+------------------------
+
+.. note:: 
+   The semantics for interpolation in Firedrake are in the course of changing.
+   The documentation provided here is for the new behaviour, in which the
+   `interpolate` operator is symbolic. In order to access the behaviour
+   documented here (which is recommended), users need to use the following
+   import line:
+
+   .. code-block:: python3
+
+      from firedrake.__future__ import interpolate
+
+
+The basic syntax for interpolation is:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 1]
+   :end-before: [test_interpolate_operator 2]
+
+It is also possible to interpolate an expression directly into an existing
+:py:class:`~.Function`:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 3]
+   :end-before: [test_interpolate_operator 4]
+
+This is a numerical operation, equivalent to:
+
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 5]
+   :end-before: [test_interpolate_operator 6]
+
+
+The source expression can be any UFL_ expression with the correct shape.
+UFL produces clear error messages in case of syntax or type errors, yet
 UFL expressions have good run-time performance, since they are
 translated to C interpolation kernels using TSFC_ technology.
 Moreover, UFL offers a rich language for describing expressions,
@@ -46,67 +93,27 @@ including:
 
 Here is an example demonstrating some of these features:
 
-.. code-block:: python3
-
-   # g is a vector-valued Function, e.g. on an H(div) function space
-   f = interpolate(sqrt(3.2 * div(g)), V)
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 7]
+   :end-before: [test_interpolate_operator 8]
 
 This also works as expected when interpolating into a a space defined on the facets
 of the mesh:
 
-.. code-block:: python3
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 9]
+   :end-before: [test_interpolate_operator 10]
 
-   # where trace is a trace space on the current mesh:
-   f = interpolate(expression, trace)
+.. note::
 
-
-Interpolator objects
---------------------
-
-Firedrake is also able to generate reusable :py:class:`~.Interpolator`
-objects which provide caching of the interpolation operation. The
-following line creates an interpolator which will interpolate the
-current value of `expression` into the space `V`:
-
-.. code-block:: python3
-
-   interpolator = Interpolator(expression, V)
-
-If `expression` does not contain a :py:func:`~ufl.TestFunction` then
-the interpolation can be performed with:
-
-.. code-block:: python3
-
-   f = interpolator.interpolate()
-
-Alternatively, one can use the interpolator to set the value of an existing :py:class:`~.Function`:
-
-.. code-block:: python3
-
-   f = Function(V)
-   interpolator.interpolate(output=f)
-
-If `expression` contains a :py:func:`~ufl.TestFunction` then
-the interpolator acts to interpolate :py:class:`~.Function`\s in the
-test space to those in the target space. For example:
-
-.. code-block:: python3
-
-   w = TestFunction(W)
-   interpolator = Interpolator(w, V)
-
-Here, `interpolator` acts as the interpolation matrix from the
-:py:func:`~.FunctionSpace` W into the
-:py:func:`~.FunctionSpace` V. Such that if `f` is a
-:py:class:`~.Function` in `W` then `g = interpolator.interpolate(f)` is its
-interpolation into a function `g` in `V`. As before, the `output` parameter can
-be used to write into an existing :py:class:`~.Function`. Passing the
-`transpose=True` option to :py:meth:`~.Interpolator.interpolate` will
-cause the transpose interpolation to occur. This is equivalent to the
-multigrid restriction operation which interpolates assembled 1-forms
-in the dual space to `V` to assembled 1-forms in the dual space to
-`W`.
-
+   Interpolation is supported into most, but not all, of the elements that
+   Firedrake provides. In particular it is not currently possible to
+   interpolate into spaces defined by higher-continuity elements such as
+   Argyris and Hermite.
 
 Interpolation across meshes
 ---------------------------
@@ -286,22 +293,12 @@ the external data source, but the precise details are not relevant
 now.  In this case, interpolation into a target function space ``V``
 proceeds as follows:
 
-.. code-block:: python3
 
-   # First, grab the mesh.
-   m = V.mesh()
-
-   # Now make the VectorFunctionSpace corresponding to V.
-   W = VectorFunctionSpace(m, V.ufl_element())
-
-   # Next, interpolate the coordinates onto the nodes of W.
-   X = interpolate(m.coordinates, W)
-
-   # Make an output function.
-   f = Function(V)
-
-   # Use the external data function to interpolate the values of f.
-   f.dat.data[:] = mydata(X.dat.data_ro)
+.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_external 1]
+   :end-before: [test_interpolate_external 2]
 
 This will also work in parallel, as the interpolation will occur on
 each process, and Firedrake will take care of the halo updates before
@@ -309,65 +306,6 @@ the next operation using ``f``.
 
 For interaction with external point data, see the
 :ref:`corresponding manual section <external-point-data>`.
-
-
-C string expressions
---------------------
-
-.. warning::
-
-   C string expressions were a FEniCS compatibility feature which has
-   now been removed. Users should use UFL expressions instead. This
-   section only remains to assist in the transition of existing code.
-
-Here are a couple of old-style C string expressions, and their modern replacements.
-
-.. code-block:: python3
-
-   # Expression:
-   f = interpolate(Expression("sin(x[0]*pi)"), V)
-
-   # UFL equivalent:
-   x = SpatialCoordinate(V.mesh())
-   f = interpolate(sin(x[0] * math.pi), V)
-
-   # Expression with a Constant parameter:
-   f = interpolate(Expression('sin(x[0]*t)', t=t), V)
-
-   # UFL equivalent:
-   x = SpatialCoordinate(V.mesh())
-   f = interpolate(sin(x[0] * t), V)
-
-
-Python expression classes
--------------------------
-
-.. warning::
-
-   Python expression classes were a FEniCS compatibility feature which has
-   now been removed. Users should use UFL expressions instead. This
-   section only remains to assist in the transition of existing code.
-
-Since Python ``Expression`` classes expressions are
-deprecated, below are a few examples on how to replace them with UFL
-expressions:
-
-.. code-block:: python3
-
-   # Python expression:
-   class MyExpression(Expression):
-       def eval(self, value, x):
-           value[:] = numpy.dot(x, x)
-
-       def value_shape(self):
-           return ()
-
-   f.interpolate(MyExpression())
-
-   # UFL equivalent:
-   x = SpatialCoordinate(f.function_space().mesh())
-   f.interpolate(dot(x, x))
-
 
 Generating Functions with randomised values
 -------------------------------------------

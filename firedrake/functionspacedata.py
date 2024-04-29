@@ -75,16 +75,17 @@ def get_global_numbering(mesh, key, global_numbering=None):
     entities.
 
     :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
+    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple where
         nodes_per_entity is a tuple of the number of nodes per topological
         entity; real_tensorproduct is True if the function space is a
-        degenerate fs x Real tensorproduct.
+        degenerate fs x Real tensorproduct; boundary_set is a set of boundary
+        markers, indicating sub-domains a boundary condition is specified on.
     :returns: A new PETSc Section.
     """
     if global_numbering:
         return global_numbering
-    nodes_per_entity, real_tensorproduct = key
-    return mesh.create_section(nodes_per_entity, real_tensorproduct)
+    nodes_per_entity, real_tensorproduct, boundary_set = key
+    return mesh.create_section(nodes_per_entity, real_tensorproduct, boundary_set=boundary_set)
 
 
 @cached
@@ -92,17 +93,18 @@ def get_node_set(mesh, key):
     """Get the :class:`node set <pyop2.Set>`.
 
     :arg mesh: The mesh to use.
-    :arg key: a (nodes_per_entity, real_tensorproduct) tuple where
-        nodes_per_entity is a tuple of the number of nodes per topological
-        entity; real_tensorproduct is True if the function space is a
-        degenerate fs x Real tensorproduct.
+    :arg key: a (nodes_per_entity, real_tensorproduct, boundary_set) tuple
+        where nodes_per_entity is a tuple of the number of nodes per
+        topological entity; real_tensorproduct is True if the function space is
+        a degenerate fs x Real tensorproduct; boundary_set is a set of boundary
+        markers, indicating sub-domains a boundary condition is specified on.
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
-    nodes_per_entity, real_tensorproduct = key
-    global_numbering = get_global_numbering(mesh, (nodes_per_entity, real_tensorproduct))
+    nodes_per_entity, real_tensorproduct, _ = key
+    global_numbering, constrained_size = get_global_numbering(mesh, key)
     node_classes = mesh.node_classes(nodes_per_entity, real_tensorproduct=real_tensorproduct)
     halo = halo_mod.Halo(mesh.topology_dm, global_numbering, comm=mesh.comm)
-    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
+    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm, constrained_size=constrained_size)
     extruded = mesh.cell_set._extruded
 
     assert global_numbering.getStorageSize() == node_set.total_size
@@ -150,7 +152,8 @@ def get_entity_node_lists(mesh, key, entity_dofs, entity_permutations, global_nu
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key) tuple.
+    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
+        boundary_set) tuple.
     :arg entity_dofs: FInAT entity dofs.
     :arg entity_permutations: FInAT entity permutations.
     :arg global_numbering: The PETSc Section describing node layout
@@ -183,10 +186,12 @@ def get_map_cache(mesh, key):
     """Get the map cache for this mesh.
 
     :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key) tuple where
-        entity_dofs is Canonicalised entity_dofs (see :func:`entity_dofs_key`);
-        real_tensorproduct is True if the function space is a degenerate
-        fs x Real tensorproduct.
+    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
+        boundary_set) tuple where entity_dofs is Canonicalised entity_dofs
+        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
+        function space is a degenerate fs x Real tensorproduct; boundary_set is
+        the set of subdomains a restricted function space is applied to, or
+        None if using a regular function space.
     """
     if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
         return {mesh.cell_set: None}
@@ -268,13 +273,13 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     """Get top or bottom boundary nodes of an extruded function space.
 
     :arg mesh: The mesh to cache on.
-    :arg key: The key a 2-tuple of ``(entity_dofs_key, sub_domain)``.
+    :arg key: A 3-tuple of ``(entity_dofs_key, sub_domain, boundary_set)`` key.
         Where sub_domain indicates top or bottom.
     :arg V: The FunctionSpace to select from.
     :arg entity_dofs: The flattened entity dofs.
     :returnsL: A numpy array of the (unique) boundary nodes.
     """
-    _, sub_domain = key
+    _, sub_domain, boundary_set = key
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
@@ -302,11 +307,11 @@ def get_facet_closure_nodes(mesh, key, V):
     """Function space nodes in the closure of facets with a given
     marker.
     :arg mesh: Mesh to cache on
-    :arg key: (edofs, sub_domain) tuple
+    :arg key: (edofs, sub_domain, boundary_set) tuple
     :arg V: function space.
     :returns: numpy array of unique nodes in the closure of facets
        with provided markers (both interior and exterior)."""
-    _, sub_domain = key
+    _, sub_domain, boundary_set = key
     if sub_domain not in {"on_boundary", "top", "bottom"}:
         valid = set(mesh.interior_facets.unique_markers)
         valid |= set(mesh.exterior_facets.unique_markers)
@@ -396,16 +401,21 @@ class FunctionSpaceData(object):
 
     :arg mesh: The mesh to share the data on.
     :arg ufl_element: The UFL element.
+    :arg boundary_set: The set of subdomains that a Dirichlet boundary condition
+        will act on. This is None if the function space is not a
+        :class:`.RestrictedFunctionSpace`.
     """
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset", "offset_quotient",
-                 "extruded", "mesh", "global_numbering")
+                 "extruded", "mesh", "global_numbering", "boundary_set")
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, ufl_element):
+    def __init__(self, mesh, ufl_element, boundary_set=None):
         if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
+
+        self.boundary_set = boundary_set
 
         finat_element = create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
@@ -418,9 +428,9 @@ class FunctionSpaceData(object):
 
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
-        key = (nodes_per_entity, real_tensorproduct)
+        key = (nodes_per_entity, real_tensorproduct, boundary_set)
         # These are keyed only on nodes per topological entity.
-        global_numbering = get_global_numbering(mesh, key)
+        global_numbering, constrained_size = get_global_numbering(mesh, key)
         node_set = get_node_set(mesh, key)
 
         edofs_key = entity_dofs_key(entity_dofs)
@@ -432,7 +442,7 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key))
+        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set))
 
         if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
             self.offset = eutils.calculate_dof_offset(finat_element)
@@ -443,7 +453,7 @@ class FunctionSpaceData(object):
         else:
             self.offset_quotient = None
 
-        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
+        self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set), entity_dofs, entity_permutations, global_numbering, self.offset)
         self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
@@ -473,14 +483,14 @@ class FunctionSpaceData(object):
                 raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
                                  sub_domain)
             entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-            key = (entity_dofs_key(entity_dofs), sub_domain)
+            key = (entity_dofs_key(entity_dofs), sub_domain, V.boundary_set)
             return get_top_bottom_boundary_nodes(V.mesh(), key, V)
         else:
             if sub_domain == "on_boundary":
                 sdkey = sub_domain
             else:
                 sdkey = as_tuple(sub_domain)
-            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, V.boundary_set)
             return get_facet_closure_nodes(V.mesh(), key, V)
 
     @PETSc.Log.EventDecorator()
@@ -511,12 +521,14 @@ class FunctionSpaceData(object):
 
 
 @PETSc.Log.EventDecorator()
-def get_shared_data(mesh, ufl_element):
+def get_shared_data(mesh, ufl_element, boundary_set=None):
     """Return the ``FunctionSpaceData`` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
     :arg ufl_element: A UFL element.
+    :arg boundary_set: A set of boundary markers, indicating the subdomains a
+        boundary condition is specified on.
     :raises ValueError: if mesh or ufl_element are invalid.
     :returns: a ``FunctionSpaceData`` object with the shared
         data.
@@ -526,4 +538,4 @@ def get_shared_data(mesh, ufl_element):
     if not isinstance(ufl_element, finat.ufl.finiteelement.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
                          type(ufl_element))
-    return FunctionSpaceData(mesh, ufl_element)
+    return FunctionSpaceData(mesh, ufl_element, boundary_set)

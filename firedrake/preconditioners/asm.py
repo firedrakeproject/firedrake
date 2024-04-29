@@ -114,8 +114,9 @@ class ASMPatchPC(PCBase):
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization
-        for sub in self.asmpc.getASMSubKSP():
-            sub.getOperators()[0].setUnfactored()
+        if self.asmpc.getType() == "asm":
+            for sub in self.asmpc.getASMSubKSP():
+                sub.getOperators()[0].setUnfactored()
 
     def apply(self, pc, x, y):
         self.asmpc.apply(x, y)
