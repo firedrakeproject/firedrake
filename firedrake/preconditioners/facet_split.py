@@ -1,6 +1,8 @@
 from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
+from pyop2.utils import as_tuple
+from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -38,9 +40,8 @@ class FacetSplitPC(PCBase):
         return self._permutation_cache[key]
 
     def initialize(self, pc):
-        from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
-        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
         from firedrake.assemble import get_assembler
+        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -65,14 +66,6 @@ class FacetSplitPC(PCBase):
         V = a.arguments()[-1].function_space()
         assert len(V) == 1, "Interior-facet decomposition of mixed elements is not supported"
 
-        def restrict(ele, restriction_domain):
-            if isinstance(ele, VectorElement):
-                return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
-            elif isinstance(ele, TensorElement):
-                return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
-            else:
-                return RestrictedElement(ele, restriction_domain)
-
         # W = V[interior] * V[facet]
         W = FunctionSpace(V.mesh(), MixedElement([restrict(V.ufl_element(), d) for d in ("interior", "facet")]))
         assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
@@ -87,21 +80,23 @@ class FacetSplitPC(PCBase):
             self.perm = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             self.iperm = self.perm.invertPermutation()
 
+        def _permute_nullspace(nsp):
+            if not (nsp.handle and self.iperm):
+                return nsp
+            pvecs = []
+            for vec in nsp.getVecs():
+                pvec = vec.duplicate()
+                self._vec_permute(vec, pvec, self.iperm)
+                pvecs.append(pvec)
+
+            return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=pvecs, comm=nsp.getComm())
+
         if mat_type != "submatrix":
             form_assembler = get_assembler(mixed_operator, bcs=mixed_bcs, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
             self.mixed_op = form_assembler.allocate()
             self._assemble_mixed_op = form_assembler.assemble
             self._assemble_mixed_op(tensor=self.mixed_op)
             mixed_opmat = self.mixed_op.petscmat
-
-            def _permute_nullspace(nsp):
-                if not (nsp.handle and self.iperm):
-                    return nsp
-                vecs = [vec.duplicate() for vec in nsp.getVecs()]
-                for vec in vecs:
-                    self.work_vec_x.getArray(readonly=False)[:] = vec.getArray(readonly=True)[:]
-                    self._vec_permute(self.work_vec_x, vec, self.iperm)
-                return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vecs, comm=nsp.getComm())
 
             mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
             mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
@@ -111,6 +106,10 @@ class FacetSplitPC(PCBase):
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             mixed_opmat = self._permute_op()
+
+            mixed_opmat.setNullSpace(_permute_nullspace(P.getNullSpace()))
+            mixed_opmat.setNearNullSpace(_permute_nullspace(P.getNearNullSpace()))
+            mixed_opmat.setTransposeNullSpace(_permute_nullspace(P.getTransposeNullSpace()))
         else:
             mixed_opmat = P
 
@@ -194,32 +193,38 @@ class FacetSplitPC(PCBase):
                 self.perm.destroy()
 
 
-def split_dofs(elem):
+def restrict(ele, restriction_domain):
+    if isinstance(ele, VectorElement):
+        return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
+    elif isinstance(ele, TensorElement):
+        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+    else:
+        return RestrictedElement(ele, restriction_domain)
+
+
+def split_dofs(elem, dim=None):
     """ Split DOFs into interior and facet DOF, where facets are sorted by entity.
     """
+    if dim is None:
+        dim = elem.cell.get_spatial_dimension()
     entity_dofs = elem.entity_dofs()
-    ndim = elem.cell.get_spatial_dimension()
     edofs = [[], []]
     for key in sorted(entity_dofs.keys()):
         vals = entity_dofs[key]
-        edim = key
-        try:
-            edim = sum(edim)
-        except TypeError:
-            pass
+        edim = sum(as_tuple(key))
         for k in sorted(vals.keys()):
-            edofs[edim < ndim].extend(sorted(vals[k]))
+            edofs[edim < dim].extend(sorted(vals[k]))
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
-def restricted_dofs(celem, felem):
+def restricted_dofs(celem, felem, dim=None):
     """ Find which DOFs from felem are on celem
     :arg celem: the restricted :class:`finat.FiniteElement`
     :arg felem: the unrestricted :class:`finat.FiniteElement`
     :returns: :class:`numpy.array` with indices of felem that correspond to celem
     """
-    csplit = split_dofs(celem)
-    fsplit = split_dofs(felem)
+    csplit = split_dofs(celem, dim=dim)
+    fsplit = split_dofs(felem, dim=dim)
     if len(csplit[0]) and len(csplit[1]):
         csplit = [numpy.concatenate(csplit)]
         fsplit = [numpy.concatenate(fsplit)]
@@ -232,10 +237,19 @@ def restricted_dofs(celem, felem):
     return fsplit[k][perm]
 
 
-def get_permutation_map(V, W):
-    perm = numpy.full((V.dof_count,), -1, dtype=PETSc.IntType)
-    vdat = V.make_dat(val=perm)
+def copy_kernel(size):
+    kernel_code = f"""
+    void copy(PetscInt *restrict y, const PetscInt *restrict x) {{
+        for (PetscInt i=0; i<{size}; i++) y[i] = x[i];
+    }}"""
+    return op2.Kernel(kernel_code, "copy", requires_zeroed_output_arguments=False)
 
+
+def reference_space_dimension(V):
+    return sum(Vsub.finat_element.space_dimension() * Vsub.value_size for Vsub in V)
+
+
+def get_permutation_map(V, W):
     offset = 0
     wdats = []
     for Wsub in W:
@@ -243,17 +257,29 @@ def get_permutation_map(V, W):
         wdats.append(Wsub.make_dat(val=val))
         offset += Wsub.dof_dset.layout_vec.sizes[0]
     wdat = op2.MixedDat(wdats)
-    size = sum(Wsub.finat_element.space_dimension() * Wsub.value_size for Wsub in W)
+    vdat = V.make_dat(val=numpy.full((V.dof_count,), -1, dtype=PETSc.IntType))
+
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     pmap = PermutedMap(V.cell_node_map(), eperm)
+    size = reference_space_dimension(V)
+    op2.par_loop(copy_kernel(size), V.mesh().cell_set, vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
+    return vdat.data_ro
 
-    kernel_code = f"""
-    void permutation(PetscInt *restrict v, const PetscInt *restrict w) {{
-        for (PetscInt i=0; i<{size}; i++) v[i] = w[i];
-    }}"""
-    kernel = op2.Kernel(kernel_code, "permutation", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set,
-                 vdat(op2.WRITE, pmap), wdat(op2.READ, W.cell_node_map()))
 
-    own = V.dof_dset.layout_vec.sizes[0]
-    return perm[:own]
+def restricted_local_dofs(V, W):
+    vdat = V.make_dat(val=numpy.arange(0, sum(as_tuple(V.dof_count)), dtype=PETSc.IntType))
+    wdat = W.make_dat(val=numpy.full((sum(as_tuple(W.dof_count)),), -1, dtype=PETSc.IntType))
+
+    Vsize = reference_space_dimension(V)
+    Wsize = reference_space_dimension(W)
+    edofs = W[len(W)-1].finat_element.entity_dofs()
+    wdim = 0
+    for dim in sorted(edofs):
+        if any(len(edofs[dim][entity]) > 0 for entity in edofs[dim]):
+            wdim = sum(as_tuple(dim)) + 1
+
+    eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element, dim=wdim) for Wsub in W])
+    eperm = numpy.concatenate([eperm, numpy.setdiff1d(numpy.arange(0, Vsize, dtype=PETSc.IntType), eperm)])
+    pmap = PermutedMap(V.cell_node_map(), eperm)
+    op2.par_loop(copy_kernel(Wsize), V.mesh().cell_set, wdat(op2.WRITE, W.cell_node_map()), vdat(op2.READ, pmap))
+    return wdat.data_ro
