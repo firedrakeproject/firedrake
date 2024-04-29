@@ -323,7 +323,6 @@ class FDMPC(PCBase):
                     Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
                     assembly_callables.append(P.assemble)
                     assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
-                    # assembly_callables.append(P.view)
                 else:
                     v = numpy.ones(bdofs.shape, PETSc.ScalarType)
                     assembly_callables.append(partial(P.setValuesLocalRCV, bdofs, bdofs, v, addv=addv))
