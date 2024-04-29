@@ -17,7 +17,7 @@ def get_plex_with_update_coordinates(mesh):
     gdim = mesh.geometric_dimension()
     entity_dofs = np.zeros(tdim + 1, dtype=np.int32)
     entity_dofs[0] = gdim
-    coord_section = mesh.create_section(entity_dofs)
+    coord_section, _ = mesh.create_section(entity_dofs)
 
     plex = mesh.topology_dm.clone()
     remove_pyop2_label(plex)

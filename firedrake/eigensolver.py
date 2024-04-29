@@ -1,9 +1,13 @@
 """Specify and solve finite element eigenproblems."""
 from firedrake.assemble import assemble
+from firedrake.bcs import DirichletBC
 from firedrake.function import Function
+from firedrake.functionspace import RestrictedFunctionSpace
+from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
 from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
+from ufl import replace, inner, dx
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -28,35 +32,56 @@ class LinearEigenproblem():
     bcs : DirichletBC or list of DirichletBC
         The boundary conditions.
     bc_shift: float
-        The value to shift the boundary condition eigenvalues by.
+        The value to shift the boundary condition eigenvalues by. This value
+        will be ignored if restrict==True.
+    restrict: bool
+        If True, replace the function spaces of u and v with their restricted
+        version. The output space remains unchanged.
 
     Notes
     -----
+    If restrict==True, the arguments of A and M will be replaced, such that
+    their function space is replaced by the equivalent RestrictedFunctionSpace
+    class. This avoids the computation of eigenvalues associated with the
+    Dirichlet boundary conditions. This in turn prevents convergence failures,
+    and allows only the non-boundary eigenvalues to be returned. The
+    eigenvectors will be in the original, non-restricted space.
 
-    If Dirichlet boundary conditions are supplied then these will result in the
-    eigenproblem having a nullspace spanned by the basis functions with support
-    on the boundary. To facilitate solution, this is shifted by the specified
-    amount. It is the user's responsibility to ensure that the shift is not
-    close to an actual eigenvalue of the system.
+    If restrict==False and Dirichlet boundary conditions are supplied, then
+    these conditions will result in the eigenproblem having a nullspace spanned
+    by the basis functions with support on the boundary. To facilitate
+    solution, this is shifted by the specified amount. It is the user's
+    responsibility to ensure that the shift is not close to an actual
+    eigenvalue of the system.
     """
-    def __init__(self, A, M=None, bcs=None, bc_shift=0.0):
+    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=True):
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
                 "(try firedrake-update --slepc)"
             )
 
-        self.A = A  # LHS
         args = A.arguments()
         v, u = args
-        if M:
-            self.M = M
-        else:
-            from ufl import inner, dx
-            self.M = inner(u, v) * dx
         self.output_space = u.function_space()
-        self.bcs = bcs
         self.bc_shift = bc_shift
+        self.restrict = restrict
+
+        if not M:
+            M = inner(u, v) * dx
+
+        if restrict and bcs:  # assumed u and v are in the same space here
+            V_res = RestrictedFunctionSpace(self.output_space, boundary_set=set([bc.sub_domain for bc in bcs]))
+            u_res = TrialFunction(V_res)
+            v_res = TestFunction(V_res)
+            self.M = replace(M, {u: u_res, v: v_res})
+            self.A = replace(A, {u: u_res, v: v_res})
+            self.bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            self.restricted_space = V_res
+        else:
+            self.A = A  # LHS
+            self.M = M
+            self.bcs = bcs
 
     def dirichlet_bcs(self):
         """Return an iterator over the Dirichlet boundary conditions."""
@@ -66,7 +91,10 @@ class LinearEigenproblem():
     @utils.cached_property
     def dm(self):
         r"""Return the dm associated with the output space."""
-        return self.output_space.dm
+        if self.restrict:
+            return self.restricted_space.dm
+        else:
+            return self.output_space.dm
 
 
 class LinearEigensolver(OptionsManager):
@@ -186,9 +214,16 @@ class LinearEigensolver(OptionsManager):
         (Function, Function)
             The real and imaginary parts of the eigenfunction.
         """
-        eigenmodes_real = Function(self._problem.output_space)  # fn of V
-        eigenmodes_imag = Function(self._problem.output_space)
+        if self._problem.restrict:
+            eigenmodes_real = Function(self._problem.restricted_space)
+            eigenmodes_imag = Function(self._problem.restricted_space)
+        else:
+            eigenmodes_real = Function(self._problem.output_space)  # fn of V
+            eigenmodes_imag = Function(self._problem.output_space)
         with eigenmodes_real.dat.vec_wo as vr:
             with eigenmodes_imag.dat.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
+        if self._problem.restrict:
+            eigenmodes_real = Function(self._problem.output_space).interpolate(eigenmodes_real)
+            eigenmodes_imag = Function(self._problem.output_space).interpolate(eigenmodes_imag)
         return eigenmodes_real, eigenmodes_imag  # returns Firedrake fns
