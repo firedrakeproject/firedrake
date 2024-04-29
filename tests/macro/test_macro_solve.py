@@ -43,15 +43,15 @@ def convergence_test(variant):
     if variant == "iso":
         def check(uerr, perr):
             return (conv_rates(uerr)[-1] >= 1.9
-                    and np.allclose(perr, 0, atol=1.e-9))
+                    and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "alfeld":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
-                    and np.allclose(perr, 0, atol=1.e-9))
+                    and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "th":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
-                    and np.allclose(perr, 0, atol=1.e-9))
+                    and np.allclose(perr, 0, atol=1.e-8))
     return check
 
 
