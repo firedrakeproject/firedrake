@@ -180,14 +180,6 @@ class _FacetContext:
     def set(self):
         return self._owned_facet_dat.axes
 
-    @utils.cached_property
-    def _null_subset(self):
-        '''Empty subset for the case in which there are no facets with
-        a given marker value. This is required because not all
-        markers need be represented on all processors.'''
-
-        return op2.Subset(self.set, [])
-
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -287,46 +279,38 @@ class _FacetContext:
         marked_points_list = []
         for i in markers:
             if i == unmarked:
-                raise NotImplementedError
                 _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
                 # Can exclude points labeled with i\in markers here,
                 # as they will be included in the below anyway.
                 marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
             elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-                marked_points = self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices
-
-                f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
-
-                nmarked_facets = 0
-                for point in marked_points:
-                    if f_start <= point < f_stop:
-                        nmarked_facets += 1
-
-                # renumber the points
-                marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
-                facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
-                fi = 0
-                for point in marked_points:
-                    if f_start <= point < f_stop:
-                        marked_points_renum[fi] = facet_numbering[point - f_start]
-                        fi += 1
-                assert fi == nmarked_facets
-                marked_points_list.append(marked_points_renum)
-
-        if marked_points_list:
-            _, indices, _ = np.intersect1d(
-                self._owned_facet_data,
-                functools.reduce(np.union1d, marked_points_list),
-                return_indices=True
-            )
-            indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
-            subset = op3.Slice(
-                self.mesh.topology.name,
-                [op3.Subset(self._owned_facet_label, indices_dat)],
-            )
-        else:
-            raise NotImplementedError
-            subset = self._null_subset
+                marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+        f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
+        nmarked_facets = 0
+        for marked_points in marked_points_list:
+            for point in marked_points:
+                if f_start <= point < f_stop:
+                    nmarked_facets += 1
+        # renumber the points
+        marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
+        facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
+        fi = 0
+        for marked_points in marked_points_list:
+            for point in marked_points:
+                if f_start <= point < f_stop:
+                    marked_points_renum[fi] = facet_numbering[point - f_start]
+                    fi += 1
+        assert fi == nmarked_facets
+        _, indices, _ = np.intersect1d(
+            self._owned_facet_data,
+            np.unique(marked_points_renum),
+            return_indices=True
+        )
+        indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
+        subset = op3.Slice(
+            self.mesh.topology.name,
+            [op3.Subset(self._owned_facet_label, indices_dat)],
+        )
         return self._subsets.setdefault(markers, subset)
 
     def _collect_unmarked_points(self, markers):
@@ -337,9 +321,9 @@ class _FacetContext:
             if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
                 indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
         if indices_list:
-            return np.setdiff1d(self.facets, np.concatenate(indices_list))
+            return np.setdiff1d(self._facet_data_default, np.concatenate(indices_list))
         else:
-            return self.facets
+            return self._facet_data_default
 
     @property
     def _facet_label(self):
