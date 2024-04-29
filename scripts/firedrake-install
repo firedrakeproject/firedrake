@@ -1199,7 +1199,7 @@ def build_and_install_x4py(package="petsc4py"):
             try:
                 check_output(pipinstall + pipargs)
             except subprocess.CalledProcessError:
-                with open(os.path.join(x4py_copy, "README.md")) as fh:
+                with open(os.path.join(x4py_copy, "README.rst")) as fh:
                     fh.write("# Unable to install {}\n".format(package))
                     fh.write("This is just a copy of the {} source for debugging\n".format(package))
                     fh.write("See `firedrake-install.log` for the error")

@@ -84,7 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch petsc dolci/upstream_updates \
+            --package-branch petsc dolci/merge_petsc_upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
