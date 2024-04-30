@@ -107,24 +107,29 @@ to define an ensemble object::
     M = 1
     my_ensemble = Ensemble(COMM_WORLD, M)
 
-``my_ensemble`` requires a communicator (``COMM_WORLD``) and a value ``M`` used to configurate the ensemble
+``my_ensemble`` requires a communicator (``COMM_WORLD``) and a value ``M`` used to configure the ensemble
 parallelism. Based on the value of ``M`` and the number of MPI processes, :class:`~.ensemble.Ensemble` will
-split the number of MPI processes into two ensemble members: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
-The ``Ensemble.comm`` will be the mesh communicator, and the ``Ensemble.ensemble_comm`` will be the communicator
-used to parallelise the sources. In this example, we are going to simulate an FWI problem with two sources and 4
-MPI processes. Hence, the ``Ensemble.ensemble_comm`` will have two members, and the ``Ensemble.comm`` will have
-four members, i. e, the mesh will be parallelised in 2 parts. To have a better understanding of the ensemble
-parallelism, please refer to the `Firedrake manual
-<hhttps://www.firedrakeproject.org/parallelism.html#id8>`__.
+split the number of MPI processes into two communicators: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
+The mesh is distributed over the ``Ensemble.comm`` ranks. For each ``Ensemble.comm`` communicator, we have
+an associated ``Ensemble.ensemble_comm`` communicator. To explain how that works, let us consider that for
+every source we want the mesh distributed over 2 ranks. For this case, we set ``M=2``. In addition, let us
+suppose that we want to compute the functional and its gradient for 4 sources. In this case, we have four 
+``Ensemble.comm`` communicators and each one has two ranks. Every ``Ensemble.comm`` communicator has an
+associated ``Ensemble.ensemble_comm`` communicator. Therefore, we have to consider the total number of
+MPI processes equal to (4 sources) x (2 parts) = 8 MPI processes. 
 
-The number of sources are set according the source ensemble communicator ``my_ensemble.ensemble_comm`` size, and
-the source number in based on the ensemble communicator rank.::
+To have a better understanding of the ensemble parallelism, please refer to the
+`Firedrake manual <hhttps://www.firedrakeproject.org/parallelism.html#id8>`__.
+
+The number of sources are set according the source ensemble communicator size ``my_ensemble.ensemble_comm.size``
+(4 in this case), and the source number in based on the ensemble communicator rank ``my_ensemble.ensemble_comm.rank``
+(0, 1, 2, 3)::
 
     num_sources = my_ensemble.ensemble_comm.size
     source_number = my_ensemble.ensemble_comm.rank
 
 We consider a two dimensional square domain with side length 1.0 km. The mesh is generated over
-the `my_ensemble.comm` communicator::
+the ``my_ensemble.comm`` communicator::
     
     Lx, Lz = 1.0, 1.0
     mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
@@ -272,14 +277,14 @@ We then write the code to solve the wave equation and compute the functional::
 
 
 We use the :class:`~.EnsembleReducedFunctional` class to recompute in parallel the functional and
-its gradient associated with the multiple sources (2 in this case)::
+its gradient associated with the multiple sources (4 in this case)::
 
     J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
 
 
 Finally, we use the ``minimize`` pyadjoiny function to solve the FWI problem. ``minimize`` requires
 the reduced functional ``J_hat`` and the optimisation options. The optimisation options are passed
-as a dictionary. In summary, the `minimize` function will execute  steps 2-5 of the FWI problem::
+as a dictionary. In summary, the ``minimize`` function will execute  steps 2-5 of the FWI problem::
 
     c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 5}, bounds=(1.5, 3.5))
 
