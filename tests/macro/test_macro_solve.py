@@ -6,7 +6,7 @@ from firedrake import *
 @pytest.fixture(params=("square", "cube"))
 def mh(request):
     if request.param == "square":
-        base_msh = UnitSquareMesh(2, 2)
+        base_msh = UnitSquareMesh(3, 3)
     elif request.param == "cube":
         base_msh = UnitCubeMesh(2, 2, 2)
     return MeshHierarchy(base_msh, 2)
@@ -47,20 +47,32 @@ def convergence_test(variant):
     elif variant == "alfeld":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
-                    and np.allclose(perr, 0, atol=1.e-7))
+                    and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "th":
         def check(uerr, perr):
             return (np.allclose(uerr, 0, atol=1.e-10)
-                    and np.allclose(perr, 0, atol=1.e-7))
+                    and np.allclose(perr, 0, atol=1.e-8))
     return check
 
 
 @pytest.fixture
 def div_test(variant):
-    if variant in ["iso", "th"]:
-        return lambda x: norm(div(x)) > 1.e-5
-    elif variant == "alfeld":
+    if variant == "alfeld":
         return lambda x: norm(div(x)) <= 1.e-10
+    else:
+        return lambda x: norm(div(x)) > 1.e-5
+
+
+def riesz_map(Z, gamma=None):
+    v, q = TestFunctions(Z)
+    u, p = TrialFunctions(Z)
+    a = inner(grad(u), grad(v))*dx
+    if gamma is not None:
+        a += inner(div(u) * gamma, div(v))*dx
+        a += inner(p / gamma, q)*dx
+    else:
+        a += inner(p, q) * dx
+    return a
 
 
 def test_riesz(mh, variant, mixed_element, convergence_test):
@@ -75,11 +87,9 @@ def test_riesz(mh, variant, mixed_element, convergence_test):
         V = VectorFunctionSpace(msh, el1)
         Q = FunctionSpace(msh, el2)
         Z = V * Q
-        u, p = TrialFunctions(Z)
-        test = TestFunction(Z)
-        v, q = split(test)
 
-        a = inner(grad(u), grad(v)) * dx + inner(p, q) * dx
+        a = riesz_map(Z)
+        test, trial = a.arguments()
         L = a(test, as_vector(zexact))
         bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
 
@@ -118,14 +128,15 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
     dim = mh[0].geometric_dimension()
     if variant == "iso" and dim == 3:
         pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
-    sp = {"pc_factor_mat_ordering_type": "natural"} if variant == "th" else None
+
     u_err = []
     p_err = []
     el1, el2 = mixed_element
     for msh in mh:
         x = SpatialCoordinate(msh)
         uexact = (sum(x),) + tuple(x[i]**2 for i in range(dim-1))
-        zexact = (*uexact, x[dim-1])
+        pexact = x[dim-1] - Constant(0.5)
+        zexact = (*uexact, pexact)
 
         V = VectorFunctionSpace(msh, el1)
         Q = FunctionSpace(msh, el2)
@@ -134,11 +145,9 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
         a, L = stokes_mms(Z, as_vector(zexact))
         bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
 
-        nullspace = MixedVectorSpaceBasis(
-            Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=Z.comm)])
-
         zh = Function(Z)
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters=sp)
+        nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "gmres"})
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornormL2_0(zexact[-1], ph))

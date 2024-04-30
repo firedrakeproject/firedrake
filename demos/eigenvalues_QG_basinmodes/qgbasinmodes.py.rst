@@ -4,7 +4,8 @@ Oceanic Basin Modes: Quasi-Geostrophic approach
 .. rst-class:: emphasis
 
    This tutorial was contributed by Christine Kaufhold and `Francis
-   Poulin <mailto:fpoulin@uwaterloo.ca>`__.
+   Poulin <mailto:fpoulin@uwaterloo.ca>`__. The tutorial was later updated by
+   Emma Rothwell to add in the restrict flag in the LinearEigenproblem.
 
 As a continuation of the Quasi-Geostrophic (QG) model described in the other
 tutorial, we will now see how we can use Firedrake to compute the spatial
@@ -138,12 +139,14 @@ We define the Test Function :math:`\phi` and the Trial Function
 
 To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
-:math:`A\psi = \lambda M\psi` ::
+:math:`A\psi = \lambda M\psi`. This eigenproblem takes `restrict=True` to help
+users to avoid convergence failures by removing eigenvalues on the 
+boundary, while preserving the original function space for the eigenmodes. ::
 
   eigenproblem = LinearEigenproblem(
           A=beta*phi*psi.dx(0)*dx,
           M=-inner(grad(psi), grad(phi))*dx - F*psi*phi*dx,
-          bcs=bc)
+          bcs=bc, restrict=True)
 
 Next we program our eigenvalue solver through the PETSc options system. The
 first is specifying that we have an generalized eigenvalue problem that is
