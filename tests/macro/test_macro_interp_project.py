@@ -56,3 +56,18 @@ def test_projection_scalar_monomial(op, mesh, degree, variant):
     op(u, f)
     error = sqrt(assemble(inner(u - f, u - f) * dx))
     assert error < 1E-7
+
+
+@pytest.mark.parametrize(('el', 'accorder'),
+                         [('HCT', 3),
+                          ('HCT-red', 2)])
+@pytest.mark.parametrize('op', (proj, h1_proj))
+def test_projection_hct(el, accorder, op):
+    msh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(msh, el, 3)
+    u = Function(V)
+    x = SpatialCoordinate(msh)
+    f = sum(x) ** accorder
+    op(u, f)
+    error = sqrt(assemble(inner(u - f, u - f) * dx))
+    assert error < 1E-9
