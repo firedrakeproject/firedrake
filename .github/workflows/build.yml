@@ -22,7 +22,7 @@ env:
 
 jobs:
   build-gpu:
-    name: "Build Firedrake"
+    name: "Build Firedrake for GPU"
     runs-on: [self-hosted, gpu]
     if: ${{ github.event.label.name == 'gpu' }}
     container:
