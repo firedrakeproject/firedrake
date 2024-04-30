@@ -83,6 +83,12 @@ The registration fees are as follows:
      - £115
      - £350
 
+Abstract submission
+-------------------
+
+Abstract submission is **now open**! `To submit an abstract, please follow this link
+<https://easychair.org/conferences/submission_new?a=32739565>`__.
+
 
 Support
 -------
