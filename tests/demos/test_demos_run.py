@@ -27,6 +27,7 @@ VTK_DEMOS = [
     "rayleigh-benard.py",
     "stokes.py",
     "test_extrusion_lsw.py",
+    "full_waveform_inversion.py",
 ]
 
 
