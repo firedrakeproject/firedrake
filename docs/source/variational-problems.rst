@@ -311,7 +311,7 @@ for a more didactic introduction, we refer the reader to the
 
 There are two ways to express a variational problem in UFL. A linear
 variational problem is defined in terms of a bilinear form
-:math:`a(u,v)` and a linear form `:math:`L[v]`, seeking :math:`u\in V`
+:math:`a(u,v)` and a linear form :math:`L[v]`, seeking :math:`u\in V`
 such that :math:`a(u,v)=L[v]\,\forall v\in V` for some finite element
 space :math:`V`. The following section of the notes describes how such
 problems can be expressed in UFL and solved using Firedrake. We shall
