@@ -69,7 +69,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
-        if isinstance(val, (Cofunction, vector.Vector)):
+        if isinstance(val, Cofunction):
             val = val.dat
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
