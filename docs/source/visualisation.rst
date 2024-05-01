@@ -22,8 +22,6 @@ PVD_ and therefore the requested file name must end in ``.pvd``.
 
 .. code-block:: python3
 
-   from firedrake.output import VTKFile
-
    outfile = VTKFile("output.pvd")
    # The following raises an error
    badfile = VTKFile("output.vtu")

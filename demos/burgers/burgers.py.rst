@@ -34,7 +34,6 @@ stability we elect to use a backward Euler discretisation:
 We can now proceed to set up the problem. We choose a resolution and set up a square mesh::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   n = 30
   mesh = UnitSquareMesh(n, n)
 

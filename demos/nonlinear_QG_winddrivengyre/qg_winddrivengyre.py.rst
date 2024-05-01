@@ -138,7 +138,6 @@ Now that we know the weak form we are now ready to solve this using Firedrake!
 First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   from firedrake.petsc import PETSc
   import numpy as np
   import ufl
