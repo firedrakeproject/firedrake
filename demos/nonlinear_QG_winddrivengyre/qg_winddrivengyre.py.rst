@@ -1,7 +1,7 @@
 Wind-Driven Gyres: Quasi-Geostrophic Limit
 ==========================================
 
-Contributed by Christine Kaufhold and `Francis Poulin <https://uwaterloo.ca/poulin-research-group/people-profiles/francis-poulin-bsc-msc-phd>`_.
+Contributed by Christine Kaufhold and `Francis Poulin <https://uwaterloo.ca/applied-mathematics/people-profiles/francis-poulin>`_.
 
 Building on the previous two demos that used the Quasi-Geostrophic
 (QG) model for the :doc:`time-stepping </demos/qg_1layer_wave.py>` and
@@ -138,7 +138,6 @@ Now that we know the weak form we are now ready to solve this using Firedrake!
 First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   from firedrake.petsc import PETSc
   import numpy as np
   import ufl

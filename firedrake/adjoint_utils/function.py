@@ -7,6 +7,7 @@ from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, Su
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
+from numbers import Number
 
 
 class FunctionMixin(FloatingType):
@@ -62,15 +63,15 @@ class FunctionMixin(FloatingType):
                 output = subfunctions(self, *args, **kwargs)
 
             if annotate:
-                output = tuple(firedrake.Function(output[i].function_space(),
-                                                  output[i],
-                                                  block_class=SubfunctionBlock,
-                                                  _ad_floating_active=True,
-                                                  _ad_args=[self, i],
-                                                  _ad_output_args=[i],
-                                                  output_block_class=FunctionMergeBlock,
-                                                  _ad_outputs=[self],
-                                                  ad_block_tag=ad_block_tag)
+                output = tuple(type(self)(output[i].function_space(),
+                                          output[i],
+                                          block_class=SubfunctionBlock,
+                                          _ad_floating_active=True,
+                                          _ad_args=[self, i],
+                                          _ad_output_args=[i],
+                                          output_block_class=FunctionMergeBlock,
+                                          _ad_outputs=[self],
+                                          ad_block_tag=ad_block_tag)
                                for i in range(len(output)))
             return output
         return wrapper
@@ -230,12 +231,17 @@ class FunctionMixin(FloatingType):
 
         if riesz_representation != "l2" and not isinstance(value, Cofunction):
             raise TypeError("Expected a Cofunction")
-        elif not isinstance(value, (float, (Cofunction, Function))):
+        elif not isinstance(value, (Number, Cofunction, Function)):
             raise TypeError("Expected a Cofunction, Function or a float")
 
         if riesz_representation == "l2":
-            value = value.dat if isinstance(value, (Cofunction, Function)) else value
-            return Function(V, val=value)
+            if isinstance(value, (Cofunction, Function)):
+                return Function(V, val=value.dat)
+            else:
+                f = Function(V)
+                with stop_annotating():
+                    f.assign(value)
+                return f
 
         elif riesz_representation in ("L2", "H1"):
             ret = Function(V)

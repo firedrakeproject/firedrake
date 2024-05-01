@@ -62,7 +62,6 @@ As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
 To visualise the output, we also need to import matplotlib.pyplot to display
 the visual output ::

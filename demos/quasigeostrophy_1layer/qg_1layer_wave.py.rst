@@ -106,7 +106,6 @@ freely propagating Rossby wave.  As ever, we begin by importing the
 Firedrake library. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
 Next we define the domain we will solve the equations on, square
 domain with 50 cells in each direction that is periodic along the

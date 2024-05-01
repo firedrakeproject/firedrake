@@ -49,7 +49,6 @@ method, so lets go ahead and produce a numerical solution.
 First, we always need a mesh. Let's have a :math:`10\times10` element unit square::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   mesh = UnitSquareMesh(10, 10)
 
 We need to decide on the function space in which we'd like to solve the

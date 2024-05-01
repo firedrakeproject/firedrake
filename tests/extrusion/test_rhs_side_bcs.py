@@ -39,7 +39,6 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     res1 = abs(sqrt(assemble(inner(u1 - v1, u1 - v1) * dx)))
 
     if not test_mode:
-        from firedrake.output import VTKFile
         print("The error is ", res1)
         file = VTKFile("side-bcs.pvd")
         file.write(u1, v1)
