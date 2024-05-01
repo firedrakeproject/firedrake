@@ -1413,23 +1413,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             block_shape=test.function_space().value_size
         )
 
-        if isinstance(test.function_space().ufl_element(),
-                      finat.ufl.MixedElement):
+        if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
             n = len(test.function_space())
             if n == 1:
                 # if vector function space revert to standard case
-                diag_blocks = set([(Ellipsis, Ellipsis)])
+                diag_blocks = [(Ellipsis, Ellipsis)]
             else:
                 # otherwise treat each block separately
-                diag_blocks = set([(i, i) for i in range(n)])
+                diag_blocks = [(i, i) for i in range(n)]
         else:
-            diag_blocks = set([(Ellipsis, Ellipsis)])
+            diag_blocks = [(Ellipsis, Ellipsis)]
 
         for rindex, cindex in diag_blocks:
             op3.do_loop(
-                    p := test.ufl_domain().points.index(),
-                    sparsity[rindex, cindex][p, p].assign(666, eager=False)
-                )
+                p := test.ufl_domain().points.index(),
+                sparsity[rindex, cindex][p, p].assign(666, eager=False)
+            )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -1592,8 +1591,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             p = space.axes[index].root[bc.constrained_points].index()
 
-            index_forest = {}
-            for ctx, index_tree in op3.as_index_forest(p).items():
+            # If we constrain points of different dimension (e.g. vertices
+            # and edges) then the assigned identity may have different sizes.
+            # To resolve this we loop over each dimension in turn.
+            for context, index_tree in op3.as_index_forest(p).items():
                 dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
                 index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
 
@@ -1601,29 +1602,27 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     component_slice = op3.ScalarIndex("dim0", "XXX", component)
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
-                index_forest[ctx] = index_tree
+                assignee = mat[index, index][index_tree, index_tree]
 
-            assignee = mat[index, index][index_forest, index_forest]
+                if assignee.axes.size == 0:
+                    continue
 
-            # If setting a block then use an identity matrix
-            if assignee.context_free.axes.size > 1:
-                # "materialize"
-                axes = op3.AxisTree(assignee.context_free.axes.node_map)
-                size = op3.utils.single_valued([
-                    ax.size
-                    for ax in {assignee.context_free.raxes, assignee.context_free.caxes}
-                ])
-                expression = op3.HierarchicalArray(
-                    axes, data=numpy.eye(size, dtype=utils.IntType).flatten()
+                # If setting a block then use an identity matrix
+                if assignee.axes.size > 1:
+                    # "materialize"
+                    axes = op3.AxisTree(assignee.axes.node_map)
+                    size = op3.utils.single_valued([
+                        ax.size for ax in {assignee.raxes, assignee.caxes}
+                    ])
+                    expression = op3.HierarchicalArray(
+                        axes, data=numpy.eye(size, dtype=utils.ScalarType).flatten(), constant=True
+                    )
+                else:
+                    expression = self.weight
+
+                op3.do_loop(
+                    p.with_context(context), assignee.assign(expression, eager=False)
                 )
-            else:
-                expression = self.weight
-
-            op3.do_loop(
-                p, assignee.assign(expression, eager=False)
-            )
-
-            mat.assemble()
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
