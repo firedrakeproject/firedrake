@@ -67,6 +67,8 @@ Registration
 Registration is **now open**! `To register, please follow this link
 <https://www.oxforduniversitystores.co.uk/conferences-and-events/mathematical-institute/events/firedrake-2024>`__.
 
+The deadline for registration is **25th August 2024**.
+
 The registration fees are as follows:
 
 .. list-table::
@@ -89,6 +91,7 @@ Abstract submission
 Abstract submission is **now open**! `To submit an abstract, please follow this link
 <https://easychair.org/conferences/submission_new?a=32739565>`__.
 
+The deadline for abstract submission is **18th August 2024**.
 
 Support
 -------
