@@ -46,7 +46,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
     Notes
     -----
     The functionals :math:`J_i` and the control must be defined over a common
-    `self.ensemble.comm` communicator. To understand more about how ensemble parallelism
+    `ensemble.comm` communicator. To understand more about how ensemble parallelism
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
