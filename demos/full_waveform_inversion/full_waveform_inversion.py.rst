@@ -1,5 +1,5 @@
 Full-waveform inversion: automated gradient, ensemble parallelism and checkpointing
-===============================================================================================
+===================================================================================
 
 *This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__ and Jack Betteridge*
 
@@ -97,11 +97,10 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 
-In Firedrake, we can compute in parralell the functional values and their gradients
-for multiple sources. That is achieved by using the :class:`~.ensemble.Ensemble`,
-which allows the spatial and source parallelism. This example demonstrates how to make  use of the
-:class:`~.ensemble.Ensemble` in this optimisation problem using autotmated gradient. At this point, we have
-to define an ensemble object::
+In Firedrake, we can compute in parralell the functional values and their gradients for multiple sources.
+That is achieved by using the :class:`~.ensemble.Ensemble`, which allows for problem the spatial and
+source parallelism. This example demonstrates how to make  use of the :class:`~.ensemble.Ensemble` in this
+optimisation problem using autotmated gradient. We have first to define an ensemble object::
 
     from firedrake import Ensemble, COMM_WORLD
     M = 2
@@ -133,21 +132,14 @@ We consider a two dimensional square domain with side length 1.0 km. The mesh is
     Lx, Lz = 1.0, 1.0
     mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
 
-We create a ``setting_parameters`` dictionary containing the parameters necessary to solve the wave
-equation and the FWI problem.::
+We define the basic input for the FWI problem::
 
     import numpy as np
-    num_receivers = 10
-    setting_parameters = {
-        "source_locations": np.linspace((0.3, 0.05), (0.7, 0.05), num_sources),
-        "receiver_locations": np.linspace((0.2, 0.85), (0.8, 0.85), num_receivers),
-        "mesh": mesh,
-        "FunctionSpace": FunctionSpace(mesh, "KMV", 1),
-        "dt": 0.002,  # time step
-        "final_time": 0.8,  # final time
-        "syntetic_receiver_data": None,  # The syntetic receiver data to be used in the inversion.
-        "frequency_peak": 7.0,  # The dominant frequency of the source.
-    }
+    source_locations = np.linspace((0.3, 0.05), (0.7, 0.05), num_sources)
+    receiver_locations = np.linspace((0.2, 0.85), (0.8, 0.85), 10)
+    dt = 0.002  # time step
+    final_time = 0.8  # final time
+    frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet.
 
 The firedrake functions will be displayed using the following function::
 
@@ -163,60 +155,67 @@ The firedrake functions will be displayed using the following function::
 
         
 FWI seeks to estimate the pressure wave velocity based on the observed data stored at the receivers.
-The observed data is subject to influences a known pressure wave velocity model, i.e., a synthetic
-pressure wave velocity referred to as the true velocity model (``c_true``). For the sake of simplicity,
-we consider ``c_true`` consisting of a circle in the centre of the domain, as shown in the coming code
-cell.::
+The observed data at the receivers is subject to influences of the subsurface medium while waves
+propagate from the sources. In this example, we emulate observed data by executing the acoustic wave
+equation with a synthetic pressure wave velocity model. The synthetic pressure wave velocity model is
+referred to here as the true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true``
+consisting of a circle in the centre of the domain, as shown in the coming code cell::
 
-    x, z = SpatialCoordinate(setting_parameters["mesh"])
-    c_true = Function(setting_parameters["FunctionSpace"]).interpolate(
-        2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2)))
-        )
+    x, z = SpatialCoordinate(mesh)
+    c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
     plot_function(c_true, "c_true")
-
 
 .. image:: c_true.png
 
-Let us now define the function space to solve the wave equation and the function space associated with the
-receiver mesh in order to interpolate the wave equation solution at the receiver locations::
+We define the function space to solve the wave equation, :math:`V`. In addition, we define the receivers mesh and its
+function space :math:`V_r`::
 
-    V = setting_parameters["FunctionSpace"]
-    receiver_mesh = VertexOnlyMesh(mesh, setting_parameters["receiver_locations"])
-    P0DG = FunctionSpace(receiver_mesh, "DG", 0)
+    V = FunctionSpace(mesh, "KMV", 1)
+    receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
+    V_r = FunctionSpace(receiver_mesh, "DG", 0)
 
+We need to define the receiver mesh in order to interpolate the wave equation solution at the receivers.
 
-We also want to model the source term in the wave equation.  To this end, we create a source mesh based on the
-source locations::
+To model the wave source term in the wave equation, we first create a mesh based on the the source locations
+and define the function space (:math:`V_s`) for the source term::
 
-    source_mesh = VertexOnlyMesh(mesh, [setting_parameters["source_locations"][source_number]])
-    source_space = FunctionSpace(source_mesh, "DG", 0)
+    source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
+    V_s = FunctionSpace(source_mesh, "DG", 0)
 
-Next, we define the forcing point at the source location and interpolate it onto the dual space (``V.dual()``)::
+As recommended in the `Firedrake manual <https://www.firedrakeproject.org/point-evaluation.html#id13>`__,
+we define the external Dirac delta value (equal to 1.0) via the
+:py:attr:`~.VertexOnlyMeshTopology.input_ordering` property::
 
-    forcing_point = assemble(Constant(1.0)*TestFunction(source_space)*dx)
-    source_cofunction = Cofunction(V.dual()).interpolate(forcing_point)
+    P1DG = FunctionSpace(source_mesh.input_ordering, "DG", 0)
+    f_p1DG = Function(P1DG)
+    f_p1DG.assign(1.0)
 
-That is a correct mathematical operation once the inner product between the forcing term and a test function
-is a mapping from the primal space ``V`` to the dual space ``V.dual()``.
+We then interpolate the Dirac delta onto the source function space :math:`V_s`::
 
+    f_s = assemble(interpolate(f_p1DG, V_s)),
+
+which result in a function :math:`f_s \in V_s` such that :math:`f_s(\mathbf{x}_s) = 1.0`. We finally interpolate
+the point source onto :math:`V` (function space to solve wave equation solver)::
+
+    cofunction_s = assemble(forcing_point * TestFunction(source_space) * dx)
+    source_cofunction = Cofunction(V.dual()).interpolate(cofunction_source_space)
 
 We get the synthetic data recorded on the receivers by executing the acoustic wave equation with the
-true velocity model ``c_true``.::
+true velocity model ``c_true``.
+
+.. code-block:: python
 
     true_data_receivers = []
-    total_steps = int(setting_parameters["final_time"] / setting_parameters["dt"]) + 1
+    total_steps = int(final_time / dt) + 1
     f = Cofunction(V.dual()) # Wave equation forcing term.
-    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, setting_parameters["dt"], V)
+    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
 
     for t in range(total_steps):
-        r = ricker_wavelet(t * setting_parameters["dt"], setting_parameters["frequency_peak"])
-        f.assign(r * source_cofunction)
+        f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
-        # Interpolate the solution at the receiver locations and store the result.
-        # This data will be used in the inversion to compute the functional.
         true_data_receivers.append(assemble(interpolate_receivers))
 
 Next, we execute an FWI problem, which involves the following steps:
@@ -229,44 +228,42 @@ Next, we execute an FWI problem, which involves the following steps:
 
 4. Compute the adjoint-based gradient of the functional :math:`J` witt respect to the parameter ``c_guess``;
 
-5. Update the parameter ``c_guess`` using a gradient-based optimization method;
+5. Update the parameter ``c_guess`` using a gradient-based optimisation method, on this case the L-BFGS-B method;
 
 6. Repeat steps 2-5 until the stopping criterion is satisfied.
 
 The initial guess is set (step 1) as a constant field with a value of 1.5 km/s::
 
-    c_guess = Function(setting_parameters["FunctionSpace"]).assign(1.5)
+    c_guess = Function(V).assign(1.5)
     plot_function(c_guess, "c_initial")
 
 
 .. image:: c_initial.png
 
 
-Steps 2-3 are implemented in the following code cells. To have the step 4, we need to tape the forward problem.
-That is done by calling the ``continue_annotation()`` function::
+To have the step 4, we need first to tape the forward problem. That is done by calling::
 
     from firedrake.adjoint import *
     continue_annotation()
 
 
-We also enable checkpointing to save the memory usage inherent from the adjoint computation::
+We also enable checkpointing in order to reduce the memory usage inherent to the adjoint-based gradient::
     
     from checkpoint_schedules import Revolve
     tape = get_working_tape()
     tape.enable_checkpointing(Revolve(total_steps, 100))
 
-The checkpoint schedules are generated from the
+The schedules for checkpointing are generated from the
 `checkpoint_schedules <https://www.firedrakeproject.org/checkpoint_schedules/>`__ package.
 
-We then write the code to solve the wave equation and compute the functional::
+We then solve the wave equation and compute the functional (steps 2-3)::
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
-    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, setting_parameters["dt"], V)
+    solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
     J_val = 0.0
     for step in tape.timestepper(iter(range(total_steps))):
-        r = ricker_wavelet(setting_parameters["dt"] * step, setting_parameters["frequency_peak"])
-        f.assign(r * source_cofunction)
+        f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
@@ -274,20 +271,23 @@ We then write the code to solve the wave equation and compute the functional::
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
 
-
-We use the :class:`~.EnsembleReducedFunctional` class to recompute in parallel the functional and
-its gradient associated with the multiple sources (4 in this case)::
+:class:`~.EnsembleReducedFunctional` is employed to recompute in parallel the functional and
+its gradient associated with the multiple sources (3 in this case)::
 
     J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
 
+The ``J_hat`` instance of :class:`~.EnsembleReducedFunctional` is passed as an argument
+to the ``minimize`` function, which executes steps 4-6. In the backend, what happens is that
+the :class:`~.EnsembleReducedFunctional` computes the functional and gradient for each source
+in parallel and returns their sum that is used by the optimisation method.
 
-Finally, we use the ``minimize`` pyadjoiny function to solve the FWI problem. ``minimize`` requires
-the reduced functional ``J_hat`` and the optimisation options. The optimisation options are passed
-as a dictionary. In summary, the ``minimize`` function will execute  steps 2-5 of the FWI problem::
+.. code-block:: python
 
     c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 5}, bounds=(1.5, 3.5))
 
-The optimised parameter ``c_optimised`` is then plotted::
+The optimised parameter ``c_optimised`` for 5 iterations is shown below:
+
+.. code-block:: python
 
     plot_function(c_optimised, "c_opt_parallel")
 
@@ -296,10 +296,9 @@ The optimised parameter ``c_optimised`` is then plotted::
 
 .. note::
 
-    Notice we are employing only 5 iterations in the optimisation process. To achieve a better result, we
-    should increase the number of iterations. Fell free to explore more this problem, e.g., change the number of
-    iterations, the optimisation method, ``my_ensemble`` configuration, number of sources. FWI is not a trivial problem,
-    and there are many ways to solve it. This tutorial is just a starting point to help you.
+    In this demo, we use an acoustic wave equation and a simple FWI problem with only 5 iterations.
+    Probably you will get a better result by increasing the number of iterations. Feel free to explore this
+    example, which is just a starting point for more complex FWI problems.
 
 .. rubric:: References
 
