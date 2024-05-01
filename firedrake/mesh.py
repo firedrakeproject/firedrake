@@ -5014,7 +5014,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)
-        section = f.topological.function_space().dm.getSection()
+        section = f.topological.function_space().local_section
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
     distribution_parameters_noop = {"partition": False,
                                     "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
