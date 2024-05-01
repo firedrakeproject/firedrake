@@ -1,11 +1,11 @@
 import collections
-import functools
 import itertools
 import numpy
 import islpy as isl
 
 import finat
 from pyop2 import op2
+from pyop2.caching import cached
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
@@ -330,7 +330,15 @@ def entity_closures(cell):
     return closure
 
 
-@functools.lru_cache()
+def make_offset_key(finat_element):
+    from firedrake.functionspacedata import entity_dofs_key
+    # scalar-valued elements only
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+    return entity_dofs_key(finat_element.entity_dofs()), is_real_tensor_product_element(finat_element)
+
+
+@cached({}, key=make_offset_key)
 def calculate_dof_offset(finat_element):
     """Return the offset between the neighbouring cells of a
     column for each DoF.
@@ -358,7 +366,7 @@ def calculate_dof_offset(finat_element):
     return dof_offset
 
 
-@functools.lru_cache()
+@cached({}, key=make_offset_key)
 def calculate_dof_offset_quotient(finat_element):
     """Return the offset quotient for each DoF within the base cell.
 
