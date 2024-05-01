@@ -84,9 +84,6 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat rckirby/feature/macro \
-            --package-branch finat pbrubeck/feature/dg-variant \
-            --package-branch tsfc rckirby/feature/macro \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
