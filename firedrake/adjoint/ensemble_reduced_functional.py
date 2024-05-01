@@ -74,12 +74,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
             The adjoint input.
         options : dict
             Additional options for the derivative computation.
-        op : mpi4py.MPI.Op
-            The employed MPI operation for the `Ensemble.allreduce` the derivatives.
 
         Returns
         -------
-            dJdm_total : :class:`~.function.Function` or list of :class:`~.function.Function`
+            dJdm_total : pyadjoint.OverloadedType
             The result of Allreduce operations of ``dJdm_local`` into ``dJdm_total`` over the`Ensemble.ensemble_comm`.
 
         See Also
