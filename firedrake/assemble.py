@@ -1605,8 +1605,24 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
                 index_forest[ctx] = index_tree
 
+            assignee = mat[index, index][index_forest, index_forest]
+
+            # If setting a block then use an identity matrix
+            if assignee.context_free.axes.size > 1:
+                # "materialize"
+                axes = op3.AxisTree(assignee.context_free.axes.node_map)
+                size = op3.utils.single_valued([
+                    ax.size
+                    for ax in {assignee.context_free.raxes, assignee.context_free.caxes}
+                ])
+                expression = op3.HierarchicalArray(
+                    axes, data=numpy.eye(size, dtype=utils.IntType).flatten()
+                )
+            else:
+                expression = self.weight
+
             op3.do_loop(
-                p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
+                p, assignee.assign(expression, eager=False)
             )
 
             mat.assemble()

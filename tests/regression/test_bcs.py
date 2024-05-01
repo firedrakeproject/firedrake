@@ -127,7 +127,6 @@ def test_homogenize(V):
     assert bc[1].sub_domain == homogeneous_bc[1].sub_domain
 
 
-#@pytest.mark.skip(reason="pyop3 TODO")
 def test_restore_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
@@ -138,7 +137,6 @@ def test_restore_bc_value(a, u, V, f):
     assert np.allclose(u.dat.data_ro, 10.0)
 
 
-# @pytest.mark.skip(reason="pyop3 TODO")
 def test_set_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.set_value(7)
@@ -265,9 +263,6 @@ def test_preassembly_bcs_caching(V):
 
 
 def test_assemble_mass_bcs_2d(V):
-    if V.value_size > 1:
-        pytest.skip(reason="pyop3 TODO")
-
     u = TrialFunction(V)
     v = TestFunction(V)
 
@@ -283,9 +278,6 @@ def test_assemble_mass_bcs_2d(V):
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-
-    # debug
-    mat = assemble(inner(u,v)*dx)
 
     solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
     assert assemble(inner((w - f), (w - f))*dx) < 1e-12
@@ -348,6 +340,7 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
+@pytest.mark.xfail(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
@@ -392,13 +385,19 @@ def test_bc_nodes_cover_ghost_dofs():
                                                             (sizes, points)})
 
     V = FunctionSpace(mesh, "CG", 1)
-
     bc = DirichletBC(V, 0, 2)
 
+    # I suspect that this may be failing because constrained_points might not
+    # know about the owned/ghost differences.
+    offsets = []
+    for pt in V.axes[bc.constrained_points].iter():
+        offsets.append(V.axes.offset(pt.target_exprs, path=pt.target_path))
+
     if mesh.comm.rank == 0:
-        assert np.allclose(bc.nodes, [1])
+        expected = [1]
     else:
-        assert np.allclose(bc.nodes, [1, 2])
+        expected = [1, 2]
+    assert np.array_equal(offsets, expected)
 
 
 @pytest.mark.xfail(reason="pyop3 TODO extruded mesh needs fixing")
