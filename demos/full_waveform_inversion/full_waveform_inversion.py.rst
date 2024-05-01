@@ -1,7 +1,7 @@
 Full-waveform inversion: automated gradient, ensemble parallelism and checkpointing
 ===============================================================================================
 
-*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__*
+*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__ and Jack Betteridge*
 
 
 Full-waveform inversion (FWI) consists of a local optimisation, where the goal is to minimise
@@ -104,32 +104,31 @@ which allows the spatial and source parallelism. This example demonstrates how t
 to define an ensemble object::
 
     from firedrake import Ensemble, COMM_WORLD
-    M = 1
+    M = 2
     my_ensemble = Ensemble(COMM_WORLD, M)
 
-``my_ensemble`` requires a communicator (``COMM_WORLD``) and a value ``M`` used to configure the ensemble
-parallelism. Based on the value of ``M`` and the number of MPI processes, :class:`~.ensemble.Ensemble` will
-split the number of MPI processes into two communicators: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
-The mesh is distributed over the ``Ensemble.comm`` ranks. For each ``Ensemble.comm`` communicator, we have
-an associated ``Ensemble.ensemble_comm`` communicator. To explain how that works, let us consider that for
-every source we want the mesh distributed over 2 ranks. For this case, we set ``M=2``. In addition, let us
-suppose that we want to compute the functional and its gradient for 4 sources. In this case, we have four 
-``Ensemble.comm`` communicators and each one has two ranks. Every ``Ensemble.comm`` communicator has an
-associated ``Ensemble.ensemble_comm`` communicator. Therefore, we have to consider the total number of
-MPI processes equal to (4 sources) x (2 parts) = 8 MPI processes. 
+``my_ensemble`` requires a communicator (which by default is ``COMM_WORLD``) and a value ``M``, the "team" size,
+used to configure the ensemble parallelism. Based on the value of ``M`` and the number of MPI processes,
+:class:`~.ensemble.Ensemble` will split the total number of MPI processes in ``COMM_WORLD`` into two
+sub-communicators: ``Ensemble.comm`` the spatial communicator having a unique source that each mesh is
+distributed over and ``Ensemble.ensemble_comm``. ``Ensemble.ensemble_comm`` is used to communicate information
+about the functionals and their gradients computation between different wave sources.
 
+In this example, we want to distribute each mesh over 2 ranks and compute the functional and its gradient
+for 3 wave sources. So we set ``M=2`` and execute this code with 6 MPI ranks. That is: 3 (number of sources) x 2 (M).
 To have a better understanding of the ensemble parallelism, please refer to the
 `Firedrake manual <hhttps://www.firedrakeproject.org/parallelism.html#id8>`__.
 
-The number of sources are set according the source ensemble communicator size ``my_ensemble.ensemble_comm.size``
-(4 in this case), and the source number in based on the ensemble communicator rank ``my_ensemble.ensemble_comm.rank``
-(0, 1, 2, 3)::
+The number of sources are set according the source ``my_ensemble.ensemble_comm.size`` (3 in this case)::
 
     num_sources = my_ensemble.ensemble_comm.size
+
+The source number is defined according to the rank of the ``Ensemble.ensemble_comm``::
+
     source_number = my_ensemble.ensemble_comm.rank
 
-We consider a two dimensional square domain with side length 1.0 km. The mesh is generated over
-the ``my_ensemble.comm`` communicator::
+We consider a two dimensional square domain with side length 1.0 km. The mesh is created over the
+``my_ensemble.comm`` communicator::
     
     Lx, Lz = 1.0, 1.0
     mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
