@@ -1413,8 +1413,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             block_shape=test.function_space().value_size
         )
 
-        # As discussed on the final day of the sprint, this doesn't quite allocate the correct
-        # diagonals for mixed/vector spaces. They come out as blocks of all 1 along the diagonal
         if isinstance(test.function_space().ufl_element(),
                       finat.ufl.MixedElement):
             n = len(test.function_space())
