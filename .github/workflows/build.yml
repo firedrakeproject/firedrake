@@ -26,7 +26,7 @@ jobs:
     # Run on our self-hosted machines
     runs-on: self-hosted
     container:
-      image: firedrakeproject/firedrake-env:latest
+      image: firedrakeproject/firedrake-test:latest
     strategy:
       # Don't immediately kill real if complex fails and vice versa.
       fail-fast: false
@@ -158,11 +158,11 @@ jobs:
       tag: ${{ needs.docker_tag.outputs.tag }}
       status: ${{ needs.build.result }}
     secrets: inherit
-  docker_testing:
-    # Strictly for testing!
-    uses: ./.github/workflows/docker_reuse.yml
-    with:
-      target: firedrake-test
-      tag: latest
-      dockerfile: docker/Dockerfile.env
-    secrets: inherit
+  #~ docker_testing:
+    #~ # Strictly for testing!
+    #~ uses: ./.github/workflows/docker_reuse.yml
+    #~ with:
+      #~ target: firedrake-test
+      #~ tag: latest
+      #~ dockerfile: docker/Dockerfile.env
+    #~ secrets: inherit
