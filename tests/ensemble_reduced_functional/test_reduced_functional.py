@@ -40,14 +40,14 @@ def test_verification():
     assert taylor_test(rf, x, Function(R, val=0.1))
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=6)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_minimise():
     # Optimisation test using a list of controls.
     # This test is equivalent to the one found at:
     # https://github.com/dolfin-adjoint/pyadjoint/blob/master/tests/firedrake_adjoint/test_optimisation.py#L9.
     # In this test, the functional is the result of an ensemble allreduce operation.
-    ensemble = Ensemble(COMM_WORLD, 1)
+    ensemble = Ensemble(COMM_WORLD, 2)
     mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
     R = FunctionSpace(mesh, "R", 0)
     n = 2
