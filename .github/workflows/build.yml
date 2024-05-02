@@ -77,7 +77,6 @@ jobs:
             --torch \
             --netgen \
             --slepc \
-            --install thetis \
             --install gusto \
             --install icepack \
             --install irksome \
