@@ -155,7 +155,8 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
-def test_preprocess_form(M, a, f):
+def test_preprocess_form_rank2_simplification(M, a, f):
+    """Check case (1) in BaseFormAssembler.preprocess_form."""
     from ufl.algorithms import expand_indices, expand_derivatives
 
     expr = action(action(M, M), f)
@@ -170,6 +171,34 @@ def test_preprocess_form(M, a, f):
     except KeyError:
         # Index expansion doesn't seem to play well with tensor elements.
         pass
+
+
+def test_preprocess_form_adjoint_simplification(f):
+    """Check cases (1), (2), and (8) in BaseFormAssembler.preprocess_form."""
+    V = fs.function_space()
+    N = point_expr(lambda x: x, function_space=V)
+
+    # dNdf(f; fhat, v*)
+    dNdf = derivative(N(f), f)
+    _, fhat = dNdf.arguments()
+
+    # F = <u, v> * dx
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    F = inner(u, v) * dx
+
+    # Action(Adjoint(Action(F, dNdf)), df)
+    df = Cofunction(V.dual())
+    expr = action(adjoint(action(F, dNdf)), df)
+
+    #                                      (8)                               (1)
+    # Action(Adjoint(Action(F, dNdf)), df) --> Action(Action(dNdf*, F*), df) --> ...
+    #     (1)                               (2)
+    # ... --> Action(dNdf*, Action(F*, df)) --> dNdf*(f; fhat, Action(F*, df))
+    A = BaseFormAssembler.preprocess_base_form(expr)
+
+    M = dNdf._ufl_expr_reconstruct_(u, argument_slots=(action(adjoint(F), df), dNdf))
+    assert A == M
 
 
 def test_tensor_copy(a, M):

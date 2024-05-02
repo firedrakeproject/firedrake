@@ -84,6 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch ufl update_replace_get_shape\
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
