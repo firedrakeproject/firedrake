@@ -345,7 +345,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocation_integral_types(self):
         if self._allocation_integral_types is None:
             # Use the most conservative integration types.
-            test, _ = self._form.arguments()
+            test, *_ = self._form.arguments()
             if test.function_space().mesh().extruded:
                 return ("interior_facet_vert", "interior_facet_horiz")
             else:
@@ -745,6 +745,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                            \
                       dNdu(u; v1, v0*)
 
+            (8) Adjoint(Action(dFdN, dNdu))
+
+                 Adjoint                    Action
+                    |                        /   \
+                 Action       ----->    Adjoint  Adjoint  ----->   Action
+                  /   \                    |       |               /    \
+               dFdN   dNd                dNdu    dFdN           dNdu*   dFdN*
+
+            where dNdu* and dFdN* are the adjoints of dNdu and dFdN respectively.
+
         It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
         various dag rotations/manipulations in expr.
         """
@@ -756,7 +766,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             # -- Case (1) -- #
             # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
             if isinstance(left, ufl.Action) and is_rank_2(left):
-                return ufl.action(left.left(), ufl.action(left.right(), right))
+                expr = ufl.action(left.left(), ufl.action(left.right(), right))
+                # Allow to combine (1) and (2) in the same pass
+                return BaseFormAssembler.restructure_base_form(expr, visited)
             # -- Case (2) (except if left has only 1 argument, i.e. we have done case (5)) -- #
             if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right) and len(left.arguments()) != 1:
                 # Retrieve the highest numbered argument
@@ -783,16 +795,29 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
-        # -- Case (4) -- #
-        if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
-            B = expr.form()
-            u, v = B.arguments()
-            # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
-            # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
-                                   firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
-            # Replace arguments in argument slots
-            return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
+        if isinstance(expr, ufl.Adjoint):
+            form = expr.form()
+            # -- Case (4) -- #
+            if isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
+                u, v = form.arguments()
+                # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
+                # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
+                reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
+                                       firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
+                # Replace arguments in argument slots
+                return ufl.replace(form, dict(zip((u, v), reordered_arguments)))
+            # -- Case (8) -- #
+            if isinstance(form, ufl.Action) and all(len(e.arguments()) == 2 for e in form.ufl_operands):
+                A, B = form.ufl_operands
+                # Adjoint of A
+                u, v = A.arguments()
+                A_adj = ufl.replace(A, {u: firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
+                                    v: firedrake.Argument(v.function_space(), number=u.number(), part=u.part())})
+                # Adjoint of B
+                u, v = B.arguments()
+                B_adj = ufl.replace(B, {u: firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
+                                        v: firedrake.Argument(v.function_space(), number=u.number(), part=u.part())})
+                return ufl.action(B_adj, A_adj)
 
         # -- Case (5) -- #
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
