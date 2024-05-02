@@ -64,8 +64,8 @@ __all__ = [
 ]
 
 
-distribution_parameters_noop = {"partition": False,
-                                "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
+distribution_parameters_no_overlap = {"partition": True,
+                                      "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
 reorder_noop = False
 
 
@@ -252,7 +252,7 @@ cells are not currently supported"
         )
     m = CircleManifoldMesh(
         ncells,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         reorder=reorder_noop,
         comm=comm,
         name=name,
@@ -984,7 +984,7 @@ def PeriodicRectangleMesh(
         0.5,
         quadrilateral=quadrilateral,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -1905,7 +1905,7 @@ def PeriodicBoxMesh(
     m = mesh.Mesh(
         plex,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
@@ -3085,7 +3085,7 @@ def PartiallyPeriodicRectangleMesh(
         longitudinal_direction="z",
         quadrilateral=quadrilateral,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         diagonal=diagonal,
         comm=comm,
         name=name,
