@@ -1,8 +1,13 @@
 Full-waveform inversion: automated gradient, ensemble parallelism and checkpointing
 ===================================================================================
+This tutorial demonstrates how to use Firedrdrake to solve a full-waveform inversion problem
+employing checkpointing, wave sources and mesh parallelism, and gradient computation with the
+algorithmic differentiation.
 
-*This short tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__ and Jack Betteridge*
+.. rst-class:: emphasis
 
+    This tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__ 
+    with contributions from Jack Betteridge.
 
 Full-waveform inversion (FWI) consists of a local optimisation, where the goal is to minimise
 the misfit between observed and predicted seismogram data. The misfit is quantified by a functional,
@@ -84,7 +89,7 @@ locate at the position :math:`\mathbf{x}_s`, and it is given by:
 
 .. math::
 
-    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)
+    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)  \quad  \quad (1)
 
 where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
 :math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function. The implementation of `Ricker
@@ -97,10 +102,10 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 
-In Firedrake, we can compute in parralell the functional values and their gradients for multiple sources.
-That is achieved by using the :class:`~.ensemble.Ensemble`, which allows for problem the spatial and
-source parallelism. This example demonstrates how to make  use of the :class:`~.ensemble.Ensemble` in this
-optimisation problem using autotmated gradient. We have first to define an ensemble object::
+In Firedrake, we can simultaneously compute functional values and their gradients for multiple sources.
+This is made possible through the ``Ensemble`` class, which allows both spatial and wave source parallelism. 
+This tutorial demonstrates how the ``Ensemble`` class is employed on the current inversion problem.
+First, we will need to define an ensemble object::
 
     from firedrake import Ensemble, COMM_WORLD
     M = 2
@@ -113,7 +118,7 @@ sub-communicators: ``Ensemble.comm`` the spatial communicator having a unique so
 distributed over and ``Ensemble.ensemble_comm``. ``Ensemble.ensemble_comm`` is used to communicate information
 about the functionals and their gradients computation between different wave sources.
 
-In this example, we want to distribute each mesh over 2 ranks and compute the functional and its gradient
+Here, we want to distribute each mesh over 2 ranks and compute the functional and its gradient
 for 3 wave sources. So we set ``M=2`` and execute this code with 6 MPI ranks. That is: 3 (number of sources) x 2 (M).
 To have a better understanding of the ensemble parallelism, please refer to the
 `Firedrake manual <hhttps://www.firedrakeproject.org/parallelism.html#id8>`__.
@@ -132,7 +137,7 @@ We consider a two dimensional square domain with side length 1.0 km. The mesh is
     Lx, Lz = 1.0, 1.0
     mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
 
-We define the basic input for the FWI problem::
+The basic input for the FWI problem are defined as follows::
 
     import numpy as np
     source_locations = np.linspace((0.3, 0.05), (0.7, 0.05), num_sources)
@@ -167,47 +172,45 @@ consisting of a circle in the centre of the domain, as shown in the coming code 
 
 .. image:: c_true.png
 
-We define the function space to solve the wave equation, :math:`V`. In addition, we define the receivers mesh and its
+We define the function space to solve the wave equation, :math:`V`. In addition, the receivers mesh and its
 function space :math:`V_r`::
 
     V = FunctionSpace(mesh, "KMV", 1)
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
     V_r = FunctionSpace(receiver_mesh, "DG", 0)
 
-We need to define the receiver mesh in order to interpolate the wave equation solution at the receivers.
+The receiver mesh are required in order to interpolate the wave equation solution at the receivers.
 
-To model the wave source term in the wave equation, we first create a mesh based on the the source locations
-and define the function space (:math:`V_s`) for the source term::
+To model a point source represented by the Dirac delta function in Eq. (1), our first step is to
+construct the source mesh and define a function space (:math:`V_s`) accordingly::
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
     V_s = FunctionSpace(source_mesh, "DG", 0)
 
 As recommended in the `Firedrake manual <https://www.firedrakeproject.org/point-evaluation.html#id13>`__,
-we define the external Dirac delta value (equal to 1.0) via the
-:py:attr:`~.VertexOnlyMeshTopology.input_ordering` property::
+we define the external point source value (equal to 1.0) via the :attr:`~.VertexOnlyMeshTopology.input_ordering`
+property::
 
     P1DG = FunctionSpace(source_mesh.input_ordering, "DG", 0)
     f_p1DG = Function(P1DG)
     f_p1DG.assign(1.0)
 
-We then interpolate the Dirac delta onto the source function space :math:`V_s`::
+We then interpolate the point source onto the source function space :math:`V_s`::
 
-    f_s = assemble(interpolate(f_p1DG, V_s)),
+    d_s = assemble(interpolate(f_p1DG, V_s)),
 
-which result in a function :math:`f_s \in V_s` such that :math:`f_s(\mathbf{x}_s) = 1.0`. We finally interpolate
+which result in a function :math:`f_s \in V_s` such that :math:`d_s(\mathbf{x}_s) = 1.0`. We finally interpolate
 the point source onto :math:`V` (function space to solve wave equation solver)::
 
     cofunction_s = assemble(forcing_point * TestFunction(source_space) * dx)
     source_cofunction = Cofunction(V.dual()).interpolate(cofunction_source_space)
 
-We get the synthetic data recorded on the receivers by executing the acoustic wave equation with the
-true velocity model ``c_true``.
-
-.. code-block:: python
+After defining the point source term that models the Dirac delta function, we can proceed to compute the
+synthetic data and record them on the receivers::
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
-    f = Cofunction(V.dual()) # Wave equation forcing term.
+    f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
 
@@ -218,21 +221,21 @@ true velocity model ``c_true``.
         u_n.assign(u_np1)
         true_data_receivers.append(assemble(interpolate_receivers))
 
-Next, we execute an FWI problem, which involves the following steps:
+Next, the FWI problem is executed with the following steps:
 
 1. Set the initial guess for the parameter ``c_guess``;
 
-2. Solve the wave equation with the initial guess for the parameter ``c_guess``;
+2. Solve the wave equation with the initial guess velocity model (``c_guess``);
 
 3. Compute the functional :math:`J`;
 
-4. Compute the adjoint-based gradient of the functional :math:`J` witt respect to the parameter ``c_guess``;
+4. Compute the adjoint-based gradient of :math:`J` with respect to the control parameter ``c_guess``;
 
 5. Update the parameter ``c_guess`` using a gradient-based optimisation method, on this case the L-BFGS-B method;
 
-6. Repeat steps 2-5 until the stopping criterion is satisfied.
+6. Repeat steps 2-5 until the optimisation stopping criterion is satisfied.
 
-The initial guess is set (step 1) as a constant field with a value of 1.5 km/s::
+**Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s::
 
     c_guess = Function(V).assign(1.5)
     plot_function(c_guess, "c_initial")
@@ -256,7 +259,7 @@ We also enable checkpointing in order to reduce the memory usage inherent to the
 The schedules for checkpointing are generated from the
 `checkpoint_schedules <https://www.firedrakeproject.org/checkpoint_schedules/>`__ package.
 
-We then solve the wave equation and compute the functional (steps 2-3)::
+**Steps 2-3**: Solve the wave equation and compute the functional::
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
@@ -276,14 +279,16 @@ its gradient associated with the multiple sources (3 in this case)::
 
     J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
 
-The ``J_hat`` instance of :class:`~.EnsembleReducedFunctional` is passed as an argument
-to the ``minimize`` function, which executes steps 4-6. In the backend, what happens is that
-the :class:`~.EnsembleReducedFunctional` computes the functional and gradient for each source
-in parallel and returns their sum that is used by the optimisation method.
+The ``J_hat`` object is passed as an argument to the ``minimize`` function (see the Python code below).
+In the backend, ``J_hat`` executes simultaneously the computation of the cost function
+(or functional) and its gradient for each source based on the ``my_ensemble`` configuration. Subsequently,
+it returns the sum of these computations, which are input to the optimisation method.
 
-.. code-block:: python
+**Steps 4-6**: We can now to obtain the predicted velocity model using the L-BFGS-B method::
 
     c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 5}, bounds=(1.5, 3.5))
+
+The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 
 The optimised parameter ``c_optimised`` for 5 iterations is shown below:
 
@@ -296,9 +301,9 @@ The optimised parameter ``c_optimised`` for 5 iterations is shown below:
 
 .. note::
 
-    In this demo, we use an acoustic wave equation and a simple FWI problem with only 5 iterations.
-    Probably you will get a better result by increasing the number of iterations. Feel free to explore this
-    example, which is just a starting point for more complex FWI problems.
+    In this tutorial, we have employed an acoustic wave equation and an  FWI problem, limiting the iterations to just 5.
+    It is worth noting that enhancing the result may be achievable by increasing the number of iterations. This example
+    is only a starting point for tackling more intricate FWI problems.
 
 .. rubric:: References
 
