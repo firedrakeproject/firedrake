@@ -162,6 +162,6 @@ jobs:
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-test
-      tag: ${{ inputs.tag }}
+      tag: latest
       dockerfile: docker/Dockerfile.env
     secrets: inherit
