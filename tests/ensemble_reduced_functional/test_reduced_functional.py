@@ -23,10 +23,10 @@ def handle_annotation():
         pause_annotation()
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_verification():
-    ensemble = Ensemble(COMM_WORLD, 1)
+    ensemble = Ensemble(COMM_WORLD, 2)
     size = ensemble.ensemble_comm.size
     mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
     R = FunctionSpace(mesh, "R", 0)
