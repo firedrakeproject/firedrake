@@ -108,7 +108,7 @@ This tutorial demonstrates how the ``Ensemble`` class is employed on the current
 First, we will need to define an ensemble object::
 
     from firedrake import Ensemble, COMM_WORLD
-    M = 2
+    M = 1
     my_ensemble = Ensemble(COMM_WORLD, M)
 
 ``my_ensemble`` requires a communicator (which by default is ``COMM_WORLD``) and a value ``M``, the "team" size,
@@ -166,14 +166,14 @@ equation with a synthetic pressure wave velocity model. The synthetic pressure w
 referred to here as the true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true``
 consisting of a circle in the centre of the domain, as shown in the coming code cell::
 
+    V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
     c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
     plot_function(c_true, "c_true")
 
 .. image:: c_true.png
 
-We define the function space to solve the wave equation, :math:`V`. In addition, the receivers mesh and its
-function space :math:`V_r`::
+We define the receivers mesh and its function space :math:`V_r`::
 
     V = FunctionSpace(mesh, "KMV", 1)
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
@@ -197,13 +197,13 @@ property::
 
 We then interpolate the point source onto the source function space :math:`V_s`::
 
-    d_s = assemble(interpolate(f_p1DG, V_s)),
+    d_s = assemble(interpolate(f_p1DG, V_s))
 
 which result in a function :math:`f_s \in V_s` such that :math:`d_s(\mathbf{x}_s) = 1.0`. We finally interpolate
 the point source onto :math:`V` (function space to solve wave equation solver)::
 
-    cofunction_s = assemble(forcing_point * TestFunction(source_space) * dx)
-    source_cofunction = Cofunction(V.dual()).interpolate(cofunction_source_space)
+    cofunction_s = assemble(d_s * TestFunction(V_s) * dx)
+    source_cofunction = Cofunction(V.dual()).interpolate(cofunction_s)
 
 After defining the point source term that models the Dirac delta function, we can proceed to compute the
 synthetic data and record them on the receivers::
@@ -212,9 +212,9 @@ synthetic data and record them on the receivers::
     total_steps = int(final_time / dt) + 1
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, dt, V)
-    interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
+    interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
 
-    for t in range(total_steps):
+    for step in range(total_steps):
         f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
@@ -263,7 +263,7 @@ The schedules for checkpointing are generated from the
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
-    interpolate_receivers = Interpolator(u_np1, P0DG).interpolate()
+    interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
     J_val = 0.0
     for step in tape.timestepper(iter(range(total_steps))):
         f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
@@ -290,12 +290,9 @@ it returns the sum of these computations, which are input to the optimisation me
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 
-The optimised parameter ``c_optimised`` for 5 iterations is shown below:
-
-.. code-block:: python
+The optimised parameter ``c_optimised`` for 5 iterations is shown below::
 
     plot_function(c_optimised, "c_opt_parallel")
-
 
 .. image:: c_opt_parallel.png
 
