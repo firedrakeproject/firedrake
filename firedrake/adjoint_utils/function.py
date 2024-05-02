@@ -276,11 +276,11 @@ class FunctionMixin(FloatingType):
     @no_annotations
     def _ad_convert_type(self, value, options=None):
         options = {} if options is None else options
-        derivative_space = options.get("derivative_space", "dual")
-        if derivative_space == "dual":
-            return value
-        else:
+        derivative_space = options.get("derivative_space", "primal")
+        if derivative_space == "primal":
             return self._ad_convert_riesz(value, options=options)
+        else:
+            return value
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
