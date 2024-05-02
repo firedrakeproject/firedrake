@@ -275,6 +275,7 @@ class FunctionMixin(FloatingType):
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
+        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
         options = {} if options is None else options
         derivative_space = options.get("derivative_space", "primal")
         if derivative_space == "primal":
