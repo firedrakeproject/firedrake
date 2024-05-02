@@ -467,7 +467,7 @@ def _(
     # Indexing an array with a loop index makes it "context sensitive" since
     # the index could be over multiple entities (e.g. all mesh points). Here
     # we know we are only looping over cells so the context is trivial.
-    cf_indexed = op3.utils.just_one(indexed.context_map.values())
+    cf_indexed = indexed.context_free
 
     if plex.ufl_cell().is_simplex():
         return cf_indexed
