@@ -1304,8 +1304,8 @@ def build_and_install_torch():
     if sys.version_info >= (3, 10):
         run_pip_install(["typing_extensions"])
     # FIXME: use nightly to see if that makes numpy 2.0 happy
-    extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/nightly/cpu"] if args.torch == "cpu" else []
-    run_pip_install(["--pre", "torch"] + extra_index_url)
+    extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/test/cpu"] if args.torch == "cpu" else []
+    run_pip_install(["torch==2.3.0"] + extra_index_url)
 
 
 def build_and_install_slepc():
