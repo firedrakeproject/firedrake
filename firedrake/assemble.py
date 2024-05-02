@@ -1409,8 +1409,26 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         sparsity = op3.Sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            mat_type=mat_type
+            mat_type=mat_type,
+            block_shape=test.function_space().value_size
         )
+
+        if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
+            n = len(test.function_space())
+            if n == 1:
+                # if vector function space revert to standard case
+                diag_blocks = [(Ellipsis, Ellipsis)]
+            else:
+                # otherwise treat each block separately
+                diag_blocks = [(i, i) for i in range(n)]
+        else:
+            diag_blocks = [(Ellipsis, Ellipsis)]
+
+        for rindex, cindex in diag_blocks:
+            op3.do_loop(
+                p := test.ufl_domain().points.index(),
+                sparsity[rindex, cindex][p, p].assign(666, eager=False)
+            )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -1431,6 +1449,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     def _make_maps_and_regions(self):
         test, trial = self._form.arguments()
+
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, self._allocation_integral_types
@@ -1560,9 +1579,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = Ellipsis if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if space != spaces[0]:
+            # if fs.topological != self.topological:
+            #     raise RuntimeError("Dirichlet BC defined on a different function space")
+            if space.topological != spaces[0].topological:
                 raise TypeError("bc space does not match the test function space")
-            elif space != spaces[1]:
+            elif space.topological != spaces[1].topological:
                 raise TypeError("bc space does not match the trial function space")
 
             # for some reason I need to do this first, is this still the case?
@@ -1570,22 +1591,38 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             p = space.axes[index].root[bc.constrained_points].index()
 
-            index_forest = {}
-            for ctx, index_tree in op3.as_index_forest(p).items():
+            # If we constrain points of different dimension (e.g. vertices
+            # and edges) then the assigned identity may have different sizes.
+            # To resolve this we loop over each dimension in turn.
+            for context, index_tree in op3.as_index_forest(p).items():
                 dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
                 index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
 
                 if component is not None:
-                    component_slice  = op3.ScalarIndex("dim0", "XXX", component)
+                    component_slice = op3.ScalarIndex("dim0", "XXX", component)
                     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
 
-                index_forest[ctx] = index_tree
+                assignee = mat[index, index][index_tree, index_tree]
 
-            op3.do_loop(
-                p, mat[index, index][index_forest, index_forest].assign(self.weight, eager=False)
-            )
+                if assignee.axes.size == 0:
+                    continue
 
-            mat.assemble()
+                # If setting a block then use an identity matrix
+                if assignee.axes.size > 1:
+                    # "materialize"
+                    axes = op3.AxisTree(assignee.axes.node_map)
+                    size = op3.utils.single_valued([
+                        ax.size for ax in {assignee.raxes, assignee.caxes}
+                    ])
+                    expression = op3.HierarchicalArray(
+                        axes, data=numpy.eye(size, dtype=utils.ScalarType).flatten(), constant=True
+                    )
+                else:
+                    expression = self.weight
+
+                op3.do_loop(
+                    p.with_context(context), assignee.assign(expression, eager=False)
+                )
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1716,7 +1753,7 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
-
+        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
@@ -1791,7 +1828,10 @@ class ParloopBuilder:
         This is only needed when applying boundary conditions to 2-forms.
 
         """
+
         if len(self._form.arguments()) == 2 and not self._diagonal:
+            if matrix.M.nested:
+                raise NotImplementedError("Mat nest not yet implemented")
             if not self._bcs:
                 return None
             lgmaps = []
@@ -1803,10 +1843,19 @@ class ParloopBuilder:
                 i = Ellipsis if i is None else i
                 j = Ellipsis if j is None else j
 
+                if matrix.M.mat_type == "aij":
+                    row_bsize = 1
+                    col_bsize = 1
+                else:
+                    assert matrix.M.mat_type == "baij"
+                    row_bsize = self.test_function_space[ibc].value_size
+                    col_bsize = self.trial_function_space[jbc].value_size
+
                 submat = matrix.M[i, j]
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat)
-                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat)
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat, row_bsize)
+                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat, col_bsize)
                 lgmaps.append((i, j, rlgmap, clgmap))
+
             return tuple(lgmaps)
         else:
             return None

@@ -298,8 +298,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(expr, vector.Vector):
             expr = expr.function
         if isinstance(expr, Cofunction) and \
-           expr.function_space() == self.function_space():
-            self.dat.data_wo += expr.dat.data_ro
+            expr.function_space() == self.function_space():
+            self.dat.data_wo[...] += expr.dat.data_ro
             return self
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
