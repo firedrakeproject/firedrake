@@ -301,3 +301,17 @@ def test_real_interpolate():
     R = FunctionSpace(mesh, "R", 0)
     a_int = assemble(interpolate(Constant(1.0), R))
     assert np.allclose(float(a_int), 1.0)
+
+
+def test_real_space_hex():
+    mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
+    DG = FunctionSpace(mesh, "DQ", 0)
+    R = FunctionSpace(mesh, "R", 0)
+    dg = Function(DG).assign(1.)
+    r = Function(R).assign(1.)
+    val = assemble(r * dx)
+    assert abs(val - 2.) < 1.e-14
+    val = assemble(inner(dg, TestFunction(R)) * dx)
+    assert np.allclose(val.dat.data_ro, [2.])
+    val = assemble(inner(r, TestFunction(DG)) * dx)
+    assert np.allclose(val.dat.data, [1., 1.])
