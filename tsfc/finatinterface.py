@@ -19,14 +19,13 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
-from functools import singledispatch, partial
 import weakref
+from functools import partial, singledispatch
 
 import FIAT
 import finat
-import ufl
 import finat.ufl
-
+import ufl
 
 __all__ = ("as_fiat_cell", "create_base_element",
            "create_element", "supported_elements")
@@ -52,6 +51,8 @@ supported_elements = {
     "Hermite": finat.Hermite,
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
+    "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
+    "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
@@ -144,12 +145,10 @@ def convert_finiteelement(element, **kwargs):
         kind = 'spectral'  # default variant
 
     if element.family() == "Lagrange":
-        if kind == 'equispaced':
-            lmbda = finat.Lagrange
-        elif kind == 'spectral':
+        if kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
-        elif kind == 'hierarchical' and is_interval:
-            lmbda = finat.IntegratedLegendre
+        elif kind.startswith('integral'):
+            lmbda = partial(finat.IntegratedLegendre, variant=kind)
         elif kind in ['fdm', 'fdm_ipdg'] and is_interval:
             lmbda = finat.FDMLagrange
         elif kind == 'fdm_quadrature' and is_interval:
@@ -158,6 +157,8 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.FDMBrokenH1
         elif kind == 'fdm_hermite' and is_interval:
             lmbda = finat.FDMHermite
+        elif kind in ['demkowicz', 'fdm']:
+            lmbda = partial(finat.IntegratedLegendre, variant=kind)
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
@@ -165,17 +166,16 @@ def convert_finiteelement(element, **kwargs):
             deps = {"shift_axes", "restriction"}
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction), deps
         else:
-            raise ValueError("Variant %r not supported on %s" % (kind, element.cell))
+            # Let FIAT handle the general case
+            lmbda = partial(finat.Lagrange, variant=kind)
     elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
                               "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
         lmbda = partial(lmbda, variant=element.variant())
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
-        if kind == 'equispaced':
-            lmbda = finat.DiscontinuousLagrange
-        elif kind == 'spectral':
+        if kind == 'spectral':
             lmbda = finat.GaussLegendre
-        elif kind == 'hierarchical' and is_interval:
-            lmbda = finat.Legendre
+        elif kind.startswith('integral'):
+            lmbda = partial(finat.Legendre, variant=kind)
         elif kind in ['fdm', 'fdm_quadrature'] and is_interval:
             lmbda = finat.FDMDiscontinuousLagrange
         elif kind == 'fdm_ipdg' and is_interval:
@@ -189,7 +189,8 @@ def convert_finiteelement(element, **kwargs):
             deps = {"shift_axes", "restriction"}
             return finat.RuntimeTabulated(cell, degree, variant=kind, shift_axes=shift_axes, restriction=restriction, continuous=False), deps
         else:
-            raise ValueError("Variant %r not supported on %s" % (kind, element.cell))
+            # Let FIAT handle the general case
+            lmbda = partial(finat.DiscontinuousLagrange, variant=kind)
     elif element.family() == ["DPC", "DPC L2"]:
         if element.cell.topological_dimension() == 2:
             element = element.reconstruct(cell=ufl.cell.hypercube(2))
