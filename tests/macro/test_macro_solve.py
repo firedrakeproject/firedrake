@@ -150,7 +150,8 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "gmres"})
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "gmres",
+                                                                            "mat_mumps_icntl_24": 1})
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornormL2_0(zexact[-1], ph))
@@ -177,6 +178,6 @@ def test_div_free(mh, variant, mixed_element, div_test):
         sub = tuple(range(1, 2*dim+1))
         bcs = [DirichletBC(Z[0], f, sub)]
         zh = Function(Z)
-        solve(a == L, zh, bcs=bcs)
+        solve(a == L, zh, bcs=bcs, solver_parameters={"mat_mumps_icntl_24": 1})
         uh, _ = zh.subfunctions
         assert div_test(uh)
