@@ -80,6 +80,9 @@ class MLOperator(AbstractExternalOperator):
     def assemble_jacobian_adjoint_action(self, *args, **kwargs):
         """Assemble the action of the Jacobian adjoint using the AD engine of the ML framework."""
         w = self.argument_slots()[0]
+        # Derivative with respect to the parameters of the ML model
+        if self.derivatives[-1] == 1:
+            return self._backward(w)
         return self._vjp(w)
 
     # -- ML framework-specific methods -- #
