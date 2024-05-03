@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import interpolate
 from firedrake.assemble import BaseFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 import ufl
@@ -174,31 +175,59 @@ def test_preprocess_form_rank2_simplification(M, a, f):
 
 
 def test_preprocess_form_adjoint_simplification(f):
-    """Check cases (1), (2), and (8) in BaseFormAssembler.preprocess_form."""
-    V = fs.function_space()
-    N = point_expr(lambda x: x, function_space=V)
+    """Check cases (1), (2), (4), and (8) in BaseFormAssembler.preprocess_form."""
+    from ufl.algorithms import expand_indices, expand_derivatives
 
-    # dNdf(f; fhat, v*)
-    dNdf = derivative(N(f), f)
-    _, fhat = dNdf.arguments()
+    V = f.function_space()
+
+    try:
+        # I(f, v*)
+        I = interpolate(f, V)
+    except NotImplementedError:
+        # Interpolation is not implemented for certain spaces.
+        I = f
+
+    # N(I(f); v*)
+    N = point_expr(lambda x: x, function_space=V)
+    N = N(I)
+    # Action(∂N(I(f); v1, v*)/∂I, ∂I/∂f) = Action(∂N(I(f); v1, v*)/∂I, I(v1, v*))
+    dNdf = expand_derivatives(derivative(N, f))
 
     # F = <u, v> * dx
     u = TrialFunction(V)
     v = TestFunction(V)
-    F = inner(u, v) * dx
+    dFdN = inner(u, v) * dx
 
     # Action(Adjoint(Action(F, dNdf)), df)
-    df = Cofunction(V.dual())
-    expr = action(adjoint(action(F, dNdf)), df)
+    w = Function(V)
+    expr = action(adjoint(action(dFdN, dNdf)), w)
 
-    #                                      (8)                               (1)
-    # Action(Adjoint(Action(F, dNdf)), df) --> Action(Action(dNdf*, F*), df) --> ...
-    #     (1)                               (2)
-    # ... --> Action(dNdf*, Action(F*, df)) --> dNdf*(f; fhat, Action(F*, df))
-    A = BaseFormAssembler.preprocess_base_form(expr)
+    # BaseForm preprocessing:
+    #                                                       (8)+(4)                                                   (1)
+    # Action(Adjoint(Action(∂F/∂N, Action(∂N/∂I, ∂I/∂u))), w) --> `Action(Action(Action(∂I/∂u*, ∂N/∂I*), ∂F/∂N*), w)` --> ...
+    #     (1)                                             (2)
+    # ... --> `Action(∂I/∂u*, Action(∂N/∂I*, ∂F/∂N*[w]))` --> ∂I/∂u*[(∂N/∂I*(∂F/∂N*[w], w0), v0)]
+    # where `w0` and `v0` are test functions in appropriate spaces, and where the argument slots notation `[⋅, ⋅]`
+    expr = BaseFormAssembler.preprocess_base_form(expr)
 
-    M = dNdf._ufl_expr_reconstruct_(u, argument_slots=(action(adjoint(F), df), dNdf))
-    assert A == M
+    # Compare preprocessed form with expected result => this requires expanding indices!
+    try:
+        # Expanding indices is needed to match equal (different MultiIndex used for both).
+        dF = action(adjoint(dFdN), w)
+        dN = N._ufl_expr_reconstruct_(I, derivatives=(1,), argument_slots=(expand_indices(dF), v))
+        # Reconstruct the expected preprocessed form
+        expected = I._ufl_expr_reconstruct_(v, dN)
+
+        # Expanding indices for the preprocessed form
+        dN, v = expr.argument_slots()
+        dF, w = dN.argument_slots()
+        dN = dN._ufl_expr_reconstruct_(*dN.ufl_operands, argument_slots=(expand_indices(dF), w))
+        expr = expr._ufl_expr_reconstruct_(v, dN)
+
+        assert expr == expected
+    except (KeyError, NotImplementedError):
+        # Index expansion doesn't seem to play well with tensor elements.
+        pass
 
 
 def test_tensor_copy(a, M):

@@ -91,8 +91,12 @@ class Interpolate(ufl.Interpolate):
             v = Argument(v.dual(), 0)
 
         # Get the primal space (V** = V)
-        vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
-        self._function_space = vv.function_space().dual()
+        if isinstance(v, ufl.BaseForm):
+            arg, *_ = v.arguments()
+            function_space = arg.function_space()
+        else:
+            function_space = v.function_space().dual()
+        self._function_space = function_space
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
