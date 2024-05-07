@@ -47,14 +47,14 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
-    where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
-    If present, `bcs` should be a list of :class:`.DirichletBC`\s and
+    where ``A`` is a :class:`.Matrix` and ``x`` and ``b`` are :class:`.Function`\s.
+    If present, ``bcs`` should be a list of :class:`.DirichletBC`\s and
     :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
     to apply and PDEs to solve on the boundaries.
-    For the format of `solver_parameters` see below.
-    
-    Optionally, an argument `P` of type :class:`~.MatrixBase` can be passed to
-    construct any preconditioner from; if none is supplied `A` is used to
+    For the format of ``solver_parameters`` see below.
+
+    Optionally, an argument ``P`` of type :class:`~.MatrixBase` can be passed to
+    construct any preconditioner from; if none is supplied ``A`` is used to
     construct the preconditioner.
 
     .. code-block:: python3
@@ -198,11 +198,11 @@ def _la_solve(A, x, b, **kwargs):
     r"""Solve a linear algebra problem.
 
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
-    :arg P: an optional :class:`~.MatrixBase` to construct any
-            preconditioner from; if none is supplied ``A`` is
-            used to construct the preconditioner.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
+    :kwarg P: an optional :class:`~.MatrixBase` to construct any
+         preconditioner from; if none is supplied ``A`` is
+         used to construct the preconditioner.
     :kwarg solver_parameters: optional solver parameters.
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
