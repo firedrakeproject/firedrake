@@ -278,6 +278,18 @@ class FunctionMixin(FloatingType):
         # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
         return self._ad_convert_riesz(value, options=options)
 
+    def _ad_checkpoint_to_clear(self, to_keep=None):
+        if to_keep:
+            for bv in to_keep:
+                if isinstance(self, type(bv.output)):
+                    checkpoint = bv._checkpoint
+                    while isinstance(checkpoint, DelegatedFunctionCheckpoint):
+                        checkpoint = checkpoint._ad_checkpoint_to_clear()
+                    if self == checkpoint:
+                        # keep this checkpoint, since it is delegated.
+                        return None
+        return self
+
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
             return checkpoint.restore()
