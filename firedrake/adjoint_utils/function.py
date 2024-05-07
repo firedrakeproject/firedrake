@@ -63,15 +63,15 @@ class FunctionMixin(FloatingType):
                 output = subfunctions(self, *args, **kwargs)
 
             if annotate:
-                output = tuple(firedrake.Function(output[i].function_space(),
-                                                  output[i],
-                                                  block_class=SubfunctionBlock,
-                                                  _ad_floating_active=True,
-                                                  _ad_args=[self, i],
-                                                  _ad_output_args=[i],
-                                                  output_block_class=FunctionMergeBlock,
-                                                  _ad_outputs=[self],
-                                                  ad_block_tag=ad_block_tag)
+                output = tuple(type(self)(output[i].function_space(),
+                                          output[i],
+                                          block_class=SubfunctionBlock,
+                                          _ad_floating_active=True,
+                                          _ad_args=[self, i],
+                                          _ad_output_args=[i],
+                                          output_block_class=FunctionMergeBlock,
+                                          _ad_outputs=[self],
+                                          ad_block_tag=ad_block_tag)
                                for i in range(len(output)))
             return output
         return wrapper
@@ -278,6 +278,12 @@ class FunctionMixin(FloatingType):
         # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
         return self._ad_convert_riesz(value, options=options)
 
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        if isinstance(checkpoint, CheckpointBase):
+            return checkpoint.restore()
+        else:
+            return checkpoint
+
     def _ad_checkpoint_to_clear(self, to_keep=None):
         if to_keep:
             for bv in to_keep:
@@ -289,12 +295,6 @@ class FunctionMixin(FloatingType):
                         # keep this checkpoint, since it is delegated.
                         return None
         return self
-
-    def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointBase):
-            return checkpoint.restore()
-        else:
-            return checkpoint
 
     def _ad_will_add_as_dependency(self):
         """Method called when the object is added as a Block dependency.
