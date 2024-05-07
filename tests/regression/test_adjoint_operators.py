@@ -857,3 +857,32 @@ def test_assign_zero_cofunction():
     # The zero assignment should break the tape and hence cause a zero
     # gradient.
     assert all(compute_gradient(J, Control(k)).dat.data_ro == 0.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_subfunctions_with_adjoint():
+    # See https://github.com/firedrakeproject/firedrake/issues/3469
+    mesh = UnitSquareMesh(2, 2)
+    BDM = FunctionSpace(mesh, "BDM", 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    W = BDM * DG
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(DG).interpolate(
+        10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
+    bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
+    k = Function(DG).assign(1.0)
+    a = (dot(sigma, tau) + (dot(div(tau), u))) * dx + k * div(sigma)*v*dx
+    b = assemble(-f*TestFunction(DG)*dx)
+    w = Function(W)
+    b1 = Cofunction(W.dual())
+    # The following operation generates the FunctionMergeBlock.
+    b1.sub(1).interpolate(b)
+    solve(a == b1, w, bcs=[bc0, bc1])
+    J = assemble(0.5*dot(w, w)*dx)
+    J_hat = ReducedFunctional(J, Control(k))
+    k.block_variable.tlm_value = Constant(1)
+    get_working_tape().evaluate_tlm()
+    assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9

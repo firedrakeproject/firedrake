@@ -50,7 +50,6 @@ This time we created the mesh with `Gmsh <http://gmsh.info/>`_:
 We can then start our Python script and load this mesh::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   mesh = Mesh("wave_tank.msh")
 
 We choose a degree 1 continuous function space, and set up the

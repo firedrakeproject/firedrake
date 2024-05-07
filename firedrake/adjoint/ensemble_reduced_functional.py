@@ -46,7 +46,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
     Notes
     -----
     The functionals :math:`J_i` and the control must be defined over a common
-    `self.ensemble.comm` communicator. To understand more about how ensemble parallelism
+    `ensemble.comm` communicator. To understand more about how ensemble parallelism
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
@@ -74,12 +74,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
             The adjoint input.
         options : dict
             Additional options for the derivative computation.
-        op : mpi4py.MPI.Op
-            The employed MPI operation for the `Ensemble.allreduce` the derivatives.
 
         Returns
         -------
-            dJdm_total : :class:`~.function.Function` or list of :class:`~.function.Function`
+            dJdm_total : pyadjoint.OverloadedType
             The result of Allreduce operations of ``dJdm_local`` into ``dJdm_total`` over the`Ensemble.ensemble_comm`.
 
         See Also

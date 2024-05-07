@@ -3,7 +3,6 @@
 a sin(x)*sin(y) solution that doesn't care about the silly BCs"""
 
 from firedrake import *
-from firedrake.output import VTKFile
 
 
 power = 5

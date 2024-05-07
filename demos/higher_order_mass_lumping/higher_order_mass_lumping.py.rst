@@ -49,7 +49,6 @@ In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangu
 In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.::
 
     from firedrake import *
-    from firedrake.output import VTKFile
     import finat
 
     import math
