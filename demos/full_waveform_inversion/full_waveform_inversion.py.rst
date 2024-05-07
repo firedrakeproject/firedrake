@@ -298,9 +298,9 @@ The optimised parameter ``c_optimised`` for 5 iterations is shown below::
 
 .. note::
 
-    In this tutorial, we have employed an acoustic wave equation and an  FWI problem, limiting the iterations to just 5.
-    It is worth noting that enhancing the result may be achievable by increasing the number of iterations. This example
-    is only a starting point for tackling more intricate FWI problems.
+    In this tutorial, we have employed an acoustic wave equation and an FWI problem, limiting the iterations to
+    just 5. The result may be improved by increasing the number of iterations. This example is only a starting
+    point for tackling more intricate FWI problems.
 
 .. rubric:: References
 
