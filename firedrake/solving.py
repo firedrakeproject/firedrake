@@ -52,6 +52,14 @@ def solve(*args, **kwargs):
     :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
     to apply and PDEs to solve on the boundaries.
     For the format of `solver_parameters` see below.
+    
+    Optionally, an argument `P` of type :class:`~.MatrixBase` can be passed to
+    construct any preconditioner from; if none is supplied `A` is used to
+    construct the preconditioner.
+
+    .. code-block:: python3
+
+        solve(A, x, b, P=P, bcs=bcs, solver_parameters={...})
 
     *2. Solving linear variational problems*
 
@@ -190,6 +198,9 @@ def _la_solve(A, x, b, **kwargs):
     r"""Solve a linear algebra problem.
 
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
+    :arg P: an optional :class:`~.MatrixBase` to construct any
+            preconditioner from; if none is supplied ``A`` is
+            used to construct the preconditioner.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
     :kwarg solver_parameters: optional solver parameters.
@@ -224,7 +235,7 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
+    P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
 
     # Check whether solution is valid
@@ -234,7 +245,7 @@ def _la_solve(A, x, b, **kwargs):
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
+    solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
@@ -257,7 +268,7 @@ def _la_solve(A, x, b, **kwargs):
 
 
 def _extract_linear_solver_args(*args, **kwargs):
-    valid_kwargs = ["bcs", "solver_parameters", "nullspace",
+    valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
@@ -267,6 +278,7 @@ def _extract_linear_solver_args(*args, **kwargs):
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
                                (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
 
+    P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
     solver_parameters = kwargs.get("solver_parameters", {})
     nullspace = kwargs.get("nullspace", None)
@@ -274,7 +286,7 @@ def _extract_linear_solver_args(*args, **kwargs):
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
 
-    return bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
 
 
 def _extract_args(*args, **kwargs):
