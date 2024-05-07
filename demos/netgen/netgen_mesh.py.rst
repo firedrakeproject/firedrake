@@ -14,7 +14,6 @@ Installing Netgen
 This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation). ::
 
    from firedrake import *
-   from firedrake.output import VTKFile
    try:
        import netgen
    except ImportError:

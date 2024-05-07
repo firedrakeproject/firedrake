@@ -11,7 +11,6 @@ the Navier-Stokes part, and piecewise linear elements for the
 temperature. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
   N = 128
 

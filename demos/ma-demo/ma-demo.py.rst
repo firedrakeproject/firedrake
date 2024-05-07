@@ -75,7 +75,6 @@ We now proceed to set up the problem in Firedrake using a square
 mesh of quadrilaterals. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   n = 100
   mesh = UnitSquareMesh(n, n, quadrilateral=True)
 

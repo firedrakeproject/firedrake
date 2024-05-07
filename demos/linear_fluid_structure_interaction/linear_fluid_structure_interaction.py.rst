@@ -64,7 +64,6 @@ The underlined terms are the coupling terms. Note that the first equation for :m
 Now we present the code used to solve the system of equations above. We start with appropriate imports::
 
     from firedrake import *
-    from firedrake.output import VTKFile
     import math
     import numpy as np
 

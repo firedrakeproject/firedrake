@@ -88,7 +88,6 @@ Finally, before implementing the problem in Firedrake, we calculate the total en
 The implementation of this problem in Firedrake requires solving two nonlinear variational problems and one linear problem. The Benney-Luke equations are solved in a rectangular domain :math:`\Omega=[0,10]\times[0,1]`, with :math:`\mu=\epsilon=0.01`, time step :math:`dt=0.005` and up to the final time :math:`T=2.0`. Additionally, the domain is split into 50 cells in the x-direction using a quadrilateral mesh. In the y-direction only 1 cell is enough since there are no variations in y::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
 Now we move on to defining parameters::
 

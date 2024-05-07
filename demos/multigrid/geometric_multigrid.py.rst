@@ -20,7 +20,6 @@ hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
   mesh = UnitSquareMesh(8, 8)
 

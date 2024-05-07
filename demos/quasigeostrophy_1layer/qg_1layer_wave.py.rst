@@ -106,7 +106,6 @@ freely propagating Rossby wave.  As ever, we begin by importing the
 Firedrake library. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
 Next we define the domain we will solve the equations on, square
 domain with 50 cells in each direction that is periodic along the
@@ -195,10 +194,10 @@ fill. ::
                                                         "pc_type": "bjacobi",
                                                         "sub_pc_type": "ilu"})
 
-To visualise the output of the simulation, we create a :class:`~.VTKFile`
-object.  To which we can store multiple :class:`~.Function`\s.  So
-that we can distinguish between them we will give them descriptive
-names. ::
+To visualise the output of the simulation, we create a
+:class:`~.vtk_output.VTKFile` object.  To which we can store multiple
+:class:`~.Function`\s.  So that we can distinguish between them we will
+give them descriptive names. ::
 
   q0.rename("Potential vorticity")
   psi0.rename("Stream function")
