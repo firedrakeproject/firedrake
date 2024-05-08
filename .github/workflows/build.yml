@@ -51,6 +51,7 @@ jobs:
     steps:
       - name: Identify yourself
         run: |
+            whoami
             id -u
             id -g
             ls -lh /__w/_temp/_runner_file_commands
