@@ -50,8 +50,8 @@ def check_element(element, top=True):
         If the element is illegal.
     """
     if element.cell.cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ"]:
-        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
+       element.family() not in ["Q", "DQ", "Real"]:
+        raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
         inner = (element._element, )
