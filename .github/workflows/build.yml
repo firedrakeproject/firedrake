@@ -55,6 +55,8 @@ jobs:
             id -u
             id -g
             ls -lh /__w/_temp/_runner_file_commands
+            id -u ubuntu
+            id -g ubuntu
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
