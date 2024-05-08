@@ -27,7 +27,7 @@ jobs:
     runs-on: self-hosted
     container:
       image: firedrakeproject/firedrake-test:latest
-      options: --user firedrake
+      options: --user ubuntu
     strategy:
       # Don't immediately kill real if complex fails and vice versa.
       fail-fast: false
