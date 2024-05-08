@@ -63,15 +63,15 @@ class FunctionMixin(FloatingType):
                 output = subfunctions(self, *args, **kwargs)
 
             if annotate:
-                output = tuple(firedrake.Function(output[i].function_space(),
-                                                  output[i],
-                                                  block_class=SubfunctionBlock,
-                                                  _ad_floating_active=True,
-                                                  _ad_args=[self, i],
-                                                  _ad_output_args=[i],
-                                                  output_block_class=FunctionMergeBlock,
-                                                  _ad_outputs=[self],
-                                                  ad_block_tag=ad_block_tag)
+                output = tuple(type(self)(output[i].function_space(),
+                                          output[i],
+                                          block_class=SubfunctionBlock,
+                                          _ad_floating_active=True,
+                                          _ad_args=[self, i],
+                                          _ad_output_args=[i],
+                                          output_block_class=FunctionMergeBlock,
+                                          _ad_outputs=[self],
+                                          ad_block_tag=ad_block_tag)
                                for i in range(len(output)))
             return output
         return wrapper
