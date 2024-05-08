@@ -1,5 +1,5 @@
-Full-waveform inversion: automated gradient, ensemble parallelism and checkpointing
-===================================================================================
+Full-waveform inversion with spatial and wave sources parallelism
+=================================================================
 This tutorial demonstrates how to use Firedrdrake to solve a full-waveform inversion problem
 employing checkpointing, wave sources and mesh parallelism, and gradient computation with the
 algorithmic differentiation.
@@ -7,7 +7,7 @@ algorithmic differentiation.
 .. rst-class:: emphasis
 
     This tutorial was prepared by `Daiane I. Dolci <mailto:d.dolci@imperial.ac.uk>`__ 
-    with contributions from Jack Betteridge.
+    and Jack Betteridge.
 
 Full-waveform inversion (FWI) consists of a local optimisation, where the goal is to minimise
 the misfit between observed and predicted seismogram data. The misfit is quantified by a functional,
@@ -102,13 +102,12 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 
-In Firedrake, we can simultaneously compute functional values and their gradients for multiple sources.
-This is made possible through the ``Ensemble`` class, which allows both spatial and wave source parallelism. 
-This tutorial demonstrates how the ``Ensemble`` class is employed on the current inversion problem.
+In Firedrake, we can simultaneously compute functional values and their gradients for multiple sources with 
+``Ensemble`` class. This tutorial demonstrates how the ``Ensemble`` class is employed on the current inversion problem.
 First, we will need to define an ensemble object::
 
     from firedrake import Ensemble, COMM_WORLD
-    M = 1
+    M = 2
     my_ensemble = Ensemble(COMM_WORLD, M)
 
 ``my_ensemble`` requires a communicator (which by default is ``COMM_WORLD``) and a value ``M``, the "team" size,
@@ -140,23 +139,19 @@ We consider a two dimensional square domain with side length 1.0 km. The mesh is
 The basic input for the FWI problem are defined as follows::
 
     import numpy as np
-    source_locations = np.linspace((0.3, 0.05), (0.7, 0.05), num_sources)
-    receiver_locations = np.linspace((0.2, 0.85), (0.8, 0.85), 10)
+    source_locations = np.linspace((0.3, 0.1), (0.7, 0.1), num_sources)
+    receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 10)
     dt = 0.002  # time step
     final_time = 0.8  # final time
     frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet.
 
-The firedrake functions will be displayed using the following function::
+We are using a 2D domain, 10 receivers, and 3 sources. Sources and receivers locations are illustrated
+in the following figure:
 
-    import matplotlib.pyplot as plt
-    from firedrake.pyplot import tricontourf
-    def plot_function(function, file_name="function.png"):
-        fig, axes = plt.subplots()
-        contours = tricontourf(function, 10, axes=axes)
-        fig.colorbar(contours, ax=axes, fraction=0.1, cmap="seismic", format="%.3f")
-        plt.gca().invert_yaxis()
-        axes.set_aspect("equal")
-        plt.savefig(file_name + ".png")
+.. image:: sources_receivers.png
+    :scale: 70 %
+    :alt: sources and receivers locations
+    :align: center
 
         
 FWI seeks to estimate the pressure wave velocity based on the observed data stored at the receivers.
@@ -169,13 +164,14 @@ consisting of a circle in the centre of the domain, as shown in the coming code 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
     c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
-    plot_function(c_true, "c_true")
 
 .. image:: c_true.png
+    :scale: 70 %
+    :alt: true velocity model
+    :align: center
 
 We define the receivers mesh and its function space :math:`V_r`::
 
-    V = FunctionSpace(mesh, "KMV", 1)
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
     V_r = FunctionSpace(receiver_mesh, "DG", 0)
 
@@ -238,10 +234,12 @@ Next, the FWI problem is executed with the following steps:
 **Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s::
 
     c_guess = Function(V).assign(1.5)
-    plot_function(c_guess, "c_initial")
 
 
 .. image:: c_initial.png
+    :scale: 70 %
+    :alt: initial velocity model
+    :align: center
 
 
 To have the step 4, we need first to tape the forward problem. That is done by calling::
@@ -249,23 +247,13 @@ To have the step 4, we need first to tape the forward problem. That is done by c
     from firedrake.adjoint import *
     continue_annotation()
 
-
-We also enable checkpointing in order to reduce the memory usage inherent to the adjoint-based gradient::
-    
-    from checkpoint_schedules import Revolve
-    tape = get_working_tape()
-    tape.enable_checkpointing(Revolve(total_steps, 100))
-
-The schedules for checkpointing are generated from the
-`checkpoint_schedules <https://www.firedrakeproject.org/checkpoint_schedules/>`__ package.
-
 **Steps 2-3**: Solve the wave equation and compute the functional::
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
     J_val = 0.0
-    for step in tape.timestepper(iter(range(total_steps))):
+    for step in range(total_steps):
         f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
         solver.solve()
         u_nm1.assign(u_n)
@@ -290,11 +278,12 @@ it returns the sum of these computations, which are input to the optimisation me
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 
-The optimised parameter ``c_optimised`` for 5 iterations is shown below::
-
-    plot_function(c_optimised, "c_opt_parallel")
+The optimised parameter ``c_optimised`` for 5 iterations is shown below.
 
 .. image:: c_opt_parallel.png
+    :scale: 70 %
+    :alt: optimised velocity model
+    :align: center
 
 .. note::
 
