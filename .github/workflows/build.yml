@@ -57,6 +57,9 @@ jobs:
             ls -lh /__w/_temp/_runner_file_commands
             id -u ubuntu
             id -g ubuntu
+            echo
+            cat /etc/passwd
+            cat /etc/group
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
