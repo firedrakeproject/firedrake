@@ -898,4 +898,4 @@ def test_none_riesz_representation_to_derivative():
     assert isinstance(rf.derivative(), Function)
     assert isinstance(rf.derivative(options={"riesz_representation": "H1"}), Function)
     assert isinstance(rf.derivative(options={"riesz_representation": "L2"}), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": "None"}), Cofunction)
+    assert isinstance(rf.derivative(options={"riesz_representation": None}), Cofunction)
