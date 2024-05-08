@@ -53,6 +53,7 @@ jobs:
         run: |
             id -u
             id -g
+            ls -lh /__w/_temp/_runner_file_commands
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
