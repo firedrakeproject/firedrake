@@ -886,3 +886,16 @@ def test_cofunction_subfunctions_with_adjoint():
     k.block_variable.tlm_value = Constant(1)
     get_working_tape().evaluate_tlm()
     assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_none_riesz_representation_to_derivative():
+    mesh = UnitIntervalMesh(1)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    u = Function(space).interpolate(SpatialCoordinate(mesh)[0])
+    J = assemble((u ** 2) * dx)
+    rf = ReducedFunctional(J, Control(u))
+    assert isinstance(rf.derivative(), Function)
+    assert isinstance(rf.derivative(options={"riesz_representation": "H1"}), Function)
+    assert isinstance(rf.derivative(options={"riesz_representation": "L2"}), Function)
+    assert isinstance(rf.derivative(options={"riesz_representation": None}), Cofunction)
