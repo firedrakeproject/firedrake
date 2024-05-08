@@ -349,6 +349,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :class:`Cofunction`"""
         return vector.Vector(self)
 
+    def nodal_dat(self):
+        return op3.HierarchicalArray(self.function_space().nodal_axes, data=self.dat.data_rw_with_halos)
+
     @property
     def node_set(self):
         r"""A :class:`pyop2.types.set.Set` containing the nodes of this
@@ -356,7 +359,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :class:`.FunctionSpace`\s) more degrees of freedom are stored
         at each node.
         """
-        return self.function_space().node_set
+        return self.function_space().nodes
 
     def ufl_id(self):
         return self.uid
@@ -386,5 +389,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         else:
             return super(Cofunction, self).__str__()
 
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
+    @property
+    def cell_node_list(self):
+        return self.function_space().cell_node_list
+
+    @property
+    def owned_cell_node_list(self):
+        return self.function_space().owned_cell_node_list

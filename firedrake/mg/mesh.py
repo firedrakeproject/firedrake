@@ -287,7 +287,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
         raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
     base_mesh.init()
-    if base_mesh.cell_set._extruded:
+    if base_mesh.extruded:
         raise ValueError("Base mesh must not be extruded")
     if layers is None:
         if base_layer == -1:
@@ -306,7 +306,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
                            gdim=gdim)
               for layer in layers]
     refinements_per_level = 1
-    identity = np.arange(base_mesh.cell_set.size, dtype=IntType).reshape(-1, 1)
+    identity = np.arange(base_mesh.owned_cells.size, dtype=IntType).reshape(-1, 1)
     coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), identity)
                                 for i in range(nref))
     fine_to_coarse_cells = dict((Fraction(i+1, refinements_per_level), identity)
