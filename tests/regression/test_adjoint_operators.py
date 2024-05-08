@@ -889,11 +889,13 @@ def test_cofunction_subfunctions_with_adjoint():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_reduce_functional_derivative_space():
+def test_none_riesz_representation_to_derivative():
     mesh = UnitIntervalMesh(1)
     space = FunctionSpace(mesh, "Lagrange", 1)
     u = Function(space).interpolate(SpatialCoordinate(mesh)[0])
     J = assemble((u ** 2) * dx)
     rf = ReducedFunctional(J, Control(u))
     assert isinstance(rf.derivative(), Function)
-    assert isinstance(rf.derivative(options={"derivative_space": "dual"}), Cofunction)
+    assert isinstance(rf.derivative(options={"riesz_representation": "H1"}), Function)
+    assert isinstance(rf.derivative(options={"riesz_representation": "L2"}), Function)
+    assert isinstance(rf.derivative(options={"riesz_representation": "None"}), Cofunction)
