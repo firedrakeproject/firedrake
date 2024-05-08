@@ -275,8 +275,13 @@ class FunctionMixin(FloatingType):
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
-        return self._ad_convert_riesz(value, options=options)
+        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
+        options = {} if options is None else options
+        riesz_representation = options.get("riesz_representation", "L2")
+        if riesz_representation is None:
+            return value
+        else:
+            return self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
