@@ -49,6 +49,10 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
     steps:
+      - name: Identify yourself
+        run: |
+            id -u
+            id -g
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
@@ -58,9 +62,6 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
-          # DO NOT MERGE: just until we rebuild the Docker container
-          sudo apt-get update
-          sudo apt-get -y install ninja-build
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
