@@ -60,9 +60,6 @@ jobs:
           echo
           cat /etc/passwd
           cat /etc/group
-      - name: Force clean
-        run: |
-          rm -rf /__w/firedrake/firedrake
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
