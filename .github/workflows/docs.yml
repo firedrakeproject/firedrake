@@ -23,6 +23,7 @@ jobs:
     # The docker container to use.
     container:
       image: firedrakeproject/firedrake-docdeps:latest
+      options: --user root
       volumes:
         - ${{ github.workspace }}:/home/firedrake/output
     # Steps represent a sequence of tasks that will be executed as
