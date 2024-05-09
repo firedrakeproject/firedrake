@@ -48,14 +48,6 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
     steps:
-      - name: Identify yourself
-        run: |
-          whoami
-          id -u
-          id -g
-          echo
-          cat /etc/passwd
-          cat /etc/group
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
@@ -161,11 +153,11 @@ jobs:
       tag: ${{ needs.docker_tag.outputs.tag }}
       status: ${{ needs.build.result }}
     secrets: inherit
-  #~ docker_testing:
-    #~ # Strictly for testing!
-    #~ uses: ./.github/workflows/docker_reuse.yml
-    #~ with:
-      #~ target: firedrake-test
-      #~ tag: latest
-      #~ dockerfile: docker/Dockerfile.env
-    #~ secrets: inherit
+  docker_testing:
+    # Strictly for testing!
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test
+      tag: latest
+      dockerfile: docker/Dockerfile.env
+    secrets: inherit
