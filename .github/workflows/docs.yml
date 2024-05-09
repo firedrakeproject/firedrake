@@ -57,7 +57,7 @@ jobs:
           cd docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: /__w/firedrake/firedrake/docs/build/html
@@ -76,4 +76,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
