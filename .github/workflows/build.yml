@@ -23,9 +23,8 @@ env:
 jobs:
   build:
     name: "Build Firedrake"
-    # The type of runner that the job will run on
+    # Run on our self-hosted machines
     runs-on: self-hosted
-    # The docker container to use.
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
