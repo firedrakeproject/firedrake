@@ -60,9 +60,6 @@ jobs:
           echo
           cat /etc/passwd
           cat /etc/group
-      - name: Fix permissions
-        run: |
-          sudo chmod -R 777 $GITHUB_WORKSPACE /github /__w/_temp
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
