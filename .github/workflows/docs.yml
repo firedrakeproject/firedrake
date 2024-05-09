@@ -29,7 +29,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install checkedout Firedrake
         run: |
           . /home/firedrake/firedrake/bin/activate
