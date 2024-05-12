@@ -137,6 +137,168 @@ def _pgfplot_create_patch_arrays(data, cell_node_list, cells, perms):
     return data[a.reshape(-1)[offsets + perms].reshape(-1), :]
 
 
+def pgfplot(f, filename, degree=None, complex_component='real', print_latex_example=True):
+    """Produce a data file for LaTeX tikz plotting in parallel.
+
+    Parameters
+    ----------
+    f : Function
+       `Function` to plot.
+    filename : str
+        Name of the output file.
+    degree : int
+        Degree of interpolation for plotting: ``1`` (linear) or ``2`` (quadratic).
+    complex_component : str
+        Complex component to be plotted: ``"real"`` or ``"imag"``.
+    print_latex_example : bool
+        Flag indicating whether to print a latex example or not.
+
+    Notes
+    -----
+    Currently this functionality is only for plotting scalar functions in two- or
+    three-dimensional spaces using 2D patches. If the topological dimension of the
+    function is two, it outputs values on the cells, while, if the topological
+    dimension is three, it outputs values on the exterior facets.
+
+    Do not use this for large functions, or it will take forever to
+    compile your LaTeX file.
+
+    For large functions, ``pdflatex`` might fail to compile your document with the
+    error message: ``TeX capacity exceeded, sorry [main memory size=5000000].``
+    If this happens, you could consider handling this error directly one way or
+    another or consider using ``lualatex`` instead, which allocates memory dynamically.
+
+    This function seamlessly works in parallel.
+
+    """
+    if complex_component not in ('real', 'imag'):
+        raise NotImplementedError(f"complex_component must be {'real', 'imag'}: got {complex_component}")
+    V = f.function_space()
+    elem = V.ufl_element()
+    mesh = V.ufl_domain()
+    dim = mesh.geometric_dimension()
+    if elem.value_shape:
+        if elem.value_shape != (dim, ):
+            raise NotImplementedError(f"Can only plot scalar or vector (of shape (geometric_dim, )) functions)")
+        return _pgfplot_vector(f, filename, degree, complex_component, print_latex_example)
+    else:
+        return _pgfplot_scalar(f, filename, degree, complex_component, print_latex_example)
+
+
+def _pgfplot_scalar(f, filename, degree, complex_component, print_latex_example):
+    if degree is None:
+        degree = 1
+    if degree not in (1, 2):
+        raise NotImplementedError(f"degree must be {1, 2}: got {degree}")
+    V = f.function_space()
+    elem = V.ufl_element()
+    mesh = V.ufl_domain()
+    dim = mesh.geometric_dimension()
+    if dim not in (2, 3):
+        raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
+    if mesh.extruded:
+        raise NotImplementedError("Not yet implemented for functions on extruded meshes")
+    coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="equispaced")
+    coordV = FunctionSpace(mesh, coordelem)
+    coords = Function(coordV).interpolate(SpatialCoordinate(mesh))
+    elemdg = get_embedding_dg_element(elem).reconstruct(degree=degree, variant="equispaced")
+    Vdg = FunctionSpace(mesh, elemdg)
+    fdg = Function(Vdg)
+    method = get_embedding_method_for_checkpointing(elem)
+    getattr(fdg, method)(f)
+    patches, patch_type = _pgfplot_create_patches(fdg, coords, complex_component)
+    # Output
+    size = f.comm.size
+    rank = f.comm.rank
+    filename_rank = filename + f"_{rank}"
+    if os.path.exists(filename_rank):
+        raise RuntimeError(f"File already exists: {filename_rank}")
+    np.savetxt(filename_rank, patches)
+    f.comm.Barrier()
+    if rank == 0:
+        coordname = {1: 'x ',
+                     2: 'x y ',
+                     3: 'x y z '}[dim]
+        with open(filename, 'w') as outfile:
+            outfile.write(coordname + f.name() + "\n")
+            for rnk in range(size):
+                with open(filename + f"_{rnk}", 'r') as infile:
+                    for line in infile:
+                        outfile.write(line)
+    f.comm.Barrier()
+    os.remove(filename_rank)
+    if print_latex_example:
+        with coords.dat.vec_ro as vec:
+            arg_coordslim = ""
+            for d in range(dim):
+                _, cmax = vec.strideMax(d)
+                _, cmin = vec.strideMin(d)
+                c = ['x', 'y', 'z'][d]
+                arg_coordslim += f"""             {c}min={cmin: .2f}, {c}max={cmax: .2f},\n"""
+        table_arg = {1: 'x=x, ',
+                     2: 'x=x, y=y, ',
+                     3: 'x=x, y=y, z=z, '}[dim]
+        table_arg += f'meta={f.name()}'
+        fname_arg = '{' + filename + '}'
+        texts = f"""
+===========================================================================================
+% pgfplot_example.tex
+
+\\documentclass{{article}}
+\\usepackage{{tikz}}
+\\usepackage{{pgfplots}}
+\\usepgfplotslibrary{{patchplots}}
+\\pgfplotsset{{compat=1.18}}
+\\begin{{document}}
+\\begin{{figure}}[ht]
+\\begin{{tikzpicture}}
+\\begin{{axis}}[title={f.name().replace("_", " ")},
+{arg_coordslim[:-1]}
+             xlabel={{$x$}},
+             ylabel={{$y$}},
+             zlabel={{$z$}},
+             % xtick={{0, 1, 2}},
+             % xticklabels={{0, 1, 2}},
+             % ytick={{0, 1}},
+             % yticklabels={{0, 1}},
+             % ztick={{0, 1}},
+             % zticklabels={{0, 1}},
+             % axis equal,
+             axis equal image,
+             colorbar,
+             colormap/hot, % hot, cool, bluered, greenyellow, redyellow, violet, blackwhite
+             colorbar/width=10pt,
+             view={{30}}{{45}},
+             width=300pt,
+             height=300pt,
+             % axis line style={{draw=none}},
+             % tick style={{draw=none}},
+            ]
+\\addplot3[patch,
+          patch type={patch_type},
+          point meta=explicit,
+          shader=faceted interp, % interp, faceted, faceted interp
+          opacity=1.,
+         ] table[{table_arg}] {fname_arg};
+\\end{{axis}}
+\\end{{tikzpicture}}
+\\end{{figure}}
+\\end{{document}}
+===========================================================================================
+
+Run:
+
+lualatex -shell-escape pgfplot_example.tex
+
+For more details, see:
+
+https://anorien.csc.warwick.ac.uk/mirrors/CTAN/graphics/pgf/contrib/pgfplots/doc/pgfplots.pdf
+https://pgfplots.sourceforge.net/gallery.html
+https://github.com/pgf-tikz/pgfplots
+"""
+        PETSc.Sys.Print(texts)
+
+
 def _pgfplot_create_patches(f, coords, complex_component):
     V = f.function_space()
     elem = V.ufl_element()
@@ -171,44 +333,9 @@ def _pgfplot_create_patches(f, coords, complex_component):
     return patches, patch_type
 
 
-def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example=True):
-    """Produce a data file for LaTeX tikz plotting in parallel.
-
-    Parameters
-    ----------
-    f : Function
-       `Function` to plot.
-    filename : str
-        Name of the output file.
-    degree : int
-        Degree of interpolation for plotting: ``1`` (linear) or ``2`` (quadratic).
-    complex_component : str
-        Complex component to be plotted: ``"real"`` or ``"imag"``.
-    print_latex_example : bool
-        Flag indicating whether to print a latex example or not.
-
-    Notes
-    -----
-    Currently this functionality is only for plotting scalar functions in two- or
-    three-dimensional spaces using 2D patches. If the topological dimension of the
-    function is two, it outputs values on the cells, while, if the topological
-    dimension is three, it outputs values on the exterior facets.
-
-    Do not use this for large functions, or it will take forever to
-    compile your LaTeX file.
-
-    For large functions, ``pdflatex`` might fail to compile your document with the
-    error message: ``TeX capacity exceeded, sorry [main memory size=5000000].``
-    If this happens, you could consider handling this error directly one way or
-    another or consider using ``lualatex`` instead, which allocates memory dynamically.
-
-    This function seamlessly works in parallel.
-
-    """
-    if degree not in (1, 2):
-        raise NotImplementedError(f"degree must be {1, 2}: got {degree}")
-    if complex_component not in ('real', 'imag'):
-        raise NotImplementedError(f"complex_component must be {'real', 'imag'}: got {complex_component}")
+def _pgfplot_vector(f, filename, degree, complex_component, print_latex_example):
+    if degree is None:
+        degree = 0
     V = f.function_space()
     elem = V.ufl_element()
     mesh = V.ufl_domain()
@@ -217,37 +344,39 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:
         raise NotImplementedError("Not yet implemented for functions on extruded meshes")
-    if elem.value_shape():
-        raise NotImplementedError("Currently only implemeted for scalar functions")
-    coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="equispaced")
+    coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="spectral")
     coordV = FunctionSpace(mesh, coordelem)
     coords = Function(coordV).interpolate(SpatialCoordinate(mesh))
-    elemdg = get_embedding_dg_element(elem).reconstruct(degree=degree, variant="equispaced")
+    elemdg = get_embedding_dg_element(elem).reconstruct(degree=degree, variant="spectral")
     Vdg = FunctionSpace(mesh, elemdg)
     fdg = Function(Vdg)
     method = get_embedding_method_for_checkpointing(elem)
     getattr(fdg, method)(f)
-    patches, patch_type = _pgfplot_create_patches(fdg, coords, complex_component)
+    fdata = fdg.dat.data_ro.real if complex_component == 'real' else f.dat.data_ro.imag
+    coordsdata = coords.dat.data_ro
+    perm = np.lexsort([coordsdata[:, i] for i in range(coordsdata.shape[1] - 1, -1, -1)])
+    #perm = np.random.permutation(coordsdata.shape[0])
+    fdata = fdata[perm][::31, :]
+    coordsdata = coordsdata[perm][::31, :]
     # Output
     size = f.comm.size
     rank = f.comm.rank
     filename_rank = filename + f"_{rank}"
     if os.path.exists(filename_rank):
         raise RuntimeError(f"File already exists: {filename_rank}")
-    np.savetxt(filename_rank, patches)
+    with open(filename_rank, 'w') as outfile:
+        for coords, fvals in zip(coordsdata, fdata, strict=True):
+            outfile.write(f"\draw[quiver] (${tuple(coords)}$) -- (${tuple(coords)}+\quiverscale*{tuple(fvals)}$);" + "\n")
     f.comm.Barrier()
     if rank == 0:
-        coordname = {1: 'x ',
-                     2: 'x y ',
-                     3: 'x y z '}[dim]
         with open(filename, 'w') as outfile:
-            outfile.write(coordname + f.name() + "\n")
             for rnk in range(size):
                 with open(filename + f"_{rnk}", 'r') as infile:
                     for line in infile:
                         outfile.write(line)
     f.comm.Barrier()
     os.remove(filename_rank)
+    import pdb;pdb.set_trace()
     if print_latex_example:
         with coords.dat.vec_ro as vec:
             arg_coordslim = ""

@@ -2098,7 +2098,6 @@ def _as_parloop_arg_interior_facet(_, self):
         m = None
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facet"
     return op2.DatParloopArg(local_facet_dat, m)
 
 

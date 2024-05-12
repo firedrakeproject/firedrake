@@ -346,8 +346,8 @@ def test_near_nullspace_mixed(aux_pc):
     w = Function(W)
     solver_parameters = {
         'mat_type': 'matfree',
-        'pc_type': 'fieldsplit',
         'ksp_type': 'preonly',
+        'pc_type': 'fieldsplit',
         'pc_fieldsplit_type': 'schur',
         'fieldsplit_schur_fact_type': 'full',
         'fieldsplit_0': {
@@ -356,7 +356,7 @@ def test_near_nullspace_mixed(aux_pc):
             'pc_python_type': 'firedrake.AssembledPC',
             'assembled_pc_type': 'gamg',
             'assembled_mg_levels_pc_type': 'sor',
-            'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,  # See https://gitlab.com/petsc/petsc/-/issues/1221
+            #'assembled_mg_levels_pc_sor_diagonal_shift': 1e-100,
             'ksp_rtol': 1e-7,
             'ksp_converged_reason': None,
         },

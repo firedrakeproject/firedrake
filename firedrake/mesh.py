@@ -1534,6 +1534,7 @@ class MeshTopology(AbstractMeshTopology):
             if base_integral_type == "cell":
                 base_subset_points = None
             elif base_integral_type in ["interior_facet", "exterior_facet"]:
+                #import pdb;pdb.set_trace()
                 base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
                 if base_integral_type == "interior_facet":
                     base_subset_points = base_mesh.interior_facets.facets[base_subset.indices]
