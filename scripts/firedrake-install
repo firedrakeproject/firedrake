@@ -34,7 +34,7 @@ firedrake_apps = {
     "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
               "git+ssh://github.com/firedrakeproject/gusto.git@main#egg=gusto"),
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
-               "git+ssh://github.com/thetisproject/thetis@JDBetteridge/update_installer#egg=thetis"),
+               "git+ssh://github.com/thetisproject/thetis.git@JDBetteridge/update_installer#egg=thetis"),
     "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
                 "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
     "irksome": ("""Implicit Runge-Kutta methods. https://github.com/firedrakeproject/Irksome/""",
