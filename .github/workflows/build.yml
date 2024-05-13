@@ -70,9 +70,11 @@ jobs:
             --no-package-manager \
             --disable-ssh \
             --documentation-dependencies \
+            --tinyasm \
             --torch \
             --netgen \
             --slepc \
+            --install thetis \
             --install gusto \
             --install icepack \
             --install irksome \
