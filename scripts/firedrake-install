@@ -34,7 +34,7 @@ firedrake_apps = {
     "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
               "git+ssh://github.com/firedrakeproject/gusto.git@main#egg=gusto"),
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
-               "git+ssh://github.com/thetisproject/thetis#egg=thetis"),
+               "git+ssh://github.com/thetisproject/thetis@JDBetteridge/update_installer#egg=thetis"),
     "icepack": ("""Glacier and ice sheet model. https://icepack.github.io""",
                 "git+ssh://github.com/icepack/icepack.git#egg=icepack"),
     "irksome": ("""Implicit Runge-Kutta methods. https://github.com/firedrakeproject/Irksome/""",
@@ -1285,7 +1285,7 @@ def build_and_install_tinyasm():
                 check_call(["git", "reset", "--hard"])
                 check_call(["git", "pull"])
     else:
-        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
+        git_clone("git+https://github.com/JDBetteridge/TinyASM.git@JDBetteridge/remove_cmake")
         tinyasm_changed = True
 
     if tinyasm_changed:
