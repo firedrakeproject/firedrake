@@ -38,7 +38,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
-    allreduce : bool, optional
+    allreduce : bool
         If True, the functionals and their derivatives are summed over the ensemble communicator
         `ensemble.ensemble_comm`. If False, the functionals and their derivatives computed in
         multiple ranks are not summed.
