@@ -335,5 +335,5 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
                                       saved_output.dat,
                                       count=self.count)
 
-    def _ad_checkpoint_to_clear(self, to_keep=None):
-        return self.other._checkpoint
+    def _ad_is_to_clear_checkpoint(self, to_keep=None):
+        return False
