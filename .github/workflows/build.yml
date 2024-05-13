@@ -26,7 +26,7 @@ jobs:
     # Run on our self-hosted machines
     runs-on: self-hosted
     container:
-      image: firedrakeproject/firedrake-env:latest
+      image: condalf/firedrake-env-no-hypre:latest
     strategy:
       # Don't immediately kill real if complex fails and vice versa.
       fail-fast: false
