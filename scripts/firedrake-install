@@ -1293,7 +1293,7 @@ def build_and_install_tinyasm():
             # Clean source directory
             check_call(["git", "reset", "--hard"])
             check_call(["git", "clean", "-f", "-x", "-d"])
-            check_call(["pip", "install", "-e", "."])
+            check_call([pip, "install", "-e", "."])
     else:
         log.info("No need to rebuild TinyASM")
 
