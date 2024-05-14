@@ -89,7 +89,7 @@ Abstract submission
 -------------------
 
 Abstract submission is **now open**! `To submit an abstract, please follow this link
-<https://easychair.org/conferences/submission_new?a=32739565>`__.
+<https://easychair.org/my/conference?conf=firedrake24>`__.
 
 The deadline for abstract submission is **18th August 2024**.
 
