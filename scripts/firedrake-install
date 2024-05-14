@@ -1291,9 +1291,11 @@ def build_and_install_tinyasm():
     if tinyasm_changed:
         with directory("TinyASM"):
             # Clean source directory
+            check_call(["rm", "-rf", "pybind11"])
+            check_call([*pip, "install", "pybind11"])
             check_call(["git", "reset", "--hard"])
             check_call(["git", "clean", "-f", "-x", "-d"])
-            check_call([pip, "install", "-e", "."])
+            check_call([*pip, "install", "-e", "."])
     else:
         log.info("No need to rebuild TinyASM")
 
