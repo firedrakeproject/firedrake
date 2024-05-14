@@ -102,7 +102,7 @@ def test_demo_runs(py_file, env):
             reason="ngsPETSc unavailable, skipping Netgen test."
         )
         try:
-            from slepc4py import SLEPc  # noqa: F401
+            from slepc4py import SLEPc  # noqa: F401, F811
         except ImportError:
             pytest.skip(reason="SLEPc unavailable, skipping netgen_mesh.py")
 
