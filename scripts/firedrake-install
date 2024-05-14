@@ -707,8 +707,6 @@ def get_minimal_petsc_packages():
     pkgs = set()
     # File format
     pkgs.add("hdf5")
-    # Parallel mesh partitioner
-    pkgs.add("ptscotch")
     # Sparse direct solver
     pkgs.add("scalapack")  # Needed for mumps
     pkgs.add("mumps")
