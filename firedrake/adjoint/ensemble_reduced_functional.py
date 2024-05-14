@@ -38,10 +38,11 @@ class EnsembleReducedFunctional(ReducedFunctional):
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
-    allreduce : bool
-        If True, the functionals and their derivatives are summed over the ensemble communicator
-        `ensemble.ensemble_comm`. If False, the functionals and their derivatives computed in
-        multiple ranks are not summed.
+    scatter_control : bool
+        If ``True``, the functionals and their derivatives are summed over the ensemble
+        communicator ``ensemble.ensemble_comm``. In this case, one assumes one control
+        (or a list of control) is scattered over the ensemble members. If ``False``,
+        ``EnsembleReducedFunctional`` methods will not apply the sum operation.
 
     See Also
     --------
@@ -54,14 +55,14 @@ class EnsembleReducedFunctional(ReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
-    def __init__(self, J, control, ensemble, allreduce=True):
+    def __init__(self, J, control, ensemble, scatter_control=True):
         super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
-        self.allreduce = allreduce
+        self.scatter_control = scatter_control
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        if not self.allreduce:
+        if not self.scatter_control:
             return local_functional
         if isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
@@ -94,7 +95,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
         dJdm_local = Enlist(dJdm_local)
         dJdm_total = []
-        if not self.allreduce:
+        if not self.scatter_control:
             return dJdm_local
         for dJdm in dJdm_local:
             if not isinstance(dJdm, (firedrake.Function, float)):
