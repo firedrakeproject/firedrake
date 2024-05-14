@@ -1,6 +1,7 @@
 import ufl
 from itertools import chain
 from contextlib import ExitStack
+from types import MappingProxyType
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake import function
@@ -129,11 +130,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS.copy()
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS.copy()
-    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
+    DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
@@ -218,6 +218,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
+        from pprint import pprint
+        pprint(solver_parameters)
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
@@ -405,8 +407,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
     # Tighter default tolerance for KSP only.
-    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS.copy()
-    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-7
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS
 
     def invalidate_jacobian(self):
         r"""

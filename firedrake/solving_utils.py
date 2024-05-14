@@ -89,7 +89,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
                         "ksp_type": "preonly",
                         "pc_type": "python",
                         "pc_python_type": "firedrake.AssembledPC",
-                        "assembled": DEFAULT_KSP_PARAMETERS.copy(),
+                        "assembled": DEFAULT_KSP_PARAMETERS,
                     },
                     "fieldsplit_1": {
                         "ksp_type": "gmres",

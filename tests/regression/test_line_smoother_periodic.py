@@ -93,7 +93,7 @@ def test_line_smoother_periodic():
             "pc_type": "telescope",
             "pc_telescope_subcomm_type": "contiguous",
             "telescope_pc_type": "lu",
-            "telescope_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS.copy()
+            "telescope_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
         }
     }
 

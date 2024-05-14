@@ -4,6 +4,8 @@ import itertools
 import os
 import subprocess
 from contextlib import contextmanager
+from copy import deepcopy
+from types import MappingProxyType
 from typing import Any
 from warnings import warn
 
@@ -122,7 +124,7 @@ def get_petscconf_h():
     path = [config["PETSC_DIR"], config["PETSC_ARCH"], "include/petscconf.h"]
     petscconf_h = os.path.join(*path)
     with open(petscconf_h) as fh:
-        # use `removeprefix("#define PETSC_")` in place of
+        # TODO: use `removeprefix("#define PETSC_")` in place of
         # `lstrip("#define PETSC")[1:]` when support for Python 3.8 is dropped
         splitlines = (
             line.lstrip("#define PETSC")[1:].split(" ", maxsplit=1)
@@ -135,6 +137,8 @@ def get_external_packages():
     """Return a list of PETSc external packages that are installed.
 
     """
+    # The HAVE_PACKAGES variable uses delimiters at both ends
+    # so we drop the empty first and last items
     return get_petscconf_h()["HAVE_PACKAGES"].split(":")[1:-1]
 
 
@@ -395,7 +399,7 @@ direct_solver_priority = ["mumps", "superlu_dist", "pastix"]
 for solver in direct_solver_priority:
     if solver in external_packages:
         DEFAULT_DIRECT_SOLVER = solver
-        DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": solver}
+        _DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": solver}
         break
 else:
     warn(
@@ -403,14 +407,14 @@ else:
         + " found, defaulting to PETSc LU. This will only work in serial."
     )
     DEFAULT_DIRECT_SOLVER = "petsc"
-    DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
+    _DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
 
 # MUMPS needs an additional parameter set
 # From the MUMPS documentation:
 # > ICNTL(14) controls the percentage increase in the estimated working space...
 # > ... Remarks: When significant extra fill-in is caused by numerical pivoting, increasing ICNTL(14) may help.
 if DEFAULT_DIRECT_SOLVER == "mumps":
-    DEFAULT_DIRECT_SOLVER_PARAMETERS["mat_mumps_icntl_14"] = 200
+    _DEFAULT_DIRECT_SOLVER_PARAMETERS["mat_mumps_icntl_14"] = 200
 
 # Setup default AMG preconditioner
 amg_priority = ["hypre", "ml"]
@@ -421,19 +425,27 @@ else:
     DEFAULT_AMG_PC = "gamg"
 
 
-DEFAULT_KSP_PARAMETERS = flatten_parameters({
+# Parameters must be flattened for `set_defaults` in `solving_utils.py` to
+# mutate options dictionaries "correctly".
+# TODO: refactor `set_defaults` in `solving_utils.py`
+_DEFAULT_KSP_PARAMETERS = flatten_parameters({
     "mat_type": "aij",
     "ksp_type": "preonly",
     "ksp_rtol": 1e-7,
     "pc_type": "lu",
-    "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+    "pc_factor": _DEFAULT_DIRECT_SOLVER_PARAMETERS
 })
 
-DEFAULT_SNES_PARAMETERS = {
+_DEFAULT_SNES_PARAMETERS = {
     "snes_type": "newtonls",
     "snes_linesearch_type": "basic",
     # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSovler class works
 }
 # We also want looser KSP tolerances for non-linear solves
 # DEFAULT_SNES_PARAMETERS["ksp_rtol"] = 1e-5
-# this is specified in the NonlinearVariationalSovler class
+# this is specified in the NonlinearVariationalSolver class
+
+# Make all of the `DEFAULT_` dictionaries immutable so someone doesn't accidentally overwrite them
+DEFAULT_DIRECT_SOLVER_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_DIRECT_SOLVER_PARAMETERS))
+DEFAULT_KSP_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_KSP_PARAMETERS))
+DEFAULT_SNES_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_SNES_PARAMETERS))

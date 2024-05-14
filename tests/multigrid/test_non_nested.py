@@ -78,7 +78,7 @@ def test_sphere_mg():
                  "mg_coarse_pc_type": "python",
                  "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                  "mg_coarse_assembled_pc_type": "lu",
-                 "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS.copy(),
+                 "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                  "mg_levels_pc_type": "python",
                  "mg_levels_pc_python_type": "firedrake.AssembledPC",
                  "mg_levels_assembled_pc_type": "bjacobi",
