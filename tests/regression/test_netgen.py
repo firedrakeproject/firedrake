@@ -6,8 +6,10 @@ import pytest
 
 try:
     import netgen
+
     del netgen
     import ngsPETSc
+
     del ngsPETSc
 except ImportError:
     # Netgen is not installed
@@ -19,6 +21,7 @@ printf = lambda msg: PETSc.Sys.Print(msg)
 
 def square_geometry(h):
     from netgen.geom2d import SplineGeometry
+
     geo = SplineGeometry()
     geo.AddRectangle((0, 0), (np.pi, np.pi), bc="rect")
     ngmesh = geo.GenerateMesh(maxh=h)
@@ -27,11 +30,16 @@ def square_geometry(h):
 
 def poisson(h, degree=2):
     import netgen
+
     comm = COMM_WORLD
     # Setting up Netgen geometry and mesh
     if comm.Get_rank() == 0:
         ngmesh = square_geometry(h)
-        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
+        labels = [
+            i + 1
+            for i, name in enumerate(ngmesh.GetRegionNames(codim=1))
+            if name == "rect"
+        ]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
         labels = None
@@ -43,8 +51,8 @@ def poisson(h, degree=2):
     u = TrialFunction(V)
     v = TestFunction(V)
     x, y = SpatialCoordinate(msh)
-    f = assemble(interpolate(2*sin(x)*sin(y), V))
-    a = inner(grad(u), grad(v))*dx
+    f = assemble(interpolate(2 * sin(x) * sin(y), V))
+    a = inner(grad(u), grad(v)) * dx
     l = inner(f, v) * dx
     u = Function(V)
     bc = DirichletBC(V, 0.0, labels)
@@ -58,7 +66,7 @@ def poisson(h, degree=2):
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Computing the error
-    f.interpolate(sin(x)*sin(y))
+    f.interpolate(sin(x) * sin(y))
     return sqrt(assemble(inner(u - f, u - f) * dx)), u, f
 
 
@@ -74,7 +82,11 @@ def poisson3D(h, degree=2):
         geo = CSGeometry()
         geo.Add(box)
         ngmesh = geo.GenerateMesh(maxh=h)
-        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "bcs"]
+        labels = [
+            i + 1
+            for i, name in enumerate(ngmesh.GetRegionNames(codim=1))
+            if name == "bcs"
+        ]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
         labels = None
@@ -87,8 +99,8 @@ def poisson3D(h, degree=2):
     u = TrialFunction(V)
     v = TestFunction(V)
     x, y, z = SpatialCoordinate(msh)
-    f = assemble(interpolate(3*sin(x)*sin(y)*sin(z), V))
-    a = inner(grad(u), grad(v))*dx
+    f = assemble(interpolate(3 * sin(x) * sin(y) * sin(z), V))
+    a = inner(grad(u), grad(v)) * dx
     l = inner(f, v) * dx
     u = Function(V)
     bc = DirichletBC(V, 0.0, labels)
@@ -102,22 +114,23 @@ def poisson3D(h, degree=2):
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     # Computing the error
-    f.interpolate(sin(x)*sin(y)*sin(z))
+    f.interpolate(sin(x) * sin(y) * sin(z))
     S = sqrt(assemble(inner(u - f, u - f) * dx))
     return S
 
 
 def test_firedrake_Poisson_netgen():
-    diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
+    diff = np.array([poisson(h)[0] for h in [1 / 2, 1 / 4, 1 / 8]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
 
 
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 def test_firedrake_Poisson_netgen_parallel():
-    diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
+    diff = np.array([poisson(h)[0] for h in [1 / 2, 1 / 4, 1 / 8]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
@@ -125,7 +138,7 @@ def test_firedrake_Poisson_netgen_parallel():
 
 
 def test_firedrake_Poisson3D_netgen():
-    diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
+    diff = np.array([poisson3D(h) for h in [1, 1 / 2, 1 / 4]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
@@ -141,7 +154,11 @@ def test_firedrake_integral_2D_netgen():
         geo = SplineGeometry()
         geo.AddRectangle((0, 0), (1, 1), bc="rect")
         ngmesh = geo.GenerateMesh(maxh=0.1)
-        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
+        labels = [
+            i + 1
+            for i, name in enumerate(ngmesh.GetRegionNames(codim=1))
+            if name == "rect"
+        ]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
         labels = None
@@ -149,8 +166,8 @@ def test_firedrake_integral_2D_netgen():
     msh = Mesh(ngmesh)
     V = FunctionSpace(msh, "CG", 3)
     x, y = SpatialCoordinate(msh)
-    f = assemble(interpolate(x*x+y*y*y+x*y, V))
-    assert abs(assemble(f * dx) - (5/6)) < 1.e-10
+    f = assemble(interpolate(x * x + y * y * y + x * y, V))
+    assert abs(assemble(f * dx) - (5 / 6)) < 1.0e-10
 
 
 def test_firedrake_integral_3D_netgen():
@@ -164,7 +181,11 @@ def test_firedrake_integral_3D_netgen():
         geo = CSGeometry()
         geo.Add(box)
         ngmesh = geo.GenerateMesh(maxh=0.25)
-        labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "bcs"]
+        labels = [
+            i + 1
+            for i, name in enumerate(ngmesh.GetRegionNames(codim=1))
+            if name == "bcs"
+        ]
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
         labels = None
@@ -174,7 +195,7 @@ def test_firedrake_integral_3D_netgen():
     V = FunctionSpace(msh, "CG", 3)
     x, y, z = SpatialCoordinate(msh)
     f = assemble(interpolate(2 * x + 3 * y * y + 4 * z * z * z, V))
-    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
+    assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.0e-10
 
 
 def test_firedrake_integral_ball_netgen():
@@ -195,8 +216,8 @@ def test_firedrake_integral_ball_netgen():
     msh = Mesh(ngmesh)
     V = FunctionSpace(msh, "CG", 3)
     x, y, z = SpatialCoordinate(msh)
-    f = assemble(interpolate(1+0*x, V))
-    assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
+    f = assemble(interpolate(1 + 0 * x, V))
+    assert abs(assemble(f * dx) - 4 * np.pi) < 1.0e-2
 
 
 def test_firedrake_integral_sphere_high_order_netgen():
@@ -215,8 +236,8 @@ def test_firedrake_integral_sphere_high_order_netgen():
     homsh = Mesh(msh.curve_field(4))
     V = FunctionSpace(homsh, "CG", 4)
     x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
-    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
+    f = assemble(interpolate(1 + 0 * x, V))
+    assert abs(assemble(f * dx) - (4 / 3) * np.pi) < 1.0e-4
 
 
 @pytest.mark.parallel
@@ -236,8 +257,8 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
     homsh = Mesh(msh.curve_field(2))
     V = FunctionSpace(homsh, "CG", 2)
     x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
-    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
+    f = assemble(interpolate(1 + 0 * x, V))
+    assert abs(assemble(f * dx) - (4 / 3) * np.pi) < 1.0e-2
 
 
 @pytest.mark.skipcomplex
@@ -251,7 +272,7 @@ def test_firedrake_Adaptivity_netgen():
         v = TestFunction(V)
         bc = DirichletBC(V, 0, "on_boundary")
         f = Constant(1)
-        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
+        F = inner(grad(uh), grad(v)) * dx - inner(f, v) * dx
         solve(F == 0, uh, bc)
         return uh
 
@@ -265,14 +286,12 @@ def test_firedrake_Adaptivity_netgen():
         v = CellVolume(mesh)
 
         # Compute error indicator cellwise
-        G = inner(eta_sq / v, w)*dx
-        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
+        G = inner(eta_sq / v, w) * dx
+        G = G - inner(h**2 * (f + div(grad(uh))) ** 2, w) * dx
+        G = G - inner(h("+") / 2 * jump(grad(uh), n) ** 2, w("+")) * dS
 
         # Each cell is an independent 1x1 solve, so Jacobi is exact
-        sp = {"mat_type": "matfree",
-              "ksp_type": "richardson",
-              "pc_type": "jacobi"}
+        sp = {"mat_type": "matfree", "ksp_type": "richardson", "pc_type": "jacobi"}
         solve(G == 0, eta_sq, solver_parameters=sp)
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
@@ -288,7 +307,7 @@ def test_firedrake_Adaptivity_netgen():
             eta_max = eta_.max()[1]
 
         theta = 0.5
-        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
+        should_refine = conditional(gt(eta, theta * eta_max), 1, 0)
         markers.interpolate(should_refine)
 
         refined_mesh = mesh.refine_marked_elements(markers)
@@ -326,7 +345,7 @@ def test_firedrake_Adaptivity_netgen_parallel():
         v = TestFunction(V)
         bc = DirichletBC(V, 0, "on_boundary")
         f = Constant(1)
-        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
+        F = inner(grad(uh), grad(v)) * dx - inner(f, v) * dx
         solve(F == 0, uh, bc)
         return uh
 
@@ -340,14 +359,12 @@ def test_firedrake_Adaptivity_netgen_parallel():
         v = CellVolume(mesh)
 
         # Compute error indicator cellwise
-        G = inner(eta_sq / v, w)*dx
-        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
+        G = inner(eta_sq / v, w) * dx
+        G = G - inner(h**2 * (f + div(grad(uh))) ** 2, w) * dx
+        G = G - inner(h("+") / 2 * jump(grad(uh), n) ** 2, w("+")) * dS
 
         # Each cell is an independent 1x1 solve, so Jacobi is exact
-        sp = {"mat_type": "matfree",
-              "ksp_type": "richardson",
-              "pc_type": "jacobi"}
+        sp = {"mat_type": "matfree", "ksp_type": "richardson", "pc_type": "jacobi"}
         solve(G == 0, eta_sq, solver_parameters=sp)
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
@@ -363,7 +380,7 @@ def test_firedrake_Adaptivity_netgen_parallel():
             eta_max = eta_.max()[1]
 
         theta = 0.5
-        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
+        should_refine = conditional(gt(eta, theta * eta_max), 1, 0)
         markers.interpolate(should_refine)
 
         refined_mesh = mesh.refine_marked_elements(markers)
@@ -389,23 +406,26 @@ def test_firedrake_Adaptivity_netgen_parallel():
     assert error_estimators[-1] < 0.05
 
 
+@pytest.mark.skipmumps
 @pytest.mark.parallel
 @pytest.mark.skipcomplex
 def test_alfeld_stokes_netgen():
     ngmesh = square_geometry(0.75)
-    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
+    labels = [
+        i + 1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"
+    ]
     msh = Mesh(ngmesh, netgen_flags={"split": "Alfeld"})
     V = VectorFunctionSpace(msh, "CG", 2)
     Q = FunctionSpace(msh, "DG", 1)
-    W = V*Q
+    W = V * Q
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
     x, y = SpatialCoordinate(msh)
-    f = assemble(interpolate(as_vector([sin(x)*sin(y), sin(x)*sin(y)]), V))
-    a = (inner(grad(u), grad(v)) - div(u)*q - div(v)*p)*dx
+    f = assemble(interpolate(as_vector([sin(x) * sin(y), sin(x) * sin(y)]), V))
+    a = (inner(grad(u), grad(v)) - div(u) * q - div(v) * p) * dx
     l = inner(f, v) * dx
     w = Function(W)
     bc = DirichletBC(W.sub(0), as_vector([0, 0]), labels)
     solve(a == l, w, bcs=bc)
     u = w.split()[0]
-    assert assemble(div(u)*div(u)*dx) < 1e-16
+    assert assemble(div(u) * div(u) * dx) < 1e-16

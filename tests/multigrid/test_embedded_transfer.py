@@ -5,7 +5,10 @@ from firedrake import *
 @pytest.fixture(scope="module")
 def hierarchy():
     N = 10
-    distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.VERTEX, 1),
+    }
     base = RectangleMesh(N, N, 2, 2, distribution_parameters=distribution_parameters)
 
     mh = MeshHierarchy(base, 3, distribution_parameters=distribution_parameters)
@@ -74,7 +77,7 @@ def solver_parameters(use_averaging, V):
             "prolongation_mass_ksp_max_it": 10,
             "prolongation_mass_pc_type": "bjacobi",
             "prolongation_mass_sub_pc_type": "ilu",
-        }
+        },
     }
     return solver_parameters
 
@@ -85,17 +88,17 @@ def solver(V, space, solver_parameters):
     v = TestFunction(V)
     mesh = V.mesh()
     (x, y) = SpatialCoordinate(mesh)
-    f = as_vector([2*y*(1-x**2),
-                   -2*x*(1-y**2)])
+    f = as_vector([2 * y * (1 - x**2), -2 * x * (1 - y**2)])
     a = Constant(1)
     b = Constant(100)
     if space == "RT":
-        F = a*inner(u, v)*dx + b*inner(div(u), div(v))*dx - inner(f, v)*dx
+        F = a * inner(u, v) * dx + b * inner(div(u), div(v)) * dx - inner(f, v) * dx
     elif space == "N1curl":
-        F = a*inner(u, v)*dx + b*inner(curl(u), curl(v))*dx - inner(f, v)*dx
+        F = a * inner(u, v) * dx + b * inner(curl(u), curl(v)) * dx - inner(f, v) * dx
     problem = NonlinearVariationalProblem(F, u)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                        options_prefix="")
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=solver_parameters, options_prefix=""
+    )
     return solver
 
 
@@ -113,6 +116,7 @@ def test_riesz(V, solver, use_averaging):
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
+@pytest.mark.skipmumps
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplexnoslate
 def test_riesz_parallel(V, solver, use_averaging):

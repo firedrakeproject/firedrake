@@ -32,8 +32,7 @@ VTK_DEMOS = [
 
 
 # Discover the demo files by globbing the demo directory
-@pytest.fixture(params=glob.glob("%s/*/*.py.rst" % demo_dir),
-                ids=lambda x: basename(x))
+@pytest.fixture(params=glob.glob("%s/*/*.py.rst" % demo_dir), ids=lambda x: basename(x))
 def rst_file(request):
     return abspath(request.param)
 
@@ -59,7 +58,9 @@ def py_file(rst_file, tmpdir, monkeypatch):
             # No need to generate if it's already there
             continue
         try:
-            subprocess.check_call(["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))])
+            subprocess.check_call(
+                ["gmsh", geo, "-format", "msh2", "-3", "-o", str(tmpdir.join(name))]
+            )
         except (subprocess.CalledProcessError, OSError):
             # Skip if unable to make mesh
             pytest.skip("Unable to generate mesh file, skipping test")
@@ -75,7 +76,12 @@ def py_file(rst_file, tmpdir, monkeypatch):
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 def test_demo_runs(py_file, env):
     # Add pytest skips for missing imports or packages
-    if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py", "qg_1layer_wave.py"):
+    if basename(py_file) in (
+        "stokes.py",
+        "rayleigh-benard.py",
+        "saddle_point_systems.py",
+        "qg_1layer_wave.py",
+    ):
         if "hypre" not in get_external_packages():
             pytest.skip("hypre not installed with PETSc")
 
@@ -92,18 +98,17 @@ def test_demo_runs(py_file, env):
 
     if basename(py_file) in ("DG_advection.py", "qgbasinmodes.py"):
         pytest.importorskip(
-            "matplotlib",
-            reason=f"Matplotlib unavailable, skipping {basename(py_file)}"
+            "matplotlib", reason=f"Matplotlib unavailable, skipping {basename(py_file)}"
         )
 
     if basename(py_file) == "netgen_mesh.py":
+        if "mumps" not in get_external_packages():
+            pytest.skip("Needs MUMPS")
         pytest.importorskip(
-            "netgen",
-            reason="Netgen unavailable, skipping Netgen test."
+            "netgen", reason="Netgen unavailable, skipping Netgen test."
         )
         pytest.importorskip(
-            "ngsPETSc",
-            reason="ngsPETSc unavailable, skipping Netgen test."
+            "ngsPETSc", reason="ngsPETSc unavailable, skipping Netgen test."
         )
         try:
             from slepc4py import SLEPc  # noqa: F401, F811

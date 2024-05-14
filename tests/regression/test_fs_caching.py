@@ -14,17 +14,18 @@ def howmany(cls):
     return n
 
 
+@pytest.mark.skipmumps
 def test_meshes_collected():
     before = howmany((MeshTopology, MeshGeometry))
 
     def foo():
         for i in range(10):
             m = UnitSquareMesh(1, 1)
-            V = FunctionSpace(m, 'CG', 1)
+            V = FunctionSpace(m, "CG", 1)
             u = TrialFunction(V)
             v = TestFunction(V)
             f = Function(V)
-            solve((i+1) * inner(u, v) * dx == conj(v)*dx, f)
+            solve((i + 1) * inner(u, v) * dx == conj(v) * dx, f)
 
     foo()
     gc.collect()
@@ -38,9 +39,9 @@ def test_meshes_collected():
 def test_same_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m, 'CG', 2)
+    V1 = FunctionSpace(m, "CG", 2)
 
-    V2 = FunctionSpace(m, 'CG', 2)
+    V2 = FunctionSpace(m, "CG", 2)
 
     assert V1 == V2
     assert V1.topological == V2.topological
@@ -50,9 +51,9 @@ def test_same_fs_hits_cache():
 def test_different_fs_misses_cache():
     m = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m, 'CG', 2)
+    V1 = FunctionSpace(m, "CG", 2)
 
-    V2 = FunctionSpace(m, 'DG', 2)
+    V2 = FunctionSpace(m, "DG", 2)
 
     assert V1 != V2
 
@@ -60,9 +61,9 @@ def test_different_fs_misses_cache():
 def test_alias_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m, 'CG', 2)
+    V1 = FunctionSpace(m, "CG", 2)
 
-    V2 = FunctionSpace(m, 'Lagrange', 2)
+    V2 = FunctionSpace(m, "Lagrange", 2)
 
     assert V1 == V2
     assert V1.topological == V2.topological
@@ -74,9 +75,9 @@ def test_extruded_fs_hits_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    V1 = FunctionSpace(e, 'CG', 1)
+    V1 = FunctionSpace(e, "CG", 1)
 
-    V2 = FunctionSpace(e, 'CG', 1)
+    V2 = FunctionSpace(e, "CG", 1)
 
     assert V1 == V2
     assert V1.topological == V2.topological
@@ -88,9 +89,9 @@ def test_extruded_fs_misses_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    V1 = FunctionSpace(e, 'CG', 1)
+    V1 = FunctionSpace(e, "CG", 1)
 
-    V2 = FunctionSpace(e, 'DG', 1)
+    V2 = FunctionSpace(e, "DG", 1)
 
     assert V1 != V2
 
@@ -100,15 +101,15 @@ def test_extruded_ope_hits_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
 
     W0 = TensorProductElement(U0, U1)
 
     W1 = FunctionSpace(e, HDiv(W0))
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
 
     W0 = TensorProductElement(U0, U1)
 
@@ -124,15 +125,15 @@ def test_extruded_ope_misses_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
 
     W0 = TensorProductElement(U0, U1)
 
     W1 = FunctionSpace(e, HDiv(W0))
 
-    U0 = FiniteElement('CG', 'triangle', 1)
-    U1 = FiniteElement('DG', 'interval', 2)
+    U0 = FiniteElement("CG", "triangle", 1)
+    U1 = FiniteElement("DG", "interval", 2)
 
     W0 = TensorProductElement(U0, U1)
 
@@ -146,11 +147,11 @@ def test_extruded_ope_vfamily_hits_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
     W1 = FunctionSpace(e, TensorProductElement(U0, U1))
 
-    W2 = FunctionSpace(e, 'DG', 0, vfamily='CG', vdegree=2)
+    W2 = FunctionSpace(e, "DG", 0, vfamily="CG", vdegree=2)
 
     assert W1 == W2
     assert W1.topological == W2.topological
@@ -162,11 +163,11 @@ def test_extruded_opve_hits_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
     W1 = VectorFunctionSpace(e, TensorProductElement(U0, U1))
 
-    W2 = VectorFunctionSpace(e, 'DG', 0, vfamily='CG', vdegree=2)
+    W2 = VectorFunctionSpace(e, "DG", 0, vfamily="CG", vdegree=2)
 
     assert W1 == W2
     assert W1.topological == W2.topological
@@ -176,13 +177,13 @@ def test_extruded_opve_hits_cache():
 def test_mixed_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m, 'DG', 1)
-    Q1 = FunctionSpace(m, 'RT', 2)
-    W1 = V1*Q1
+    V1 = FunctionSpace(m, "DG", 1)
+    Q1 = FunctionSpace(m, "RT", 2)
+    W1 = V1 * Q1
 
-    V2 = FunctionSpace(m, 'DG', 1)
-    Q2 = FunctionSpace(m, 'RT', 2)
-    W2 = V2*Q2
+    V2 = FunctionSpace(m, "DG", 1)
+    Q2 = FunctionSpace(m, "RT", 2)
+    W2 = V2 * Q2
 
     assert W1 == W2
     assert W1.topological == W2.topological
@@ -192,13 +193,13 @@ def test_mixed_fs_hits_cache():
 def test_mixed_fs_misses_cache():
     m = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m, 'DG', 1)
-    Q1 = FunctionSpace(m, 'RT', 2)
-    W1 = V1*Q1
+    V1 = FunctionSpace(m, "DG", 1)
+    Q1 = FunctionSpace(m, "RT", 2)
+    W1 = V1 * Q1
 
-    V2 = FunctionSpace(m, 'DG', 1)
-    Q2 = FunctionSpace(m, 'RT', 2)
-    W2 = Q2*V2
+    V2 = FunctionSpace(m, "DG", 1)
+    Q2 = FunctionSpace(m, "RT", 2)
+    W2 = Q2 * V2
 
     assert W1 != W2
 
@@ -208,23 +209,23 @@ def test_extruded_mixed_fs_hits_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
 
     V0 = TensorProductElement(U0, U1)
 
     V1 = FunctionSpace(e, HDiv(V0))
 
-    U0 = FiniteElement('CG', 'triangle', 1)
-    U1 = FiniteElement('DG', 'interval', 2)
+    U0 = FiniteElement("CG", "triangle", 1)
+    U1 = FiniteElement("DG", "interval", 2)
 
     V0 = TensorProductElement(U0, U1)
 
     V2 = FunctionSpace(e, HCurl(V0))
 
-    W1 = V1*V2
+    W1 = V1 * V2
 
-    W2 = V1*V2
+    W2 = V1 * V2
 
     assert W1 == W2
     assert W1.topological == W2.topological
@@ -240,23 +241,23 @@ def test_extruded_mixed_fs_misses_cache():
 
     e = ExtrudedMesh(m, 2, layer_height=1)
 
-    U0 = FiniteElement('DG', 'triangle', 0)
-    U1 = FiniteElement('CG', 'interval', 2)
+    U0 = FiniteElement("DG", "triangle", 0)
+    U1 = FiniteElement("CG", "interval", 2)
 
     V0 = TensorProductElement(U0, U1)
 
     V1 = FunctionSpace(e, HDiv(V0))
 
-    U0 = FiniteElement('CG', 'triangle', 1)
-    U1 = FiniteElement('DG', 'interval', 2)
+    U0 = FiniteElement("CG", "triangle", 1)
+    U1 = FiniteElement("DG", "interval", 2)
 
     V0 = TensorProductElement(U0, U1)
 
     V2 = FunctionSpace(e, HCurl(V0))
 
-    W1 = V1*V2
+    W1 = V1 * V2
 
-    W2 = V2*V1
+    W2 = V2 * V1
 
     assert W1 != W2
 
@@ -264,11 +265,11 @@ def test_extruded_mixed_fs_misses_cache():
 def test_different_meshes_miss_cache():
     m1 = UnitSquareMesh(1, 1)
 
-    V1 = FunctionSpace(m1, 'CG', 1)
+    V1 = FunctionSpace(m1, "CG", 1)
 
     m2 = UnitSquareMesh(1, 1)
 
-    V2 = FunctionSpace(m2, 'CG', 1)
+    V2 = FunctionSpace(m2, "CG", 1)
 
     assert V1 != V2
 
@@ -276,13 +277,14 @@ def test_different_meshes_miss_cache():
 # A bit of a weak test, but the gc is slightly non-deterministic
 def test_mesh_fs_gced():
     from firedrake.functionspacedata import FunctionSpaceData
+
     gc.collect()
     gc.collect()
     nmesh = howmany((MeshTopology, MeshGeometry))
     nfs = howmany(FunctionSpaceData)
     for i in range(10):
         m = UnitIntervalMesh(5)
-        for fs in ['CG', 'DG']:
+        for fs in ["CG", "DG"]:
             V = FunctionSpace(m, fs, 1)
 
     del m, V

@@ -6,31 +6,29 @@ from firedrake.petsc import get_external_packages
 
 def pytest_configure(config):
     """Register an additional marker."""
+    config.addinivalue_line("markers", "skipcomplex: mark as skipped in complex mode")
     config.addinivalue_line(
-        "markers",
-        "skipcomplex: mark as skipped in complex mode")
+        "markers", "skipreal: mark as skipped unless in complex mode"
+    )
     config.addinivalue_line(
-        "markers",
-        "skipreal: mark as skipped unless in complex mode")
-    config.addinivalue_line(
-        "markers",
-        "skipmumps: mark as skipped unless MUMPS is installed"
+        "markers", "skipmumps: mark as skipped unless MUMPS is installed"
     )
     config.addinivalue_line(
         "markers",
-        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate",
+    )
     config.addinivalue_line(
-        "markers",
-        "skiptorch: mark as skipped if PyTorch is not installed")
+        "markers", "skiptorch: mark as skipped if PyTorch is not installed"
+    )
     config.addinivalue_line(
-        "markers",
-        "skipplot: mark as skipped if matplotlib is not installed")
+        "markers", "skipplot: mark as skipped if matplotlib is not installed"
+    )
     config.addinivalue_line(
-        "markers",
-        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed")
+        "markers", "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
+    )
     config.addinivalue_line(
-        "markers",
-        "skipvtk: mark as skipped if vtk is not installed")
+        "markers", "skipvtk: mark as skipped if vtk is not installed"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -38,6 +36,7 @@ def pytest_collection_modifyitems(session, config, items):
 
     try:
         import matplotlib
+
         del matplotlib
         matplotlib_installed = True
     except ImportError:
@@ -45,6 +44,7 @@ def pytest_collection_modifyitems(session, config, items):
 
     try:
         import firedrake.ml.pytorch as fd_ml
+
         del fd_ml
         ml_backend = True
     except ImportError:
@@ -52,8 +52,10 @@ def pytest_collection_modifyitems(session, config, items):
 
     try:
         import netgen
+
         del netgen
         import ngsPETSc
+
         del ngsPETSc
         netgen_installed = True
     except ImportError:
@@ -61,20 +63,56 @@ def pytest_collection_modifyitems(session, config, items):
 
     try:
         from firedrake.output import VTKFile
+
         del VTKFile
         vtk_installed = True
     except ImportError:
         vtk_installed = False
 
     for item in items:
+        markif_fixtures = [m for m in item.own_markers if m.name == "markif_fixture"]
+        for mark in markif_fixtures:
+            """@pytest.mark.markif_fixture(*marks, **conditions)
+            marks: str | pytest.mark.structures.Mark
+                marks to apply if conditions are met
+            conditions: dict
+                dictionary of conditions; consisting of function argument keys
+                and fixture values or ids
+            """
+            # (function argument names, fixture ids) in a list
+            fixtures = [
+                (name, id_)
+                for name, id_ in zip(item.callspec.params.keys(), item.callspec._idlist)
+            ]
+            # If all the fixtures are in the dictionary of conditions apply all of the marks
+            if all((k, str(v)) in fixtures for k, v in mark.kwargs.items()):
+                for label in mark.args:
+                    if isinstance(label, str):
+                        item.add_marker(getattr(pytest.mark, label)())
+                    else:
+                        item.add_marker(label())
+
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
-            if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
-                item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
+                item.add_marker(
+                    pytest.mark.skip(reason="Test makes no sense in complex mode")
+                )
+            if (
+                item.get_closest_marker("skipcomplexnoslate")
+                and not SLATE_SUPPORTS_COMPLEX
+            ):
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test skipped due to lack of Slate complex support"
+                    )
+                )
         else:
             if item.get_closest_marker("skipreal") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test makes no sense unless in complex mode"
+                    )
+                )
 
         if "mumps" not in get_external_packages():
             if item.get_closest_marker("skipmumps") is not None:
@@ -82,19 +120,35 @@ def pytest_collection_modifyitems(session, config, items):
 
         if not ml_backend:
             if item.get_closest_marker("skiptorch") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test makes no sense if PyTorch is not installed"
+                    )
+                )
 
         if not matplotlib_installed:
             if item.get_closest_marker("skipplot") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Matplotlib is installed"))
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test cannot be run unless Matplotlib is installed"
+                    )
+                )
 
         if not netgen_installed:
             if item.get_closest_marker("skipnetgen") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Netgen and ngsPETSc are installed"))
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test cannot be run unless Netgen and ngsPETSc are installed"
+                    )
+                )
 
         if not vtk_installed:
             if item.get_closest_marker("skipvtk") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless VTK is installed"))
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason="Test cannot be run unless VTK is installed"
+                    )
+                )
 
 
 @pytest.fixture(scope="module", autouse=True)
