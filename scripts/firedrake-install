@@ -755,10 +755,7 @@ def get_petsc_options(minimal=False):
             # Non-free license.
             petsc_options.add("--download-parmetis")
 
-    if options["petsc_int_type"] == "int32":
-        # Serial mesh partitioner
-        petsc_options.add("--download-chaco")
-    else:
+    if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
