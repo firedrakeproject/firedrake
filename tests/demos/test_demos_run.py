@@ -109,8 +109,13 @@ def test_demo_runs(py_file, env):
         except ImportError:
             pytest.skip(reason=f"VTK unavailable, skipping {basename(py_file)}")
     if basename(py_file) in parallel_demos:
-        # set mpiexec to run in parallel mode for 4 processes
-        env["MPIEXEC"] = "mpiexec -n 4"
-        
+        if basename(py_file) == "full_waveform_inversion.py":
+            processes = 2
+        else:
+            raise NotImplementedError("You need to specify the number of processes for this test")
 
-    subprocess.check_call([sys.executable, py_file], env=env)
+        executable = ["mpiexec", "-n", str(processes), sys.executable, py_file]
+    else:
+        executable = [sys.executable, py_file]
+
+    subprocess.check_call(executable, env=env)

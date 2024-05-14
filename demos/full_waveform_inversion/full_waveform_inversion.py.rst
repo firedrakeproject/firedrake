@@ -117,7 +117,7 @@ sub-communicators: ``Ensemble.comm`` the spatial communicator having a unique so
 distributed over and ``Ensemble.ensemble_comm``. ``Ensemble.ensemble_comm`` is used to communicate information
 about the functionals and their gradients computation between different wave sources.
 
-Here, we want to distribute each mesh over 2 ranks and compute the functional and its gradient
+On supposing we want to distribute each mesh over 2 ranks and compute the functional and its gradient
 for 3 wave sources. So we set ``M=2`` and execute this code with 6 MPI ranks. That is: 3 (number of sources) x 2 (M).
 To have a better understanding of the ensemble parallelism, please refer to the
 `Firedrake manual <hhttps://www.firedrakeproject.org/parallelism.html#id8>`__.
@@ -274,22 +274,16 @@ it returns the sum of these computations, which are input to the optimisation me
 
 **Steps 4-6**: We can now to obtain the predicted velocity model using the L-BFGS-B method::
 
-    c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 5}, bounds=(1.5, 3.5))
+    c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 1}, bounds=(1.5, 3.5))
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 
-The optimised parameter ``c_optimised`` for 5 iterations is shown below.
-
-.. image:: c_optimised.png
-    :scale: 40 %
-    :alt: optimised velocity model
-    :align: center
-
 .. note::
 
-    In this tutorial, we have employed an acoustic wave equation and an FWI problem, limiting the iterations to
-    just 5. The result may be improved by increasing the number of iterations. This example is only a starting
-    point for tackling more intricate FWI problems.
+    This example is only a starting point for tackling more intricate FWI problems. As exercises, you can
+    increase the ``maxiter`` value, or change the initial guess for the velocity model. You can also
+    modify the synthetic data generation by changing the true velocity model or the source locations.
+    Fell free to explore more this example and adapt it to your needs.
 
 .. rubric:: References
 
