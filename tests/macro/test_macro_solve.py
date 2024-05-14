@@ -46,8 +46,6 @@ def convergence_test(variant):
                     and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "alfeld":
         def check(uerr, perr):
-            print(f'{uerr =}')
-            print(f'{perr =}')
             return (np.allclose(uerr, 0, atol=5.e-9)
                     and np.allclose(perr, 0, atol=5.e-7))
     elif variant == "th":
