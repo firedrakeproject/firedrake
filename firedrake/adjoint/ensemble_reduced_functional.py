@@ -39,10 +39,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
     scatter_control : bool
-        If ``True``, the functionals and their derivatives are summed over the ensemble
-        communicator ``ensemble.ensemble_comm``. In this case, one assumes one control
-        (or a list of control) is scattered over the ensemble members. If ``False``,
-        ``EnsembleReducedFunctional`` methods will not apply the sum operation.
+        Whether scattering the control (or a list of controls) over the ensemble
+        communicator ``Ensemble.ensemble comm``.
 
     See Also
     --------
@@ -62,16 +60,16 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        if not self.scatter_control:
-            return local_functional
-        if isinstance(local_functional, float):
-            total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
-        elif isinstance(local_functional, firedrake.Function):
-            total_functional = type(local_functional)(local_functional.function_space())
-            total_functional = self.ensemble.allreduce(local_functional, total_functional)
-        else:
-            raise NotImplementedError("This type of functional is not supported.")
-        return total_functional
+        if self.scatter_control:  
+            if isinstance(local_functional, float):
+                total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
+            elif isinstance(local_functional, firedrake.Function):
+                total_functional = type(local_functional)(local_functional.function_space())
+                total_functional = self.ensemble.allreduce(local_functional, total_functional)
+            else:
+                raise NotImplementedError("This type of functional is not supported.")
+            return total_functional
+        return local_functional
 
     def derivative(self, adj_input=1.0, options=None):
         """Compute derivatives of a functional with respect to the control parameters.
@@ -95,18 +93,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
         dJdm_local = Enlist(dJdm_local)
         dJdm_total = []
-        if not self.scatter_control:
-            return dJdm_local
-        for dJdm in dJdm_local:
-            if not isinstance(dJdm, (firedrake.Function, float)):
-                raise NotImplementedError("This type of gradient is not supported.")
+        if self.scatter_control:
+            for dJdm in dJdm_local:
+                if not isinstance(dJdm, (firedrake.Function, float)):
+                    raise NotImplementedError("This type of gradient is not supported.")
 
-            dJdm_total.append(
-                self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
-                if isinstance(dJdm, firedrake.Function)
-                else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
-            )
-        return dJdm_local.delist(dJdm_total)
+                dJdm_total.append(
+                    self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
+                    if isinstance(dJdm, firedrake.Function)
+                    else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
+                )
+            return dJdm_local.delist(dJdm_total)
+        return dJdm_local
 
     def hessian(self, m_dot, options=None):
         """The Hessian is not yet implemented for ensemble reduced functional.
