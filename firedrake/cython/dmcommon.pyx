@@ -1990,7 +1990,12 @@ def mark_entity_classes(PETSc.DM dm):
 
     get_chart(dm.dm, &pStart, &pEnd)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-
+    if dm.hasLabel("pyop2_core") and dm.hasLabel("pyop2_owned") and dm.hasLabel("pyop2_ghost"):
+        return
+    else:
+        assert not dm.hasLabel("pyop2_core") and \
+               not dm.hasLabel("pyop2_owned") and \
+               not dm.hasLabel("pyop2_ghost")
     dm.createLabel("pyop2_core")
     dm.createLabel("pyop2_owned")
     dm.createLabel("pyop2_ghost")
