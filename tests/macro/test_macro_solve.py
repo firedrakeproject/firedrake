@@ -48,15 +48,9 @@ def convergence_test(variant):
     elif variant == "alfeld":
 
         def check(uerr, perr):
-<<<<<<< HEAD
             return (np.allclose(uerr, 0, atol=5.e-9)
                     and np.allclose(perr, 0, atol=5.e-7))
-=======
-            return np.allclose(uerr, 0, atol=1.0e-10) and np.allclose(
-                perr, 0, atol=1.0e-8
-            )
 
->>>>>>> 3f4ffaa57 (Skip failing tests with skipmumps)
     elif variant == "th":
 
         def check(uerr, perr):
