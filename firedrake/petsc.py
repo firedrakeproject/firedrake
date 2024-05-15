@@ -421,6 +421,7 @@ amg_priority = ["hypre", "ml"]
 for amg in amg_priority:
     if amg in external_packages:
         DEFAULT_AMG_PC = amg
+        break
 else:
     DEFAULT_AMG_PC = "gamg"
 
