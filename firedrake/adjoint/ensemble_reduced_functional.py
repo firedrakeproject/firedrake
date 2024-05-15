@@ -39,8 +39,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
     scatter_control : bool
-        Whether scattering the control (or a list of controls) over the ensemble
-        communicator ``Ensemble.ensemble comm``.
+        Whether scattering a control (or a list of controls) over the ensemble communicator
+        ``Ensemble.ensemble comm``.
 
     See Also
     --------
@@ -60,16 +60,14 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        if self.scatter_control:
-            if isinstance(local_functional, float):
-                total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
-            elif isinstance(local_functional, firedrake.Function):
-                total_functional = type(local_functional)(local_functional.function_space())
-                total_functional = self.ensemble.allreduce(local_functional, total_functional)
-            else:
-                raise NotImplementedError("This type of functional is not supported.")
-            return total_functional
-        return local_functional
+        if isinstance(local_functional, float):
+            total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
+        elif isinstance(local_functional, firedrake.Function):
+            total_functional = type(local_functional)(local_functional.function_space())
+            total_functional = self.ensemble.allreduce(local_functional, total_functional)
+        else:
+            raise NotImplementedError("This type of functional is not supported.")
+        return total_functional
 
     def derivative(self, adj_input=1.0, options=None):
         """Compute derivatives of a functional with respect to the control parameters.
