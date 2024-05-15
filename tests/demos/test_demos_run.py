@@ -81,7 +81,11 @@ def test_demo_runs(py_file, env):
 
     if basename(py_file) == "qgbasinmodes.py":
         try:
-            # Do not use `pytest.importorskip` to check for slepc4py
+            # Do not use `pytest.importorskip` to check for slepc4py:
+            # It isn't sufficient to actually detect whether slepc4py
+            # is installed. Both petsc4py and slepc4py require
+            # `from xy4py import Xy`
+            # to actually load the library.
             from slepc4py import SLEPc  # noqa: F401
         except ImportError:
             pytest.skip(reason="SLEPc unavailable, skipping qgbasinmodes.py")
