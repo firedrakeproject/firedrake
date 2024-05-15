@@ -38,6 +38,9 @@ class EnsembleReducedFunctional(ReducedFunctional):
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
+    scatter_control : bool
+        Whether scattering a control (or a list of controls) over the ensemble communicator
+        ``Ensemble.ensemble comm``.
 
     See Also
     --------
@@ -50,9 +53,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
-    def __init__(self, J, control, ensemble):
+    def __init__(self, J, control, ensemble, scatter_control=True):
         super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
+        self.scatter_control = scatter_control
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
@@ -87,16 +91,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
         dJdm_local = Enlist(dJdm_local)
         dJdm_total = []
-        for dJdm in dJdm_local:
-            if not isinstance(dJdm, (firedrake.Function, float)):
-                raise NotImplementedError("This type of gradient is not supported.")
+        if self.scatter_control:
+            for dJdm in dJdm_local:
+                if not isinstance(dJdm, (firedrake.Function, float)):
+                    raise NotImplementedError("This type of gradient is not supported.")
 
-            dJdm_total.append(
-                self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
-                if isinstance(dJdm, firedrake.Function)
-                else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
-            )
-        return dJdm_local.delist(dJdm_total)
+                dJdm_total.append(
+                    self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
+                    if isinstance(dJdm, firedrake.Function)
+                    else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
+                )
+            return dJdm_local.delist(dJdm_total)
+        return dJdm_local
 
     def hessian(self, m_dot, options=None):
         """The Hessian is not yet implemented for ensemble reduced functional.
