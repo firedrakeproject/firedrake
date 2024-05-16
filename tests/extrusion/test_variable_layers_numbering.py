@@ -466,21 +466,16 @@ def test_layer_extents_parallel():
     mesh = UnitSquareMesh(2, 1, reorder=False, distribution_parameters={"partition":
                                                                         (sizes, points)})
     V = FunctionSpace(mesh, "DG", 0)
-
     x, _ = SpatialCoordinate(mesh)
     selector = assemble(interpolate(x - 0.5, V))
-
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
-
     data = selector.dat.data_ro_with_halos.real
     for cell in V.cell_node_map().values_with_halo:
         if data[cell] < 0.25:
             layers[cell, :] = [0, 1]
         else:
             layers[cell, :] = [0, 2]
-
     extmesh = ExtrudedMesh(mesh, layers=layers, layer_height=1)
-
     if mesh.comm.rank == 0:
         #  Top view, plex points
         #  4--8--6
@@ -585,7 +580,6 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 3, 0, 3],
             [0, 3, 0, 3]], dtype=IntType)
-
     assert numpy.equal(extmesh.layer_extents, expected).all()
 
     V = FunctionSpace(extmesh, "CG", 1)

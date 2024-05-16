@@ -1,6 +1,7 @@
 """Global test configuration."""
 
 import pytest
+from firedrake.petsc import get_external_packages
 
 
 def pytest_configure(config):
@@ -11,6 +12,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipreal: mark as skipped unless in complex mode")
+    config.addinivalue_line(
+        "markers",
+        "skipmumps: mark as skipped unless MUMPS is installed"
+    )
     config.addinivalue_line(
         "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
@@ -70,6 +75,10 @@ def pytest_collection_modifyitems(session, config, items):
         else:
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+
+        if "mumps" not in get_external_packages():
+            if item.get_closest_marker("skipmumps") is not None:
+                item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
 
         if not ml_backend:
             if item.get_closest_marker("skiptorch") is not None:
