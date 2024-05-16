@@ -707,19 +707,11 @@ def get_minimal_petsc_packages():
     pkgs = set()
     # File format
     pkgs.add("hdf5")
-    # Sparse direct solver
-    pkgs.add("superlu_dist")
     # Parallel mesh partitioner
     pkgs.add("ptscotch")
     # Sparse direct solver
     pkgs.add("scalapack")  # Needed for mumps
     pkgs.add("mumps")
-    if not options["complex"]:
-        # AMG
-        pkgs.add("hypre")
-    if options["petsc_int_type"] == "int32":
-        # Serial mesh partitioner
-        pkgs.add("chaco")
     return pkgs
 
 
@@ -744,6 +736,8 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-cmake")
 
     if (not options["minimal_petsc"]) and (not minimal):
+        # Another sparse direct solver
+        petsc_options.add("--download-superlu_dist")
         petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
@@ -766,6 +760,9 @@ def get_petsc_options(minimal=False):
 
     if options["complex"]:
         petsc_options.add('--with-scalar-type=complex')
+    else:
+        # AMG
+        petsc_options.add("hypre")
 
     if options.get("mpiexec") is not None:
         petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))

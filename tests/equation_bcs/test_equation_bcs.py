@@ -4,6 +4,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
 
@@ -265,6 +266,8 @@ def test_EquationBC_poisson_matfree(with_bbc):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
+# This test is so sensitive it will not pass unless MUMPS is used
+@pytest.mark.skipmumps
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 def test_EquationBC_mixedpoisson_matrix(eq_type):
     mat_type = "aij"
@@ -275,7 +278,7 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
     solver_parameters = {"mat_type": mat_type,
                          "ksp_type": "preonly",
                          "pc_type": "lu",
-                         "pc_factor_mat_solver_type": "mumps"}
+                         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
     err = []
     mesh_sizes = [16, 32]
     if eq_type == "linear":

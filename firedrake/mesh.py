@@ -31,7 +31,9 @@ import firedrake.utils as utils
 from firedrake.utils import IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import (
+    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
+)
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 
@@ -1228,38 +1230,35 @@ class MeshTopology(AbstractMeshTopology):
             "shell", or `None` (unspecified). Ignored if the distribute parameter
             specifies the distribution.
         """
-        from firedrake_configuration import get_config
         if plex.comm.size == 1 or distribute is False:
             return
         partitioner = plex.getPartitioner()
         if distribute is True:
             if partitioner_type:
-                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
-                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
-                if partitioner_type == "chaco":
-                    if IntType.itemsize == 8:
-                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
-                                         "but your Integer is %d bit." % IntType.itemsize * 8)
-                    if plex.isDistributed():
-                        raise ValueError("Unable to use 'chaco': 'chaco' is a serial "
-                                         "patitioner, but the mesh is distributed.")
-                if partitioner_type == "parmetis":
-                    if not get_config().get("options", {}).get("with_parmetis", False):
-                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
-                                         "installed with 'parmetis'.")
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis", "simple", "shell"]:
+                    raise ValueError(
+                        f"Unexpected partitioner_type: {partitioner_type}")
+                if partitioner_type in ["chaco", "ptscotch", "parmetis"] and \
+                        partitioner_type not in get_external_packages():
+                    raise ValueError(
+                        f"Unable to use {partitioner_type} as PETSc is not "
+                        f"installed with {partitioner_type}."
+                    )
+                if partitioner_type == "chaco" and plex.isDistributed():
+                    raise ValueError(
+                        "Unable to use 'chaco' mesh partitioner, 'chaco' is a "
+                        "serial partitioner, but the mesh is distributed."
+                    )
             else:
-                if IntType.itemsize == 8 or plex.isDistributed():
-                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
-                    # Chaco does not work on distributed meshes.
-                    if get_config().get("options", {}).get("with_parmetis", False):
-                        partitioner_type = "parmetis"
-                    else:
-                        partitioner_type = "ptscotch"
-                else:
-                    partitioner_type = "chaco"
-            partitioner.setType({"chaco": partitioner.Type.CHACO,
-                                 "ptscotch": partitioner.Type.PTSCOTCH,
-                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+                partitioner_type = DEFAULT_PARTITIONER
+
+            partitioner.setType({
+                "chaco": partitioner.Type.CHACO,
+                "ptscotch": partitioner.Type.PTSCOTCH,
+                "parmetis": partitioner.Type.PARMETIS,
+                "shell": partitioner.Type.SHELL,
+                "simple": partitioner.Type.SIMPLE
+            }[partitioner_type])
         else:
             sizes, points = distribute
             partitioner.setType(partitioner.Type.SHELL)
