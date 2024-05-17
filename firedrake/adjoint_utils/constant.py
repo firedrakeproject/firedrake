@@ -95,7 +95,7 @@ class ConstantMixin(OverloadedType):
             return sum(self.dat.data_ro.reshape(-1) * other.dat.data_ro.reshape(-1))
 
     @no_annotations
-    def _ad_use_weakref(self, weakref=True):
+    def _ad_use_output_weakref(self, weakref=True):
         return weakref
 
     @staticmethod

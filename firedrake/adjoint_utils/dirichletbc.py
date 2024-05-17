@@ -48,5 +48,5 @@ class DirichletBCMixin(FloatingType):
         return self
 
     @no_annotations
-    def _ad_use_weakref(self, weakref=True):
+    def _ad_use_output_weakref(self, weakref=True):
         return weakref
