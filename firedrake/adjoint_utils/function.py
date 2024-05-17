@@ -225,7 +225,7 @@ class FunctionMixin(FloatingType):
         from firedrake import Function, Cofunction
 
         options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "l2")
+        riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
         V = options.get("function_space", self.function_space())
 
