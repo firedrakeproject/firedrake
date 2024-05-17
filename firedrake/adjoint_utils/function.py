@@ -306,6 +306,10 @@ class FunctionMixin(FloatingType):
         return r
 
     @no_annotations
+    def _ad_use_weakref(self, weakref=True):
+        return weakref
+    
+    @no_annotations
     def _ad_add(self, other):
         from firedrake import Function
 

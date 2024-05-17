@@ -2,6 +2,7 @@ from functools import wraps
 from pyadjoint.adjfloat import AdjFloat
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
+from pyadjoint.tape import no_annotations
 from pyadjoint.reduced_functional_numpy import gather
 
 from firedrake.functionspace import FunctionSpace
@@ -92,6 +93,10 @@ class ConstantMixin(OverloadedType):
             return sum(self.dat.data_ro.reshape(-1) * other)
         else:
             return sum(self.dat.data_ro.reshape(-1) * other.dat.data_ro.reshape(-1))
+
+    @no_annotations
+    def _ad_use_weakref(self, weakref=True):
+        return weakref
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):

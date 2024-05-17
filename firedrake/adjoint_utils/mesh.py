@@ -37,6 +37,10 @@ class MeshGeometryMixin(OverloadedType):
             f._ad_outputs = [self]
             return f
         return wrapper
+    
+    @no_annotations
+    def _ad_use_weakref(self, weakref=True):
+        return True
 
     def _ad_function_space(self):
         if self._ad_coordinate_space is None:

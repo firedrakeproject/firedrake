@@ -187,9 +187,19 @@ class FunctionAssignBlock(Block):
         else:
             if self.expr is None:
                 prepared = inputs[0]
-            output = firedrake.Function(
-                block_variable.output.function_space()
-            )
+            
+            if block_variable.output is not None:
+                output = firedrake.Function(
+                    block_variable.output.function_space()
+                )
+            elif block_variable.output is None and block_variable.checkpoint is not None:
+                output = firedrake.Function(
+                    block_variable.checkpoint.function_space()
+                )
+            else:
+                raise ValueError("Invalid block variable state. Either output "
+                                 "or checkpoint must be set.")
+            
             output.assign(prepared)
             return maybe_disk_checkpoint(output)
 
