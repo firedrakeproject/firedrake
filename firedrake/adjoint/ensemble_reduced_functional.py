@@ -1,4 +1,4 @@
-from pyadjoint import ReducedFunctional
+from pyadjoint import ReducedFunctional, Control
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
@@ -53,14 +53,25 @@ class EnsembleReducedFunctional(ReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
-    def __init__(self, J, control, ensemble, scatter_control=True):
+    def __init__(self, J, control, ensemble, scatter_control=True,
+                 gather_functional=None):
         super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        if isinstance(local_functional, float):
+
+        Controls_g = []
+        if gather_functional:
+            for i in range(self.ensemble.ensemble_comm.size):
+                if isinstance(local_functional, float):
+                    J = self.ensemble.scatter(local_functional, root=i)
+                else:
+                    raise NotImplementedError("This type of functional is not supported.")                  
+                Controls_g.append(Control(J))
+            total_functional = gather_functional(Controls_g)
+        elif isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
         elif isinstance(local_functional, firedrake.Function):
             total_functional = type(local_functional)(local_functional.function_space())
@@ -88,9 +99,17 @@ class EnsembleReducedFunctional(ReducedFunctional):
         --------
         :meth:`~.ensemble.Ensemble.allreduce`, :meth:`pyadjoint.ReducedFunctional.derivative`.
         """
+
+        if self.gather_functional:
+            dJg_dmg = self.gather_functional.derivative(adj_input=adj_input,
+                                                        options=options)
+            i = self.ensemble.ensemble_comm.rank
+            adj_input = dJg_dmg[i]
+
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
         dJdm_local = Enlist(dJdm_local)
         dJdm_total = []
+
         if self.scatter_control:
             for dJdm in dJdm_local:
                 if not isinstance(dJdm, (firedrake.Function, float)):
