@@ -58,19 +58,21 @@ class EnsembleReducedFunctional(ReducedFunctional):
         super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
+        self.gather_functional = gather_functional
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
 
         Controls_g = []
-        if gather_functional:
+        if self.gather_functional:
             for i in range(self.ensemble.ensemble_comm.size):
                 if isinstance(local_functional, float):
                     J = self.ensemble.scatter(local_functional, root=i)
                 else:
-                    raise NotImplementedError("This type of functional is not supported.")                  
+                    raise NotImplementedError(
+                        "This type of functional is not supported.")
                 Controls_g.append(Control(J))
-            total_functional = gather_functional(Controls_g)
+            total_functional = self.gather_functional(Controls_g)
         elif isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
         elif isinstance(local_functional, firedrake.Function):
