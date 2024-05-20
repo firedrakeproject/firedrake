@@ -52,7 +52,7 @@ def test_verification_gather_functional():
     a = AdjFloat(1.0)
     b = AdjFloat(1.0)
     Jg_m = [Control(a), Control(b)]
-    Jg = ReducedFunction(a**2 + b**2, Jg_m)
+    Jg = ReducedFunctional(a**2 + b**2, Jg_m)
     rf = EnsembleReducedFunctional(J, Control(x), ensemble,
                                    scatter_control=False,
                                    gather_functional=Jg)
