@@ -63,25 +63,25 @@ class EnsembleReducedFunctional(ReducedFunctional):
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
-    def _bcast_J(self, J, i):
+    def _allgather_J(self, J):
         if isinstance(J, float):
-            val = self.ensemble.ensemble_comm.bcast(J, root=i)
+            vals = self.ensemble.ensemble_comm.allgather(J)
         elif isinstance(J, firedrake.Function):
-            J0 = J.copy(deepcopy=True)
-            val = self.ensemble.bcast(J0, root=i)
+            #  allgather not implemented in ensemble.py
+            vals = []
+            for i in range(self.ensemble.ensemble_comm.size):
+                J0 = J.copy(deepcopy=True)
+                vals.append(self.ensemble.bcast(J0, root=i))
         else:
             raise NotImplementedError("This type of functional is not supported.")
-        return val
+        return vals
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
         size = self.ensemble.ensemble_comm.size
         ensemble_comm = self.ensemble.ensemble_comm
-        Controls_g = []
         if self.gather_functional:
-            for i in range(size):
-                Controls_g.append(self._bcast_J(local_functional, i))
-                print(Controls_g[i], i, ensemble_comm.rank)
+            Controls_g = self._allgather_J(local_functional)
             total_functional = self.gather_functional(Controls_g)
         # if gather_functional is None then we do a sum
         elif isinstance(local_functional, float):
