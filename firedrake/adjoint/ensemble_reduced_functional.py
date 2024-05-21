@@ -69,10 +69,14 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 if isinstance(local_functional, float):
                     J = self.ensemble.ensemble_comm.bcast(local_functional,
                                                           root=i)
+                    Controls_g.append(AdjFloat(J))
+                elif isinstance(local_functional, firedrake.Function):
+                    J = self.ensemble.bcast(local_functional,
+                                                root=i)
+                    Controls_g.append(J)
                 else:
-                    raise NotImplementedError(
-                        "This type of functional is not supported.")
-                Controls_g.append(AdjFloat(J))
+                    raise NotImplementedError("This type of functional is not supported.")                    
+                
             total_functional = self.gather_functional(Controls_g)
         elif isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)

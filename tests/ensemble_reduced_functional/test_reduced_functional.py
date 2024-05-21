@@ -42,7 +42,7 @@ def test_verification():
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_verification_gather_functional():
+def test_verification_gather_functional_adjfloat():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
     mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
@@ -56,6 +56,30 @@ def test_verification_gather_functional():
     rf = EnsembleReducedFunctional(J, Control(x), ensemble,
                                    scatter_control=False,
                                    gather_functional=Jg)
+    ensemble_J = rf(x)
+    dJdm = rf.derivative()
+    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
+    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
+    assert taylor_test(rf, x, Function(R, val=0.1))
+
+
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_verification_gather_functional_Function():
+    ensemble = Ensemble(COMM_WORLD, 2)
+    rank = ensemble.ensemble_comm.rank
+    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
+    R = FunctionSpace(mesh, "R", 0)
+    x = function.Function(R, val=rank+1)
+    J = Function(R).assign(x**2)
+    a = Function(R).assign(1.0)
+    b = Function(R).assign(1.0)
+    Jg_m = [Control(a), Control(b)]
+    Jg = assemble((a**2 + b**2)*dx)
+    Jghat = ReducedFunctional(Jg, Jg_m)
+    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
+                                   scatter_control=False,
+                                   gather_functional=Jghat)
     ensemble_J = rf(x)
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
