@@ -321,7 +321,7 @@ class FunctionMixin(FloatingType):
         from firedrake import assemble
 
         options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "l2")
+        riesz_representation = options.get("riesz_representation", "L2")
         if riesz_representation == "l2":
             return self.dat.inner(other.dat)
         elif riesz_representation == "L2":
