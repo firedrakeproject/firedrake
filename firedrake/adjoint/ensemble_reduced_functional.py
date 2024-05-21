@@ -78,7 +78,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-        size = self.ensemble.ensemble_comm.size
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
             Controls_g = self._allgather_J(local_functional)
