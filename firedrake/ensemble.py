@@ -148,15 +148,13 @@ class Ensemble(object):
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
-        :returns: a new :class:`.Function` containing the broadcast value.
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        f_out = f.copy(deepcopy=True)
-        with f_out.dat.vec as vec:
+        with f.dat.vec as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
 
-        return f_out
+        return f
 
     @PETSc.Log.EventDecorator()
     def ibcast(self, f, root=0):

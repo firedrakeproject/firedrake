@@ -1,4 +1,4 @@
-from pyadjoint import ReducedFunctional, AdjFloat
+from pyadjoint import ReducedFunctional
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
@@ -60,25 +60,29 @@ class EnsembleReducedFunctional(ReducedFunctional):
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
+    def _bcast_J(self, J, i):
+        if isinstance(J, float):
+            val = self.ensemble.ensemble_comm.bcast(J, root=i)
+        elif isinstance(J, firedrake.Function):
+            J0 = J.copy(deepcopy=True)
+            val = self.ensemble.bcast(J0, root=i)
+        else:
+            raise NotImplementedError("This type of functional is not supported.")
+        return val
+
     def __call__(self, values):
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
-
+        size = self.ensemble.ensemble_comm.size
+        ensemble_comm = self.ensemble.ensemble_comm
         Controls_g = []
         if self.gather_functional:
-            for i in range(self.ensemble.ensemble_comm.size):
-                if isinstance(local_functional, float):
-                    J = self.ensemble.ensemble_comm.bcast(local_functional,
-                                                          root=i)
-                    Controls_g.append(AdjFloat(J))
-                elif isinstance(local_functional, firedrake.Function):
-                    J = self.ensemble.bcast(local_functional, root=i)
-                    Controls_g.append(J)
-                else:
-                    raise NotImplementedError("This type of functional is not supported.")
-
+            for i in range(size):
+                Controls_g.append(self._bcast_J(local_functional, i))
+                print(Controls_g[i], i, ensemble_comm.rank)
             total_functional = self.gather_functional(Controls_g)
+        # if gather_functional is None then we do a sum
         elif isinstance(local_functional, float):
-            total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
+            total_functional = ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
         elif isinstance(local_functional, firedrake.Function):
             total_functional = type(local_functional)(local_functional.function_space())
             total_functional = self.ensemble.allreduce(local_functional, total_functional)
