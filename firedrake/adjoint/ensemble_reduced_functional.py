@@ -1,4 +1,4 @@
-from pyadjoint import ReducedFunctional, Control
+from pyadjoint import ReducedFunctional, AdjFloat
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
@@ -67,11 +67,12 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if self.gather_functional:
             for i in range(self.ensemble.ensemble_comm.size):
                 if isinstance(local_functional, float):
-                    J = self.ensemble.scatter(local_functional, root=i)
+                    J = self.ensemble.ensemble_comm.bcast(local_functional,
+                                                          root=i)
                 else:
                     raise NotImplementedError(
                         "This type of functional is not supported.")
-                Controls_g.append(Control(J))
+                Controls_g.append(AdjFloat(J))
             total_functional = self.gather_functional(Controls_g)
         elif isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
@@ -109,10 +110,11 @@ class EnsembleReducedFunctional(ReducedFunctional):
             adj_input = dJg_dmg[i]
 
         dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
-        dJdm_local = Enlist(dJdm_local)
-        dJdm_total = []
 
         if self.scatter_control:
+            dJdm_local = Enlist(dJdm_local)
+            dJdm_total = []
+
             for dJdm in dJdm_local:
                 if not isinstance(dJdm, (firedrake.Function, float)):
                     raise NotImplementedError("This type of gradient is not supported.")
