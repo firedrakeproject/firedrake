@@ -744,7 +744,8 @@ def test_copy_function():
 def test_consecutive_nonlinear_solves():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    uic = Constant(2.0, domain=mesh)
+    uic = Function(V)
+    uic.assign(2.0)
     u1 = Function(V).assign(uic)
     u0 = Function(u1)
     v = TestFunction(V)
@@ -756,8 +757,7 @@ def test_consecutive_nonlinear_solves():
         solver.solve()
     J = assemble(u1**16*dx)
     rf = ReducedFunctional(J, Control(uic))
-    h = Constant(0.01, domain=mesh)
-    assert taylor_test(rf, uic, h) > 1.9
+    assert taylor_test(rf, uic, Function(V).assign(0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex
@@ -892,10 +892,37 @@ def test_cofunction_subfunctions_with_adjoint():
 def test_none_riesz_representation_to_derivative():
     mesh = UnitIntervalMesh(1)
     space = FunctionSpace(mesh, "Lagrange", 1)
-    u = Function(space).interpolate(SpatialCoordinate(mesh)[0])
-    J = assemble((u ** 2) * dx)
-    rf = ReducedFunctional(J, Control(u))
-    assert isinstance(rf.derivative(), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": "H1"}), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": "L2"}), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": None}), Cofunction)
+    f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
+    J = assemble((f ** 2) * dx)
+    rf = ReducedFunctional(J, Control(f))
+    with stop_annotating():
+        v = TestFunction(space)
+        u = TrialFunction(space)
+        dJdu_cofunction = assemble(2 * inner(f, v) * dx)
+
+        # Riesz representation with l2
+        dJdu_function_l2 = Function(space, val=dJdu_cofunction.dat)
+
+        # Riesz representation with H1
+        a = firedrake.inner(u, v)*firedrake.dx \
+            + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+        dJdu_function_H1 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_H1)
+
+        # Riesz representation with L2
+        a = firedrake.inner(u, v)*firedrake.dx
+        dJdu_function_L2 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_L2)
+
+    dJdu_none = rf.derivative(options={"riesz_representation": None})
+    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
+    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
+    dJdu_default_L2 = rf.derivative()
+    assert (
+        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+    )

@@ -232,6 +232,13 @@ class FunctionMixin(FloatingType):
         if not isinstance(value, (Number, Cofunction, Function)):
             raise TypeError("Expected a Cofunction, Function or a float")
 
+        if value == 0.:
+            # Default of a function datatype is zero
+            return Function(V)
+
+        if riesz_representation != "l2" and not isinstance(value, Cofunction):
+            raise TypeError("Expected a Cofunction")
+
         if riesz_representation == "l2":
             if isinstance(value, (Cofunction, Function)):
                 return Function(V, val=value.dat)
@@ -241,14 +248,9 @@ class FunctionMixin(FloatingType):
                     f.assign(value)
                 return f
         elif riesz_representation in ("L2", "H1"):
-            if isinstance(value, Number):
-                b = Cofunction(V.dual())
-                b.assign(value)
-            else:
-                b = value
             ret = Function(V)
             a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == b, ret, **solver_options)
+            firedrake.solve(a == value, ret, **solver_options)
             return ret
 
         elif callable(riesz_representation):
