@@ -1,4 +1,4 @@
-from pyadjoint import ReducedFunctional, OverloadedType
+from pyadjoint import ReducedFunctional
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
