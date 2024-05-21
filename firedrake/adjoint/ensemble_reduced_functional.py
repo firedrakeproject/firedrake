@@ -1,4 +1,4 @@
-from pyadjoint import ReducedFunctional
+from pyadjoint import ReducedFunctional, OverloadedType
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
@@ -28,6 +28,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     operation is employed to sum the functionals and their gradients over an ensemble
     communicator.
 
+    If gather_functional is present, then all the values of J are communicated to all ensemble ranks, and passed in a list to gather_functional, which is a reduced functional that expects a list of that size of the relevant types.
+
     Parameters
     ----------
     J : pyadjoint.OverloadedType
@@ -40,6 +42,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         functionals and their derivatives between the ensemble members.
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
+    gather_functional: a reduced functional that takes in all of the Js.
         ``Ensemble.ensemble comm``.
 
     See Also
