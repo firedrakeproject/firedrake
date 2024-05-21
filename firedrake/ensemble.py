@@ -155,7 +155,7 @@ class Ensemble(object):
         f_out = f.copy(deepcopy=True)
         with f_out.dat.vec as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
-        
+
         return f_out
 
     @PETSc.Log.EventDecorator()

@@ -74,8 +74,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
                     J = self.ensemble.bcast(local_functional, root=i)
                     Controls_g.append(J)
                 else:
-                    raise NotImplementedError("This type of functional is not supported.")         
-      
+                    raise NotImplementedError("This type of functional is not supported.")
+
             total_functional = self.gather_functional(Controls_g)
         elif isinstance(local_functional, float):
             total_functional = self.ensemble.ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
