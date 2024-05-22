@@ -42,8 +42,9 @@ class EnsembleReducedFunctional(ReducedFunctional):
         functionals and their derivatives between the ensemble members.
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
-    gather_functional: a reduced functional that takes in all of the Js.
         ``Ensemble.ensemble comm``.
+    gather_functional: a reduced functional that takes in all of the Js.
+
 
     See Also
     --------
