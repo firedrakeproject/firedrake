@@ -43,8 +43,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
         ``Ensemble.ensemble comm``.
-    gather_functional : ReducedFunctional
-        a reduced functional that takes in all of the Js.
+    gather_functional : An instance of the :class:`pyadjoint.ReducedFunctional`.
+        that takes in all of the Js.
 
 
     See Also
