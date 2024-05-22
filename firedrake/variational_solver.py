@@ -133,7 +133,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS.update({'ksp_rtol': 1e-5}))
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
