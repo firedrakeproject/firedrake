@@ -83,7 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            || (cat firedrake-install.log && /bin/false)
+            ||(cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
           . ../firedrake_venv/bin/activate
