@@ -63,13 +63,34 @@ class EnsembleReducedFunctional(ReducedFunctional):
                  gather_functional=None):
         if isinstance(J, list):
             self.functional = J
-        super(EnsembleReducedFunctional, self).__init__(J, control)
+            self.Jhats = []
+            for i in range(len(J)):
+                self.Jhats.append(ReducedFunctional(J[i], control))
+        else:
+            super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
     def _allgather_J(self, J):
-        if isinstance(J, float):
+        if isinstance(J, list):
+            rank = self.ensemble.ensemble_comm.rank
+            # Get the size of each list
+            sizes = self.ensemble.ensemble_comm.allgather(len(J))
+            vals = []
+            # allgather a flattened list of all of the functional values
+            for i in range(len(sizes)):
+                for j in range(sizes[i]):
+                    if isinstance(J, float):
+                        vals += self.ensemble.ensemble_comm.allgather(J)
+                    elif isinstance(J, firedrake.Function):
+                        #  allgather not implemented in ensemble.py
+                        for k in range(self.ensemble.ensemble_comm.size):
+                            J0 = J.copy(deepcopy=True)
+                            vals += self.ensemble.bcast(J0, root=i)
+                    else:
+                        raise NotImplementedError("This type of functional is not supported.")
+        elif isinstance(J, float):
             vals = self.ensemble.ensemble_comm.allgather(J)
         elif isinstance(J, firedrake.Function):
             #  allgather not implemented in ensemble.py
@@ -82,7 +103,12 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return vals
 
     def __call__(self, values):
-        local_functional = super(EnsembleReducedFunctional, self).__call__(values)
+        if isinstance(self.functional, list):
+            local_functional = []
+            for i in range(len(self.functional)):
+                local_functional.append(self.Jhats[i](values))
+        else:
+            local_functional = super(EnsembleReducedFunctional, self).__call__(values)
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
             Controls_g = self._allgather_J(local_functional)
@@ -120,6 +146,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if self.gather_functional:
             dJg_dmg = self.gather_functional.derivative(adj_input=adj_input,
                                                         options=options)
+            NEED TO DO SOMETHING WITH LISTS
             i = self.ensemble.ensemble_comm.rank
             adj_input = dJg_dmg[i]
 
