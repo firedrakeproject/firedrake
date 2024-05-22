@@ -33,7 +33,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     Parameters
     ----------
     J : pyadjoint.OverloadedType
-        An instance of an OverloadedType, usually :class:`pyadjoint.AdjFloat`.
+        An instance of an OverloadedType, usually :class:`pyadjoint.AdjFloat`,
+        or, a list of those.
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
         A single or a list of Control instances, which you want to map to the functional.
@@ -43,7 +44,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
         ``Ensemble.ensemble comm``.
-    gather_functional: a reduced functional that takes in all of the Js.
+    gather_functional : ReducedFunctional
+        a reduced functional that takes in all of the Js.
 
 
     See Also
@@ -59,6 +61,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     """
     def __init__(self, J, control, ensemble, scatter_control=True,
                  gather_functional=None):
+        if isinstance(J, list):
+            self.functional = J
         super(EnsembleReducedFunctional, self).__init__(J, control)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
