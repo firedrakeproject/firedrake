@@ -1,6 +1,7 @@
 from pyadjoint import ReducedFunctional
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
+import numpy as np
 
 import firedrake
 
@@ -37,7 +38,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
         or, a list of those.
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
-        A single or a list of Control instances, which you want to map to the functional.
+        A single or a list of Control instances, which you want to map to the functional, 
+        or, a list of those (when J is also a list). In that case, the controls should be ordered so that the controls to be passed to J[0] appear first, followed by the controls to be passed to J[1], and so on.
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
@@ -62,8 +64,12 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def __init__(self, J, control, ensemble, scatter_control=True,
                  gather_functional=None):
         if isinstance(J, list):
+            assert(isinstance(control, list), "Controls should also be a list.")
+            assert(len(control) % len(J) == 0, "Controls and J have mismatching lengths.")
+            self.controls_perp_J = len(control) // len(J)
             self.functional = J
             self.Jhats = []
+            self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
             for i in range(len(J)):
                 self.Jhats.append(ReducedFunctional(J[i], control))
         else:
@@ -75,12 +81,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def _allgather_J(self, J):
         if isinstance(J, list):
             rank = self.ensemble.ensemble_comm.rank
-            # Get the size of each list
-            sizes = self.ensemble.ensemble_comm.allgather(len(J))
             vals = []
             # allgather a flattened list of all of the functional values
-            for i in range(len(sizes)):
-                for j in range(sizes[i]):
+            for i in range(len(self.sizes)):
+                for j in range(self.sizes[i]):
                     if isinstance(J, float):
                         vals += self.ensemble.ensemble_comm.allgather(J)
                     elif isinstance(J, firedrake.Function):
@@ -146,11 +150,19 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if self.gather_functional:
             dJg_dmg = self.gather_functional.derivative(adj_input=adj_input,
                                                         options=options)
-            NEED TO DO SOMETHING WITH LISTS
             i = self.ensemble.ensemble_comm.rank
-            adj_input = dJg_dmg[i]
-
-        dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
+            if isinstance(self.functional, list):
+                # we will pack the derivatives into a flattened list
+                dJdm_local = []
+                k = np.sum(self.sizes[:i-1])-1
+                for j in range(self.sizes[i]):
+                    k += 1
+                    adj_input=dJg_dmg[k]
+                    dJdm_local+=self.Jhats[j].derivative(adj_input=adj_input,
+                                                         options=options)
+            else:
+                adj_input = dJg_dmg[i]
+                dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
 
         if self.scatter_control:
             dJdm_local = Enlist(dJdm_local)
