@@ -115,7 +115,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if isinstance(self.functional, list):
             local_functional = []
             for i in range(len(self.functional)):
-                local_functional.append(self.Jhats[i](values))
+                i0 = self.controls_per_J*i
+                i1 = self.controls_per_J*(i+1)
+                print(type(values))
+                local_functional.append(self.Jhats[i](values[i0:i1]))
         else:
             local_functional = super(EnsembleReducedFunctional, self).__call__(values)
         ensemble_comm = self.ensemble.ensemble_comm
