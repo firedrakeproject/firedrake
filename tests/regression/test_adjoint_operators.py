@@ -744,8 +744,7 @@ def test_copy_function():
 def test_consecutive_nonlinear_solves():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    uic = Function(V)
-    uic.assign(2.0)
+    uic = Constant(2.0, domain=mesh)
     u1 = Function(V).assign(uic)
     u0 = Function(u1)
     v = TestFunction(V)
@@ -757,7 +756,8 @@ def test_consecutive_nonlinear_solves():
         solver.solve()
     J = assemble(u1**16*dx)
     rf = ReducedFunctional(J, Control(uic))
-    assert taylor_test(rf, uic, Function(V).assign(0.1)) > 1.9
+    h = Constant(0.01, domain=mesh)
+    assert taylor_test(rf, uic, h) > 1.9
 
 
 @pytest.mark.skipcomplex
