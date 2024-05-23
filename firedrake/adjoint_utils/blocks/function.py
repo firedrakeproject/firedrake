@@ -60,7 +60,8 @@ class FunctionAssignBlock(Block):
                 R = block_variable.output._ad_function_space(
                     prepared.function_space().mesh()
                 )
-                return self._adj_assign_constant(prepared, R)
+                adj_output = self._adj_assign_constant(prepared, R)
+                return adj_output.riesz_representation(riesz_map="l2")
             else:
                 adj_output = firedrake.Function(
                     block_variable.output.function_space())
@@ -86,7 +87,7 @@ class FunctionAssignBlock(Block):
                     ufl.derivative(
                         expr,
                         block_variable.saved_output,
-                        firedrake.Constant(1., domain=mesh)
+                        firedrake.Function(firedrake.FunctionSpace(mesh, "R", 0), val=1.0)
                     )
                 )
                 adj_output.assign(diff_expr)

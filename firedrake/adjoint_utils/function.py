@@ -233,14 +233,17 @@ class FunctionMixin(FloatingType):
             raise TypeError("Expected a Cofunction, Function or a float")
 
         if isinstance(value, Number):
-            # Default of a function datatype is zero
-            # Only works for l2 riesz representation
+            # It is applied l2 representation for this case.
             f = Function(V)
             f.assign(value)
             return f
 
         if riesz_representation == "l2":
             return Function(V, val=value.dat)
+
+        if riesz_representation != "l2" and not isinstance(value, Cofunction):
+            raise TypeError("Expected a Cofunction")
+
         elif riesz_representation in ("L2", "H1"):
             ret = Function(V)
             a = self._define_riesz_map_form(riesz_representation, V)
@@ -275,8 +278,6 @@ class FunctionMixin(FloatingType):
     def _ad_convert_type(self, value, options=None):
         # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
         options = {} if options is None else options
-        if "riesz_representation" not in options:
-            options = {"riesz_representation": "L2"}
         riesz_representation = options.get("riesz_representation", "L2")
         if riesz_representation is None:
             return value
