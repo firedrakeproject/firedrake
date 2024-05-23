@@ -117,7 +117,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
             for i in range(len(self.functional)):
                 i0 = self.controls_per_J*i
                 i1 = self.controls_per_J*(i+1)
-                print(type(values))
                 local_functional.append(self.Jhats[i](values[i0:i1]))
         else:
             local_functional = super(EnsembleReducedFunctional, self).__call__(values)
@@ -162,12 +161,13 @@ class EnsembleReducedFunctional(ReducedFunctional):
             if isinstance(self.functional, list):
                 # we will pack the derivatives into a flattened list
                 dJdm_local = []
-                k = int(np.sum(self.sizes[:i-1])-1)
+                k = int(np.sum(self.sizes[:i])-1)
                 for j in range(self.sizes[i]):
                     k += 1
                     adj_input=dJg_dmg[k]
-                    dJdm_local+=self.Jhats[j].derivative(adj_input=adj_input,
-                                                         options=options)
+                    der=self.Jhats[j].derivative(adj_input=adj_input,
+                                                 options=options)
+                    dJdm_local += der
             else:
                 adj_input = dJg_dmg[i]
                 dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
