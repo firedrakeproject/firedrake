@@ -38,7 +38,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         or, a list of those.
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
-        A single or a list of Control instances, which you want to map to the functional, 
+        A single or a list of Control instances, which you want to map to the functional,
         or, a list of those (when J is also a list). In that case, the controls should be ordered so that the controls to be passed to J[0] appear first, followed by the controls to be passed to J[1], and so on.
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
@@ -46,8 +46,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
         ``Ensemble.ensemble comm``.
-    gather_functional : ReducedFunctional
-        a reduced functional that takes in all of the Js.
+    gather_functional : An instance of the :class:`pyadjoint.ReducedFunctional`.
+        that takes in all of the Js.
 
 
     See Also
@@ -71,7 +71,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
             self.functional = J
             self.Jhats = []
             self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
-            rank = self.ensemble.ensemble_comm.rank
             for i in range(len(J)):
                 i0 = self.controls_per_J*i
                 i1 = self.controls_per_J*(i+1)
@@ -93,7 +92,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
                     if issubclass(Jtype, float):
                         Jsend = J[j] if i == rank else None
                         vals.append(self.ensemble.ensemble_comm.bcast(Jsend,
-                                                                  root=i))
+                                                                      root=i))
                     elif issubclass(Jtype, firedrake.Function):
                         Jsend = J[j].copy(deepcopy=True) if i == rank else None
                         vals.append(self.ensemble.bcast(Jsend, root=i))
@@ -164,13 +163,15 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 k = int(np.sum(self.sizes[:i])-1)
                 for j in range(self.sizes[i]):
                     k += 1
-                    adj_input=dJg_dmg[k]
-                    der=self.Jhats[j].derivative(adj_input=adj_input,
-                                                 options=options)
+                    adj_input = dJg_dmg[k]
+                    der = self.Jhats[j].derivative(adj_input=adj_input,
+                                                   options=options)
                     dJdm_local += der
             else:
                 adj_input = dJg_dmg[i]
                 dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
+        else:
+            dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
 
         if self.scatter_control:
             dJdm_local = Enlist(dJdm_local)
