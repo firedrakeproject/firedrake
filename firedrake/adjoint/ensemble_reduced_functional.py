@@ -63,18 +63,21 @@ class EnsembleReducedFunctional(ReducedFunctional):
     """
     def __init__(self, J, control, ensemble, scatter_control=True,
                  gather_functional=None):
+        self.ensemble = ensemble
         if isinstance(J, list):
-            assert(isinstance(control, list), "Controls should also be a list.")
-            assert(len(control) % len(J) == 0, "Controls and J have mismatching lengths.")
-            self.controls_perp_J = len(control) // len(J)
+            assert isinstance(control, list), "Controls should also be a list."
+            assert len(control) % len(J) == 0, "Controls and J have mismatching lengths."
+            self.controls_per_J = len(control) // len(J)
             self.functional = J
             self.Jhats = []
             self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
+            rank = self.ensemble.ensemble_comm.rank
             for i in range(len(J)):
-                self.Jhats.append(ReducedFunctional(J[i], control))
+                i0 = self.controls_per_J*i
+                i1 = self.controls_per_J*(i+1)
+                self.Jhats.append(ReducedFunctional(J[i], control[i0:i1]))
         else:
             super(EnsembleReducedFunctional, self).__init__(J, control)
-        self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
@@ -85,15 +88,17 @@ class EnsembleReducedFunctional(ReducedFunctional):
             # allgather a flattened list of all of the functional values
             for i in range(len(self.sizes)):
                 for j in range(self.sizes[i]):
-                    if isinstance(J, float):
-                        vals += self.ensemble.ensemble_comm.allgather(J)
-                    elif isinstance(J, firedrake.Function):
-                        #  allgather not implemented in ensemble.py
-                        for k in range(self.ensemble.ensemble_comm.size):
-                            J0 = J.copy(deepcopy=True)
-                            vals += self.ensemble.bcast(J0, root=i)
+                    Jtype = type(J[j]) if i == rank else None
+                    Jtype = self.ensemble.ensemble_comm.bcast(Jtype, root=i)
+                    if issubclass(Jtype, float):
+                        Jsend = J[j] if i == rank else None
+                        vals.append(self.ensemble.ensemble_comm.bcast(Jsend,
+                                                                  root=i))
+                    elif issubclass(Jtype, firedrake.Function):
+                        Jsend = J[j].copy(deepcopy=True) if i == rank else None
+                        vals.append(self.ensemble.bcast(Jsend, root=i))
                     else:
-                        raise NotImplementedError("This type of functional is not supported.")
+                        raise NotImplementedError("This type of functional is not supported: " + str(Jtype))
         elif isinstance(J, float):
             vals = self.ensemble.ensemble_comm.allgather(J)
         elif isinstance(J, firedrake.Function):
@@ -154,7 +159,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
             if isinstance(self.functional, list):
                 # we will pack the derivatives into a flattened list
                 dJdm_local = []
-                k = np.sum(self.sizes[:i-1])-1
+                k = int(np.sum(self.sizes[:i-1])-1)
                 for j in range(self.sizes[i]):
                     k += 1
                     adj_input=dJg_dmg[k]
