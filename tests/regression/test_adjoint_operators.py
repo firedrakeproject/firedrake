@@ -889,7 +889,8 @@ def test_cofunction_subfunctions_with_adjoint():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_none_riesz_representation_to_derivative():
+def test_riesz_representation_for_adjoints():
+    # Test is the riesz representation norms for adjoints are working as expected.
     mesh = UnitIntervalMesh(1)
     space = FunctionSpace(mesh, "Lagrange", 1)
     f = Function(space).interpolate(SpatialCoordinate(mesh)[0])

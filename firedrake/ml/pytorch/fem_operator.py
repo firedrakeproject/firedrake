@@ -81,6 +81,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
         if isinstance(adj_input, Constant) and adj_input.ufl_shape == ():
             # This will later on result in an `AdjFloat` adjoint input instead of a Constant
             adj_input = float(adj_input)
+
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
         adj_output = F.derivative(adj_input=adj_input, options={"riesz_representation": 'l2'})
 
