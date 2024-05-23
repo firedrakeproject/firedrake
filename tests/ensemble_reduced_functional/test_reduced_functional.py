@@ -62,6 +62,42 @@ def test_verification_gather_functional_adjfloat():
     assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
     assert taylor_test(rf, x, Function(R, val=0.1))
 
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_verification_gather_functional_list_adjfloat():
+    ensemble = Ensemble(COMM_WORLD, 2)
+    rank = ensemble.ensemble_comm.rank
+    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
+    R = FunctionSpace(mesh, "R", 0)
+
+    n_Js = [2, 3]
+    Js_offset = [0, 2]
+    Js = []
+    for i in range(n_Js[rank]):
+        x = function.Function(R, val=Js_offset[rank]+i+1)
+        J = assemble(x * x * dx(domain=mesh))
+        Js.append(J)
+    Jg_m = []
+    as = []
+    for i in range(5):
+        a = AdjFloat(1.0)
+        as.append(a)
+        Jg_m.append(Control(a))
+    Ja = as[0]**2
+    for i in range(1, 5):
+        Ja += as[i]**2
+    Jg = ReducedFunctional(Ja, Jg_m)
+    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
+                                   scatter_control=False,
+                                   gather_functional=Jg)
+    ensemble_J = rf(x)
+    dJdm = rf.derivative()
+    assert_allclose(ensemble_J, 1.0**4+2.0**4+3.0**4+4.0**4+5.0**4, rtol=1e-12)
+    for i in range(n_Js[rank]):
+        val = offset[rank]+i+1
+        assert_allclose(dJdm[i].dat.data_ro, 4*val**3, rtol=1e-12)
+    assert taylor_test(rf, x, Function(R, val=0.1))
+
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
