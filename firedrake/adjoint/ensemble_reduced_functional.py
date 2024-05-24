@@ -69,6 +69,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
             assert len(control) % len(J) == 0, "Controls and J have mismatching lengths."
             self.controls_per_J = len(control) // len(J)
             self.functional = J
+            self.controls = Enlist(control)
             self.Jhats = []
             self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
             for i in range(len(J)):
