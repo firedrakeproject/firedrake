@@ -234,7 +234,7 @@ def test_submesh_base_entity_maps():
     #
     #      rank 0                 rank 1
 
-    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True, distribution_parameters={"partitioner": ((1, 1), (0, 1))})
+    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"})
     assert mesh.comm.size == 2
     rank = mesh.comm.rank
     x, y = SpatialCoordinate(mesh)
