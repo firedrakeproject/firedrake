@@ -899,31 +899,33 @@ def test_riesz_representation_for_adjoints():
     with stop_annotating():
         v = TestFunction(space)
         u = TrialFunction(space)
-        dJdu_cofunction = assemble(2 * inner(f, v) * dx)
+        dJdu_cofunction = assemble(derivative((f ** 2) * dx, f, v))
 
         # Riesz representation with l2
         dJdu_function_l2 = Function(space, val=dJdu_cofunction.dat)
 
         # Riesz representation with H1
-        a = firedrake.inner(u, v)*firedrake.dx \
-            + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
+        a = u * v * dx + inner(grad(u), grad(v)) * dx
         dJdu_function_H1 = Function(space)
         solve(a == dJdu_cofunction, dJdu_function_H1)
 
         # Riesz representation with L2
-        a = firedrake.inner(u, v)*firedrake.dx
+        a = u*v*dx
         dJdu_function_L2 = Function(space)
         solve(a == dJdu_cofunction, dJdu_function_L2)
 
     dJdu_none = rf.derivative(options={"riesz_representation": None})
     dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
     dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
+    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
     dJdu_default_L2 = rf.derivative()
     assert (
         isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
         and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+        and isinstance(dJdu_L2, Function)
         and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
         and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
         and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
         and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
     )
