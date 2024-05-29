@@ -337,3 +337,6 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
 
     def _ad_is_to_clear_checkpoint(self, to_keep=None):
         return False
+    
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        return None
