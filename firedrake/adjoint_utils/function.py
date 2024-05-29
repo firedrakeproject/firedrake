@@ -285,9 +285,9 @@ class FunctionMixin(FloatingType):
     @no_annotations
     def _ad_convert_type(self, value, options=None):
         # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        if riesz_representation is None:
+        options = {} if options is None else options.copy()
+        options.setdefault("riesz_representation", "L2")
+        if options["riesz_representation"] is None:
             return value
         else:
             return self._ad_convert_riesz(value, options=options)
