@@ -1,12 +1,20 @@
 import ufl
 from itertools import chain
 from contextlib import ExitStack
+from types import MappingProxyType
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake import function
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
-from firedrake.bcs import DirichletBC
+from firedrake.petsc import (
+    PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
+    DEFAULT_SNES_PARAMETERS
+)
+from firedrake.function import Function
+from firedrake.functionspace import RestrictedFunctionSpace
+from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.bcs import DirichletBC, EquationBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from ufl import replace
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -44,7 +52,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False):
+                 is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -57,22 +65,51 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces.
         """
+        V = u.function_space()
+        self.output_space = V
+        self.u = u
+
+        if not isinstance(self.u, function.Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+
+        # Use the user-provided Jacobian. If none is provided, derive
+        # the Jacobian from the residual.
+        self.J = J or ufl_expr.derivative(F, u)
+        self.F = F
+        self.Jp = Jp
+        if bcs:
+            for bc in bcs:
+                if isinstance(bc, EquationBC):
+                    restrict = False
+        self.restrict = restrict
+
+        if restrict and bcs:
+            V_res = RestrictedFunctionSpace(V, boundary_set=set([bc.sub_domain for bc in bcs]))
+            bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            self.u_restrict = Function(V_res).interpolate(u)
+            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
+            F_arg, = F.arguments()
+            replace_dict = {F_arg: v_res}
+            replace_dict[self.u] = self.u_restrict
+            self.F = replace(F, replace_dict)
+            v_arg, u_arg = self.J.arguments()
+            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res})
+            if self.Jp:
+                v_arg, u_arg = self.Jp.arguments()
+                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res})
+            self.restricted_space = V_res
+        else:
+            self.u_restrict = u
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
-
-        self.u = u
-        self.F = F
-        self.Jp = Jp
-        if not isinstance(self.u, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
-        # Use the user-provided Jacobian. If none is provided, derive
-        # the Jacobian from the residual.
-        self.J = J or ufl_expr.derivative(F, u)
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
@@ -87,18 +124,22 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
     @utils.cached_property
     def dm(self):
-        return self.u.function_space().dm
+        return self.u_restrict.function_space().dm
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-                               "snes_linesearch_type": "basic"}
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
-    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
+    # TODO: When we drop Python 3.8 replace this mess with
+    # DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    DEFAULT_KSP_PARAMETERS = MappingProxyType({
+        k: v
+        if k != 'ksp_rtol' else 1e-5
+        for k, v in DEFAULT_KSP_PARAMETERS.items()
+    })
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
@@ -198,7 +239,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -263,7 +304,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
-            dbc.apply(problem.u)
+            dbc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds
@@ -271,7 +312,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u.dat.vec as u:
+        with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
@@ -283,10 +324,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
             work.copy(u)
         self._setup = True
+        if problem.restrict:
+            problem.u.interpolate(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u.function_space().mesh()._comm
+        comm = self._problem.u_restrict.function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
 
@@ -296,7 +339,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False):
+                 constant_jacobian=False, restrict=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -311,6 +354,9 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian does not change, set
                  this flag to ``True``.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces.
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
@@ -326,7 +372,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True)
+                                                       is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
 
 
@@ -364,7 +410,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
     DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
+    # Tighter default tolerance for KSP only.
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS
 
     def invalidate_jacobian(self):
         r"""

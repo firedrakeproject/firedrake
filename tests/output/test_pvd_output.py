@@ -5,6 +5,12 @@ from os.path import isfile, join
 
 from firedrake import *
 
+try:
+    from firedrake.output import VTKFile
+except ImportError:
+    # VTK is not installed
+    pytest.skip("VTK not installed", allow_module_level=True)
+
 
 @pytest.fixture(params=[
     "interval",
@@ -39,7 +45,7 @@ def mesh(request):
 @pytest.fixture
 def pvd(dumpdir):
     f = join(dumpdir, "foo.pvd")
-    return File(f)
+    return VTKFile(f)
 
 
 def test_can_save_coordinates(mesh, pvd):
@@ -69,7 +75,7 @@ def test_bad_shape(typ, mesh, pvd):
 
 def test_bad_file_name(tmpdir):
     with pytest.raises(ValueError):
-        File(str(tmpdir.join("foo.vtu")))
+        VTKFile(str(tmpdir.join("foo.vtu")))
 
 
 def test_different_functions(mesh, pvd):
@@ -133,11 +139,11 @@ def test_append(mesh, tmpdir):
     V = FunctionSpace(mesh, "DG", 0)
     g = Function(V)
 
-    outfile = File(str(tmpdir.join("restart_test.pvd")))
+    outfile = VTKFile(str(tmpdir.join("restart_test.pvd")))
     outfile.write(g)
     del outfile
 
-    restarted_outfile = File(str(tmpdir.join("restart_test.pvd")), mode="a")
+    restarted_outfile = VTKFile(str(tmpdir.join("restart_test.pvd")), mode="a")
     restarted_outfile.write(g)
 
     pvdfile_in_tmp = [f for f in listdir(str(tmpdir)) if isfile(join(str(tmpdir), f))]

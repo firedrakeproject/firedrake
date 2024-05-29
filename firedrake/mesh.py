@@ -31,7 +31,9 @@ import firedrake.utils as utils
 from firedrake.utils import IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import (
+    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
+)
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 
@@ -305,24 +307,7 @@ def _from_gmsh(filename, comm=None):
         COMM_WORLD).
     """
     comm = comm or COMM_WORLD
-    # check the filetype of the gmsh file
-    filetype = None
-    if comm.rank == 0:
-        with open(filename, 'rb') as fid:
-            header = fid.readline().rstrip(b'\n\r')
-            version = fid.readline().rstrip(b'\n\r')
-        assert header == b'$MeshFormat'
-        if version.split(b' ')[1] == b'1':
-            filetype = "binary"
-        else:
-            filetype = "ascii"
-    filetype = comm.bcast(filetype, root=0)
-    # Create a read-only PETSc.Viewer
-    gmsh_viewer = PETSc.Viewer().create(comm=comm)
-    gmsh_viewer.setType(filetype)
-    gmsh_viewer.setFileMode("r")
-    gmsh_viewer.setFileName(filename)
-    gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
+    gmsh_plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
 
     return gmsh_plex
 
@@ -585,16 +570,16 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 tdim = dmcommon.get_topological_dimension(self.topology_dm)
                 entity_dofs = np.zeros(tdim+1, dtype=IntType)
                 entity_dofs[-1] = 1
-                self._cell_numbering = self.create_section(entity_dofs)
+                self._cell_numbering, _ = self.create_section(entity_dofs)
                 if tdim == 0:
                     self._vertex_numbering = self._cell_numbering
                 else:
                     entity_dofs[:] = 0
                     entity_dofs[0] = 1
-                    self._vertex_numbering = self.create_section(entity_dofs)
+                    self._vertex_numbering, _ = self.create_section(entity_dofs)
                     entity_dofs[:] = 0
                     entity_dofs[-2] = 1
-                    facet_numbering = self.create_section(entity_dofs)
+                    facet_numbering, _ = self.create_section(entity_dofs)
                     self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self._callback = callback
         self.name = name
@@ -754,16 +739,18 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
+    def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1, boundary_set=None):
         """Create a PETSc Section describing a function space.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
         :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
+        :arg boundary_set: A set of boundary markers, indicating the subdomains
+            a boundary condition is specified on.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
 
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
         """Compute node classes given nodes per entity.
@@ -1080,7 +1067,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             # No reordering
             reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)[0]
 
     @utils.cached_property
     def cell_closure(self):
@@ -1243,38 +1230,35 @@ class MeshTopology(AbstractMeshTopology):
             "shell", or `None` (unspecified). Ignored if the distribute parameter
             specifies the distribution.
         """
-        from firedrake_configuration import get_config
         if plex.comm.size == 1 or distribute is False:
             return
         partitioner = plex.getPartitioner()
         if distribute is True:
             if partitioner_type:
-                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
-                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
-                if partitioner_type == "chaco":
-                    if IntType.itemsize == 8:
-                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
-                                         "but your Integer is %d bit." % IntType.itemsize * 8)
-                    if plex.isDistributed():
-                        raise ValueError("Unable to use 'chaco': 'chaco' is a serial "
-                                         "patitioner, but the mesh is distributed.")
-                if partitioner_type == "parmetis":
-                    if not get_config().get("options", {}).get("with_parmetis", False):
-                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
-                                         "installed with 'parmetis'.")
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis", "simple", "shell"]:
+                    raise ValueError(
+                        f"Unexpected partitioner_type: {partitioner_type}")
+                if partitioner_type in ["chaco", "ptscotch", "parmetis"] and \
+                        partitioner_type not in get_external_packages():
+                    raise ValueError(
+                        f"Unable to use {partitioner_type} as PETSc is not "
+                        f"installed with {partitioner_type}."
+                    )
+                if partitioner_type == "chaco" and plex.isDistributed():
+                    raise ValueError(
+                        "Unable to use 'chaco' mesh partitioner, 'chaco' is a "
+                        "serial partitioner, but the mesh is distributed."
+                    )
             else:
-                if IntType.itemsize == 8 or plex.isDistributed():
-                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
-                    # Chaco does not work on distributed meshes.
-                    if get_config().get("options", {}).get("with_parmetis", False):
-                        partitioner_type = "parmetis"
-                    else:
-                        partitioner_type = "ptscotch"
-                else:
-                    partitioner_type = "chaco"
-            partitioner.setType({"chaco": partitioner.Type.CHACO,
-                                 "ptscotch": partitioner.Type.PTSCOTCH,
-                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+                partitioner_type = DEFAULT_PARTITIONER
+
+            partitioner.setType({
+                "chaco": partitioner.Type.CHACO,
+                "ptscotch": partitioner.Type.PTSCOTCH,
+                "parmetis": partitioner.Type.PARMETIS,
+                "shell": partitioner.Type.SHELL,
+                "simple": partitioner.Type.SIMPLE
+            }[partitioner_type])
         else:
             sizes, points = distribute
             partitioner.setType(partitioner.Type.SHELL)
@@ -1634,7 +1618,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -2325,7 +2309,8 @@ values from f.)"""
                     str(libspatialindex_so),
                     f"-Wl,-rpath,{sys.prefix}/lib",
                     lsi_runpath
-                ]
+                ],
+                comm=self.comm
             )
 
             locator.argtypes = [ctypes.POINTER(function._CFunction),

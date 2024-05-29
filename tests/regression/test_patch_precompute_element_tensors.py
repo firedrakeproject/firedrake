@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 
 @pytest.fixture(scope='module')
@@ -29,35 +30,36 @@ def test_patch_precompute_element_tensors(mesh, V):
     z = zero(V.ufl_element().value_shape)
     bcs = DirichletBC(V, z, "on_boundary")
 
-    sp = {"mat_type": "matfree",
-          "snes_type": "ksponly",
-          "ksp_type": "cg",
-          "ksp_rtol": 1.0e-8,
-          "ksp_atol": 0.0,
-          "ksp_max_it": 1000,
-          "ksp_converged_reason": None,
-          "ksp_norm_type": "unpreconditioned",
-          "pc_type": "mg",
-          "mg_coarse_ksp_type": "preonly",
-          "mg_coarse_pc_type": "python",
-          "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-          "mg_coarse_assembled_pc_type": "lu",
-          "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-          "mg_coarse_assembled_mat_mumps_icntl_14": 200,
-          "mg_levels_ksp_type": "richardson",
-          "mg_levels_ksp_max_it": 1,
-          "mg_levels_ksp_richardson_scale": 1/3,
-          "mg_levels_pc_type": "python",
-          "mg_levels_pc_python_type": "firedrake.PatchPC",
-          "mg_levels_patch_pc_patch_save_operators": True,
-          "mg_levels_patch_pc_patch_partition_of_unity": False,
-          "mg_levels_patch_pc_patch_sub_mat_type": "seqaij",
-          "mg_levels_patch_pc_patch_construct_type": "star",
-          "mg_levels_patch_pc_patch_multiplicative": False,
-          "mg_levels_patch_pc_patch_symmetrise_sweep": False,
-          "mg_levels_patch_pc_patch_construct_dim": 0,
-          "mg_levels_patch_sub_ksp_type": "preonly",
-          "mg_levels_patch_sub_pc_type": "lu"}
+    sp = {
+        "mat_type": "matfree",
+        "snes_type": "ksponly",
+        "ksp_type": "cg",
+        "ksp_rtol": 1.0e-8,
+        "ksp_atol": 0.0,
+        "ksp_max_it": 1000,
+        "ksp_converged_reason": None,
+        "ksp_norm_type": "unpreconditioned",
+        "pc_type": "mg",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "python",
+        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+        "mg_coarse_assembled_pc_type": "lu",
+        "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_ksp_max_it": 1,
+        "mg_levels_ksp_richardson_scale": 1/3,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.PatchPC",
+        "mg_levels_patch_pc_patch_save_operators": True,
+        "mg_levels_patch_pc_patch_partition_of_unity": False,
+        "mg_levels_patch_pc_patch_sub_mat_type": "seqaij",
+        "mg_levels_patch_pc_patch_construct_type": "star",
+        "mg_levels_patch_pc_patch_multiplicative": False,
+        "mg_levels_patch_pc_patch_symmetrise_sweep": False,
+        "mg_levels_patch_pc_patch_construct_dim": 0,
+        "mg_levels_patch_sub_ksp_type": "preonly",
+        "mg_levels_patch_sub_pc_type": "lu",
+    }
 
     nvproblem = NonlinearVariationalProblem(F, u, bcs=bcs)
     solver = NonlinearVariationalSolver(nvproblem, solver_parameters=sp)

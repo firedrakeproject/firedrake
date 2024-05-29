@@ -73,7 +73,7 @@ We choose a degree 2 `KMV` continuous function space, set it up and then create 
 
 We create an output file to hold the simulation results::
 
-    outfile = File("out.pvd")
+    outfile = VTKFile("out.pvd")
 
 Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds::
 
@@ -146,9 +146,9 @@ The source is injected at the center of the unit square::
     ricker = Constant(0.0)
     ricker.assign(RickerWavelet(t, freq))
 
-We also create a function `R` to save the assembled RHS vector::
+We also create a cofunction `R` to save the assembled RHS vector::
 
-    R = Function(V)
+    R = Cofunction(V.dual())
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 

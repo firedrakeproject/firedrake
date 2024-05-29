@@ -20,6 +20,7 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
+from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2 import op2
@@ -149,12 +150,11 @@ class FDMPC(PCBase):
             self.work_vec_x = Amat.createVecLeft()
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
-                from firedrake.assemble import allocate_matrix, TwoFormAssembler
-                self.A = allocate_matrix(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp,
-                                         mat_type=mat_type, options_prefix=options_prefix)
-                self._assemble_A = TwoFormAssembler(J_fdm, tensor=self.A, bcs=bcs_fdm,
-                                                    form_compiler_parameters=fcp).assemble
-                self._assemble_A()
+                from firedrake.assemble import get_assembler
+                form_assembler = get_assembler(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
+                self.A = form_assembler.allocate()
+                self._assemble_A = form_assembler.assemble
+                self._assemble_A(tensor=self.A)
                 Amat = self.A.petscmat
 
             if len(bcs) > 0:
@@ -227,9 +227,9 @@ class FDMPC(PCBase):
         self.embedding_element = ebig
 
         if Vbig.value_size == 1:
-            self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+            self.fises = PETSc.IS().createGeneral(fdofs, comm=COMM_SELF)
         else:
-            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
+            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -333,7 +333,7 @@ class FDMPC(PCBase):
     @PETSc.Log.EventDecorator("FDMUpdate")
     def update(self, pc):
         if hasattr(self, "A"):
-            self._assemble_A()
+            self._assemble_A(tensor=self.A)
         self._assemble_P()
 
     def apply(self, pc, x, y):
@@ -539,17 +539,15 @@ class FDMPC(PCBase):
             W = MixedFunctionSpace([c.function_space() for c in bdiags])
             tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
-            from firedrake.assemble import OneFormAssembler
+            from firedrake.assemble import get_assembler
             tensor = Function(Z.dual())
-            assembly_callables.append(OneFormAssembler(mixed_form, tensor=tensor, diagonal=True,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(mixed_form, form_compiler_parameters=fcp, diagonal=True).assemble, tensor=tensor))
         coefficients = {"cell": tensor}
         facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
         J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
         if len(J_facet.integrals()) > 0:
             gamma = coefficients.setdefault("facet", Function(V.dual()))
-            assembly_callables.append(OneFormAssembler(J_facet, tensor=gamma, diagonal=True,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(J_facet, form_compiler_parameters=fcp, tensor=gamma, diagonal=True).assemble, tensor=gamma))
         return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
@@ -629,7 +627,7 @@ class FDMPC(PCBase):
                 q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
 
             # Interpolate V * d(V) -> space(beta) * space(alpha)
-            comm = PETSc.COMM_SELF
+            comm = COMM_SELF
             zero = PETSc.Mat()
             A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
             A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
@@ -664,7 +662,7 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=COMM_SELF)
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
@@ -1597,9 +1595,9 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 
     tdim = Vc.mesh().topological_dimension()
     zero = PETSc.Mat()
-    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
-    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
-    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=PETSc.COMM_SELF)
+    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
+    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
+    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A11.destroy()
@@ -1825,7 +1823,7 @@ class PoissonFDMPC(FDMPC):
             try:
                 rtensor = cache[key]
             except KeyError:
-                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=PETSc.COMM_SELF))
+                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=COMM_SELF))
             Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(rtensor))
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
@@ -1852,7 +1850,7 @@ class PoissonFDMPC(FDMPC):
             to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
         triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
-        set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
+        set_submat = SparseAssembler.setSubMatCSR(COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
 
@@ -1910,7 +1908,7 @@ class PoissonFDMPC(FDMPC):
             for e in range(nel):
                 # Ae = Be kron Bq[e]
                 adata = numpy.sum(Bq.dat.data_ro[index_coef(e)], axis=0)
-                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=COMM_SELF)
                 Ae = Be.kron(Ae)
                 rindices = get_rindices(e, result=rindices)
                 update_A(A, Ae, rindices)
@@ -2071,7 +2069,7 @@ class PoissonFDMPC(FDMPC):
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp):
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
         coefficients = {}
         assembly_callables = []
 
@@ -2112,8 +2110,7 @@ class PoissonFDMPC(FDMPC):
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=alpha.ufl_shape))
             tensor = coefficients.setdefault("alpha", Function(Q.dual()))
-            assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), alpha)*dx, tensor=tensor,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), alpha)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
@@ -2134,8 +2131,7 @@ class PoissonFDMPC(FDMPC):
                 beta = ufl.diag_vector(beta)
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
             tensor = coefficients.setdefault("beta", Function(Q.dual()))
-            assembly_callables.append(OneFormAssembler(ufl.inner(TestFunction(Q), beta)*dx, tensor=tensor,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), beta)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         family = "CG" if tdim == 1 else "DGT"
         degree = 1 if tdim == 1 else 0
@@ -2157,13 +2153,11 @@ class PoissonFDMPC(FDMPC):
 
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
-            assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), G), tensor=tensor,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), G), form_compiler_parameters=fcp).assemble, tensor=tensor))
             PT = Piola.T
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
-            assembly_callables.append(OneFormAssembler(ifacet_inner(TestFunction(Q), PT), tensor=tensor,
-                                                       form_compiler_parameters=fcp).assemble)
+            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), PT), form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # make DGT functions with BC flags
         shape = V.ufl_element().reference_value_shape
@@ -2189,8 +2183,7 @@ class PoissonFDMPC(FDMPC):
         if len(forms):
             form = sum(forms)
             if len(form.arguments()) == 1:
-                assembly_callables.append(OneFormAssembler(form, tensor=tensor,
-                                                           form_compiler_parameters=fcp).assemble)
+                assembly_callables.append(partial(get_assembler(form, form_compiler_parameters=fcp).assemble, tensor=tensor))
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
             with coef.dat.vec as cvec:
@@ -2252,7 +2245,7 @@ def fdm_setup_ipdg(fdm_element, eta, comm=None):
 
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
-    :arg comm: a :class:`PETSc.Comm`
+    :arg comm: an mpi4py communicator
 
     :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices

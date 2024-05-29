@@ -104,7 +104,7 @@ def fem_operator(F):
 
     Returns
     -------
-    firedrake.ml.pytorch.FiredrakeTorchOperator
+    firedrake.ml.pytorch.fem_operator.FiredrakeTorchOperator
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
     Citations().register("Bouziani2023")

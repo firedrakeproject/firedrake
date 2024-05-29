@@ -168,11 +168,12 @@ e.g. for output. ::
   m0, u0 = w0.subfunctions
   m1, u1 = w1.subfunctions
 
-We choose a final time, and initialise a :class:`~.File` object for
-storing ``u``. as well as an array for storing the function to be visualised::
+We choose a final time, and initialise a :class:`~.vtk_output.VTKFile`
+object for storing ``u``. as well as an array for storing the function
+to be visualised::
 
   T = 100.0
-  ufile = File('u.pvd')
+  ufile = VTKFile('u.pvd')
   t = 0.0
   ufile.write(u1, time=t)
   all_us = []
