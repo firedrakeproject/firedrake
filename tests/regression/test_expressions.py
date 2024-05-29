@@ -295,7 +295,7 @@ def test_assign_with_different_meshes_fails():
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape[0]+1))
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -374,7 +374,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     u = Function(cg1)
     v = Function(vcg1)
 
-    w1, w2 = w.split()
+    w1, w2 = w.subfunctions
 
     w1.assign(4)
     w2.assign(10)
@@ -389,7 +389,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     Q = vcg1*cg1
     q = Function(Q)
 
-    q1, q2 = q.split()
+    q1, q2 = q.subfunctions
 
     q1.assign(11)
     q2.assign(12)
@@ -411,6 +411,22 @@ def test_assign_from_mfs_sub(cg1, vcg1):
 
     with pytest.raises(ValueError):
         v.assign(w1)
+
+
+@pytest.mark.skipif(not utils.complex_mode, reason="Test specific to complex mode")
+def test_assign_complex_value(cg1):
+    f = Function(cg1)
+    g = Function(cg1)
+
+    f.assign(1+1j)
+    assert np.allclose(f.dat.data_ro, 1+1j)
+
+    f.assign(1j)
+    assert np.allclose(f.dat.data_ro, 1j)
+
+    g.assign(2.0)
+    f.assign((1+1j)*g)
+    assert np.allclose(f.dat.data_ro, 2+2j)
 
 
 @pytest.mark.parametrize('value', [10, -10],
@@ -453,7 +469,7 @@ def test_assign_mixed_multiple_shaped():
     z2.dat[3].data[:] = [[15, 16], [17, 18]]
 
     q = assemble(z1 - z2)
-    for q, p1, p2 in zip(q.split(), z1.split(), z2.split()):
+    for q, p1, p2 in zip(q.subfunctions, z1.subfunctions, z2.subfunctions):
         assert np.allclose(q.dat.data_ro, p1.dat.data_ro - p2.dat.data_ro)
 
 
@@ -478,3 +494,81 @@ def test_augmented_assignment_broadcast():
 
     u -= 2 + a + b
     assert np.allclose(u.dat.data_ro, -16/3)
+
+
+def make_subset(cg1):
+    """Return a subset consisting of one owned and one ghost element.
+
+    This function will only work in parallel.
+
+    """
+    # the second entry in node_set.sizes is the number of owned values, which
+    # is also the index of the first ghost value
+    indices = [0, cg1.node_set.sizes[1]]
+    return op2.Subset(cg1.node_set, indices)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_halo_and_no_subset_sets_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    u.dat.halo_valid = False
+    u.assign(1)
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert u.dat.halo_valid
+    assert np.allclose(u.dat._data, 1)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_valid_halo_and_subset_sets_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    subset = make_subset(cg1)
+    u.assign(1, subset=subset)
+
+    expected = [0] * u.dat.dataset.total_size
+    expected[0] = 1
+    expected[u.dat.dataset.size] = 1
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert u.dat.halo_valid
+    assert np.allclose(u.dat._data, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_halo_and_subset_skips_halo_values(cg1):
+    u = Function(cg1)
+    assert u.dat.halo_valid
+
+    u.dat.halo_valid = False
+    subset = make_subset(cg1)
+    u.assign(1, subset=subset)
+
+    expected = [0] * u.dat.dataset.total_size
+    expected[0] = 1
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert not u.dat.halo_valid
+    assert np.allclose(u.dat._data, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assign_with_dirty_expression_halo_skips_halo_values(cg1):
+    u = Function(cg1)
+    v = Function(cg1)
+    assert u.dat.halo_valid
+    assert v.dat.halo_valid
+
+    v.assign(1)
+    assert v.dat.halo_valid
+
+    v.dat.halo_valid = False
+    u.assign(v)
+
+    # use private attribute here to avoid triggering any halo exchanges
+    assert not u.dat.halo_valid
+    assert np.allclose(u.dat._data[:u.dat.dataset.size], 1)
+    assert np.allclose(u.dat._data[u.dat.dataset.size:], 0)

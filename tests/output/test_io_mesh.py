@@ -122,6 +122,8 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
                 assert np.array_equal(mesh.topology.layers, layers)
             v1 = _compute_integral(mesh)
             assert abs(v1 - v) < 2.e-14
+            if isinstance(mesh.topology, ExtrudedMeshTopology):
+                assert mesh.topology._base_mesh is mesh._base_mesh.topology
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
@@ -147,7 +149,6 @@ def test_io_mesh_radial_hedgehog_extrusion(radial_hedgehog_mesh, tmpdir):
     _test_io_mesh_extrusion(radial_hedgehog_mesh, tmpdir)
 
 
-@pytest.mark.parallel(nprocs=3)
 def test_io_mesh_uniform_variable_layers(variable_layer_uniform_mesh, tmpdir, variable_layers=True):
     _test_io_mesh_extrusion(variable_layer_uniform_mesh, tmpdir)
 

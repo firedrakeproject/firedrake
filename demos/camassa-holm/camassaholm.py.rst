@@ -94,11 +94,11 @@ two variables. ::
   W = MixedFunctionSpace((V, V))
 
 We construct a :class:`~.Function` to store the two variables at time
-level ``n``, and :meth:`~.Function.split` it so that we can
+level ``n``, and :attr:`~.Function.subfunctions` it so that we can
 interpolate the initial condition into the two components. ::
 
   w0 = Function(W)
-  m0, u0 = w0.split()
+  m0, u0 = w0.subfunctions
 
 Then we interpolate the initial condition,
 
@@ -161,18 +161,19 @@ rather than blocked system. ::
       'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
-Next we use the other form of :meth:`~.Function.split`, ``w0.split()``,
+Next we use the other form of :attr:`~.Function.subfunctions`, ``w0.subfunctions``,
 which is the way to split up a Function in order to access its data
 e.g. for output. ::
 
-  m0, u0 = w0.split()
-  m1, u1 = w1.split()
+  m0, u0 = w0.subfunctions
+  m1, u1 = w1.subfunctions
 
-We choose a final time, and initialise a :class:`~.File` object for
-storing ``u``. as well as an array for storing the function to be visualised::
+We choose a final time, and initialise a :class:`~.vtk_output.VTKFile`
+object for storing ``u``. as well as an array for storing the function
+to be visualised::
 
   T = 100.0
-  ufile = File('u.pvd')
+  ufile = VTKFile('u.pvd')
   t = 0.0
   ufile.write(u1, time=t)
   all_us = []
@@ -214,10 +215,11 @@ This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
 
-At last, we call the function :func:`plot <firedrake.plot.plot>` on the final
+At last, we call the function :func:`plot <firedrake.pyplot.plot>` on the final
 value to visualize it::
 
   try:
+    from firedrake.pyplot import plot
     fig, axes = plt.subplots()
     plot(all_us[-1], axes=axes)
   except Exception as e:
@@ -247,7 +249,7 @@ Images of the solution at shown below.
 
    Solution at :math:`t = 5.3.`
 
-A python script version of this demo can be found `here <camassaholm.py>`__.
+A python script version of this demo can be found :demo:`here <camassaholm.py>`.
 
 .. rubric:: References
 

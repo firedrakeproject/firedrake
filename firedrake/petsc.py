@@ -1,16 +1,31 @@
-# Utility module that imports and initialises petsc4py
+import functools
+import gc
+import itertools
 import os
 import subprocess
-import petsc4py
-import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
-import itertools
-import functools
 from contextlib import contextmanager
+from copy import deepcopy
+from types import MappingProxyType
+from typing import Any
+from warnings import warn
+
+import petsc4py
+from mpi4py import MPI
+from petsc4py import PETSc
+from pyop2 import mpi
 
 
-__all__ = ("PETSc", "OptionsManager", "get_petsc_variables")
+__all__ = (
+    "PETSc",
+    "OptionsManager",
+    "get_petsc_variables",
+    "get_petscconf_h",
+    "get_external_packages"
+)
+
+
+class FiredrakePETScError(Exception):
+    pass
 
 
 def flatten_parameters(parameters, sep="_"):
@@ -94,6 +109,37 @@ def get_petsc_variables():
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
+
+
+@functools.lru_cache()
+def get_petscconf_h():
+    """Get dict of PETSc include variables from the file:
+    $PETSC_DIR/$PETSC_ARCH/include/petscconf.h
+
+    The ``#define`` and ``PETSC_`` prefix are dropped in the dictionary key.
+
+    The result is memoized to avoid constantly reading the file.
+    """
+    config = petsc4py.get_config()
+    path = [config["PETSC_DIR"], config["PETSC_ARCH"], "include/petscconf.h"]
+    petscconf_h = os.path.join(*path)
+    with open(petscconf_h) as fh:
+        # TODO: use `removeprefix("#define PETSC_")` in place of
+        # `lstrip("#define PETSC")[1:]` when support for Python 3.8 is dropped
+        splitlines = (
+            line.lstrip("#define PETSC")[1:].split(" ", maxsplit=1)
+            for line in filter(lambda x: x.startswith("#define PETSC_"), fh.readlines())
+        )
+    return {k: v.strip() for k, v in splitlines}
+
+
+def get_external_packages():
+    """Return a list of PETSc external packages that are installed.
+
+    """
+    # The HAVE_PACKAGES variable uses delimiters at both ends
+    # so we drop the empty first and last items
+    return get_petscconf_h()["HAVE_PACKAGES"].split(":")[1:-1]
 
 
 def _get_dependencies(filename):
@@ -249,3 +295,158 @@ class OptionsManager(object):
         finally:
             for k in self.to_delete:
                 del self.options_object[self.options_prefix + k]
+
+
+def _extract_comm(obj: Any) -> MPI.Comm:
+    """Extract and return the Firedrake/PyOP2 internal comm of a given object.
+
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object or any comm
+
+    Returns
+    -------
+    MPI.Comm
+        Internal communicator
+
+    """
+    comm = None
+    # If the object is a communicator check whether it is already an internal
+    # communicator, otherwise get the internal communicator attribute from the
+    # given communicator.
+    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
+        try:
+            if mpi.is_pyop2_comm(obj):
+                comm = obj
+            else:
+                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
+                if internal_comm is None:
+                    comm = obj
+                else:
+                    comm = internal_comm
+        except mpi.PyOP2CommError:
+            pass
+    elif hasattr(obj, "_comm"):
+        comm = obj._comm
+    elif hasattr(obj, "comm"):
+        comm = obj.comm
+    return comm
+
+
+@mpi.collective
+def garbage_cleanup(obj: Any):
+    """Clean up garbage PETSc objects on a Firedrake object or any comm.
+
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object with a comm, or any comm
+
+    """
+    # We are manually calling the Python cyclic garbage collection routine to
+    # get as many unreachable reference cycles swept up before we call the PETSc
+    # cleanup routine. This routine is designed to free up as much memory as
+    # possible for memory constrained systems
+    gc.collect()
+    comm = _extract_comm(obj)
+    if comm:
+        PETSc.garbage_cleanup(comm)
+    else:
+        raise FiredrakePETScError("No comm found, cannot clean up garbage")
+
+
+@mpi.collective
+def garbage_view(obj: Any):
+    """View garbage PETSc objects stored on a Firedrake object or any comm.
+
+    Parameters
+    ----------
+    obj:
+        Any Firedrake object with a comm, or any comm.
+
+    """
+    # We are manually calling the Python cyclic garbage collection routine so
+    # that as many unreachable PETSc objects are visible in the garbage view.
+    gc.collect()
+    comm = _extract_comm(obj)
+    if comm:
+        PETSc.garbage_view(comm)
+    else:
+        raise FiredrakePETScError("No comm found, cannot view garbage")
+
+
+external_packages = get_external_packages()
+
+# Setup default partitioner
+# Manually define the priority until
+# https://petsc.org/main/src/dm/partitioner/interface/partitioner.c.html#PetscPartitionerGetDefaultType
+# is added to petsc4py
+partitioner_priority = ["parmetis", "ptscotch", "chaco"]
+for partitioner in partitioner_priority:
+    if partitioner in external_packages:
+        DEFAULT_PARTITIONER = partitioner
+        break
+else:
+    warn(
+        "No external package for " + ", ".join(partitioner_priority)
+        + " found, defaulting to PETSc simple partitioner. This may not be optimal."
+    )
+    DEFAULT_PARTITIONER = "simple"
+
+# Setup default direct solver
+direct_solver_priority = ["mumps", "superlu_dist", "pastix"]
+for solver in direct_solver_priority:
+    if solver in external_packages:
+        DEFAULT_DIRECT_SOLVER = solver
+        _DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": solver}
+        break
+else:
+    warn(
+        "No external package for " + ", ".join(direct_solver_priority)
+        + " found, defaulting to PETSc LU. This will only work in serial."
+    )
+    DEFAULT_DIRECT_SOLVER = "petsc"
+    _DEFAULT_DIRECT_SOLVER_PARAMETERS = {"mat_solver_type": "petsc"}
+
+# MUMPS needs an additional parameter set
+# From the MUMPS documentation:
+# > ICNTL(14) controls the percentage increase in the estimated working space...
+# > ... Remarks: When significant extra fill-in is caused by numerical pivoting, increasing ICNTL(14) may help.
+if DEFAULT_DIRECT_SOLVER == "mumps":
+    _DEFAULT_DIRECT_SOLVER_PARAMETERS["mat_mumps_icntl_14"] = 200
+
+# Setup default AMG preconditioner
+amg_priority = ["hypre", "ml"]
+for amg in amg_priority:
+    if amg in external_packages:
+        DEFAULT_AMG_PC = amg
+        break
+else:
+    DEFAULT_AMG_PC = "gamg"
+
+
+# Parameters must be flattened for `set_defaults` in `solving_utils.py` to
+# mutate options dictionaries "correctly".
+# TODO: refactor `set_defaults` in `solving_utils.py`
+_DEFAULT_KSP_PARAMETERS = flatten_parameters({
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "ksp_rtol": 1e-7,
+    "pc_type": "lu",
+    "pc_factor": _DEFAULT_DIRECT_SOLVER_PARAMETERS
+})
+
+_DEFAULT_SNES_PARAMETERS = {
+    "snes_type": "newtonls",
+    "snes_linesearch_type": "basic",
+    # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSovler class works
+}
+# We also want looser KSP tolerances for non-linear solves
+# DEFAULT_SNES_PARAMETERS["ksp_rtol"] = 1e-5
+# this is specified in the NonlinearVariationalSolver class
+
+# Make all of the `DEFAULT_` dictionaries immutable so someone doesn't accidentally overwrite them
+DEFAULT_DIRECT_SOLVER_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_DIRECT_SOLVER_PARAMETERS))
+DEFAULT_KSP_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_KSP_PARAMETERS))
+DEFAULT_SNES_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_SNES_PARAMETERS))

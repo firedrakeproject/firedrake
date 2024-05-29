@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from functools import singledispatch
 
 
@@ -22,10 +23,9 @@ def test_coarsen_callback():
     def coarsen(expr, self, coefficient_mapping=None):
         return symbolic_coarsen(expr, self, coefficient_mapping=coefficient_mapping)
 
-    @coarsen.register(functionspaceimpl.FunctionSpace)
-    @coarsen.register(functionspaceimpl.WithGeometry)
+    @coarsen.register(functionspaceimpl.WithGeometryBase)
     def coarsen_fs(V, self, coefficient_mapping=None):
-        mesh = self(V.ufl_domain(), self)
+        mesh = self(V.mesh(), self)
         return FunctionSpace(mesh, "CG", 1)
 
     uh = Function(V)
@@ -78,8 +78,7 @@ def test_sphere_mg():
                  "mg_coarse_pc_type": "python",
                  "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                  "mg_coarse_assembled_pc_type": "lu",
-                 "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-                 "mg_coarse_assembled_mat_mumps_icntl_14": 200,
+                 "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                  "mg_levels_pc_type": "python",
                  "mg_levels_pc_python_type": "firedrake.AssembledPC",
                  "mg_levels_assembled_pc_type": "bjacobi",

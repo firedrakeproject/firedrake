@@ -49,5 +49,5 @@ def test_bc_on_sub_sub_domain():
     f.interpolate(as_vector([cos(2 * pi * x) * cos(2 * pi * y),
                              cos(2 * pi * x) * cos(2 * pi * y)]))
 
-    assert sqrt(assemble(dot(uu.split()[0] - f, uu.split()[0] - f) * dx)) < 4.0e-03
-    assert sqrt(assemble(dot(uu.split()[1] - f, uu.split()[1] - f) * dx)) < 4.0e-03
+    assert sqrt(assemble(dot(uu.subfunctions[0] - f, uu.subfunctions[0] - f) * dx)) < 4.0e-03
+    assert sqrt(assemble(dot(uu.subfunctions[1] - f, uu.subfunctions[1] - f) * dx)) < 4.0e-03

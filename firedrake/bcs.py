@@ -5,7 +5,8 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, UFLException, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor
+from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
@@ -19,7 +20,7 @@ from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.adjoint.dirichletbc import DirichletBCMixin
+from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
@@ -151,8 +152,8 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, finat.Lagrange):
-                    raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
+                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
@@ -193,9 +194,12 @@ class BCBase(object):
         :arg r: the :class:`Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
+
         for idx in self._indices:
             r = r.sub(idx)
-            val = val.sub(idx)
+        if not np.isscalar(val):
+            for idx in self._indices:
+                val = val.sub(idx)
         r.assign(val, subset=self.node_set)
 
     def integrals(self):
@@ -215,7 +219,7 @@ class BCBase(object):
             if len(field) == 1:
                 W = V
             else:
-                W = V.split()[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
+                W = V.subfunctions[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
             if cmpt is not None:
                 W = W.sub(cmpt)
             return W
@@ -248,7 +252,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
         ``V``, or a UFL expression that can be interpolated into
-        ``V``, for example, a :class:`.Constant`, an iterable of
+        ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
         of ``V``.
@@ -275,6 +279,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 warnings.simplefilter('always', DeprecationWarning)
                 warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
                               DeprecationWarning)
+        if len(V.boundary_set) and sub_domain not in V.boundary_set:
+            raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
         super().__init__(V, sub_domain)
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
@@ -321,21 +327,30 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, firedrake.Function):
+        try:
+            # Clear any previously set update function
+            del self._function_arg_update
+        except AttributeError:
+            pass
+        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
             if g.function_space() != self.function_space():
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(self.function_space())
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg).interpolate
+                # Use `Interpolator` instead of assembling an `Interpolate` form
+                # as the expression compilation needs to happen at this stage to
+                # determine if we should use interpolation or projection
+                #  -> e.g. interpolation may not be supported for the element.
+                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(self.function_space()).project(g)
@@ -344,11 +359,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 g = as_ufl(g)
                 self._function_arg = g
-            except UFLException:
+            except ValueError:
                 try:
                     # Recurse to handle this through interpolation.
                     self.function_arg = as_ufl(as_tensor(g))
-                except UFLException:
+                except ValueError:
                     raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
@@ -386,12 +401,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function`. If ``u`` is absent, then the boundary
+            :class:`.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
 
-        If ``r`` is a :class:`.Matrix`, it will be assembled with a 1
+        If ``r`` is a :class:`.Matrix` , it will be assembled with a 1
         on diagonals where the boundary condition applies and 0 in the
         corresponding rows and columns.
 
@@ -440,8 +455,8 @@ class EquationBC(object):
 
     :param eq: the linear/nonlinear form equation
     :param u: the :class:`.Function` to solve for
-    :arg sub_domain: see :class:`.DirichletBC`.
-    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+    :arg sub_domain: see :class:`.DirichletBC` .
+    :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
     :param J: the Jacobian for this boundary equation (optional)
     :param Jp: a form used for preconditioning the linear system,
@@ -514,7 +529,7 @@ class EquationBC(object):
         yield from self._F.dirichlet_bcs()
 
     def extract_form(self, form_type):
-        r"""Return :class:`.EquationBCSplit` associated with the given 'form_type'.
+        r"""Return ``EquationBCSplit`` associated with the given 'form_type'.
 
         :arg form_type: Form to extract; 'F', 'J', or 'Jp'.
         """
@@ -537,8 +552,8 @@ class EquationBCSplit(BCBase):
 
     :param form: the linear/nonlinear form: `F`, `J`, or `Jp`.
     :param u: the :class:`.Function` to solve for
-    :arg sub_domain: see :class:`.DirichletBC`.
-    :arg bcs: a list of :class:`.DirichletBC`s and/or :class:`.EquationBC`s
+    :arg sub_domain: see :class:`.DirichletBC` .
+    :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
     :arg V: the :class:`.FunctionSpace` on which
         the equation boundary condition is applied (optional)
@@ -625,9 +640,9 @@ class EquationBCSplit(BCBase):
 def homogenize(bc):
     r"""Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
-    then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
+    then return a list of the homogeneous versions of those :class:`.DirichletBC` s.
 
-    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`\(s).
+    :arg bc: a :class:`.DirichletBC` , or iterable object comprising :class:`.DirichletBC` (s).
     """
     if isinstance(bc, (tuple, list)):
         lst = []

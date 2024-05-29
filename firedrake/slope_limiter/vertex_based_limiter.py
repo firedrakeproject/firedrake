@@ -1,5 +1,6 @@
 from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
 from firedrake.parloops import par_loop, READ, RW, MIN, MAX
 from firedrake.ufl_expr import TrialFunction, TestFunction
@@ -35,7 +36,7 @@ class VertexBasedLimiter(Limiter):
 
         # Storage containers for cell means, max and mins
         self.centroids = Function(self.P0)
-        self.centroids_rhs = Function(self.P0)
+        self.centroids_rhs = Cofunction(self.P0.dual())
         self.max_field = Function(self.P1CG)
         self.min_field = Function(self.P1CG)
 
@@ -99,8 +100,7 @@ class VertexBasedLimiter(Limiter):
                  dx,
                  {"maxq": (self.max_field, MAX),
                   "minq": (self.min_field, MIN),
-                  "q": (self.centroids, READ)},
-                 is_loopy_kernel=True)
+                  "q": (self.centroids, READ)})
 
     def apply_limiter(self, field):
         """
@@ -110,8 +110,7 @@ class VertexBasedLimiter(Limiter):
                  {"qbar": (self.centroids, READ),
                   "q": (field, RW),
                   "qmax": (self.max_field, READ),
-                  "qmin": (self.min_field, READ)},
-                 is_loopy_kernel=True)
+                  "qmin": (self.min_field, READ)})
 
     def apply(self, field):
         """

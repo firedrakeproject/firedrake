@@ -194,17 +194,17 @@ fill. ::
                                                         "pc_type": "bjacobi",
                                                         "sub_pc_type": "ilu"})
 
-To visualise the output of the simulation, we create a :class:`~.File`
-object.  To which we can store multiple :class:`~.Function`\s.  So
-that we can distinguish between them we will give them descriptive
-names. ::
+To visualise the output of the simulation, we create a
+:class:`~.vtk_output.VTKFile` object.  To which we can store multiple
+:class:`~.Function`\s.  So that we can distinguish between them we will
+give them descriptive names. ::
 
   q0.rename("Potential vorticity")
   psi0.rename("Stream function")
   v = Function(Vu, name="gradperp(stream function)")
   v.project(gradperp(psi0))
 
-  output = File("output.pvd")
+  output = VTKFile("output.pvd")
 
   output.write(q0, psi0, v)
 
@@ -245,7 +245,7 @@ execute the time loop. ::
           v.project(gradperp(psi0))
           output.write(q0, psi0, v, time=t)
 
-A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
+A python script version of this demo can be found :demo:`here <qg_1layer_wave.py>`.
 
 .. rubric:: References
 

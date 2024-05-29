@@ -62,8 +62,8 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
     l2_u = []
     l2_sigma = []
     l2_div_sigma = []
-
-    element = MixedElement([stress_element, VectorElement("DG", mesh.ufl_cell(), 1)])
+    displacement_element = VectorElement("DG", cell=mesh.ufl_cell(), degree=1, variant="integral")
+    element = MixedElement([stress_element, displacement_element])
     for msh in mesh_hierarchy[1:]:
         x, y = SpatialCoordinate(msh)
         uex = as_vector([sin(pi*x)*sin(pi*y), sin(pi*x)*sin(pi*y)])
@@ -80,6 +80,7 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
 
         (sigh, uh) = split(Uh)
         (tau, v) = TestFunctions(V)
+        (sig, u) = TrialFunctions(V)
 
         n = FacetNormal(msh)
 
@@ -93,20 +94,27 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
             - inner(uex, dot(tau, n))*ds
             )  # noqa: E123
 
-        params = {"snes_type": "newtonls",
-                  "snes_linesearch_type": "basic",
-                  "snes_monitor": None,
-                  "mat_type": "aij",
-                  "snes_max_it": 10,
-                  "snes_lag_jacobian": -2,
-                  "snes_lag_preconditioner": -2,
-                  "ksp_type": "preonly",
-                  "pc_type": "lu",
-                  "pc_factor_shift_type": "inblocks",
-                  "snes_rtol": 1e-16,
-                  "snes_atol": 1e-25}
+        # Augmented Lagrangian preconditioner
+        gamma = Constant(1E2)
+        Jp = inner(A(sig), tau)*dx + inner(div(sig) * gamma, div(tau))*dx + inner(u * (1/gamma), v) * dx
 
-        solve(F == 0, Uh, solver_parameters=params)
+        params = {"mat_type": "matfree",
+                  "pmat_type": "nest",
+                  "snes_type": "ksponly",
+                  "snes_monitor": None,
+                  "ksp_monitor": None,
+                  "ksp_type": "minres",
+                  "ksp_norm_type": "preconditioned",
+                  "pc_type": "fieldsplit",
+                  "pc_fieldsplit_type": "additive",
+                  "fieldsplit_ksp_type": "preonly",
+                  "fieldsplit_0_pc_type": "cholesky",
+                  "fieldsplit_1_pc_type": "jacobi",
+                  "ksp_rtol": 1e-14,
+                  "ksp_atol": 1e-14,
+                  "ksp_max_it": 10}
+
+        solve(F == 0, Uh, Jp=Jp, solver_parameters=params)
 
         error_u = sqrt(assemble(inner(uex - uh, uex - uh)*dx))
         error_sigma = sqrt(assemble(inner(sigh - sigex, sigh - sigex)*dx))

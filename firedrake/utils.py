@@ -10,6 +10,7 @@ from firedrake_configuration import get_config
 
 _current_uid = 0
 
+RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
@@ -34,6 +35,16 @@ def _init():
     from firedrake.parameters import parameters
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
+
+
+def unique(iterable):
+    """ Return tuple of unique items in iterable, items must be hashable
+    """
+    # Use dict to preserve order and compare by hash
+    unique_dict = {}
+    for item in iterable:
+        unique_dict[item] = None
+    return tuple(unique_dict.keys())
 
 
 def unique_name(name, nameset):
@@ -114,3 +125,25 @@ def split_by(condition, items):
         else:
             result[1].append(item)
     return tuple(result[0]), tuple(result[1])
+
+
+def assert_empty(iterator):
+    """Check that an iterator has been fully consumed.
+
+    Raises
+    ------
+    AssertionError
+        If the provided iterator is not empty.
+
+    Notes
+    -----
+    This function should only be used for assertions (where the program is
+    immediately terminated on failure). If the iterator is not empty then the
+    latest value is discarded.
+
+    """
+    try:
+        next(iterator)
+        raise AssertionError("Iterator is not empty")
+    except StopIteration:
+        pass

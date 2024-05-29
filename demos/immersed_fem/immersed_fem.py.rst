@@ -81,7 +81,7 @@ between parts of the mesh (see the concrete example at the end of this page).
   Physical Surface("Disc", 4) = {2};
 
 For simplicity, we have gathered all this commands in the file
-`immersed_domain.geo <immersed_domain.geo>`__. To generate a mesh using this file,
+:demo:`immersed_domain.geo <immersed_domain.geo>`. To generate a mesh using this file,
 you can type the following command in the terminal
 
 .. code-block:: none
@@ -160,4 +160,4 @@ using linear Lagrangian finite elements. ::
    # solve the variational problem
    solve(a == L, u, bcs=DirBC, solver_parameters={'ksp_type': 'cg'})
 
-A python script version of this demo can be found `here <immersed_fem.py>`__.
+A python script version of this demo can be found :demo:`here <immersed_fem.py>`.

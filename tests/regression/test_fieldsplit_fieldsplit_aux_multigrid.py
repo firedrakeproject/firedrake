@@ -10,6 +10,7 @@ a fieldsplit within another fieldsplit.
 """
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 def BoundaryConditions(mesh):
@@ -73,11 +74,12 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
 
     F = derivative(J, z, w)
     bcs = [DirichletBC(Z.sub(1), expr, "on_boundary")]
-    nsp = MixedVectorSpaceBasis(Z, [Z.sub(0),
-                                    Z.sub(1),
-                                    VectorSpaceBasis(constant=True),
-                                    Z.sub(3)]
-                                )
+    nsp = MixedVectorSpaceBasis(
+        Z,
+        [Z.sub(0), Z.sub(1), VectorSpaceBasis(
+            constant=True, comm=mesh.comm
+        ), Z.sub(3)]
+    )
 
     # Initial guess
     gamma = 1./3.
@@ -91,14 +93,18 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
                            "mat_type": "aij",
                            "pc_type": "lu",
                            "pc_factor_mat_solver_type": "mumps",
+                           "mat_mumps_icntl_24": 1,
                            "snes_monitor": None}
-    nsp_guess = MixedVectorSpaceBasis(G, [G.sub(0), VectorSpaceBasis(constant=True)])
+    nsp_guess = MixedVectorSpaceBasis(
+        G,
+        [G.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)]
+    )
     solve(F_guess == 0, g, bcs=Gbcs, nullspace=nsp_guess, solver_parameters=solver_params_guess)
-    (u_guess, p_guess) = g.split()
-    z.split()[0].interpolate(Constant(gamma))
-    z.split()[1].assign(u_guess)
-    z.split()[2].assign(p_guess)
-    z.split()[3].interpolate(Constant(10))
+    (u_guess, p_guess) = g.subfunctions
+    z.subfunctions[0].interpolate(Constant(gamma))
+    z.subfunctions[1].assign(u_guess)
+    z.subfunctions[2].assign(p_guess)
+    z.subfunctions[3].interpolate(Constant(10))
 
     solver_params = {
         "snes_monitor": None,
@@ -130,7 +136,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "fieldsplit_0_fieldsplit_0_pc_type": "python",
         "fieldsplit_0_fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
         "fieldsplit_0_fieldsplit_0_assembled_pc_type": "lu",
-        "fieldsplit_0_fieldsplit_0_assembled_pc_factor_mat_solver_type": "mumps",
+        "fieldsplit_0_fieldsplit_0_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
 
         "fieldsplit_0_fieldsplit_1_ksp_type": "preonly",
         "fieldsplit_0_fieldsplit_1_pc_type": "python",
@@ -142,8 +148,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "fieldsplit_0_fieldsplit_1_aux_mg_coarse_assembled": {
             "mat_type": "aij",
             "pc_type": "lu",
-            "pc_factor_mat_solver_type": "mumps",
-            "mat_mumps_icntl_14": 500
+            "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
         },
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_type": "chebyshev",
         "fieldsplit_0_fieldsplit_1_aux_mg_levels_ksp_convergence_test": "skip",

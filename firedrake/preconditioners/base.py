@@ -13,10 +13,10 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         Matrix free preconditioners should inherit from this class and
         implement:
 
-        - :meth:`initialize`
-        - :meth:`update`
-        - :meth:`apply`
-        - :meth:`applyTranspose`
+        - :meth:`~.PCSNESBase.initialize`
+        - :meth:`~.PCSNESBase.update`
+        - :meth:`~.PCBase.apply`
+        - :meth:`~.PCBase.applyTranspose`
 
         """
         Citations().register("Kirby2017")
@@ -37,7 +37,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         """Setup method called by PETSc.
 
         Subclasses should probably not override this and instead
-        implement :meth:`update` and :meth:`initialize`."""
+        implement :meth:`~.PCSNESBase.update` and :meth:`~.PCSNESBase.initialize`."""
 
         if self.initialized:
             self.update(pc)

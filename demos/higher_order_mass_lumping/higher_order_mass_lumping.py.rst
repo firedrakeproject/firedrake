@@ -36,7 +36,7 @@ The weak formulation is finding :math:`u \in V` such that:
 
     <\partial_t(\rho \partial_t u), v> + a(u,v) = (f,w)
 
-where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow ℝ` is the elliptic operator given by:
+where :math:`<\cdot, \cdot>` denotes the pairing between :math:`H^{-1}(\Omega)` and :math:`H^{1}_{0}(\Omega)`, :math:`(\cdot, \cdot)` denotes the :math:`L^{2}(\Omega)` inner product, and :math:`a(\cdot, \cdot) : H^{1}_{0}(\Omega) \times H^{1}_{0}(\Omega)\rightarrow \mathbb{R}` is the elliptic operator given by:
 
 .. math::
 
@@ -73,7 +73,7 @@ We choose a degree 2 `KMV` continuous function space, set it up and then create 
 
 We create an output file to hold the simulation results::
 
-    outfile = File("out.pvd")
+    outfile = VTKFile("out.pvd")
 
 Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds::
 
@@ -114,7 +114,7 @@ space, along with the degree of the element and construct the quadrature rule::
 
 Then we make a new Measure object that uses this rule::
 
-    dxlump=dx(rule=quad_rule)
+    dxlump=dx(scheme=quad_rule)
 
 To discretize :math:`\partial_{t}^2 u` we use a central scheme
 
@@ -146,9 +146,9 @@ The source is injected at the center of the unit square::
     ricker = Constant(0.0)
     ricker.assign(RickerWavelet(t, freq))
 
-We also create a function `R` to save the assembled RHS vector::
+We also create a cofunction `R` to save the assembled RHS vector::
 
-    R = Function(V)
+    R = Cofunction(V.dual())
 
 Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc `LinearSolver` object to efficiently timestep with::
 

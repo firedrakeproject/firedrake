@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_AMG_PC
 import pytest
 
 
@@ -8,6 +9,7 @@ import pytest
                              "snes_type": "newtonls",
                              "snes_linesearch_type": "bt",
                              "ksp_type": "cg",
+                             "ksp_rtol": 1e-6,
                              # Fieldsplit PC
                              "pc_type": "fieldsplit",
                              "pc_fieldsplit_type": "additive",
@@ -19,7 +21,7 @@ import pytest
                              "fieldsplit_0_mg_levels_pc_type": "icc",
                              # V-cycle of hypre for Poisson
                              "fieldsplit_1_ksp_type": "preonly",
-                             "fieldsplit_1_pc_type": "hypre",
+                             "fieldsplit_1_pc_type": DEFAULT_AMG_PC,
                              # ILU(0) for DG mass matrix
                              "fieldsplit_2_ksp_type": "preonly",
                              "fieldsplit_2_pc_type": "bjacobi",
@@ -29,6 +31,7 @@ import pytest
                               "snes_type": "newtonls",
                               "snes_linesearch_type": "bt",
                               "ksp_type": "cg",
+                              "ksp_rtol": 1e-6,
                               # Same as before, just with a recursive split, so we need an aij matrix
                               "mat_type": "aij",
                               "pc_type": "fieldsplit",
@@ -46,7 +49,7 @@ import pytest
                               "fieldsplit_0_fieldsplit_0_mg_levels_pc_type": "icc",
                               # V-cycle of hypre for Poisson
                               "fieldsplit_0_fieldsplit_1_ksp_type": "preonly",
-                              "fieldsplit_0_fieldsplit_1_pc_type": "hypre",
+                              "fieldsplit_0_fieldsplit_1_pc_type": DEFAULT_AMG_PC,
                               # ILU(0) for DG mass matrix
                               "fieldsplit_1_ksp_type": "preonly",
                               "fieldsplit_1_pc_type": "bjacobi",
@@ -85,7 +88,7 @@ def test_nested_split_multigrid(parameters):
     F += inner(s, r)*dx - inner(x, r)*dx
 
     expect = Function(W)
-    u_expect, p_expect, s_expect = expect.split()
+    u_expect, p_expect, s_expect = expect.subfunctions
 
     u_expect.interpolate(x**2 + y**2)
     p_expect.interpolate(sin(pi*x)*tan(pi*x*0.25)*sin(pi*y))
@@ -98,7 +101,7 @@ def test_nested_split_multigrid(parameters):
     solver = NonlinearVariationalSolver(problem, options_prefix="",
                                         solver_parameters=parameters)
     solver.solve()
-    u, p, s = w.split()
+    u, p, s = w.subfunctions
 
     assert norm(assemble(u_expect - u)) < 5e-5
     assert norm(assemble(p_expect - p)) < 1e-6

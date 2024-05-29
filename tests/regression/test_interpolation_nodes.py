@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.__future__ import *
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these
@@ -33,37 +34,31 @@ def degree(request):
                         ("N2div")],
                 ids=lambda x: "%s" % x)
 def V(request, mesh, degree):
-    space = request.param
-    V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=f"integral({5*degree})")
-    return FunctionSpace(mesh, V_el)
+    family = request.param
+    over_integration = max(0, 9 - degree)
+    return FunctionSpace(mesh, family, degree, variant=f"integral({over_integration})")
 
 
 def test_div_curl_preserving(V):
-    mesh = V.ufl_domain()
+    mesh = V.mesh()
     dim = mesh.geometric_dimension()
-    if dim == 3 and V.ufl_element().degree() == 3 and "Nedelec" not in V.ufl_element().family():
-        pytest.skip("N2div interpolation kernel with exact quadrature creates tensors which risk stack overflow")
-    if dim == 3 and V.ufl_element().degree() == 2 and "Nedelec" not in V.ufl_element().family():
-        # This issue is probably down to gcc attempting to constant-propagate
-        # every entry in the array.
-        pytest.skip("N2div interpolation kernel with exact quadrature takes 40 minutes!")
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
         x, y, z = SpatialCoordinate(mesh)
     if dim == 2:
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             expression = grad(sin(x)*cos(y))
         else:
             expression = as_vector([cos(y), sin(x)])
     elif dim == 3:
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             expression = grad(sin(x)*exp(y)*z)
         else:
             expression = as_vector([sin(y)*z, cos(x)*z, exp(x)])
 
-    f = interpolate(expression, V)
-    if "Nedelec" in V.ufl_element().family():
+    f = assemble(interpolate(expression, V))
+    if V.ufl_element().sobolev_space == HCurl:
         norm_exp = sqrt(assemble(inner(curl(f), curl(f))*dx))
     else:
         norm_exp = sqrt(assemble(inner(div(f), div(f))*dx))
@@ -84,12 +79,10 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
             expression = as_vector([sin(x)*cos(y), exp(x)*y])
         elif dim == 3:
             expression = as_vector([sin(y)*z*cos(x), cos(x)*z*x, exp(x)*y])
-        variant = f"integral({degree+1})"
-        V_el = FiniteElement(space, mesh.ufl_cell(), degree, variant=variant)
-        V = FunctionSpace(mesh, V_el)
-        f = interpolate(expression, V)
+        V = FunctionSpace(mesh, space, degree, variant="integral")
+        f = assemble(interpolate(expression, V))
         error_l2 = errornorm(expression, f, 'L2')
-        if "Nedelec" in V.ufl_element().family():
+        if V.ufl_element().sobolev_space == HCurl:
             error_hD = errornorm(expression, f, 'hcurl')
         else:
             error_hD = errornorm(expression, f, 'hdiv')

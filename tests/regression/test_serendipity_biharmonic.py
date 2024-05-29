@@ -1,14 +1,16 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import numpy
 
 
 def test_serendipity_biharmonic():
 
-    sp = {"snes_type": "ksponly",
-          "ksp_type": "preonly",
-          "pc_type": "lu",
-          "pc_factor_mat_solver_type": "mumps",
-          "mat_mumps_icntl_14": 200}
+    sp = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+    }
 
     def error(N):
         mesh = UnitSquareMesh(N, N, quadrilateral=True)
@@ -39,8 +41,9 @@ def test_serendipity_biharmonic():
     errors = []
     for N in [10, 20, 40]:
         errors.append(error(N))
+    errors = numpy.array(errors)
 
-    convergence_orders = lambda x: numpy.log2(numpy.array(x)[:-1] / numpy.array(x)[1:])
+    convergence_orders = lambda x: numpy.log2(x[:-1] / x[1:])
     conv = convergence_orders(errors)
 
     assert all(conv >= 2)

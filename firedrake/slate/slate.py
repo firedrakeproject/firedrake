@@ -18,23 +18,26 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict, namedtuple, defaultdict
 
-from ufl import Coefficient, Constant
+from ufl import Constant
+from ufl.coefficient import BaseCoefficient
 
-from firedrake.function import Function
-from firedrake.utils import cached_property
+from firedrake.function import Function, Cofunction
+from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
 
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
 import hashlib
 
 from firedrake.formmanipulation import ExtractSubBlock
+
+from tsfc.ufl_utils import extract_firedrake_constants
 
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
@@ -214,6 +217,10 @@ class TensorBase(object, metaclass=ABCMeta):
         """Returns a tuple of coefficients associated with the tensor."""
 
     @abstractmethod
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+
+    @abstractmethod
     def slate_coefficients(self):
         """Returns a tuple of Slate coefficients associated with the tensor."""
 
@@ -230,7 +237,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.split()))) if isinstance(c, Function) or isinstance(c, Constant) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) or isinstance(c, Cofunction) else tuple(range(1))
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -280,9 +287,8 @@ class TensorBase(object, metaclass=ABCMeta):
             vector or a matrix.
         :arg decomposition: A string describing the type of
             factorization to use when inverting the local
-            systems. At the moment, these are determined by
-            what is available in Eigen. A complete list of
-            available matrix decompositions are outlined in
+            systems. A complete list of available matrix
+            decompositions are outlined in
             :class:`Factorization`.
         """
         return Solve(self, B, decomposition=decomposition)
@@ -413,7 +419,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
 class AssembledVector(TensorBase):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a :class:`firedrake.Function`.
+    vector of data contained in a :class:`~.Function`.
 
     :arg function: A firedrake function.
     """
@@ -429,12 +435,12 @@ class AssembledVector(TensorBase):
     def __new__(cls, function):
         if isinstance(function, AssembledVector):
             return function
-        elif isinstance(function, Coefficient):
+        elif isinstance(function, BaseCoefficient):
             self = super().__new__(cls)
             self._function = function
             return self
         else:
-            raise TypeError("Expecting a Coefficient or AssembledVector (not a %r)" %
+            raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
 
     @cached_property
@@ -464,6 +470,9 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return (self._function,)
 
+    def constants(self):
+        return ()
+
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
@@ -478,7 +487,7 @@ class AssembledVector(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return {self.ufl_domain(): {"cell": None}}
+        return {self.ufl_domain(): {"cell": [None]}}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -496,7 +505,7 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`firedrake.Function` s
+    vector of data contained in a set of :class:`~.Function` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.
@@ -506,7 +515,7 @@ class BlockAssembledVector(AssembledVector):
         block = Block(expr, indices)
         split_functions = block.form
         if isinstance(split_functions, tuple) \
-           and all(isinstance(f, Coefficient) for f in split_functions):
+           and all(isinstance(f, BaseCoefficient) for f in split_functions):
             self = TensorBase.__new__(cls)
             self._function = split_functions
             self._indices = indices
@@ -514,7 +523,7 @@ class BlockAssembledVector(AssembledVector):
             self._block = block
             return self
         else:
-            raise TypeError("Expecting a tuple of Coefficients (not a %r)" %
+            raise TypeError("Expecting a tuple of BaseCoefficients (not a %r)" %
                             type(split_functions))
 
     @cached_property
@@ -553,7 +562,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns mappings on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return tuple({domain: {"cell": None}} for domain in self.ufl_domain())
+        return tuple({domain: {"cell": [None]}} for domain in self.ufl_domain())
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -570,7 +579,7 @@ class BlockAssembledVector(AssembledVector):
 
 
 class Block(TensorBase):
-    """This class represents a tensor corresponding
+    r"""This class represents a tensor corresponding
     to particular block of a mixed tensor. Depending on
     the indices provided, the subblocks can span multiple
     test/trial spaces.
@@ -600,21 +609,21 @@ class Block(TensorBase):
 
     .. math::
 
-      \\begin{bmatrix}
+      \begin{bmatrix}
             A & B & C \\
             D & E & F \\
             G & H & J
-      \\end{bmatrix}
+      \end{bmatrix}
 
     Providing the 2-tuple ((0, 1), (0, 1)) returns a tensor
     corresponding to the upper 2x2 block:
 
     .. math::
 
-       \\begin{bmatrix}
+       \begin{bmatrix}
             A & B \\
             D & E
-       \\end{bmatrix}
+       \end{bmatrix}
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
@@ -662,7 +671,7 @@ class Block(TensorBase):
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
             V = arg.function_space()
-            V_is = V.split()
+            V_is = V.subfunctions
             idx = as_tuple(self._blocks[i])
             if len(idx) == 1:
                 fidx, = idx
@@ -696,7 +705,7 @@ class Block(TensorBase):
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
-            return tuple(tensor._function.split()[i] for i in chain(*self._indices))
+            return tuple(tensor._function.subfunctions[i] for i in chain(*self._indices))
 
     @cached_property
     def assembled(self):
@@ -707,6 +716,11 @@ class Block(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
         return tensor.coefficients()
+
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        tensor, = self.operands
+        return tensor.constants()
 
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -797,6 +811,11 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         tensor, = self.operands
         return tensor.coefficients()
+
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        tensor, = self.operands
+        return tensor.constants()
 
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -897,6 +916,10 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        return unique(extract_firedrake_constants(self.form))
+
     def slate_coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
@@ -931,7 +954,7 @@ class TensorOp(TensorBase):
     """An abstract Slate class representing general operations on
     existing Slate tensors.
 
-    :arg operands: an iterable of operands that are :class:`TensorBase`
+    :arg operands: an iterable of operands that are :class:`~.firedrake.slate.TensorBase`
         objects.
     """
 
@@ -944,6 +967,11 @@ class TensorOp(TensorBase):
         """Returns the expected coefficients of the resulting tensor."""
         coeffs = [op.coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
+
+    def constants(self):
+        """Returns a tuple of constants associated with the tensor."""
+        const = [op.constants() for op in self.operands]
+        return unique(chain(*const))
 
     def slate_coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
@@ -970,9 +998,10 @@ class TensorOp(TensorBase):
                     sd[it_type] = domain
 
                 else:
-                    assert sd[it_type] == domain, (
-                        "Domains must agree!"
-                    )
+                    if not all(d is None for d in sd[it_type]) or not all(d is None for d in domain):
+                        assert sd[it_type] == domain, (
+                            "Domains must agree!"
+                        )
 
         return {self.ufl_domain(): sd}
 
@@ -986,7 +1015,7 @@ class UnaryOp(TensorOp):
     """An abstract Slate class for representing unary operations on a
     Tensor object.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `UnaryOp` object is an acceptable
@@ -1131,12 +1160,12 @@ class BinaryOp(TensorOp):
     """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
 
-    :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
         (:class:`Tensor`) or any derived expression resulting from any
         number of linear algebra operations on `Tensor` objects. For
         example, another instance of a `BinaryOp` object is an acceptable
         input, or a `UnaryOp` object.
-    :arg B: a :class:`TensorBase` object.
+    :arg B: a :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def _output_string(self, prec=None):
@@ -1165,8 +1194,8 @@ class Add(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):
@@ -1206,8 +1235,8 @@ class Mul(BinaryOp):
     equal or lower rank via performing a contraction on arguments. This
     includes Matrix-Matrix and Matrix-Vector multiplication.
 
-    :arg A: a :class:`TensorBase` object.
-    :arg B: another :class:`TensorBase` object.
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object.
+    :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
 
     def __init__(self, A, B):

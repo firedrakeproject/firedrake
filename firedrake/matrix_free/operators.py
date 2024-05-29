@@ -4,7 +4,7 @@ import itertools
 from mpi4py import MPI
 import numpy
 
-from pyop2.mpi import internal_comm, decref, temp_internal_comm
+from pyop2.mpi import internal_comm, temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -87,12 +87,12 @@ class ImplicitMatrixContext(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, row_bcs=[], col_bcs=[],
                  fc_params=None, appctx=None):
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
 
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -110,17 +110,20 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
-        from firedrake import function
+        from firedrake import function, cofunction
+        # Need a cofunction since y receives the assembled result of Ax
+        self._ystar = cofunction.Cofunction(test_space.dual())
         self._y = function.Function(test_space)
         self._x = function.Function(trial_space)
+        self._xstar = cofunction.Cofunction(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = function.Function(trial_space)
+            self._xbc = cofunction.Cofunction(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = function.Function(test_space)
+            self._ybc = cofunction.Cofunction(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -141,10 +144,10 @@ class ImplicitMatrixContext(object):
             elif isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
-        self._assemble_action = OneFormAssembler(self.action, tensor=self._y,
-                                                 bcs=self.bcs_action,
-                                                 form_compiler_parameters=self.fc_params,
-                                                 zero_bc_nodes=True).assemble
+        self._assemble_action = get_assembler(self.action,
+                                              bcs=self.bcs_action,
+                                              form_compiler_parameters=self.fc_params,
+                                              zero_bc_nodes=True).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -158,36 +161,33 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             for ebc in bc.sorted_equation_bcs():
                 self._assemble_actionT.append(
-                    OneFormAssembler(action(adjoint(ebc.f), self._y), tensor=self._xbc,
-                                     form_compiler_parameters=self.fc_params).assemble)
+                    get_assembler(action(adjoint(ebc.f), self._y),
+                                  form_compiler_parameters=self.fc_params).assemble)
         # Domain last
         self._assemble_actionT.append(
-            OneFormAssembler(self.actionT,
-                             tensor=self._x if len(self.bcs) == 0 else self._xbc,
-                             form_compiler_parameters=self.fc_params).assemble)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
+            get_assembler(self.actionT,
+                          form_compiler_parameters=self.fc_params).assemble)
 
     @cached_property
     def _diagonal(self):
-        from firedrake import Function
+        from firedrake import Cofunction
         assert self.on_diag
-        return Function(self._x.function_space())
+        return Cofunction(self._x.function_space().dual())
 
     @cached_property
     def _assemble_diagonal(self):
-        from firedrake.assemble import OneFormAssembler
-        return OneFormAssembler(self.a, tensor=self._diagonal,
-                                form_compiler_parameters=self.fc_params,
-                                diagonal=True).assemble
+        from firedrake.assemble import get_assembler
+        return get_assembler(self.a,
+                             form_compiler_parameters=self.fc_params,
+                             diagonal=True).assemble
 
     def getDiagonal(self, mat, vec):
-        self._assemble_diagonal()
+        self._assemble_diagonal(tensor=self._diagonal)
+        diagonal_func = self._diagonal.riesz_representation(riesz_map="l2")
         for bc in self.bcs:
             # Operator is identity on boundary nodes
-            bc.set(self._diagonal, 1)
+            bc.set(diagonal_func, 1)
+        self._diagonal.assign(diagonal_func.riesz_representation(riesz_map="l2"))
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 
@@ -211,7 +211,7 @@ class ImplicitMatrixContext(object):
         # If we are not, then the matrix just has 0s in the rows and columns.
         for bc in self.col_bcs:
             bc.zero(self._x)
-        self._assemble_action()
+        self._assemble_action(tensor=self._ystar)
         # This sets the essential boundary condition values on the
         # result.
         if self.on_diag:
@@ -220,12 +220,12 @@ class ImplicitMatrixContext(object):
                 with self._xbc.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
-                bc.set(self._y, self._xbc)
+                bc.set(self._ystar, self._xbc)
         else:
             for bc in self.row_bcs:
-                bc.zero(self._y)
+                bc.zero(self._ystar)
 
-        with self._y.dat.vec_ro as v:
+        with self._ystar.dat.vec_ro as v:
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
@@ -240,29 +240,59 @@ class ImplicitMatrixContext(object):
 
         .. code-block:: text
 
-                               Domain
-                a a a a 0 a a    |
-                a a a a 0 a a    |
-                a a a a 0 a a    |   EBC1
-            M = b b b b b b b    |    |   EBC2 DBC1
-                0 0 0 0 1 0 0    |    |    |    |
-                c c c c 0 c c    |         |
-                c c c c 0 c c    |         |
-                                                         To avoid copys, use same _y, and update it
-                                                         from left (deepest ebc) to right (least deep ebc or domain)
-            Multiplication algorithm:                       _y         update ->     _y        update ->   _y
+                                   Domain
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |
+                ( a a a a 0 a a )    |   EBC1
+            M = ( b b b b b b b )    |    |   EBC2 DBC1
+                ( 0 0 0 0 1 0 0 )    |    |    |    |
+                ( c c c c 0 c c )    |         |
+                ( c c c c 0 c c )    |         |
 
-                     a a a b 0 c c   _y0     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y0          0
-                     a a a b 0 c c   _y1     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y1          0
-                     a a a b 0 c c   _y2     0 0 0 0 c c c   *      0 0 0 b b 0 0    *     a a a a a a a   _y2          0
-            M^T _y = a a a b 0 c c   _y3  =  0 0 0 0 c c c   *    + 0 0 0 b b 0 0   _y3  + a a a a a a a    0      +    0
-                     0 0 0 0 1 0 0   _y4     0 0 0 0 c c c   0      0 0 0 b b 0 0    0     a a a a a a a    0          _y4 (replace at the end)
-                     a a a b 0 c c   _y5     0 0 0 0 c c c   _y5    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                     a a a b 0 c c   _y6     0 0 0 0 c c c   _y6    0 0 0 b b 0 0    *     a a a a a a a    0           0
-                                                 (uniform on           (uniform          (uniform on domain)
-                                                  on facet2)            on facet1)
+            Multiplication algorithm:
+            To avoid copys, use same y, and update it from left
+            (deepest ebc) to right (least deep ebc or domain).
+             * below can be any number
 
-            * = can be any number
+                    ( a a a b 0 c c )  ( y0 )
+                    ( a a a b 0 c c )  ( y1 )
+                    ( a a a b 0 c c )  ( y2 )
+            M^T y = ( a a a b 0 c c )  ( y3 )
+                    ( 0 0 0 0 1 0 0 )  ( y4 )
+                    ( a a a b 0 c c )  ( y5 )
+                    ( a a a b 0 c c )  ( y6 )
+
+                    ( 0 0 0 0 c c c )  ( *  )  Matrix is uniform
+                    ( 0 0 0 0 c c c )  ( *  )  on facet2 (EBC2)
+                    ( 0 0 0 0 c c c )  ( *  )
+                  = ( 0 0 0 0 c c c )  ( *  )  Initial y
+                    ( 0 0 0 0 c c c )  ( 0  )
+                    ( 0 0 0 0 c c c )  ( y5 )
+                    ( 0 0 0 0 c c c )  ( y6 )
+
+                       ( 0 0 0 b b 0 0 )  ( *  ) Matrix is uniform
+                       ( 0 0 0 b b 0 0 )  ( *  ) on facet1 (EBC1)
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                     + ( 0 0 0 b b 0 0 )  ( y3 ) Update y
+                       ( 0 0 0 b b 0 0 )  ( 0  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+                       ( 0 0 0 b b 0 0 )  ( *  )
+
+                       ( a a a a a a a )  ( y0 ) Matrix is uniform
+                       ( a a a a a a a )  ( y1 ) on domain
+                       ( a a a a a a a )  ( y2 )
+                     + ( a a a a a a a )  ( 0  ) Update y
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+                       ( a a a a a a a )  ( 0  )
+
+                       ( 0  )
+                       ( 0  ) Update y replace at the end (DBC1)
+                       ( 0  )
+                     + ( 0  )
+                       ( y4 )
+                       ( 0  )
+                       ( 0  )
 
         """
         with self._y.dat.vec_wo as v:
@@ -270,20 +300,20 @@ class ImplicitMatrixContext(object):
 
         if len(self.bcs) > 0:
             # Accumulate values in self._x
-            self._x.dat.zero()
+            self._xstar.dat.zero()
             # Apply actionTs in sorted order
             for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
                 for obc in obj.bcs:
                     obc.zero(self._y)
-                aT()
-                self._x += self._xbc
+                aT(tensor=self._xbc)
+                self._xstar += self._xbc
         else:
             # No DirichletBC/EquationBC
             # There is only a single element in the list (for the domain equation).
             # Save to self._x directly
             aT, = self._assemble_actionT
-            aT()
+            aT(tensor=self._xstar)
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
@@ -291,12 +321,12 @@ class ImplicitMatrixContext(object):
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
-                    bc.set(self._x, self._ybc)
+                    bc.set(self._xstar, self._ybc)
         else:
             for bc in self.col_bcs:
-                bc.zero(self._x)
+                bc.zero(self._xstar)
 
-        with self._x.dat.vec_ro as v:
+        with self._xstar.dat.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):
@@ -309,7 +339,6 @@ class ImplicitMatrixContext(object):
                            type(self).__name__)
 
     def getInfo(self, mat, info=None):
-        from mpi4py import MPI
         memory = self._x.dat.nbytes + self._y.dat.nbytes
         if hasattr(self, "_xbc"):
             memory += self._xbc.dat.nbytes

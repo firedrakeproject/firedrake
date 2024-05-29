@@ -149,6 +149,32 @@ def test_set_bc_value(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+def test_homogenize_old_function_arg_unchanged(a, u, V, f):
+    bc = DirichletBC(V, 2 * f, 1)
+    g_old = bc.function_arg
+    g_old_ref = g_old.copy(deepcopy=True)
+
+    bc.homogenize()
+    f.assign(-f)
+    g_new = bc.function_arg
+
+    assert g_new == 0
+    assert (g_old.dat.data_ro == g_old_ref.dat.data_ro).all()
+
+
+def test_set_bc_value_old_function_arg_unchanged(a, u, V, f):
+    bc = DirichletBC(V, 2 * f, 1)
+    g_old = bc.function_arg
+    g_old_ref = g_old.copy(deepcopy=True)
+
+    bc.set_value(2)
+    f.assign(-f)
+    g_new = bc.function_arg
+
+    assert g_new == 2
+    assert (g_old.dat.data_ro == g_old_ref.dat.data_ro).all()
+
+
 def test_update_bc_constant(a, u, V, f):
     if V.rank == 1:
         # Don't bother with the VFS case
@@ -276,7 +302,10 @@ def test_overlapping_bc_nodes(quad):
     assert np.allclose(A, np.identity(V.dof_dset.size))
 
 
-def test_mixed_bcs():
+@pytest.mark.parametrize("diagonal",
+                         [False, True],
+                         ids=["matrix", "diagonal"])
+def test_mixed_bcs(diagonal):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     W = V*V
@@ -285,18 +314,21 @@ def test_mixed_bcs():
 
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
-    A = assemble(inner(u, v)*dx, bcs=bc)
-
-    A11 = A.M[1, 1].values
-
-    assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+    A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    if diagonal:
+        data = A.dat[1].data
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
     bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
     b1 = assemble(a)
+    b1_func = b1.riesz_representation(riesz_map="l2")
     for bc in bcs:
-        bc.apply(b1)
+        bc.apply(b1_func)
+    b1.assign(b1_func.riesz_representation(riesz_map="l2"))
     b2 = assemble(a, bcs=bcs)
     assert np.allclose(b1.dat.data, b2.dat.data)
 

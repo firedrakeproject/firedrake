@@ -47,7 +47,7 @@ class Citations(dict):
 
         :arg key: The key of the relevant citation.
 
-        :raises: :exc:`~.exceptions.KeyError` if no such citation is
+        :raises: :exc:`KeyError` if no such citation is
             found in the database.
 
         Papers to be cited can be added using :meth:`add`.
@@ -275,5 +275,74 @@ Citations().add("Kolev2009", """
   number =       5,
   pages =        {604--623},
   url =          {https://www.jstor.org/stable/43693530}
+}
+""")
+
+Citations().add("Hiptmair1998", """
+@Misc{Hiptmair1998,
+  author =       {Hiptmair, Ralf},
+  title =        {{Multigrid Method for Maxwell's Equations}},
+  journal =      {SIAM Journal on Numerical Analysis},
+  volume =       {36},
+  number =       {1},
+  pages =        {204-225},
+  year =         {1998},
+  doi =          {10.1137/S0036142997326203},
+  url =          {https://doi.org/10.1137/S0036142997326203},
+}
+""")
+
+Citations().add("nixonhill2023consistent", """
+@misc{nixonhill2023consistent,
+  title={Consistent Point Data Assimilation in Firedrake and Icepack},
+  author={Reuben W. Nixon-Hill and Daniel Shapero and Colin J. Cotter and
+          David A. Ham},
+  year={2023},
+  eprint={2304.06058},
+  archivePrefix={arXiv},
+  primaryClass={cs.MS},
+  url = {https://arxiv.org/abs/2304.06058}
+}
+""")
+
+Citations().add("FiredrakeUserManual", """
+@manual{FiredrakeUserManual,
+  author        = {David A. Ham and Paul H. J. Kelly and Lawrence
+Mitchell and Colin J. Cotter and Robert C. Kirby and Koki Sagiyama and
+Nacime Bouziani and Sophia Vorderwuelbecke and Thomas J. Gregory and
+Jack Betteridge and Daniel R. Shapero and Reuben W. Nixon-Hill and
+Connor J. Ward and Patrick E. Farrell and Pablo D. Brubeck and India
+Marsden and Thomas H. Gibson and Miklós Homolya and Tianjiao Sun and
+Andrew T. T. McRae and Fabio Luporini and Alastair Gregory and
+Michael Lange and Simon W. Funke and Florian Rathgeber and
+Gheorghe-Teodor Bercea and Graham R. Markall},
+  doi           = {10.25561/104839},
+  edition       = {First edition},
+  month         = {5},
+  organization  = {Imperial College London and University of Oxford and
+Baylor University and University of Washington},
+  title         = {Firedrake User Manual},
+  year          = {2023}
+}
+""")
+
+Citations().add("Bouziani2021", """
+@article{Bouziani2021,
+  title={Escaping the abstraction: a foreign function interface for the {Unified} {Form} {Language} {[UFL]}},
+  author={Bouziani, Nacime and Ham, David A},
+  journal = {{Differentiable} {Programming} {Workshop} at {NeurIPS} 2021},
+  url = {http://arxiv.org/abs/2111.00945},
+  note = {arXiv: 2111.00945},
+  year={2021}
+}
+""")
+
+Citations().add("Bouziani2023", """
+@inproceedings{Bouziani2023,
+ title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
+ author = {Bouziani, Nacime and Ham, David A.},
+ booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
+ year = {2023},
+ doi = {10.48550/arXiv.2303.06871}
 }
 """)

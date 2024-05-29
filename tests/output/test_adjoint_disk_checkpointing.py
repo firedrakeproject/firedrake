@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 from pyadjoint import (ReducedFunctional, get_working_tape, stop_annotating,
                        pause_annotation, Control)
 import numpy as np
@@ -8,12 +9,11 @@ import pytest
 
 @pytest.fixture(autouse=True, scope="module")
 def handle_annotation():
-    from firedrake_adjoint import annotate_tape, continue_annotation
+    from firedrake.adjoint import annotate_tape, continue_annotation
     if not annotate_tape():
         continue_annotation()
     yield
-    # Since importing firedrake_adjoint modifies a global variable, we need to
-    # pause annotations at the end of the module
+    # Ensure annotations are paused at the end of the module.
     annotate = annotate_tape()
     if annotate:
         pause_annotation()
@@ -29,13 +29,13 @@ def adjoint_example(mesh):
     w = Function(W)
 
     x, y = SpatialCoordinate(mesh)
-    # InterpolateBlock
-    m = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
+    # AssembleBlock
+    m = assemble(interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space))
 
-    u, v = w.split()
+    u, v = w.subfunctions
     # FunctionAssignBlock, FunctionMergeBlock
     v.assign(m)
-    # FunctionSplitBlock, GenericSolveBlock
+    # SubfunctionBlock, GenericSolveBlock
     u.project(v)
 
     # AssembleBlock
@@ -44,7 +44,7 @@ def adjoint_example(mesh):
     Jhat = ReducedFunctional(J, Control(m))
 
     with stop_annotating():
-        m_new = interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space)
+        m_new = assemble(interpolate(sin(4*pi*x)*cos(4*pi*y), cg_space))
     checkpointer = get_working_tape()._checkpoint_metadata
     init_file_timestamp = os.stat(checkpointer.init_checkpoint_file).st_mtime
     current_file_timestamp = os.stat(checkpointer.current_checkpoint_file).st_mtime
@@ -66,7 +66,7 @@ def adjoint_example(mesh):
 # A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
-    from firedrake_adjoint import enable_disk_checkpointing, \
+    from firedrake.adjoint import enable_disk_checkpointing, \
         checkpointable_mesh, pause_disk_checkpointing
     tape = get_working_tape()
     tape.clear_tape()
@@ -86,7 +86,7 @@ def test_disk_checkpointing():
 
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
-    from firedrake_adjoint import enable_disk_checkpointing, \
+    from firedrake.adjoint import enable_disk_checkpointing, \
         checkpointable_mesh, pause_disk_checkpointing
     tape = get_working_tape()
     tape.clear_tape()

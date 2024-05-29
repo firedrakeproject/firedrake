@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import pytest
 
 
@@ -10,15 +11,15 @@ def run_poisson():
                    "ksp_monitor": None,
                    "pc_type": "python",
                    "pc_python_type": "firedrake.P1PC",
-                   "pmg_coarse_degree": coarse_deg,
                    "pmg_mg_levels": {
                        "ksp_type": "chebyshev",
                        "ksp_max_it": 2,
                        "pc_type": "jacobi"},
                    "pmg_mg_coarse": {
+                       "degree": coarse_deg,
                        "ksp_type": "preonly",
                        "pc_type": "lu",
-                       "pc_factor_mat_solver_type": "mumps"
+                       "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER
                    }}
 
     N = 2

@@ -236,12 +236,12 @@ them, although doing so would be quite easy.::
 
 Finally, we'll output the results for visualisation. ::
 
-  u, p, T = upT.split()
+  u, p, T = upT.subfunctions
   u.rename("Velocity")
   p.rename("Pressure")
   T.rename("Temperature")
 
-  File("benard.pvd").write(u, p, T)
+  VTKFile("benard.pvd").write(u, p, T)
 
 A runnable python script implementing this demo file is available
-`here <rayleigh-benard.py>`__.
+:demo:`here <rayleigh-benard.py>`.

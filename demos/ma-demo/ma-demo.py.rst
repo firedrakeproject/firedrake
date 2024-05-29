@@ -186,17 +186,17 @@ We then put all of these options into the iterative solver, ::
 
 and output the solution to a file. ::
 
-  u, sigma = w.split()
+  u, sigma = w.subfunctions
   u_solv.solve()
-  File("u.pvd").write(u)
+  VTKFile("u.pvd").write(u)
 
 An image of the solution is shown below.
 
 .. figure:: ma.png
    :align: center
 
-A python script version of this demo can be found `here
-<ma-demo.py>`__.
+A python script version of this demo can be found :demo:`here
+<ma-demo.py>`.
 
 .. rubric:: References
 

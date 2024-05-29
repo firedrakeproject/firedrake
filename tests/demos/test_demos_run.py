@@ -4,11 +4,31 @@ import os
 import subprocess
 import glob
 import sys
+from firedrake.petsc import get_external_packages
 
 
 cwd = abspath(dirname(__file__))
 demo_dir = join(cwd, "..", "..", "demos")
-pylit = join(cwd, "..", "..", "pylit", "pylit.py")
+VTK_DEMOS = [
+    "benney_luke.py",
+    "burgers.py",
+    "camassaholm.py",
+    "geometric_multigrid.py",
+    "helmholtz.py",
+    "higher_order_mass_lumping.py",
+    "linear_fluid_structure_interaction.py",
+    "linear_wave_equation.py",
+    "ma-demo.py",
+    "navier_stokes.py",
+    "netgen_mesh.py",
+    "poisson_mixed.py",
+    "qg_1layer_wave.py",
+    "qgbasinmodes.py",
+    "qg_winddrivengyre.py",
+    "rayleigh-benard.py",
+    "stokes.py",
+    "test_extrusion_lsw.py",
+]
 
 
 # Discover the demo files by globbing the demo directory
@@ -27,10 +47,6 @@ def env():
 
 @pytest.fixture
 def py_file(rst_file, tmpdir, monkeypatch):
-
-    if basename(rst_file) == 'qg_1layer_wave.py.rst':
-        pytest.skip("This test occasionally fails due to presumed build hardware issues")
-
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
     monkeypatch.chdir(tmpdir)
@@ -52,10 +68,52 @@ def py_file(rst_file, tmpdir, monkeypatch):
     name = splitext(basename(rst_file))[0]
     output = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call([pylit, rst_file, output])
+    subprocess.check_call(["pylit", rst_file, output])
     return output
 
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 def test_demo_runs(py_file, env):
+    # Add pytest skips for missing imports or packages
+    if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py", "qg_1layer_wave.py"):
+        if "hypre" not in get_external_packages():
+            pytest.skip("hypre not installed with PETSc")
+
+    if basename(py_file) == "qgbasinmodes.py":
+        try:
+            # Do not use `pytest.importorskip` to check for slepc4py:
+            # It isn't sufficient to actually detect whether slepc4py
+            # is installed. Both petsc4py and slepc4py require
+            # `from xy4py import Xy`
+            # to actually load the library.
+            from slepc4py import SLEPc  # noqa: F401
+        except ImportError:
+            pytest.skip(reason="SLEPc unavailable, skipping qgbasinmodes.py")
+
+    if basename(py_file) in ("DG_advection.py", "qgbasinmodes.py"):
+        pytest.importorskip(
+            "matplotlib",
+            reason=f"Matplotlib unavailable, skipping {basename(py_file)}"
+        )
+
+    if basename(py_file) == "netgen_mesh.py":
+        pytest.importorskip(
+            "netgen",
+            reason="Netgen unavailable, skipping Netgen test."
+        )
+        pytest.importorskip(
+            "ngsPETSc",
+            reason="ngsPETSc unavailable, skipping Netgen test."
+        )
+        try:
+            from slepc4py import SLEPc  # noqa: F401, F811
+        except ImportError:
+            pytest.skip(reason="SLEPc unavailable, skipping netgen_mesh.py")
+
+    if basename(py_file) in VTK_DEMOS:
+        try:
+            import vtkmodules.vtkCommonDataModel  # noqa: F401
+        except ImportError:
+            pytest.skip(reason=f"VTK unavailable, skipping {basename(py_file)}")
+
     subprocess.check_call([sys.executable, py_file], env=env)

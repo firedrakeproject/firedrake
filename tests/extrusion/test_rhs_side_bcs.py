@@ -40,7 +40,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
 
     if not test_mode:
         print("The error is ", res1)
-        file = File("side-bcs.pvd")
+        file = VTKFile("side-bcs.pvd")
         file.write(u1, v1)
 
     return (res, res1)
