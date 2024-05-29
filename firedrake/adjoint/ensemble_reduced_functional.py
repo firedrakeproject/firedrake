@@ -75,7 +75,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 J0 = J.copy(deepcopy=True)
                 vals.append(self.ensemble.bcast(J0, root=i))
         else:
-            raise NotImplementedError("This type of functional is not supported.")
+            raise NotImplementedError(f"Functionals of type {type(J).__name__} are not supported.")
         return vals
 
     def __call__(self, values):
