@@ -280,6 +280,10 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
+            checkpointing = get_working_tape()._checkpoint_manager
+            if checkpointing:
+                if checkpointing.mode.name == "RECORD":
+                    return None
             return checkpoint.restore()
         else:
             return checkpoint
