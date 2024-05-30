@@ -329,7 +329,7 @@ def facet_numbering(PETSc.DM plex, kind,
 
 cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
                                         PetscInt p,
-                                        PetscInt *plex_cone_old,
+                                        const PetscInt *plex_cone_old,
                                         PetscInt *plex_cone_new):
     """Reorder DMPlex cones for tensor product cells of intervals.
 
@@ -907,7 +907,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 
 
 cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
-                                                  PetscInt *plex_cone,
+                                                  const PetscInt *plex_cone,
                                                   PetscInt coneSize):
     """Compute orientation of a simplex cell/facet etc.
 
@@ -1061,7 +1061,7 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
     """
     cdef:
         PetscInt p, coneSize, offset, i, dim, o
-        PetscInt *cone = NULL
+        const PetscInt *cone = NULL
 
     p = cell_closure[cell, e]
     if dm.getCellType(p) == PETSc.DM.PolytopeType.POINT:
@@ -1208,7 +1208,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         PetscInt i, p, layers, pStart, pEnd, dof, j
         PetscInt dimension, ndof
         PetscInt *dof_array = NULL
-        PetscInt *entity_point_map
+        const PetscInt *entity_point_map
         np.ndarray[PetscInt, ndim=2, mode="c"] nodes
         np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         np.ndarray[PetscInt, ndim=1, mode="c"] points
@@ -2553,7 +2553,7 @@ cdef struct CommFacet:
     PetscInt global_u, global_v
     PetscInt local_facet
 
-cdef int CommFacet_cmp(void *x_, void *y_) noexcept nogil:
+cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
     """Three-way comparison C function for CommFacet structs."""
     cdef:
         CommFacet *x = <CommFacet *>x_
