@@ -151,9 +151,9 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-
         with f.dat.vec as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
+
         return f
 
     @PETSc.Log.EventDecorator()
