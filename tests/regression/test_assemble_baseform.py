@@ -214,6 +214,20 @@ def test_cofunction_assign(a, M, f):
         assert np.allclose(a.dat.data, 0.5 * b.dat.data)
 
 
+def test_cofunction_action(a, f):
+    zero_form_ref = assemble(ufl.action(a, f))
+    v = assemble(a)
+
+    zero_form = assemble(action(v, f))
+    assert np.allclose(zero_form, zero_form_ref, rtol=1.0e-14)
+
+    zero_form = assemble(0.5 * action(v, f))
+    assert np.allclose(zero_form, 0.5 * zero_form_ref, rtol=1.0e-14)
+
+    zero_form = assemble(0.5 * action(v, f) - 0.25 * action(v, f))
+    assert np.allclose(zero_form, 0.25 * zero_form_ref, rtol=1.0e-14)
+
+
 def test_cofunction_riesz_representation(a):
     # Get a Cofunction
     c = assemble(a)
