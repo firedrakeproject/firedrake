@@ -151,6 +151,7 @@ linkcheck_ignore = [
     r'https://asmedigitalcollection\.asme\.org/',
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
+    r'https://www.sciencedirect.com',
 ]
 linkcheck_timeout = 30
 

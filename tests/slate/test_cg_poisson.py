@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 def run_CG_problem(r, degree, quads=False):
@@ -33,17 +34,21 @@ def run_CG_problem(r, degree, quads=False):
     U = (1/2)*inner(grad(u), grad(u))*dx - inner(u, f)*dx
     F = derivative(U, z, TestFunction(Z))
 
-    params = {'snes_type': 'ksponly',
-              'mat_type': 'matfree',
-              'pmat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': '0',
-              'condensed_field': {'ksp_type': 'preonly',
-                                  'pc_type': 'redundant',
-                                  "redundant_pc_type": "lu",
-                                  "redundant_pc_factor_mat_solver_type": "mumps"}}
+    params = {
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'pmat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.SCPC',
+        'pc_sc_eliminate_fields': '0',
+        'condensed_field': {
+            'ksp_type': 'preonly',
+            'pc_type': 'redundant',
+            "redundant_pc_type": "lu",
+            "redundant_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER
+        }
+    }
 
     bcs = DirichletBC(Z.sub(1), zero(), "on_boundary")
     problem = NonlinearVariationalProblem(F, z, bcs=bcs)
