@@ -210,7 +210,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_codim": 0,
                         "mg_coarse_pc_type": "lu",
-                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -232,7 +232,7 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                        "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "vector":
         base = UnitSquareMesh(2, 2, distribution_parameters=distribution_parameters)
@@ -261,7 +261,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
                         "mg_levels_pc_vanka_construct_codim": 0,
                         "mg_coarse_pc_type": "lu",
-                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -282,7 +282,7 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                        "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
@@ -316,7 +316,7 @@ def test_vanka_equivalence(problem_type):
                         "mg_levels_pc_vanka_exclude_subspaces": "1",
                         "mg_levels_pc_vanka_sub_sub_pc_type": "cholesky",
                         "mg_coarse_pc_type": "cholesky",
-                        "mg_coarse_pc_factor_mat_solver_type": "mumps"}
+                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -339,7 +339,7 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_type": "python",
                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                        "mg_coarse_assembled_pc_type": "lu",
-                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
