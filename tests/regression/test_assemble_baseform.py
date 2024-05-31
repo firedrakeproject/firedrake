@@ -224,7 +224,7 @@ def test_cofunction_action(a, f):
     zero_form = assemble(0.5 * action(v, f))
     assert np.allclose(zero_form, 0.5 * zero_form_ref, rtol=1.0e-14)
 
-    zero_form = assemble(0.5 * action(v, f) - 0.25  * action(v, f))
+    zero_form = assemble(0.5 * action(v, f) - 0.25 * action(v, f))
     assert np.allclose(zero_form, 0.25 * zero_form_ref, rtol=1.0e-14)
 
 
