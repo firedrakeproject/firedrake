@@ -38,8 +38,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         or, a list of those (which should all have the same type).
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
-        A single or a list of Control instances, which you want to map to the functional,
-        or, a list of those (when J is also a list).
+        A single or a list of Control instances, which you want to map to the functional(s).
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
@@ -64,19 +63,12 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def __init__(self, J, control, ensemble, scatter_control=True,
                  gather_functional=None):
         self.ensemble = ensemble
-        if isinstance(J, list):
-            if not isinstance(control, list):
-                raise TypeError("Controls should be a list.")
-            if len(control) != len(J):
-                raise ValueError("Controls and J have mismatching lengths.")
-            self.control = control
-        else:
-            self.controls = [Enlist(control)]
+        self.controls = Enlist(control)
         J = Enlist(J)
         self.functional = J
         self.Jhats = []
         for i, J in enumerate(self.functional):
-            self.Jhats.append(ReducedFunctional(J, control[i]))
+            self.Jhats.append(ReducedFunctional(J, self.controls))
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
@@ -149,7 +141,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
                                                         options=options)
             i = self.ensemble.ensemble_comm.rank
             # we will pack the derivatives into a flattened list
-            dJdm_local = []
             sizes = self.ensemble.ensemble_comm.allgather(len(self.functional))
             k = int(np.sum(sizes[:i])-1)
             for j in range(len(self.functional)):
@@ -157,13 +148,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 adj_input = dJg_dmg[k]
                 der = self.Jhats[j].derivative(adj_input=adj_input,
                                                options=options)
-                if isinstance(der, list):
-                    dJdm_local += der
+                # we have the same controls for all local elements of the list
+                # so the controls must be added
+                if j == 0:
+                    dJdm_local = Enlist(der)
                 else:
-                    dJdm_local += [der]
+                    if isinstance(der, list):
+                        for i in range(len(der)):
+                            dJdm_local[i] += der[i]
+                    else:
+                        dJdm_local += der
 
         if self.scatter_control:
-            dJdm_local = Enlist(dJdm_local)
             dJdm_total = []
 
             for dJdm in dJdm_local:
