@@ -79,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "tinyasm", "torch",
+                           "opencascade", "torch",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -266,8 +266,6 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true",
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
@@ -406,8 +404,6 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -1295,32 +1291,6 @@ def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
         log.info("No need to rebuild libsupermesh")
 
 
-def build_and_install_tinyasm():
-    log.info("Installing TinyASM")
-    if os.path.exists("TinyASM"):
-        log.info("Updating the git repository for TinyASM")
-        with directory("TinyASM"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            tinyasm_changed = git_sha != git_sha_new
-            if tinyasm_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
-        tinyasm_changed = True
-
-    if tinyasm_changed:
-        with directory("TinyASM"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            run_pip_install(["-e", "."])
-    else:
-        log.info("No need to rebuild TinyASM")
-
-
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
@@ -2113,8 +2083,6 @@ with environment(**compiler_env):
                              PETSC_ARCH=petsc_arch):
                 install("slepc4py/")
 
-    if options["tinyasm"]:
-        build_and_install_tinyasm()
     if options["netgen"]:
         build_and_install_netgen()
 
