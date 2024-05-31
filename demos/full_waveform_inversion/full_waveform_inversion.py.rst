@@ -1,8 +1,9 @@
 Full-waveform inversion: spatial and wave sources parallelism
 =================================================================
-This tutorial demonstrates how to use Firedrdrake to solve a full-waveform inversion problem
-employing checkpointing, wave sources and mesh parallelism, and gradient computation with the
-algorithmic differentiation.
+This tutorial demonstrates using Firedrake to solve a Full-Waveform Inversion problem employing
+gradient computation using the algorithmic differentiation, pyadjoint. We also show how easy it is to
+configure the spatial and wave sources parallelism in order to compute the cost functions and their
+gradient on this optimisation problem.
 
 .. rst-class:: emphasis
 
@@ -55,7 +56,7 @@ To solve the wave equation, we consider the following weak form over the domain 
 
 .. math:: \int_{\Omega} \left(
     \frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right
-    ) \, dx = \int_{\Omega} f v \, dx,
+    ) \, dx = \int_{\Omega} f v \, dx, \quad \quad (1)
 
 for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. The weak form
 implementation in Firedrake is written as follows::
@@ -84,12 +85,12 @@ implementation in Firedrake is written as follows::
 You can find more details about the wave equation with mass lumping on this
 `Firedrake demos <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
 
-The wave equation forcing :math:`f = f(\mathbf{x}_s, t)` represents a time-dependent wave source
-locate at the position :math:`\mathbf{x}_s`, and it is given by:
+The wave equation forcing :math:`f = f(\mathbf{x}, t)` represents a time-dependent wave source defined
+as:
 
 .. math::
 
-    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)  \quad  \quad (1)
+    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)  \quad  \quad (2)
 
 where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
 :math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function. The implementation of `Ricker
@@ -155,11 +156,11 @@ in the following figure:
 
         
 FWI seeks to estimate the pressure wave velocity based on the observed data stored at the receivers.
-The observed data at the receivers is subject to influences of the subsurface medium while waves
-propagate from the sources. In this example, we emulate observed data by executing the acoustic wave
-equation with a synthetic pressure wave velocity model. The synthetic pressure wave velocity model is
-referred to here as the true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true``
-consisting of a circle in the centre of the domain, as shown in the coming code cell::
+These data are subject to influences of the subsurface medium while wavespropagate from the sources.
+In this example, we emulate observed data by executing the acoustic wave equation with a synthetic
+pressure wave velocity model. The synthetic pressure wave velocity model is referred to here as the
+true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true`` consisting of a
+circle in the centre of the domain, as shown in the coming code cell::
 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
@@ -175,34 +176,31 @@ We define the receivers mesh and its function space :math:`V_r`::
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
     V_r = FunctionSpace(receiver_mesh, "DG", 0)
 
-The receiver mesh are required in order to interpolate the wave equation solution at the receivers.
+The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
-To model a point source represented by the Dirac delta function in Eq. (1), our first step is to
+To model a point source represented by the Dirac delta function in Eq. (2), our first step is to
 construct the source mesh and define a function space :math:`V_s` accordingly::
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
     V_s = FunctionSpace(source_mesh, "DG", 0)
 
-As recommended in the `Firedrake manual <https://www.firedrakeproject.org/point-evaluation.html#id13>`__,
-we define the external point source value (equal to 1.0) via the :attr:`~.VertexOnlyMeshTopology.input_ordering`
-property::
+We then define the point source value :math:`d_s(\mathbf{x}_s) = 1.0`::
 
-    P1DG = FunctionSpace(source_mesh.input_ordering, "DG", 0)
-    f_p1DG = Function(P1DG)
-    f_p1DG.assign(1.0)
+    d_s = Function(V_s)
+    d_s.assign(1.0)
 
-We then interpolate the point source onto the source function space :math:`V_s`::
-
-    d_s = assemble(interpolate(f_p1DG, V_s))
-
-which result in a function :math:`f_s \in V_s` such that :math:`d_s(\mathbf{x}_s) = 1.0`. We finally interpolate
-the point source onto :math:`V` (function space to solve wave equation solver)::
+In order to model the source term in the weak form wave equation (1). We interpolate the result of
+inner product of the source term and the test function in the function space :math:`V_s`::
 
     cofunction_s = assemble(d_s * TestFunction(V_s) * dx)
+
+which is a ``cofunction_s`` in :math:`V_s^*`. Next, we interpolate this ``cofunction_s`` onto the
+function space :math:`V^*` (dual space of :math:`V`)::
+    
     source_cofunction = Cofunction(V.dual()).interpolate(cofunction_s)
 
-After defining the point source term that models the Dirac delta function, we can proceed to compute the
-synthetic data and record them on the receivers::
+After defining the right-hand side of Eq. (2) (`source_cofunction`), we can proceed to compute the synthetic
+data and record them on the receivers::
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
@@ -278,6 +276,12 @@ it returns the sum of these computations, which are input to the optimisation me
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 
+.. warning::
+
+    In this demonstration, we use the SciPy Python library. However, for scenarios requiring higher levels
+    of spatial parallelism, it is important to assess whether SciPy is the optimal choice and to ensure it is
+    properly configured for your parallel executions.
+    
 .. note::
 
     This example is only a starting point for tackling more intricate FWI problems. As exercises, you can
