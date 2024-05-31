@@ -72,7 +72,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
             self.functional = J
             self.controls = Enlist(control)
             self.Jhats = []
-            self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
             for i, J in enumerate(self.functional):
                 self.Jhats.append(ReducedFunctional(J, control[i]))
         else:
@@ -84,9 +83,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if isinstance(J, list):
             rank = self.ensemble.ensemble_comm.rank
             vals = []
+            sizes = self.ensemble.ensemble_comm.allgather(len(J))
             # allgather a flattened list of all of the functional values
-            for i in range(len(self.sizes)):
-                for j in range(self.sizes[i]):
+            for i, size in enumerate(sizes):
+                for j in range(size):
                     Jtype = type(J[j]) if i == rank else None
                     Jtype = self.ensemble.ensemble_comm.bcast(Jtype, root=i)
                     if issubclass(Jtype, float):
@@ -157,8 +157,9 @@ class EnsembleReducedFunctional(ReducedFunctional):
             if isinstance(self.functional, list):
                 # we will pack the derivatives into a flattened list
                 dJdm_local = []
-                k = int(np.sum(self.sizes[:i])-1)
-                for j in range(self.sizes[i]):
+                sizes = self.ensemble.ensemble_comm.allgather(len(self.functional))
+                k = int(np.sum(sizes[:i])-1)
+                for j in range(len(self.functional)):
                     k += 1
                     adj_input = dJg_dmg[k]
                     der = self.Jhats[j].derivative(adj_input=adj_input,
