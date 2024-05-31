@@ -69,7 +69,6 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 raise TypeError("Controls should be a list.")
             if len(control) != len(J):
                 raise ValueError("Controls and J have mismatching lengths.")
-            self.controls_per_J = len(control) // len(J)
             self.functional = J
             self.controls = Enlist(control)
             self.Jhats = []
