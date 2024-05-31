@@ -101,19 +101,23 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def __call__(self, values):
         local_functional = []
         for i, Jhat in enumerate(self.Jhats):
-            local_functional.append(Jhat(values[i]))
+            local_functional.append(Jhat(values))
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
             Controls_g = self._allgather_J(local_functional)
             total_functional = self.gather_functional(Controls_g)
         # if gather_functional is None then we do a sum
-        elif isinstance(local_functional, float):
-            total_functional = ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
-        elif isinstance(local_functional, firedrake.Function):
-            total_functional = type(local_functional)(local_functional.function_space())
-            total_functional = self.ensemble.allreduce(local_functional, total_functional)
         else:
-            raise NotImplementedError("This type of functional is not supported.")
+            if len(local_functional) > 1:
+                raise TypeError("Only scalar functionals supported.")
+            local_functional = local_functional[0]
+            if isinstance(local_functional, float):
+                total_functional = ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
+            elif isinstance(local_functional, firedrake.Function):
+                total_functional = type(local_functional)(local_functional.function_space())
+                total_functional = self.ensemble.allreduce(local_functional, total_functional)
+            else:
+                raise NotImplementedError("This type of functional is not supported.")
         return total_functional
 
     def derivative(self, adj_input=1.0, options=None):
