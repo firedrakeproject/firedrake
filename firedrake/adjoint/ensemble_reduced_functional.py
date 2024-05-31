@@ -92,8 +92,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
                     Jtype = self.ensemble.ensemble_comm.bcast(Jtype, root=i)
                     if issubclass(Jtype, float):
                         Jsend = J[j] if i == rank else None
-                        vals.append(self.ensemble.ensemble_comm.bcast(Jsend,
-                                                                      root=i))
+                        vals.append(self.ensemble.ensemble_comm.bcast(Jsend, root=i))
                     elif issubclass(Jtype, firedrake.Function):
                         Jsend = J[j].copy(deepcopy=True) if i == rank else None
                         vals.append(self.ensemble.bcast(Jsend, root=i))
