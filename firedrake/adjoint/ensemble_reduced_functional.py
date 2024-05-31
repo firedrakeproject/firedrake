@@ -39,7 +39,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
         A single or a list of Control instances, which you want to map to the functional,
-        or, a list of those (when J is also a list). In that case, the controls should be ordered so that the controls to be passed to J[0] appear first, followed by the controls to be passed to J[1], and so on.
+        or, a list of those (when J is also a list).
     ensemble : Ensemble
         An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
@@ -67,17 +67,15 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if isinstance(J, list):
             if not isinstance(control, list):
                 raise TypeError("Controls should be a list.")
-            if len(control) % len(J) != 0:
+            if len(control) != len(J):
                 raise ValueError("Controls and J have mismatching lengths.")
             self.controls_per_J = len(control) // len(J)
             self.functional = J
             self.controls = Enlist(control)
             self.Jhats = []
             self.sizes = self.ensemble.ensemble_comm.allgather(len(J))
-            for i in range(len(J)):
-                i0 = self.controls_per_J*i
-                i1 = self.controls_per_J*(i+1)
-                self.Jhats.append(ReducedFunctional(J[i], control[i0:i1]))
+            for i, J in enumerate(self.functional):
+                self.Jhats.append(ReducedFunctional(J, control[i]))
         else:
             super(EnsembleReducedFunctional, self).__init__(J, control)
         self.scatter_control = scatter_control
@@ -116,10 +114,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def __call__(self, values):
         if isinstance(self.functional, list):
             local_functional = []
-            for i in range(len(self.functional)):
-                i0 = self.controls_per_J*i
-                i1 = self.controls_per_J*(i+1)
-                local_functional.append(self.Jhats[i](values[i0:i1]))
+            for i, Jhat in enumerate(self.Jhats):
+                local_functional.append(Jhat(values[i]))
         else:
             local_functional = super(EnsembleReducedFunctional, self).__call__(values)
         ensemble_comm = self.ensemble.ensemble_comm
@@ -169,7 +165,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
                     adj_input = dJg_dmg[k]
                     der = self.Jhats[j].derivative(adj_input=adj_input,
                                                    options=options)
-                    dJdm_local += der
+                    if isinstance(der, list):
+                        dJdm_local += der
+                    else:
+                        dJdm_local += [der]
             else:
                 adj_input = dJg_dmg[i]
                 dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
