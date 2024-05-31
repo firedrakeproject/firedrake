@@ -65,8 +65,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
                  gather_functional=None):
         self.ensemble = ensemble
         if isinstance(J, list):
-            assert isinstance(control, list), "Controls should also be a list."
-            assert len(control) % len(J) == 0, "Controls and J have mismatching lengths."
+            if not isinstance(control, list):
+                raise TypeError("Controls should be a list.")
+            if len(control) % len(J) != 0:
+                raise ValueError("Controls and J have mismatching lengths.")
             self.controls_per_J = len(control) // len(J)
             self.functional = J
             self.controls = Enlist(control)
