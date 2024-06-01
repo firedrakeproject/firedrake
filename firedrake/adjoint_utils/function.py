@@ -7,7 +7,6 @@ from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, Su
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
-from numbers import Number
 
 
 class FunctionMixin(FloatingType):
@@ -224,27 +223,17 @@ class FunctionMixin(FloatingType):
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
 
+        V = options.get("function_space", self.function_space())
+        if value == 0.:
+            # This is seen in adjoint-based derivative when the functional
+            # is independent of the control variable.
+            return Cofunction(V.dual())
+
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
-
-        if not isinstance(value, (Number, Cofunction, Function, Number)):
-            raise TypeError("Expected a Cofunction, Function or a float")
-
-        if isinstance(value, Number):
-            if value == 0.:
-                # l2 Riesz map is directly applied when the value is a real number 0..
-                # This is seen in adjoint-based derivative when the functional
-                # is independent of the control variable.
-                return Function(V)
-            elif self.ufl_element().family() == "Real":
-                # Apply the l2 Riesz map for the case where self is a function in Real space.
-                f = Function(V)
-                f.assign(value)
-                return f
-            else:
-                raise TypeError("Riesz map of a non-zero scalar is not supported for non-Real function spaces.")
+        if not isinstance(value, (Cofunction, Function)):
+            raise TypeError("Expected a Cofunction or a Function")
 
         if riesz_representation == "l2":
             return Function(V, val=value.dat)

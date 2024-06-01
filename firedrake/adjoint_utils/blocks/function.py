@@ -61,45 +61,36 @@ class FunctionAssignBlock(Block):
                     prepared.function_space().mesh()
                 )
                 adj_output = self._adj_assign_constant(prepared, R)
-                return adj_output.riesz_representation(riesz_map="l2")
             else:
                 adj_output = firedrake.Function(
                     block_variable.output.function_space())
                 adj_output.assign(prepared)
-                adj_output = adj_output.riesz_representation(riesz_map="l2")
-                return adj_output
+            return adj_output.riesz_representation(riesz_map="l2")
         else:
             # Linear combination
             expr, adj_input_func = prepared
             adj_output = firedrake.Function(adj_input_func.function_space())
-            if not isconstant(block_variable.output):
+            if isconstant(block_variable.output):
+                R = block_variable.output._ad_function_space(adj_output.function_space().mesh())
+                diff_expr = ufl.algorithms.expand_derivatives(
+                    ufl.derivative(
+                        expr, block_variable.saved_output,
+                        type(block_variable.output)(R, val=1.0)
+                    )
+                )
+            else:
                 diff_expr = ufl.algorithms.expand_derivatives(
                     ufl.derivative(
                         expr, block_variable.saved_output, adj_input_func
                     )
                 )
-                # Firedrake does not support assignment of conjugate functions
-                adj_output.interpolate(ufl.conj(diff_expr))
-                adj_output = adj_output.riesz_representation(riesz_map="l2")
-            else:
-                mesh = adj_output.function_space().mesh()
-                diff_expr = ufl.algorithms.expand_derivatives(
-                    ufl.derivative(
-                        expr,
-                        block_variable.saved_output,
-                        firedrake.Function(firedrake.FunctionSpace(mesh, "R", 0), val=1.0)
-                    )
-                )
-                adj_output.assign(diff_expr)
-                return adj_output.dat.inner(adj_input_func.dat)
-
+            # Firedrake does not support assignment of conjugate functions
+            adj_output.interpolate(ufl.conj(diff_expr))
             if isconstant(block_variable.output):
-                R = block_variable.output._ad_function_space(
-                    adj_output.function_space().mesh()
+                adj_output = type(block_variable.output)(
+                    R, val=firedrake.assemble(ufl.Action(adj_output, adj_input_func))
                 )
-                return self._adj_assign_constant(adj_output, R)
-            else:
-                return adj_output
+            return adj_output.riesz_representation(riesz_map="l2")
 
     def _adj_assign_constant(self, adj_output, constant_fs):
         r = firedrake.Function(constant_fs)
