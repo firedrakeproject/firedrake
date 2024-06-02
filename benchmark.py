@@ -173,11 +173,11 @@ def _elevate_degree(mesh, degree):
     return Mesh(f)
 
 
-use_netgen = True
+use_netgen = False
 quadrilateral = True
 
 T = 20 # 10.0 # 12.0
-dt_float = 0.004  #.002
+dt_float = 0.001  #.002
 dt = Constant(dt_float)  #0.001
 dt_plot = 0.01
 ntimesteps = int(T / dt_float)
@@ -185,7 +185,7 @@ t = Constant(0.0)
 dim = 2
 degree = 3  # 2 - 4
 if use_netgen:
-    nref = 4 #  # 2 - 5 tested for CSM 1 and 2
+    nref = 1 #  # 2 - 5 tested for CSM 1 and 2
     mesh  = make_mesh_netgen(0.1 / 2 ** nref)
     mesh = _elevate_degree(mesh, degree)
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
@@ -193,9 +193,10 @@ if use_netgen:
     mesh_s = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_struct, mesh.topological_dimension())
     mesh_s = _elevate_degree(mesh_s, degree)
 else:
-    nref = 1
+    nref = 0
     mesh = make_mesh(quadrilateral)
-    mesh = MeshHierarchy(mesh, nref)[-1]
+    if nref > 0:
+        mesh = MeshHierarchy(mesh, nref)[-1]
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
     mesh_s = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_struct, mesh.topological_dimension())
     mesh = _finalise_mesh(mesh, degree)
@@ -656,32 +657,89 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         E = 1. / 2. * (dot(transpose(F), F) - Identity(dim))
         S = lambda_s * tr(E) * Identity(dim) + 2.0 * mu_s * E
         return F, J, E, S
-    F_f, J_f, E_f, S_f = compute_elast_tensors(dim, (u_f + u_f_0) / 2, lambda_s, mu_s)
-    F_s, J_s, E_s, S_s = compute_elast_tensors(dim, (u_s + u_s_0) / 2, lambda_s, mu_s)
-    v_f_mid = (v_f + v_f_0) / 2
-    v_s_mid = (v_s + v_s_0) / 2
-    u_f_mid = (u_f + u_f_0) / 2
-    p_mid = (p + p_0) / 2
-    residual_f = (
-        inner(rho_f * J_f * (v_f - v_f_0) / dt, dv_f) +
-        inner(rho_f * J_f * dot(dot(grad(v_f_mid), inv(F_f)), v_f_mid - (u_f - u_f_0) / dt), dv_f) +
-        inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
-        J_f * inner(p_mid, tr(dot(grad(dv_f), inv(F_f)))) +
-        J_f * inner(tr(dot(grad(v_f_mid), inv(F_f))), dp) +
-        J_f * inner(dot(grad(u_f_mid), inv(F_f)), dot(grad(du_f), inv(F_f)))
-    ) * dx_f
-    residual_s = (
-        inner(rho_s * J_s * (v_s - v_s_0) / dt, dv_s) +
-        inner(dot(F_s, S_s), grad(dv_s)) -
-        inner(rho_s * J_s * as_vector([0., - g_s]), dv_s) +
-        inner(J_s * (u_s - u_s_0) / dt - v_s_mid, du_s)
-    ) * dx_s + \
-    inner(dot(- p_mid * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
-    #inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+    if True:  # implicit midpoint
+        theta_p = Constant(1. / 2.)
+        theta_m = Constant(1. / 2.)
+        F_f, J_f, E_f, S_f = compute_elast_tensors(dim, (u_f + u_f_0) / 2, lambda_s, mu_s)
+        F_s, J_s, E_s, S_s = compute_elast_tensors(dim, (u_s + u_s_0) / 2, lambda_s, mu_s)
+        v_f_mid = (v_f + v_f_0) / 2
+        v_s_mid = (v_s + v_s_0) / 2
+        u_f_mid = (u_f + u_f_0) / 2
+        p_mid = (p + p_0) / 2
+        residual_f = (
+            inner(rho_f * J_f * (v_f - v_f_0) / dt, dv_f) +
+            inner(rho_f * J_f * dot(dot(grad(v_f_mid), inv(F_f)), v_f_mid - (u_f - u_f_0) / dt), dv_f) +
+            inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
+            J_f * inner(p_mid, tr(dot(grad(dv_f), inv(F_f)))) +
+            J_f * inner(tr(dot(grad(v_f_mid), inv(F_f))), dp) +
+            J_f * inner(dot(grad(u_f_mid), inv(F_f)), dot(grad(du_f), inv(F_f)))
+        ) * dx_f
+        residual_s = (
+            inner(rho_s * J_s * (v_s - v_s_0) / dt, dv_s) +
+            inner(dot(F_s, S_s), grad(dv_s)) -
+            inner(rho_s * J_s * as_vector([0., - g_s]), dv_s) +
+            inner(J_s * ((u_s - u_s_0) / dt - v_s_mid), du_s)
+        ) * dx_s + \
+        inner(dot(- p_mid * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+        #inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+    else:  # CN
+        theta_p = Constant(1. / 2. + 100 * float(dt))
+        theta_m = Constant(1. / 2. - 100 * float(dt))
+        #theta_p = Constant(1.)
+        #theta_m = Constant(0.)
+        v_f_dot = (v_f - v_f_0) / dt
+        u_f_dot = (u_f - u_f_0) / dt
+        v_s_dot = (v_s - v_s_0) / dt
+        u_s_dot = (u_s - u_s_0) / dt
+        def _fluid(v_f, u_f, p):
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            return (inner(rho_f * J_f * v_f_dot, dv_f) +
+                    inner(rho_f * J_f * dot(dot(grad(v_f), inv(F_f)), v_f - u_f_dot), dv_f) +
+                    inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
+                    J_f * inner(p, tr(dot(grad(dv_f), inv(F_f)))) +
+                    J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
+                    J_f * inner(dot(grad(u_f), inv(F_f)), dot(grad(du_f), inv(F_f)))) * dx_f
+        def _struct(v_f, u_f, p, v_s, u_s):
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            F_s, J_s, E_s, S_s = compute_elast_tensors(dim, u_s, lambda_s, mu_s)
+            return (inner(rho_s * J_s * v_s_dot, dv_s) +
+                    inner(dot(F_s, S_s), grad(dv_s)) -
+                    inner(rho_s * J_s * as_vector([0., - g_s]), dv_s) +
+                    inner(J_s * (u_s_dot - v_s), du_s)) * dx_s + \
+                   inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+        residual_f = theta_p * _fluid(v_f, u_f, p) + \
+                     theta_m * _fluid(v_f_0, u_f_0, p_0)
+        residual_s = theta_p * _struct(v_f, u_f, p, v_s, u_s) + \
+                     theta_m * _struct(v_f_0, u_f_0, p_0, v_s_0, u_s_0)
+        """
+        F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+        F_s, J_s, E_s, S_s = compute_elast_tensors(dim, u_s, lambda_s, mu_s)
+        v_f_mid = v_f
+        v_s_mid = v_s
+        u_f_mid = u_f
+        p_mid = p
+        residual_f = (
+            inner(rho_f * J_f * (v_f - v_f_0) / dt, dv_f) +
+            inner(rho_f * J_f * dot(dot(grad(v_f_mid), inv(F_f)), v_f_mid - (u_f - u_f_0) / dt), dv_f) +
+            inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
+            J_f * inner(p_mid, tr(dot(grad(dv_f), inv(F_f)))) +
+            J_f * inner(tr(dot(grad(v_f_mid), inv(F_f))), dp) +
+            J_f * inner(dot(grad(u_f_mid), inv(F_f)), dot(grad(du_f), inv(F_f)))
+        ) * dx_f
+        residual_s = (
+            inner(rho_s * J_s * (v_s - v_s_0) / dt, dv_s) +
+            inner(dot(F_s, S_s), grad(dv_s)) -
+            inner(rho_s * J_s * as_vector([0., - g_s]), dv_s) +
+            inner(J_s * ((u_s - u_s_0) / dt - v_s_mid), du_s)
+        ) * dx_s + \
+        inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+        #inner(dot(- p_mid * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
+        """
     residual = residual_f + residual_s
-    #v_f_left = 1.5 * Ubar * y_f * (H - y_f) / ((H / 2) ** 2) * conditional(t < 2.0, (1 - cos(pi / 2 * t)) / 2., 1.)
-    v_f_left = 1.5 * Ubar * y_f * (H - y_f) / ((H / 2) ** 2) * conditional(t < 2.0 + dt / 10., (1 - cos(pi / 2 * (t - dt / 2))) / 2., 1.)
-    bc_v_f_inflow = DirichletBC(V.sub(0), as_vector([v_f_left, 0.]), (label_left, ))
+    def v_f_left(t_):
+        return 1.5 * Ubar * y_f * (H - y_f) / ((H / 2) ** 2) * conditional(t_ < 2.0 + dt / 10., (1 - cos(pi / 2 * t_)) / 2., 1.)
+    bc_v_f_inflow = DirichletBC(V.sub(0), as_vector([theta_p * v_f_left(t - dt + theta_p * dt) +
+                                                     theta_m * v_f_left(t - dt + theta_m * dt), 0.]), (label_left, ))
     bc_v_f_zero = DirichletBC(V.sub(0), Constant((0, 0)), (label_bottom, label_top, label_circle))
     bbc_v_f_noslip = DirichletBC(V.sub(0), Constant((0, 0)), ((label_circle, label_interface), ))
     bc_v_f_noslip = EquationBC(inner(v_f - v_s, dv_f) * ds_f(label_interface) == 0, solution, label_interface, bcs=[bbc_v_f_noslip], V=V.sub(0))
@@ -746,8 +804,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     sample_t = np.arange(0.0, T, dt_plot) + dt_plot
     sample_FD = np.empty_like(sample_t)
     sample_FL = np.empty_like(sample_t)
-    print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size))
-    print("num DoFs = ", V.dim())
+    print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size), flush=True)
+    print("num DoFs = ", V.dim(), flush=True)
     if mesh.comm.rank == 0:
         with open("time_series_FD.dat", 'w') as outfile:
              outfile.write("t val" + "\n")
@@ -770,7 +828,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             print(f"FD     = {FD}")
             print(f"FL     = {FL}")
             print(f"uA     = {u_A}")
-            if itimestep % (ntimesteps // nsample) == 0:
+            if (itimestep + 1) % (ntimesteps // nsample) == 0:
                 with open("time_series_FD.dat", 'a') as outfile:
                     outfile.write(f"{float(t)} {FD}" + "\n")
                 with open("time_series_FL.dat", 'a') as outfile:
