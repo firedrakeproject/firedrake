@@ -6,6 +6,7 @@ classes for attaching extra information to instances of these.
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Optional
 
 import finat.ufl
@@ -522,6 +523,7 @@ class FunctionSpace:
         # without its own constructor. Perhaps introduce a BaseFunctionSpace
         # parent class.
         if isinstance(self, RealFunctionSpace):
+            raise NotImplementedError
             # it is important to mark as unit here so we can distinguish row and column
             # matrices.
             axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
@@ -534,34 +536,59 @@ class FunctionSpace:
                 )
                 axes = axes.add_subtree(subaxes, axes.root, axes.root.component)
         else:
-            # TODO: should
             entity_dofs = self.finat_element.entity_dofs()
             nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
             real_tensor_product = is_real_tensor_product_element(self.finat_element)
             key = (nodes_per_entity, real_tensor_product, self.shape)
 
             if key in mesh._shared_data_cache:
-                axes, block_axes = mesh._shared_data_cache[key]
+                axes = mesh._shared_data_cache[key]
             else:
-                axes = op3.AxisTree(mesh.points)
-                for tdim, edofs in self.finat_element.entity_dofs().items():
-                    ndofs = single_valued(len(d) for d in edofs.values())
-                    subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-                    for i, dim in enumerate(self.shape):
-                        subaxes = subaxes.add_axis(op3.Axis({"XXX": dim}, f"dim{i}"), *subaxes.leaf)
-                    axes = axes.add_subtree(subaxes, mesh.points, str(tdim))
+                axes = op3.AxisTree(mesh.flat_points)
 
-                # TODO: Remove code duplication
-                block_axes = op3.AxisTree(mesh.points)
-                for tdim, edofs in self.finat_element.entity_dofs().items():
-                    ndofs = single_valued(len(d) for d in edofs.values())
-                    subaxes = op3.AxisTree(op3.Axis({"XXX": ndofs}, "dof"))
-                    block_axes = block_axes.add_subtree(subaxes, mesh.points, str(tdim))
+                ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
+                for pt in range(mesh.flat_points.size):
+                    ndofs[pt] = self.local_section.getDof(pt)
 
-                mesh._shared_data_cache[key] = (axes, block_axes)
+                ndofs_dat = op3.HierarchicalArray(mesh.flat_points, data=ndofs)
 
-        self.axes = axes
-        self.block_axes = axes
+                subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
+                axes = axes.add_axis(subaxis, axes.root, "mylabel")
+
+                # add tensor shape
+                subaxes = op3.AxisTree.from_iterable(
+                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+                )
+                axes = axes.add_subtree(subaxes, subaxis, "XXX")
+
+                mesh._shared_data_cache[key] = axes
+
+        # TODO: AxisForest?
+        self.flat_axes = axes
+        self.axes = axes[self._strata_index_tree]
+
+    @cached_property
+    def _strata_index_tree(self):
+        # NOTE: If we do not do explicit slices here then the code cannot cope with slicing
+        # the ndofs ragged array.
+        strata_slice = self._mesh._strata_slice
+        index_tree = op3.IndexTree(strata_slice)
+        for slice_component in strata_slice.slices:
+            dim = int(slice_component.label)
+            ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
+            subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label="dof"+slice_component.label)
+            index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
+
+            # same as in parloops.py
+            if self.shape:
+                shape_slices = op3.IndexTree.from_iterable([
+                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
+                    for i, dim in enumerate(self.shape)
+                ])
+
+                index_tree = index_tree.add_subtree(shape_slices, subslice, "XXX")
+
+        return index_tree
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -678,17 +705,18 @@ class FunctionSpace:
             # If real we don't need to populate the section
             return section
 
-        points = self._mesh.points
-        section.setChart(0, points.size)
-        perm = PETSc.IS().createGeneral(points.numbering.data_ro, comm=self.comm)
-        section.setPermutation(perm)
-        for p in points.iter(include_ghost_points=True):
-            pi = just_one(p.source_exprs.values())
-            stratum_label = just_one(p.source_path.values())  # p.source_path[self._mesh.topology.name]
-            pi_plex = points.component_to_axis_number(stratum_label, pi)
-            pt_dim = int(stratum_label)
-            ndofs, = set(len(values) for values in self.finat_element.entity_dofs()[pt_dim].values())
-            section.setDof(pi_plex, ndofs)
+        entity_dofs = self.finat_element.entity_dofs()
+
+        dm = self._mesh.topology_dm
+        section.setChart(*dm.getChart())
+
+        if self._mesh._dm_renumbering is not None:
+            section.setPermutation(self._mesh._dm_renumbering)
+
+        for dim in range(dm.getDimension()+1):
+            ndofs, = set(len(values) for values in entity_dofs[dim].values())
+            for pt in range(*dm.getDepthStratum(dim)):
+                section.setDof(pt, ndofs)
         section.setUp()
         return section
 
@@ -1141,14 +1169,17 @@ class MixedFunctionSpace:
     # this is now the same as for the non-mixed case
     @utils.cached_property
     def template_vec(self):
-        """Dummy PETSc Vec of the right size for this set of axes."""
+        """Dummy PETSc Vec of the right size for this function space."""
+        if self.comm.size > 1:
+            raise NotImplementedError
         vec = PETSc.Vec().create(comm=self.comm)
         # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
         # because cdim is not really something pyop3 considers.
         # size = (self.size * self.cdim, None)
         # "size" is a 2-tuple of (local size, global size), setting global size
         # to None means PETSc will determine it for us.
-        size = (self.axes.owned.size, None)
+        # size = (self.axes.owned.size, None)
+        size = (self.axes.size, None)
         # vec.setSizes(size, bsize=self.cdim)
         vec.setSizes(size)
         vec.setUp()

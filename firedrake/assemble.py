@@ -1167,7 +1167,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
         # TODO this is more convoluted than strictly needed, add a factory method?
         sf = op3.sf.single_star(comm)
-        axis = op3.Axis(1, sf=sf)
+        axis = op3.Axis([op3.AxisComponent(1, sf=sf)])
         return op3.HierarchicalArray(
             axis,
             data=numpy.asarray([0.0], dtype=utils.ScalarType),
@@ -1486,7 +1486,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     Vcol = Vcol[cindex]
 
                 if integral_type == "cell":
-                    iterset = plex.owned_cells
+                    iterset = plex.cells.owned
                     index = iterset.index()
                     rmap = _cell_integral_pack_indices(Vrow, index)
                     cmap = _cell_integral_pack_indices(Vcol, index)
@@ -1528,7 +1528,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         loops = []
         for integral_type in allocation_integral_types:
             if integral_type == "cell":
-                iterset = plex.owned_cells
+                iterset = plex.cells.owned
                 index = iterset.index()
                 rmap = _cell_integral_pack_indices(Vrow, index)
                 cmap = _cell_integral_pack_indices(Vcol, index)
