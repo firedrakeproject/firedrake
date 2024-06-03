@@ -88,7 +88,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         # allgather a flattened list of all of the
         # functional values
         for i, size in enumerate(sizes):
-            for j in sizes:
+            for j in range(size):
                 if issubclass(Jtype, float):
                     if i == rank:
                         Jsend = j
