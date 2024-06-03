@@ -76,6 +76,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         vals = []
         J = Enlist(J)
         sizes = self.ensemble.ensemble_comm.allgather(len(J))
+        rank = self.ensemble.ensemble_comm.rank
         # do a bit of type checking as things can hang and it is hard
         # to diagnose
         if not all(isinstance(J1, type(J[0])) for J1 in J):
@@ -87,12 +88,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
         # allgather a flattened list of all of the
         # functional values
         for i, size in enumerate(sizes):
-            for j in J:
+            for j in sizes:
                 if issubclass(Jtype, float):
-                    Jsend = j
+                    if i == rank:
+                        Jsend = j
+                    else:
+                        Jsend = 0.
                     vals.append(self.ensemble.ensemble_comm.bcast(Jsend, root=i))
                 elif issubclass(Jtype, firedrake.Function):
-                    Jsend = j.copy(deepcopy=True)
+                    if i == rank:
+                        Jsend = J[j].copy(deepcopy=True)
+                    else:
+                        Jsend = J[0].copy(deepcopy=True)
                     vals.append(self.ensemble.bcast(Jsend, root=i))
                 else:
                     raise NotImplementedError("This type of functional is not supported: " + str(Jtype))
