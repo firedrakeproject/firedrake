@@ -141,17 +141,20 @@ class EnsembleReducedFunctional(ReducedFunctional):
         """
 
         if self.gather_functional:
-            dJg_dmg = self.gather_functional.derivative(adj_input=adj_input,
+            adj_input = self.gather_functional.derivative(adj_input=adj_input,
                                                         options=options)
-            i = self.ensemble.ensemble_comm.rank
-            # we will pack the derivatives into a flattened list
-            sizes = self.ensemble.ensemble_comm.allgather(len(self.functional))
-            k = int(np.sum(sizes[:i])-1)
+        i = self.ensemble.ensemble_comm.rank
+        sizes = self.ensemble.ensemble_comm.allgather(len(self.functional))
+        k = int(np.sum(sizes[:i])-1)
+        for Jhat in self.Jhats:
             for j in range(len(self.functional)):
                 k += 1
-                adj_input = dJg_dmg[k]
-                der = self.Jhats[j].derivative(adj_input=adj_input,
-                                               options=options)
+                if self.gather_functional:
+                    der = Jhat.derivative(adj_input=adj_input[k],
+                                          options=options)
+                else:
+                    der = Jhat.derivative(adj_input=adj_input,
+                                          options=options)
                 # we have the same controls for all local elements of the list
                 # so the controls must be added
                 if j == 0:
