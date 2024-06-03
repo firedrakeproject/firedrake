@@ -158,7 +158,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 # we have the same controls for all local elements of the list
                 # so the controls must be added
                 if j == 0:
-                    dJdm_local = Enlist(der)
+                    dJdm_local = der
                 else:
                     if isinstance(der, list):
                         for i in range(len(der)):
@@ -168,7 +168,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
         if self.scatter_control:
             dJdm_total = []
-
+            dJdm_local = Enlist(dJdm_local)
             for dJdm in dJdm_local:
                 if not isinstance(dJdm, (firedrake.Function, float)):
                     raise NotImplementedError("This type of gradient is not supported.")
@@ -178,8 +178,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
                     if isinstance(dJdm, firedrake.Function)
                     else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
                 )
-            return dJdm_local.delist(dJdm_total)
-        return dJdm_local
+            return self.controls.delist(dJdm_total)
+        return self.controls.delist(dJdm_local)
 
     def hessian(self, m_dot, options=None):
         """The Hessian is not yet implemented for ensemble reduced functional.
