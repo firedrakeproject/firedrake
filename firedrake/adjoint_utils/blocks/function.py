@@ -57,39 +57,37 @@ class FunctionAssignBlock(Block):
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
             elif isconstant(block_variable.output):
-                R = block_variable.output._ad_function_space(
-                    prepared.function_space().mesh()
+                adj_output = self._adj_assign_constant(
+                    prepared, block_variable.output.function_space()
                 )
-                adj_output = self._adj_assign_constant(prepared, R)
             else:
                 adj_output = firedrake.Function(
-                    block_variable.output.function_space())
+                    block_variable.output.function_space()
+                )
                 adj_output.assign(prepared)
             return adj_output.riesz_representation(riesz_map="l2")
         else:
             # Linear combination
             expr, adj_input_func = prepared
-            adj_output = firedrake.Function(adj_input_func.function_space())
             if isconstant(block_variable.output):
-                R = block_variable.output._ad_function_space(adj_output.function_space().mesh())
+                R = block_variable.output._ad_function_space(
+                    adj_input_func.function_space().mesh()
+                )
                 diff_expr = ufl.algorithms.expand_derivatives(
-                    ufl.derivative(
-                        expr, block_variable.saved_output,
-                        type(block_variable.output)(R, val=1.0)
-                    )
+                    ufl.derivative(expr, block_variable.saved_output,
+                                   firedrake.Function(R, val=1.0))
+                )
+                diff_expr_assembled = firedrake.Function(adj_input_func.function_space())
+                diff_expr_assembled.interpolate(ufl.conj(diff_expr))
+                adj_output = firedrake.Function(
+                    R, val=firedrake.assemble(ufl.Action(diff_expr_assembled, adj_input_func))
                 )
             else:
+                adj_output = firedrake.Function(adj_input_func.function_space())
                 diff_expr = ufl.algorithms.expand_derivatives(
-                    ufl.derivative(
-                        expr, block_variable.saved_output, adj_input_func
-                    )
+                    ufl.derivative(expr, block_variable.saved_output, adj_input_func)
                 )
-            # Firedrake does not support assignment of conjugate functions
-            adj_output.interpolate(ufl.conj(diff_expr))
-            if isconstant(block_variable.output):
-                adj_output = type(block_variable.output)(
-                    R, val=firedrake.assemble(ufl.Action(adj_output, adj_input_func))
-                )
+                adj_output.interpolate(ufl.conj(diff_expr))
             return adj_output.riesz_representation(riesz_map="l2")
 
     def _adj_assign_constant(self, adj_output, constant_fs):
