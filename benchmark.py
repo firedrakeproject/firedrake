@@ -657,7 +657,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         E = 1. / 2. * (dot(transpose(F), F) - Identity(dim))
         S = lambda_s * tr(E) * Identity(dim) + 2.0 * mu_s * E
         return F, J, E, S
-    if True:  # implicit midpoint
+    if False:  # implicit midpoint
         theta_p = Constant(1. / 2.)
         theta_m = Constant(1. / 2.)
         F_f, J_f, E_f, S_f = compute_elast_tensors(dim, (u_f + u_f_0) / 2, lambda_s, mu_s)
