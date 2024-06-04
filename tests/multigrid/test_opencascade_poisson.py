@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 import pytest
 import os
@@ -45,8 +46,7 @@ def test_opencascade_poisson(stepdata, order):
         "mg_levels_pc_type": "sor",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
-        "mg_coarse_pc_factor_mat_solver_type": "mumps",
-        "mg_coarse_mat_mumps_icntl_14": 200,
+        "mg_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
     }
 
     solve(F == 0, u, bcs, solver_parameters=params)
