@@ -103,23 +103,6 @@ class BlockJacobi {
                 if (dof) mymatinvert(&dof, vv, piv.data(), &info, fwork.data());
                 ierr = MatDenseRestoreArrayWrite(localmats[p],&vv);CHKERRQ(ierr);
             }
-
-            if(0){
-                const PetscScalar *vvv;
-                for(int p=0; p<numBlocks; p++) {
-                    cout << "Mat " << p << endl;
-                    PetscInt dof = dofsPerBlock[p].size();
-                    ierr = MatDenseGetArrayRead(localmats[p],&vvv);CHKERRQ(ierr);
-                    for(int i=0; i<dof; i++){
-                        for(int j=0; j<dof; j++){
-                            cout << vvv[i*dof+j] << " ";
-                        }
-                        cout << endl;
-                    }
-                    ierr = MatDenseRestoreArrayRead(localmats[p],&vvv);CHKERRQ(ierr);
-                    cout << endl;
-                }
-            }
             return 0;
         }
 
