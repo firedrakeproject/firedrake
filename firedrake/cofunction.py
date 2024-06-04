@@ -199,7 +199,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
                 self.block_variable = self.create_block_variable()
-                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
+                self.block_variable.checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
