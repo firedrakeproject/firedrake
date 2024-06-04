@@ -86,9 +86,6 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values(
             self.dat.data_ro.reshape(-1) + other.dat.data_ro.reshape(-1)
         )
-    
-    def _ad_is_to_clear_checkpoint(self, to_keep=None):
-        return True
 
     def _ad_dot(self, other, options=None):
         if type(other) is AdjFloat:

@@ -124,7 +124,7 @@ class FunctionMixin(FloatingType):
 
                 if isinstance(other, type(self)):
                     if self.function_space().mesh() == other.function_space().mesh():
-                        block_var.checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
+                        block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
@@ -284,10 +284,7 @@ class FunctionMixin(FloatingType):
             if checkpointing:
                 if checkpointing.mode.name == "RECORD":
                     return None
-                else:
-                    return checkpoint.restore()
-            else:
-                return checkpoint.restore()
+            return checkpoint.restore()
         else:
             return checkpoint
 
@@ -295,7 +292,7 @@ class FunctionMixin(FloatingType):
         if to_keep:
             for bv in to_keep:
                 if isinstance(self, type(bv.output)):
-                    checkpoint = bv.checkpoint
+                    checkpoint = bv._checkpoint
                     while isinstance(checkpoint, DelegatedFunctionCheckpoint):
                         checkpoint = checkpoint.other.checkpoint
                     if self == checkpoint:
