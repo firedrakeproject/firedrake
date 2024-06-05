@@ -565,10 +565,9 @@ class FunctionSpace:
 
         # TODO: AxisForest?
         self.flat_axes = axes
-        self.axes = axes[self._strata_index_tree]
+        self.axes = axes[self._strata_index_tree()]
 
-    @cached_property
-    def _strata_index_tree(self):
+    def _strata_index_tree(self, *, suffix=""):
         # NOTE: If we do not do explicit slices here then the code cannot cope with slicing
         # the ndofs ragged array.
         strata_slice = self._mesh._strata_slice
@@ -576,7 +575,7 @@ class FunctionSpace:
         for slice_component in strata_slice.slices:
             dim = int(slice_component.label)
             ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
-            subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label="dof"+slice_component.label)
+            subslice = op3.Slice(f"dof{suffix}", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}{suffix}")
             index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
 
             # same as in parloops.py
@@ -993,8 +992,23 @@ class MixedFunctionSpace:
         )
         axes = op3.AxisTree(root)
         for i, space in enumerate(spaces):
-            axes = axes.add_subtree(space.axes, root, i, uniquify=True)
-        self.axes = axes
+            # Relabel the "dof" axes by adding a suffix. This is to ensure
+            # that no clashes occur during indexing.
+            space_axes = space.flat_axes.relabel({
+                ax.label: f"{ax.label}_{i}"
+                for ax in space.flat_axes.nodes
+                if ax.label.startswith("dof")
+            })
+            axes = axes.add_subtree(space_axes, root, i, uniquify=True)
+        # breakpoint()
+        self.flat_axes = axes
+
+        field_slice = op3.Slice("field", [op3.AffineSliceComponent(s.index) for s in self._spaces])
+        axes_index_tree = op3.IndexTree(field_slice)
+        for space, field_slice_component in zip(self._spaces, field_slice.slices):
+            subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
+            axes_index_tree = axes_index_tree.add_subtree(subindex_tree, field_slice, field_slice_component, uniquify_ids=True)
+        self.axes = axes[axes_index_tree]
 
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)

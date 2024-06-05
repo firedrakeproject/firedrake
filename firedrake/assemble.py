@@ -2048,7 +2048,7 @@ class _FormHandler:
     @staticmethod
     def index_tensor(tensor, form, indices, diagonal):
         """Return the (indexed) pyop3 data structure tied to ``tensor``."""
-        indices = tuple(i if i is not None else Ellipsis for i in indices)
+        # indices = tuple(i if i is not None else Ellipsis for i in indices)
 
         rank = len(form.arguments())
         if rank == 0:
@@ -2056,7 +2056,10 @@ class _FormHandler:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             index, = indices
-            return tensor.dat[index]
+            if index is None:
+                return tensor.dat
+            else:
+                return tensor.subfunctions[index].dat
         elif rank == 2:
             return tensor.M[indices]
         else:
