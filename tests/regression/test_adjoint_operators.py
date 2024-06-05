@@ -897,13 +897,43 @@ def test_cofunction_subfunctions_with_adjoint():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_none_riesz_representation_to_derivative():
+def test_riesz_representation_for_adjoints():
+    # Check if the Riesz representation norms for adjoints are working as expected.
     mesh = UnitIntervalMesh(1)
     space = FunctionSpace(mesh, "Lagrange", 1)
-    u = Function(space).interpolate(SpatialCoordinate(mesh)[0])
-    J = assemble((u ** 2) * dx)
-    rf = ReducedFunctional(J, Control(u))
-    assert isinstance(rf.derivative(), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": "H1"}), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": "L2"}), Function)
-    assert isinstance(rf.derivative(options={"riesz_representation": None}), Cofunction)
+    f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
+    J = assemble((f ** 2) * dx)
+    rf = ReducedFunctional(J, Control(f))
+    with stop_annotating():
+        v = TestFunction(space)
+        u = TrialFunction(space)
+        dJdu_cofunction = assemble(derivative((f ** 2) * dx, f, v))
+
+        # Riesz representation with l2
+        dJdu_function_l2 = Function(space, val=dJdu_cofunction.dat)
+
+        # Riesz representation with H1
+        a = u * v * dx + inner(grad(u), grad(v)) * dx
+        dJdu_function_H1 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_H1)
+
+        # Riesz representation with L2
+        a = u*v*dx
+        dJdu_function_L2 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_L2)
+
+    dJdu_none = rf.derivative(options={"riesz_representation": None})
+    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
+    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
+    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
+    dJdu_default_L2 = rf.derivative()
+    assert (
+        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+        and isinstance(dJdu_L2, Function)
+        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
+    )
