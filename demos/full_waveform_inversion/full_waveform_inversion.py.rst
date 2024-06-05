@@ -24,39 +24,51 @@ source can be measured by the :math:`L^2` norm:
 
 .. math::
     
-    J_s(u, u^{obs}) = \sum_{r=0}^{N-1} \int_\Omega \left(
-        u(c,\mathbf{x},t) - u^{obs}(c, \mathbf{x},t)\right)^2 \delta(\mathbf{x} - \mathbf{x}_r
-        ) \, dx
+    J_s(u, u^{obs}) = \sum_{r=0}^{N-1} \int_{\tau} \left(
+        u(c,\mathbf{x}_r,t) - u^{obs}(c, \mathbf{x}_r,t)\right)^2 \, dt,
 
-where :math:`u = u(c, \mathbf{x},t)` and :math:`u_{obs} = u_{obs}(c,\mathbf{x},t)`,
+where :math:`u = u(c, \mathbf{x}_r,t)` and :math:`u_{obs} = u_{obs}(c,\mathbf{x}_r,t)`,
 are respectively the computed and observed data, both recorded at a finite number
-of receivers :math:`N_r`, located at the point positions :math:`\mathbf{x}_r \in \Omega`,
-in a time interval :math:`\tau\equiv[t_0, t_f]\subset \mathbb{R}`, where :math:`t_0` is the
-initial time and :math:`t_f` is the final time. The spatial domain of interest is defined
-as :math:`\Omega`.
+of receivers :math:`N_r` that are located at the point positions :math:`\mathbf{x}_r \in \Omega`,
+in a time interval :math:`\tau\equiv[0, t_f]\subset \mathbb{R}`, where :math:`t_f` is the final time.
 
 The predicted data is here modeled here by an acoustic wave equation,
 
 .. math::
 
-    \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t),
+    \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x}_s,t),  \quad \quad (1)
 
 where :math:`c(\mathbf{x}):\Omega\rightarrow \mathbb{R}` is the pressure wave velocity,
-which is assumed here a piecewise-constant and positive. The force term
-:math:`f(\mathbf{x},t):\Omega\rightarrow \mathbb{R}` models the source
-of waves and is usually described by a `Ricker Wavelet
-<https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__. The acoustic wave equation
-should satisfy the initial conditions :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`.
-We are employing no-reflective absorbing boundary condition :cite:`Clayton:1977`:
+which is assumed here a piecewise-constant and positive. The acoustic wave equation should satisfy the
+initial conditions :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We are employing no-reflective
+absorbing boundary condition :cite:`Clayton:1977`:
 
 .. math::  \frac{\partial u}{\partial t}- c\frac{\partial u}{\partial \mathbf{x}} = 0, \, \, 
            \forall \mathbf{x} \, \in \partial \Omega 
+
+
+The force term in Eq. (1) reads:
+
+.. math::
+
+    f(\mathbf{x},t) = r(t) q_s(\mathbf{x})  \quad  \quad (2)
+
+where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and 
+:math:`q_s(\mathbf{x})` is a source function. The implementation of `Ricker
+wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the following code::
+
+    def ricker_wavelet(t, fs, amp=1.0):
+        ts = 1.5
+        t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
+        return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
+                * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
+
 
 To solve the wave equation, we consider the following weak form over the domain :math:`\Omega`:
 
 .. math:: \int_{\Omega} \left(
     \frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right
-    ) \, dx = \int_{\Omega} f v \, dx, \quad \quad (1)
+    ) \, dx = \int_{\Omega} f v \, dx, \quad \quad (3)
 
 for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. The weak form
 implementation in Firedrake is written as follows::
@@ -84,24 +96,6 @@ implementation in Firedrake is written as follows::
 
 You can find more details about the wave equation with mass lumping on this
 `Firedrake demos <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
-
-The wave equation forcing :math:`f = f(\mathbf{x}, t)` represents a time-dependent wave source defined
-as:
-
-.. math::
-
-    f(\mathbf{x}_s,t) = r(t) \delta(\mathbf{x} - \mathbf{x}_s)  \quad  \quad (2)
-
-where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and
-:math:`\delta(\mathbf{x} - \mathbf{x}_s)` is the Dirac delta function. The implementation of `Ricker
-wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the following code::
-
-    def ricker_wavelet(t, fs, amp=1.0):
-        ts = 1.5
-        t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
-        return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
-                * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
-
 
 In Firedrake, we can simultaneously compute functional values and their gradients for multiple sources with 
 ``Ensemble`` class. This tutorial demonstrates how the ``Ensemble`` class is employed on the current inversion problem.
@@ -178,8 +172,8 @@ We define the receivers mesh and its function space :math:`V_r`::
 
 The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
-To model a point source represented by the Dirac delta function in Eq. (2), our first step is to
-construct the source mesh and define a function space :math:`V_s` accordingly::
+To model the source function :math:q_s: in Eq. (2), our first step is to construct the source mesh and
+define a function space :math:`V_s` accordingly::
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
     V_s = FunctionSpace(source_mesh, "DG", 0)
@@ -189,18 +183,17 @@ We then define the point source value :math:`d_s(\mathbf{x}_s) = 1.0`::
     d_s = Function(V_s)
     d_s.assign(1.0)
 
-In order to model the source term in the weak form wave equation (1). We interpolate the result of
-inner product of the source term and the test function in the function space :math:`V_s`::
+Finally, we interpolate the result of inner product::
 
-    cofunction_s = assemble(d_s * TestFunction(V_s) * dx)
+    q_s = assemble(d_s * TestFunction(V_s) * dx)
 
-which is a ``cofunction_s`` in :math:`V_s^*`. Next, we interpolate this ``cofunction_s`` onto the
-function space :math:`V^*` (dual space of :math:`V`)::
+which results in a :math:`q_s \in V_s^*`. Next, we interpolate this ``q_s`` onto the
+dual function space :math:`V^*`::
     
     source_cofunction = Cofunction(V.dual()).interpolate(cofunction_s)
 
-After defining the right-hand side of Eq. (2) (`source_cofunction`), we can proceed to compute the synthetic
-data and record them on the receivers::
+After defining the right-hand side of Eq. (1) (``source_cofunction``), we can proceed
+to compute the synthetic data and record them on the receivers::
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
