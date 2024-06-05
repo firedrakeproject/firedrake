@@ -240,10 +240,10 @@ class FunctionMixin(FloatingType):
         if riesz_representation == "l2":
             return Function(V, val=value.dat)
 
-        if not isinstance(value, Cofunction):
-            raise TypeError("Expected a Cofunction")
-
         elif riesz_representation in ("L2", "H1"):
+            if not isinstance(value, Cofunction):
+                raise TypeError("Expected a Cofunction")
+
             ret = Function(V)
             a = self._define_riesz_map_form(riesz_representation, V)
             firedrake.solve(a == value, ret, **solver_options)
@@ -253,7 +253,7 @@ class FunctionMixin(FloatingType):
             return riesz_representation(value)
 
         else:
-            raise NotImplementedError(
+            raise ValueError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _define_riesz_map_form(self, riesz_representation, V):
