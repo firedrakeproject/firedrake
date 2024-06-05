@@ -3479,7 +3479,7 @@ def compute_point_cone_global_sizes(PETSc.DM dm):
         CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
         arraySizes[1] += coneSize;
     for i in range(nleaves):
-        CHKERR(DMPlexGetConeSize(dm.dm, ilocal[i], &coneSize))
+        CHKERR(DMPlexGetConeSize(dm.dm, ilocal[i] if ilocal != NULL else i, &coneSize))
         arraySizes[1] -= coneSize;
     out = np.zeros((2, ), dtype=IntType)
     dm.comm.tompi4py().Allreduce(arraySizes, out, op=MPI.SUM)
