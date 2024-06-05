@@ -159,7 +159,7 @@ def _finalise_mesh(mesh, degree):
     y[cond] = y[cond] - (y[cond] - y1) / (y2 - y1) * (np.sqrt(r ** 2 - (x[cond] - Cx) ** 2) - s)
     cond = ((x > x2 - eps) & (x < x3 + eps) & (y > y3 - eps) & (y < y4 + eps))
     y[cond] = y[cond] + (y[cond] - y4) / (y3 - y4) * (np.sqrt(r ** 2 - (x[cond] - Cx) ** 2) - s)
-    return Mesh(f)
+    return Mesh(f, name=mesh.name)
 
 
 
@@ -183,7 +183,9 @@ dt_plot = 0.01
 ntimesteps = int(T / dt_float)
 t = Constant(0.0)
 dim = 2
-degree = 3  # 2 - 4
+degree = 4  # 2 - 4
+fname_checkpoint = "fsi3_Q4_Q3_nref0_0.001_shift10.h5"
+
 if use_netgen:
     nref = 1 #  # 2 - 5 tested for CSM 1 and 2
     mesh  = make_mesh_netgen(0.1 / 2 ** nref)
@@ -197,8 +199,8 @@ else:
     mesh = make_mesh(quadrilateral)
     if nref > 0:
         mesh = MeshHierarchy(mesh, nref)[-1]
-    mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
-    mesh_s = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_struct, mesh.topological_dimension())
+    mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension(), name="mesh_fluid")
+    mesh_s = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_struct, mesh.topological_dimension(), name="mesh_struct")
     mesh = _finalise_mesh(mesh, degree)
     mesh_f = _finalise_mesh(mesh_f, degree)
     mesh_s = _finalise_mesh(mesh_s, degree)
@@ -651,6 +653,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     v_f, v_s, u_f, u_s, p = split(solution)
     v_f_0, v_s_0, u_f_0, u_s_0, p_0 = split(solution_0)
     dv_f, dv_s, du_f, du_s, dp = split(TestFunction(V))
+    for subf, name in zip(solution.subfunctions, ["v_f", "v_s", "u_f", "u_s", "p"]):
+        subf.rename(name)
     def compute_elast_tensors(dim, u, lambda_s, mu_s):
         F = Identity(dim) + grad(u)
         J = det(F)
@@ -683,8 +687,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         inner(dot(- p_mid * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
         #inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
     else:  # CN
-        theta_p = Constant(1. / 2. + 100 * float(dt))
-        theta_m = Constant(1. / 2. - 100 * float(dt))
+        theta_p = Constant(1. / 2. + 1 * float(dt))
+        theta_m = Constant(1. / 2. - 1 * float(dt))
         #theta_p = Constant(1.)
         #theta_m = Constant(0.)
         v_f_dot = (v_f - v_f_0) / dt
@@ -814,6 +818,13 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     #v_f_ = solution.subfunctions[0]
     F_f_, J_f_, _, _ = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
     sigma_f_ = - p * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f_)))
+    """
+    with CheckpointFile(filename, mode="r") as f:
+        mesh = f.load_mesh(name="firedrake_default")
+        timestepping_history = f.get_timestepping_history(mesh, name="u")
+        timestepping_history_z = f.get_timestepping_history(mesh, name="z")
+        loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("index")[-2])
+    """
     for itimestep in range(ntimesteps):
         if mesh.comm.rank == 0:
             print(f"time = {dt_float * itimestep} : {itimestep} / {ntimesteps}", flush=True)
@@ -836,6 +847,13 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     #sample_FD[itimestep // (ntimesteps // nsample)] = FD
                     #sample_FL[itimestep // (ntimesteps // nsample)] = FL
                     #np.savetxt(outfile, np.concatenate([sample_t.reshape(-1, 1), sample_FD.reshape(-1, 1)], axis=1))
+        nchecksample = nsample
+        if True:#(itimestep + 1) % (ntimesteps // nchecksample) == 0:
+            idx = 10#(itimestep + 1) // (ntimesteps // nchecksample)
+            with CheckpointFile(fname_checkpoint, mode="a") as afile:
+                for ifield in range(len(solution.subfunctions)):
+                    afile.save_function(solution.subfunctions[ifield], idx=idx, timestepping_info={"time": float(t), "timestep": float(dt)})
+
     end = time.time()
     print(f"Time: {end - start}")
 else:
