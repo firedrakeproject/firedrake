@@ -47,14 +47,23 @@ absorbing boundary condition :cite:`Clayton:1977`:
            \forall \mathbf{x} \, \in \partial \Omega 
 
 
-The force term in Eq. (1) reads:
+To solve the wave equation, we consider the following weak form over the domain :math:`\Omega`:
+
+.. math:: \int_{\Omega} \left(
+    \frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right
+    ) \, dx = f^{*}, \quad \quad (2)
+
+for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. 
+
+The force term in Eq. (2) reads:
 
 .. math::
 
-    f(\mathbf{x},t) = r(t) q_s(\mathbf{x})  \quad  \quad (2)
+    f^{*}(\mathbf{x},t) = r(t) q_s(\mathbf{x})  \quad  \quad (3)
 
 where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and 
-:math:`q_s(\mathbf{x})` is a source function. The implementation of `Ricker
+:math:`q_s(\mathbf{x}) \in V^{\ast}` is a source function, :math:`V^{\ast}` being the dual function space of :math:`V`.
+The implementation of `Ricker
 wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the following code::
 
     def ricker_wavelet(t, fs, amp=1.0):
@@ -64,14 +73,8 @@ wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 
-To solve the wave equation, we consider the following weak form over the domain :math:`\Omega`:
 
-.. math:: \int_{\Omega} \left(
-    \frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right
-    ) \, dx = \int_{\Omega} f v \, dx, \quad \quad (3)
-
-for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. The weak form
-implementation in Firedrake is written as follows::
+The weak form implementation in Firedrake is written as follows::
 
     import finat
     from firedrake import *
@@ -150,7 +153,7 @@ in the following figure:
 
         
 FWI seeks to estimate the pressure wave velocity based on the observed data stored at the receivers.
-These data are subject to influences of the subsurface medium while wavespropagate from the sources.
+These data are subject to influences of the subsurface medium while waves propagate from the sources.
 In this example, we emulate observed data by executing the acoustic wave equation with a synthetic
 pressure wave velocity model. The synthetic pressure wave velocity model is referred to here as the
 true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true`` consisting of a
@@ -172,7 +175,8 @@ We define the receivers mesh and its function space :math:`V_r`::
 
 The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
-To model the source function :math:q_s: in Eq. (2), our first step is to construct the source mesh and
+
+To model the source function :math:`q_s \in V^{\ast}`, our first step is to construct the source mesh and
 define a function space :math:`V_s` accordingly::
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
@@ -183,17 +187,18 @@ We then define the point source value :math:`d_s(\mathbf{x}_s) = 1.0`::
     d_s = Function(V_s)
     d_s.assign(1.0)
 
-Finally, we interpolate the result of inner product::
+We interpolate the inner product::
 
-    q_s = assemble(d_s * TestFunction(V_s) * dx)
+    source_cofunction = assemble(d_s * TestFunction(V_s) * dx)
 
-which results in a :math:`q_s \in V_s^*`. Next, we interpolate this ``q_s`` onto the
-dual function space :math:`V^*`::
+onto the dual function space :math:`V^*`::
     
-    source_cofunction = Cofunction(V.dual()).interpolate(cofunction_s)
+    q_s = Cofunction(V.dual()).interpolate(source_cofunction)
 
-After defining the right-hand side of Eq. (1) (``source_cofunction``), we can proceed
-to compute the synthetic data and record them on the receivers::
+which returns the source function :math:`q_s \in V^{\ast}`.
+
+
+We now can proceed to compute the synthetic data and record them on the receivers::
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
@@ -202,7 +207,7 @@ to compute the synthetic data and record them on the receivers::
     interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
 
     for step in range(total_steps):
-        f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
+        f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
@@ -245,7 +250,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
     interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
     J_val = 0.0
     for step in range(total_steps):
-        f.assign(ricker_wavelet(step * dt, frequency_peak) * source_cofunction)
+        f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
@@ -271,9 +276,8 @@ The ``minimize`` function executes the optimisation algorithm until the stopping
 
 .. warning::
 
-    In this demonstration, we use the SciPy Python library. However, for scenarios requiring higher levels
-    of spatial parallelism, it is important to assess whether SciPy is the optimal choice and to ensure it is
-    properly configured for your parallel executions.
+    The ``minimize`` function employs the SciPy Python library. However, for scenarios requiring higher levels
+    of spatial parallelism, you should evaluate how SciPy works and whether it is the best option for your problem.
     
 .. note::
 
