@@ -83,6 +83,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat pbrubeck/macro-sympy \
+            --package-branch finat pbrubeck/gem-conditionals \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
