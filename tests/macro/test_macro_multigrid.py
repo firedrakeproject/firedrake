@@ -139,14 +139,14 @@ def test_macro_multigrid(hierarchy, degree, variant):
     bcs = [DirichletBC(V, 0, "on_boundary")]
 
     uh = Function(V)
-    sp={"mat_type": "matfree",
+    sp = {
+        "mat_type": "matfree",
         "ksp_type": "cg",
         "pc_type": "mg",
         "mg_levels_ksp_type": "chebyshev",
         "mg_levels_pc_type": "jacobi",
         "mg_coarse_pc_type": "python",
         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "ksp_monitor": None,
     }
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=sp)
