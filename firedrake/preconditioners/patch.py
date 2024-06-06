@@ -21,7 +21,6 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2.mpi import COMM_SELF
 import pyop2.types
 import pyop2.parloop
 from pyop2.compilation import load
