@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 
 @pytest.fixture(scope='module')
@@ -62,8 +63,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     elif request.param == 1:
@@ -110,8 +110,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     else:
@@ -159,8 +158,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         }
 
 
