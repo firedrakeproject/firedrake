@@ -153,6 +153,7 @@ linkcheck_ignore = [
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
     r'https://*.baylor.edu*',
+    r'https://www.tuomaskarna.com',
 ]
 linkcheck_timeout = 30
 
