@@ -20,7 +20,6 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2.mpi import COMM_SELF
 import pyop2.types
 from pyop2.compilation import load
 from pyop2.codegen.builder import Pack, MatPack, DatPack
