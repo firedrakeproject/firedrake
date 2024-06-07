@@ -209,6 +209,7 @@ def test_io_function_base(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -236,6 +237,7 @@ def test_io_function_real(cell_type, tmpdir):
             assert abs(valueB - valueA) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -265,6 +267,7 @@ def test_io_function_mixed(cell_family_degree_tuples, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -303,6 +306,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
             assert assemble(inner(fB - fBe, fB - fBe) * dx) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -333,6 +337,7 @@ def test_io_function_vector(cell_family_degree_dim, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -358,6 +363,7 @@ def test_io_function_tensor(cell_family_degree_shape_symmetry, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -393,6 +399,7 @@ def test_io_function_mixed_vector(cell_type, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -420,6 +427,7 @@ def test_io_function_extrusion(cell_family_degree_vfamily_vdegree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -444,6 +452,7 @@ def test_io_function_extrusion_real(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -468,6 +477,7 @@ def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -499,6 +509,7 @@ def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir)
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 def _compute_random_layers(base):
@@ -543,6 +554,7 @@ def test_io_function_extrusion_variable_layer1(cell_family_degree_vfamily_vdegre
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 # -- Unable to test in parallel due to potential bug with variable layers extrusion + project in parallel (Issue #2169)
@@ -572,6 +584,7 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name, variable_layers=True)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -601,6 +614,7 @@ def test_io_function_extrusion_periodic(tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -626,3 +640,4 @@ def test_io_function_naming(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, alt_name, comm, method, mesh_name)
+        comm.Free()
