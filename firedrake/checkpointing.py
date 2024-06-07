@@ -98,10 +98,10 @@ class DumbCheckpoint(object):
     def __init__(self, basename, single_file=True,
                  mode=FILE_UPDATE, comm=None):
         import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter('always', DeprecationWarning)
-            warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
-                          DeprecationWarning)
+        #with warnings.catch_warnings():
+        #    warnings.simplefilter('always', DeprecationWarning)
+        #    warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
+        #                  DeprecationWarning)
         self.comm = comm or COMM_WORLD
         self._comm = internal_comm(self.comm, self)
         self.mode = mode
