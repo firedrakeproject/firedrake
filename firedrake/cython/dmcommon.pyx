@@ -2471,7 +2471,7 @@ def get_cell_remote_ranks(PETSc.DM plex):
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        PetscInt cStart, cEnd, ncells, i
+        PetscInt cStart, cEnd, ncells, i, p
         PETSc.SF sf
         PetscInt nroots, nleaves
         const PetscInt *ilocal = NULL
@@ -2487,8 +2487,9 @@ def get_cell_remote_ranks(PETSc.DM plex):
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
         for i in range(nleaves):
-            if cStart <= ilocal[i] < cEnd:
-                result[ilocal[i] - cStart] = iremote[i].rank
+            p = ilocal[i] if ilocal else i
+            if cStart <= p < cEnd:
+                result[p - cStart] = iremote[i].rank
 
     return result
 
@@ -3290,7 +3291,7 @@ def exchange_cell_orientations(
         # Overwrite values in the halo region with remote values
         get_height_stratum(plex.dm, 0, &cStart, &cEnd)
         for i in range(nleaves):
-            c = ilocal[i]
+            c = ilocal[i] if ilocal else i
             if cStart <= c < cEnd:
                 CHKERR(PetscSectionGetOffset(section.sec, c, &l))
                 CHKERR(PetscSectionGetOffset(new_section.sec, c, &r))
@@ -3430,7 +3431,7 @@ def set_adjacency_callback(PETSc.DM dm not None):
         CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
         get_chart(dm.dm, &pStart, &pEnd)
         for p in range(nleaves):
-            CHKERR(DMLabelSetValue(label, ilocal[p], 1))
+            CHKERR(DMLabelSetValue(label, ilocal[p] if ilocal else p, 1))
         CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
     CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
 
@@ -3479,7 +3480,7 @@ def compute_point_cone_global_sizes(PETSc.DM dm):
         CHKERR(DMPlexGetConeSize(dm.dm, p, &coneSize))
         arraySizes[1] += coneSize;
     for i in range(nleaves):
-        CHKERR(DMPlexGetConeSize(dm.dm, ilocal[i] if ilocal != NULL else i, &coneSize))
+        CHKERR(DMPlexGetConeSize(dm.dm, ilocal[i] if ilocal else i, &coneSize))
         arraySizes[1] -= coneSize;
     out = np.zeros((2, ), dtype=IntType)
     dm.comm.tompi4py().Allreduce(arraySizes, out, op=MPI.SUM)
@@ -3603,7 +3604,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
     n = 0
     # ilocal == NULL if local leaf points are [0, 1, 2, ...).
     for i in range(nleaves):
-        p = ilocal[i] if ilocal != NULL else i
+        p = ilocal[i] if ilocal else i
         CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
         n += dof
     CHKERR(PetscMalloc1(n, &dof_ilocal))
@@ -3611,7 +3612,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
     n = 0
     for i in range(nleaves):
         # ilocal == NULL if local leaf points are [0, 1, 2, ...).
-        p = ilocal[i] if ilocal != NULL else i
+        p = ilocal[i] if ilocal else i
         assert remote_offsets[p] >= 0
         CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
         CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
@@ -3701,7 +3702,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
     ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
     for i in range(nleaves):
-        p = ilocal[i] if ilocal != NULL else i
+        p = ilocal[i] if ilocal else i
         ownership_loss[p] = 1
     unit = MPI._typedict[np.dtype(IntType).char]
     ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
