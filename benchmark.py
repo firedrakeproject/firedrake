@@ -1,3 +1,5 @@
+import os
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 from firedrake import *
@@ -173,19 +175,10 @@ def _elevate_degree(mesh, degree):
     return Mesh(f)
 
 
+dim = 2
 use_netgen = False
 quadrilateral = True
-
-T = 20 # 10.0 # 12.0
-dt_float = 0.001  #.002
-dt = Constant(dt_float)  #0.001
-dt_plot = 0.01
-ntimesteps = int(T / dt_float)
-t = Constant(0.0)
-dim = 2
 degree = 4  # 2 - 4
-fname_checkpoint = "fsi3_Q4_Q3_nref0_0.001_shift10.h5"
-
 if use_netgen:
     nref = 1 #  # 2 - 5 tested for CSM 1 and 2
     mesh  = make_mesh_netgen(0.1 / 2 ** nref)
@@ -204,6 +197,7 @@ else:
     mesh = _finalise_mesh(mesh, degree)
     mesh_f = _finalise_mesh(mesh_f, degree)
     mesh_s = _finalise_mesh(mesh_s, degree)
+
 """
 #mesh.topology_dm.viewFromOptions("-dm_view")
 v = assemble(Constant(1.0, domain=mesh) * ds(label_circle))
@@ -264,6 +258,12 @@ if False:
 case = "FSI3_2"
 
 if case in ["CFD1", "CFD2", "CFD3"]:
+    T = 20 # 10.0 # 12.0
+    dt = Constant(0.0005)  #0.001
+    dt_plot = 0.01
+    ntimesteps = int(T / float(dt))
+    t = Constant(0.0)
+    CNshift = 2
     if case == "CFD1":
         rho_f = 1.e+3
         nu_f = 1.e-3
@@ -343,7 +343,7 @@ if case in ["CFD1", "CFD2", "CFD3"]:
     for itimestep in range(ntimesteps):
         if mesh.comm.rank == 0:
             print(f"{itimestep} / {ntimesteps}", flush=True)
-        t.assign((itimestep + 1) * dt_float)
+        t.assign((itimestep + 1) * float(dt))
         solver.solve()
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
@@ -354,6 +354,12 @@ if case in ["CFD1", "CFD2", "CFD3"]:
             print(f"FL = {FL}")
     print("num cells = ", mesh_f.comm.allreduce(mesh_f.cell_set.size))
 elif case in ["CSM1", "CSM2", "CSM3"]:
+    T = 20 # 10.0 # 12.0
+    dt = Constant(0.0005)  #0.001
+    dt_plot = 0.01
+    ntimesteps = int(T / float(dt))
+    t = Constant(0.0)
+    CNshift = 2
     if case == "CSM1":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -449,7 +455,7 @@ elif case in ["CSM1", "CSM2", "CSM3"]:
         for itimestep in range(ntimesteps):
             if mesh.comm.rank == 0:
                 print(f"{itimestep} / {ntimesteps}", flush=True)
-            t.assign((itimestep + 1) * dt_float)
+            t.assign((itimestep + 1) * float(dt))
             solver.solve()
             for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
                 subfunction_0.assign(subfunction)
@@ -457,6 +463,12 @@ elif case in ["CSM1", "CSM2", "CSM3"]:
             if mesh.comm.rank == 0:
                 print(u_A)
 elif case in ["FSI1", "FSI2", "FSI3"]:
+    T = 20 # 10.0 # 12.0
+    dt = Constant(0.0005)  #0.001
+    dt_plot = 0.01
+    ntimesteps = int(T / float(dt))
+    t = Constant(0.0)
+    CNshift = 2
     if case == "FSI1":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -577,7 +589,6 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     problem = NonlinearVariationalProblem(residual, solution, bcs=[bc_inflow, bc_noslip_v, bc_noslip_u, bc_noslip_u_int])
     #problem = NonlinearVariationalProblem(residual, solution, bcs=[bc_inflow, bc_noslip_v, bc_noslip_u])
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-    import time
     start = time.time()
     nsample = int(T / dt_plot)
     sample_t = np.arange(0.0, T, dt_plot) + dt_plot
@@ -591,8 +602,8 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
              outfile.write("t val" + "\n")
     for itimestep in range(ntimesteps):
         if mesh.comm.rank == 0:
-            print(f"time = {dt_float * itimestep} : {itimestep} / {ntimesteps}", flush=True)
-        t.assign((itimestep + 1) * dt_float)
+            print(f"time = {float(dt) * itimestep} : {itimestep} / {ntimesteps}", flush=True)
+        t.assign((itimestep + 1) * float(dt))
         solver.solve()
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
@@ -615,6 +626,12 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     end = time.time()
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
+    T = 20 # 10.0 # 12.0
+    dt = Constant(0.002)  #0.001
+    dt_plot = 0.01
+    t = Constant(0.0)
+    CNshift = 10
+    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref0_0.002_shift{CNshift}"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -687,8 +704,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         inner(dot(- p_mid * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f_mid), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
         #inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
     else:  # CN
-        theta_p = Constant(1. / 2. + 1 * float(dt))
-        theta_m = Constant(1. / 2. - 1 * float(dt))
+        theta_p = Constant(1. / 2. + CNshift * float(dt))
+        theta_m = Constant(1. / 2. - CNshift * float(dt))
         #theta_p = Constant(1.)
         #theta_m = Constant(0.)
         v_f_dot = (v_f - v_f_0) / dt
@@ -802,7 +819,6 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     }
     problem = NonlinearVariationalProblem(residual, solution, bcs=[bc_v_f_inflow, bc_v_f_zero, bc_v_f_noslip, bc_u_f_zero, bc_u_f_noslip, bc_v_s_zero, bc_u_s_zero])
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-    import time
     start = time.time()
     nsample = int(T / dt_plot)
     sample_t = np.arange(0.0, T, dt_plot) + dt_plot
@@ -818,20 +834,27 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     #v_f_ = solution.subfunctions[0]
     F_f_, J_f_, _, _ = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
     sigma_f_ = - p * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f_)))
-    """
-    with CheckpointFile(filename, mode="r") as f:
-        mesh = f.load_mesh(name="firedrake_default")
-        timestepping_history = f.get_timestepping_history(mesh, name="u")
-        timestepping_history_z = f.get_timestepping_history(mesh, name="z")
-        loaded_v = f.load_function(mesh, "v", idx=timestepping_history.get("index")[-2])
-    """
-    for itimestep in range(ntimesteps):
+    if os.path.exists(fname_checkpoint + ".h5"):
+        with DumbCheckpoint(fname_checkpoint, mode=FILE_READ) as chk:
+            steps, indices = chk.get_timesteps()
+            t.assign(steps[-1])
+            iplot = indices[-1]
+            chk.set_timestep(float(t), iplot)
+            for subsolution, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
+                chk.load(subsolution)
+                subfunction_0.assign(subsolution)
+    else:
+        iplot = 0
+    ii = 0
+    while float(t) < T:
+        t.assign(float(t) + float(dt))
+        ii += 1
         if mesh.comm.rank == 0:
-            print(f"time = {dt_float * itimestep} : {itimestep} / {ntimesteps}", flush=True)
-        t.assign((itimestep + 1) * dt_float)
+            print(f"Computing solution at time = {float(t)} (dt = {float(dt)})", flush=True)
         solver.solve()
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
+        # Everything is now up to date.
         FD = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[0] * ds_f((label_circle, label_interface)))
         FL = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[1] * ds_f((label_circle, label_interface)))
         u_A = solution.subfunctions[3].at(pointA)
@@ -839,7 +862,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             print(f"FD     = {FD}")
             print(f"FL     = {FL}")
             print(f"uA     = {u_A}")
-            if (itimestep + 1) % (ntimesteps // nsample) == 0:
+            if ii % 10 == 0:
                 with open("time_series_FD.dat", 'a') as outfile:
                     outfile.write(f"{float(t)} {FD}" + "\n")
                 with open("time_series_FL.dat", 'a') as outfile:
@@ -847,12 +870,12 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     #sample_FD[itimestep // (ntimesteps // nsample)] = FD
                     #sample_FL[itimestep // (ntimesteps // nsample)] = FL
                     #np.savetxt(outfile, np.concatenate([sample_t.reshape(-1, 1), sample_FD.reshape(-1, 1)], axis=1))
-        nchecksample = nsample
-        if True:#(itimestep + 1) % (ntimesteps // nchecksample) == 0:
-            idx = 10#(itimestep + 1) // (ntimesteps // nchecksample)
-            with CheckpointFile(fname_checkpoint, mode="a") as afile:
-                for ifield in range(len(solution.subfunctions)):
-                    afile.save_function(solution.subfunctions[ifield], idx=idx, timestepping_info={"time": float(t), "timestep": float(dt)})
+        if ii % 10 == 0:
+            iplot += 1
+            with DumbCheckpoint(fname_checkpoint, mode=FILE_UPDATE) as chk:
+                chk.set_timestep(float(t), iplot)
+                for subsolution in solution.subfunctions:
+                    chk.store(subsolution)
 
     end = time.time()
     print(f"Time: {end - start}")
