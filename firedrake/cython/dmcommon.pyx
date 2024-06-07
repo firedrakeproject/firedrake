@@ -2553,7 +2553,7 @@ cdef struct CommFacet:
     PetscInt global_u, global_v
     PetscInt local_facet
 
-cdef int CommFacet_cmp(void *x_, void *y_) noexcept nogil:
+cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
     """Three-way comparison C function for CommFacet structs."""
     cdef:
         CommFacet *x = <CommFacet *>x_
