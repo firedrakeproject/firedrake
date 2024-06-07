@@ -245,16 +245,6 @@ if mesh.comm.size == 1:
     plt.savefig('mesh_s.pdf')
     #raise RuntimeError("not error")
 
-if False:
-    #Vplot = FunctionSpace(mesh_f, "CG", 2)
-    #fplot = Function(Vplot).interpolate(x_f)
-    #pgfplot(fplot, "scalar.dat", degree=2)
-    Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
-    fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
-    pgfplot(fplot, "quiver.dat", degree=0)
-    import pdb;pdb.set_trace()
-
-
 case = "FSI3_2"
 
 if case in ["CFD1", "CFD2", "CFD3"]:
@@ -632,6 +622,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     t = Constant(0.0)
     CNshift = 10
     fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref0_0.002_shift{CNshift}"
+    fname_FD = f"time_series_FD_Q4_Q3_nref0_0.002_shift{CNshift}.dat"
+    fname_FL = f"time_series_FL_Q4_Q3_nref0_0.002_shift{CNshift}.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -826,11 +818,6 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     sample_FL = np.empty_like(sample_t)
     print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size), flush=True)
     print("num DoFs = ", V.dim(), flush=True)
-    if mesh.comm.rank == 0:
-        with open("time_series_FD.dat", 'w') as outfile:
-             outfile.write("t val" + "\n")
-        with open("time_series_FL.dat", 'w') as outfile:
-             outfile.write("t val" + "\n")
     #v_f_ = solution.subfunctions[0]
     F_f_, J_f_, _, _ = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
     sigma_f_ = - p * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f_)))
@@ -845,12 +832,25 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                 subfunction_0.assign(subsolution)
     else:
         iplot = 0
+        if mesh.comm.rank == 0:
+            with open(fname_FD, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+            with open(fname_FL, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+    if True:
+        coords = mesh_f.coordinates.dat.data_with_halos
+        coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
+        pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
+        #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
+        #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
+        #pgfplot(fplot, "quiver.dat", degree=0)
+        raise RuntimeError("only plotted solution")
     ii = 0
     while float(t) < T:
         t.assign(float(t) + float(dt))
         ii += 1
         if mesh.comm.rank == 0:
-            print(f"Computing solution at time = {float(t)} (dt = {float(dt)})", flush=True)
+            print(f"Computing solution at time = {float(t)} (dt = {float(dt)}, CNshift={CNshift})", flush=True)
         solver.solve()
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
@@ -863,9 +863,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             print(f"FL     = {FL}")
             print(f"uA     = {u_A}")
             if ii % 10 == 0:
-                with open("time_series_FD.dat", 'a') as outfile:
+                with open(fname_FD, 'a') as outfile:
                     outfile.write(f"{float(t)} {FD}" + "\n")
-                with open("time_series_FL.dat", 'a') as outfile:
+                with open(fname_FL, 'a') as outfile:
                     outfile.write(f"{float(t)} {FL}" + "\n")
                     #sample_FD[itimestep // (ntimesteps // nsample)] = FD
                     #sample_FL[itimestep // (ntimesteps // nsample)] = FL
