@@ -285,7 +285,7 @@ class Max(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return numpy.find_common_type([], [a.dtype, b.dtype])
+        return numpy.result_type(a.dtype, b.dtype)
 
 
 class Sum(Scalar):
@@ -299,7 +299,7 @@ class Sum(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return numpy.find_common_type([], [a.dtype, b.dtype])
+        return numpy.result_type(a.dtype, b.dtype)
 
 
 class Product(Scalar):
@@ -313,7 +313,7 @@ class Product(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return numpy.find_common_type([], [a.dtype, b.dtype])
+        return numpy.result_type(a.dtype, b.dtype)
 
 
 class QuotientBase(Scalar):
@@ -327,7 +327,7 @@ class QuotientBase(Scalar):
     @cached_property
     def dtype(self):
         a, b = self.children
-        return numpy.find_common_type([], [a.dtype, b.dtype])
+        return numpy.result_type(a.dtype, b.dtype)
 
 
 class Quotient(QuotientBase):
