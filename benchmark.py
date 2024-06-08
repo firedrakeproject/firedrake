@@ -620,7 +620,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     dt = Constant(0.002)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 10
+    CNshift = 100
     fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref0_0.002_shift{CNshift}"
     fname_FD = f"time_series_FD_Q4_Q3_nref0_0.002_shift{CNshift}.dat"
     fname_FL = f"time_series_FL_Q4_Q3_nref0_0.002_shift{CNshift}.dat"
@@ -837,7 +837,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if True:
+    if False:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
