@@ -617,14 +617,15 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.002)  #0.001
+    dt = Constant(0.001)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 10
+    CNshift = 100
     elast = True
-    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref0_0.002_shift{CNshift}_{elast}"
-    fname_FD = f"time_series_FD_Q4_Q3_nref0_0.002_shift{CNshift}_{elast}.dat"
-    fname_FL = f"time_series_FL_Q4_Q3_nref0_0.002_shift{CNshift}_{elast}.dat"
+    linear_elast = True
+    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
+    fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+    fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -721,6 +722,16 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     J_f * inner(p, tr(dot(grad(dv_f), inv(F_f)))) +
                     J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
                     inner(dot(F_f, S_f), grad(du_f))) * dx_f
+        def _fluid_elast_lin(v_f, u_f, p):
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            epsilon = sym(grad(u_f))
+            sigma = 2 * mu_s * epsilon + lambda_s * tr(epsilon) * Identity(dim)
+            return (inner(rho_f * J_f * v_f_dot, dv_f) +
+                    inner(rho_f * J_f * dot(dot(grad(v_f), inv(F_f)), v_f - u_f_dot), dv_f) +
+                    inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
+                    J_f * inner(p, tr(dot(grad(dv_f), inv(F_f)))) +
+                    J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
+                    inner(sigma, grad(du_f))) * dx_f
         def _struct(v_f, u_f, p, v_s, u_s):
             F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
             F_s, J_s, E_s, S_s = compute_elast_tensors(dim, u_s, lambda_s, mu_s)
@@ -730,8 +741,12 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     inner(J_s * (u_s_dot - v_s), du_s)) * dx_s + \
                    inner(dot(- p('|') * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f('|')), inv(F_f))), dot(J_f * transpose(inv(F_f)), n_f)), dv_s('|')) * ds_s(label_interface)
         if elast:
-            residual_f = theta_p * _fluid_elast(v_f, u_f, p) + \
-                         theta_m * _fluid_elast(v_f_0, u_f_0, p_0)
+            if linear_elast:
+                residual_f = theta_p * _fluid_elast_lin(v_f, u_f, p) + \
+                             theta_m * _fluid_elast_lin(v_f_0, u_f_0, p_0)
+            else:
+                residual_f = theta_p * _fluid_elast(v_f, u_f, p) + \
+                             theta_m * _fluid_elast(v_f_0, u_f_0, p_0)
         else:
             residual_f = theta_p * _fluid_laplace(v_f, u_f, p) + \
                          theta_m * _fluid_laplace(v_f_0, u_f_0, p_0)
@@ -839,6 +854,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             steps, indices = chk.get_timesteps()
             t.assign(steps[-1])
             iplot = indices[-1]
+            print(f"loaded solution at t = {float(t)}")
             chk.set_timestep(float(t), iplot)
             for subsolution, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
                 chk.load(subsolution)
@@ -850,7 +866,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if True:
+    if False:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
