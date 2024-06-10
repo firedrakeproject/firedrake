@@ -176,11 +176,11 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = False
+use_netgen = True
 quadrilateral = True
 degree = 4  # 2 - 4
 if use_netgen:
-    nref = 1 #  # 2 - 5 tested for CSM 1 and 2
+    nref = 0 #  # 2 - 5 tested for CSM 1 and 2
     mesh  = make_mesh_netgen(0.1 / 2 ** nref)
     mesh = _elevate_degree(mesh, degree)
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
@@ -617,15 +617,25 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.001)  #0.001
+    dt = Constant(0.002)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 100
+    CNshift = 10
     elast = True
     linear_elast = True
-    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp"
-    fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp.dat"
-    fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp.dat"
+    if use_netgen:
+        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen"
+        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
+        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
+    else:
+        if quadrilateral:
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+        else:
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
+            fname_FD = f"time_series_FD_P4_P3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_FL = f"time_series_FL_P4_P3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -655,9 +665,14 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     g_s = Constant(0.0)
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
-    V_0 = VectorFunctionSpace(mesh_f, "CG", degree)
-    V_1 = VectorFunctionSpace(mesh_s, "CG", degree)
-    V_2 = FunctionSpace(mesh_f, "CG", degree - 1)
+    if use_netgen or not quadrilateral:
+        V_0 = VectorFunctionSpace(mesh_f, "P", degree)
+        V_1 = VectorFunctionSpace(mesh_s, "P", degree)
+        V_2 = FunctionSpace(mesh_f, "P", degree - 2)
+    else:
+        V_0 = VectorFunctionSpace(mesh_f, "Q", degree)
+        V_1 = VectorFunctionSpace(mesh_s, "Q", degree)
+        V_2 = FunctionSpace(mesh_f, "Q", degree - 1)
     V = V_0 * V_1 * V_0 * V_1 * V_2
     solution = Function(V)
     solution_0 = Function(V)
@@ -866,7 +881,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if True:
+    if False:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
