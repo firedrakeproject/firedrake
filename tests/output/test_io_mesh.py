@@ -127,6 +127,7 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -178,3 +179,4 @@ def test_io_mesh_default_mesh_name(tmpdir):
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
+        comm.Free()
