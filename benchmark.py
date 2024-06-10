@@ -38,7 +38,7 @@ label_circle = 5
 label_interface = 6
 
 
-def make_mesh_netgen(h):
+def make_mesh_netgen(h, nref, degree):
     #                   points
     #    3                                      2
     #    +--------------------------------------+
@@ -110,6 +110,9 @@ def make_mesh_netgen(h):
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
     mesh = Mesh(ngmesh)
+    #if nref > 0:
+    #    #mesh = MeshHierarchy(mesh, nref, netgen_flags={"degree": degree})[-1]
+    #    mesh = MeshHierarchy(mesh, nref)[-1]
     V = FunctionSpace(mesh, "HDiv Trace", 0)
     f0 = Function(V)
     bc0 = DirichletBC(V, 1., (6, 7, 8, 9, 5))
@@ -180,8 +183,8 @@ use_netgen = True
 quadrilateral = True
 degree = 4  # 2 - 4
 if use_netgen:
-    nref = 0 #  # 2 - 5 tested for CSM 1 and 2
-    mesh  = make_mesh_netgen(0.1 / 2 ** nref)
+    nref = 1 #  # 2 - 5 tested for CSM 1 and 2
+    mesh  = make_mesh_netgen(0.1 / 2 ** nref,  nref, degree)
     mesh = _elevate_degree(mesh, degree)
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
     mesh_f = _elevate_degree(mesh_f, degree)
@@ -617,16 +620,16 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.002)  #0.001
+    dt = Constant(0.001)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
     CNshift = 10
     elast = True
     linear_elast = True
     if use_netgen:
-        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen"
-        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
-        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
+        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen"
+        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
+        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
     else:
         if quadrilateral:
             fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
@@ -901,7 +904,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         # Everything is now up to date.
         FD = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[0] * ds_f((label_circle, label_interface)))
         FL = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[1] * ds_f((label_circle, label_interface)))
-        u_A = solution.subfunctions[3].at(pointA)
+        u_A = solution.subfunctions[3].at(pointA, tolerance=1.e-6)
         if mesh.comm.rank == 0:
             print(f"FD     = {FD}")
             print(f"FL     = {FL}")
