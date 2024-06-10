@@ -90,7 +90,6 @@ jobs:
           python "$(which firedrake-clean)"
           python -m pip install \
             pytest-cov pytest-timeout pytest-xdist pytest-timeout ipympl
-          python -m pip uninstall -y pytest-mpi
           python -m pip list
       - name: Test Firedrake Serial
         run: |
