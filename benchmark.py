@@ -623,9 +623,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     CNshift = 100
     elast = True
     linear_elast = True
-    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
-    fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
-    fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+    fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp"
+    fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp.dat"
+    fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_temp.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -866,7 +866,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if False:
+    if True:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
