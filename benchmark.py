@@ -183,7 +183,7 @@ def _elevate_degree(mesh, degree):
 
 dim = 2
 use_netgen = False
-quadrilateral = True
+quadrilateral = False
 degree = 4  # 2 - 4
 if use_netgen:
     nref = 1 #  # 2 - 5 tested for CSM 1 and 2
@@ -251,7 +251,7 @@ if mesh.comm.size == 1:
     plt.savefig('mesh_s.pdf')
     #raise RuntimeError("not error")
 
-case = "FSI3"
+case = "FSI3_2"
 
 if case in ["CFD1", "CFD2", "CFD3"]:
     T = 20 # 10.0 # 12.0
@@ -665,10 +665,10 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.001)  #0.001
+    dt = Constant(0.002)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 1
+    CNshift = 10
     elast = True
     linear_elast = True
     if use_netgen:
@@ -681,9 +681,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
             fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
         else:
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
-            fname_FD = f"time_series_FD_P4_P3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
-            fname_FL = f"time_series_FL_P4_P3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}"
+            fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
