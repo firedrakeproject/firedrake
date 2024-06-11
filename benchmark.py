@@ -139,7 +139,7 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = True
+use_netgen = False
 quadrilateral = False
 degree = 4  # 2 - 4
 if use_netgen:
@@ -671,8 +671,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
     # ALE constants
-    nu_ale = Constant(float(nu_s))
-    mu_ale = Constant(float(mu_s))
+    nu_ale = Constant(0.45)  # Constant(float(nu_s))
+    mu_ale = Constant(1.0 * 1e+6)  # Constant(float(mu_s))
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
@@ -816,6 +816,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     bc_u_s_zero = DirichletBC(V.sub(3), Constant((0, 0)), (label_circle, ))
     solver_parameters = {
         "mat_type": "aij",
+        "snes_mat_it": 1000,
         "snes_rtol": 1.e-10,
         "snes_atol": 1.e-10,
         "snes_monitor": None,
@@ -895,14 +896,14 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if False:
+    if True:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
-        Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
-        fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
-        pgfplot(fplot, "quiver.dat", degree=0)
-        raise RuntimeError("only plotted solution")
+        #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
+        #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
+        #pgfplot(fplot, "quiver.dat", degree=0)
+        #raise RuntimeError("only plotted solution")
     ii = 0
     while float(t) < T:
         t.assign(float(t) + float(dt))
