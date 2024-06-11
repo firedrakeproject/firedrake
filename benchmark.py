@@ -39,89 +39,46 @@ label_interface = 6
 
 
 def make_mesh_netgen(h, nref, degree):
-    #                   points
-    #    3                                      2
-    #    +--------------------------------------+
-    #    |     __ 9                             |
-    #    |  11/10 \8___________15               |
-    #    | 12+     +7__________|                |
-    #    |  13\__ /6           14               |
-    #    |      4 5                             |
-    #    +--------------------------------------+
-    #    0                                      1
     #                   labels
     #                      3
     #    +--------------------------------------+
-    #    |     __ 7                             |
-    #    |  8 /   \ ____12_____                 |
-    #  4 |   |     +6__________|11              | 2
-    #    |  9 \__ /     10                      |
-    #    |        5                             |
+    #    |     __ 5                             |
+    #    |  6 /   \ ____11_____                 |
+    #  4 |   |  12,13__________|10              | 2
+    #    |  7 \__ /      9                      |
+    #    |        8                             |
     #    +--------------------------------------+
     #                      1
     import netgen
-    from netgen.geom2d import SplineGeometry
-    comm = COMM_WORLD
-    if comm.Get_rank() == 0:
-        geom = SplineGeometry()
-        pnts = [(0, 0),  # 0
-                (L, 0),  # 1
-                (L, H),  # 2
-                (0, H),  # 3
-                (0.20, 0.15),  # 4
-                (0.240824829046386, 0.15),  # 5
-                (0.248989794855664, 0.19),  # 6
-                (0.25, 0.20),  # 7
-                (0.248989794855664, 0.21),  # 8
-                (0.240824829046386, 0.25),  # 9
-                (0.20, 0.25),  # 10
-                (0.15, 0.25),  # 11
-                (0.15, 0.20),  # 12
-                (0.15, 0.15),  # 13
-                (0.60, 0.19),  # 14
-                (0.60, 0.21),  # 15
-                (0.55, 0.19),  # 16
-                (0.56, 0.15),  # 17
-                (0.60, 0.15),  # 18
-                (0.65, 0.15),  # 19
-                (0.65, 0.20),  # 20
-                (0.65, 0.25),  # 21
-                (0.60, 0.25),  # 22
-                (0.56, 0.25),  # 23
-                (0.55, 0.21),  # 24
-                (0.65, 0.25),  # 25
-                (0.65, 0.15)]  # 26
-        pind = [geom.AppendPoint(*pnt) for pnt in pnts]
-        geom.Append(['line', pind[3], pind[0]], leftdomain=1, rightdomain=0, bc="inlet")
-        geom.Append(['line', pind[1], pind[2]], leftdomain=1, rightdomain=0, bc="outlet")
-        geom.Append(['line', pind[0], pind[1]], leftdomain=1, rightdomain=0, bc="wall")
-        geom.Append(['line', pind[2], pind[3]], leftdomain=1, rightdomain=0, bc="wall")
-        geom.Append(['spline3', pind[4], pind[5], pind[6]], leftdomain=0, rightdomain=1, bc="circ")
-        geom.Append(['spline3', pind[6], pind[7], pind[8]], leftdomain=0, rightdomain=2, bc="circ2")
-        geom.Append(['spline3', pind[8], pind[9], pind[10]], leftdomain=0, rightdomain=1, bc="circ")
-        geom.Append(['spline3', pind[10], pind[11], pind[12]], leftdomain=0, rightdomain=1, bc="circ")
-        geom.Append(['spline3', pind[12], pind[13], pind[4]], leftdomain=0, rightdomain=1, bc="circ")
-        geom.Append(['line', pind[6], pind[14]], leftdomain=2, rightdomain=1, bc="interface")
-        geom.Append(['line', pind[14], pind[15]], leftdomain=2, rightdomain=1, bc="interface")
-        geom.Append(['line', pind[15], pind[8]], leftdomain=2, rightdomain=1, bc="interface")
-        geom.SetMaterial(1, "fluid")
-        geom.SetMaterial(2, "solid")
-        ngmesh = geom.GenerateMesh(maxh=h)
-    else:
-        ngmesh = netgen.libngpy._meshing.Mesh(2)
+    from netgen.geom2d import CSG2d, Rectangle, Circle
+    geo = CSG2d()
+    rect0 = Rectangle(pmin=(0, 0), pmax=(L, H))
+    circle = Circle(center=(Cx, Cy), radius=r)
+    rect1 = Rectangle(pmin=(Cx, 0.19), pmax=(x5, 0.21))
+    fluid_struct = rect0 - circle
+    fluid = fluid_struct - rect1
+    struct = fluid_struct * rect1
+    geo.Add(fluid)
+    geo.Add(struct)
+    ngmesh = geo.GenerateMesh(maxh=h)
     mesh = Mesh(ngmesh)
     if nref > 0:
-        mesh = MeshHierarchy(mesh, nref)[-1]
-        #mesh = MeshHierarchy(mesh, nref, netgen_flags=True)[-1]
+        mesh = MeshHierarchy(mesh, nref, netgen_flags={"degree": 1})[-1]
     V = FunctionSpace(mesh, "HDiv Trace", 0)
-    f0 = Function(V)
-    bc0 = DirichletBC(V, 1., (6, 7, 8, 9, 5))
-    bc0.apply(f0)
+    f0 = Function(V)  # to empty labels
     f1 = Function(V)
-    bc1 = DirichletBC(V, 1., (10, 11, 12))
-    bc1.apply(f1)
-    f2 = Function(V)  # to empty labels
-    return RelabeledMesh(mesh, [f2, f2, f2, f2, f2, f2, f2, f2, f0, f1], [6, 7, 8, 9, 5, 10, 11, 12, 5, 6])
+    DirichletBC(V, 1., (4, )).apply(f1)
+    f2 = Function(V)
+    DirichletBC(V, 1., (2, )).apply(f2)
+    f3 = Function(V)
+    DirichletBC(V, 1., (1, )).apply(f3)
+    f4 = Function(V)
+    DirichletBC(V, 1., (3, )).apply(f4)
+    f5 = Function(V)
+    DirichletBC(V, 1., (5, 6, 7, 8, 12, 13 )).apply(f5)
+    f6 = Function(V)
+    DirichletBC(V, 1., (9, 10, 11)).apply(f6)
+    return RelabeledMesh(mesh, [f0 for i in range(1, 14)] + [f1, f2, f3, f4, f5, f6], [i for i in range(1, 14)] + [1, 2, 3, 4, 5, 6])
 
 
 def make_mesh(quadrilateral):
@@ -182,12 +139,12 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = False
+use_netgen = True
 quadrilateral = False
 degree = 4  # 2 - 4
 if use_netgen:
-    nref = 1 #  # 2 - 5 tested for CSM 1 and 2
-    mesh  = make_mesh_netgen(0.1,  nref, degree)
+    nref = 2 #  # 2 - 5 tested for CSM 1 and 2
+    mesh  = make_mesh_netgen(0.12, nref, degree)
     mesh = _elevate_degree(mesh, degree)
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
     mesh_f = _elevate_degree(mesh_f, degree)
@@ -249,7 +206,7 @@ if mesh.comm.size == 1:
     triplot(mesh_s, axes=axes)
     axes.legend()
     plt.savefig('mesh_s.pdf')
-    #raise RuntimeError("not error")
+    raise RuntimeError("not error")
 
 case = "FSI3_2"
 
@@ -672,18 +629,18 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     elast = True
     linear_elast = True
     if use_netgen:
-        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen"
-        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
-        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen.dat"
+        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
+        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
+        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
     else:
         if quadrilateral:
             fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
             fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
             fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
         else:
-            fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}"
-            fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
-            fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
+            fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
+            fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
     if case == "FSI1_2":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -713,6 +670,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     g_s = Constant(0.0)
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
+    # ALE constants
+    nu_ale = Constant(float(nu_s))
+    mu_ale = Constant(float(mu_s))
+    E_ale = mu_ale * 2 * (1 + nu_ale)
+    lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
         V_0 = VectorFunctionSpace(mesh_f, "P", degree)
         V_1 = VectorFunctionSpace(mesh_s, "P", degree)
@@ -778,7 +740,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
                     J_f * inner(dot(grad(u_f), inv(F_f)), dot(grad(du_f), inv(F_f)))) * dx_f
         def _fluid_elast(v_f, u_f, p):
-            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_ale, mu_ale)
             return (inner(rho_f * J_f * v_f_dot, dv_f) +
                     inner(rho_f * J_f * dot(dot(grad(v_f), inv(F_f)), v_f - u_f_dot), dv_f) +
                     inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
@@ -786,9 +748,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
                     inner(dot(F_f, S_f), grad(du_f))) * dx_f
         def _fluid_elast_lin(v_f, u_f, p):
-            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_ale, mu_ale)
             epsilon = sym(grad(u_f))
-            sigma = 2 * mu_s * epsilon + lambda_s * tr(epsilon) * Identity(dim)
+            sigma = 2 * mu_ale * epsilon + lambda_ale * tr(epsilon) * Identity(dim)
             return (inner(rho_f * J_f * v_f_dot, dv_f) +
                     inner(rho_f * J_f * dot(dot(grad(v_f), inv(F_f)), v_f - u_f_dot), dv_f) +
                     inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f))), dot(grad(dv_f), inv(F_f))) -
@@ -909,6 +871,10 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     sample_FL = np.empty_like(sample_t)
     print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size), flush=True)
     print("num DoFs = ", V.dim(), flush=True)
+    if mesh.comm.rank == 0:
+        print(f"nu_ale = {float(nu_ale)}")
+        print(f"mu_ale = {float(mu_ale)}")
+        print(f"labmda_ale = {float(lambda_ale)}")
     #v_f_ = solution.subfunctions[0]
     F_f_, J_f_, _, _ = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
     sigma_f_ = - p * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f_)))
@@ -933,9 +899,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         coords = mesh_f.coordinates.dat.data_with_halos
         coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
-        #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
-        #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
-        #pgfplot(fplot, "quiver.dat", degree=0)
+        Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
+        fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
+        pgfplot(fplot, "quiver.dat", degree=0)
         raise RuntimeError("only plotted solution")
     ii = 0
     while float(t) < T:
