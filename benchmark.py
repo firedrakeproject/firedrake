@@ -110,9 +110,9 @@ def make_mesh_netgen(h, nref, degree):
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(2)
     mesh = Mesh(ngmesh)
-    #if nref > 0:
-    #    #mesh = MeshHierarchy(mesh, nref, netgen_flags={"degree": degree})[-1]
-    #    mesh = MeshHierarchy(mesh, nref)[-1]
+    if nref > 0:
+        mesh = MeshHierarchy(mesh, nref)[-1]
+        #mesh = MeshHierarchy(mesh, nref, netgen_flags=True)[-1]
     V = FunctionSpace(mesh, "HDiv Trace", 0)
     f0 = Function(V)
     bc0 = DirichletBC(V, 1., (6, 7, 8, 9, 5))
@@ -147,7 +147,10 @@ def make_mesh(quadrilateral):
     V = FunctionSpace(mesh, "DG", 0)
     f_fluid = Function(V).interpolate(conditional(Or(Or(x < x3, x > x5), Or(y < 0.19, y > 0.21)), 1., 0.))
     f_struct = Function(V).interpolate(conditional(And(And(x > x3, x < x5), And(y > 0.19, y < 0.21)), 1., 0.))
-    return RelabeledMesh(mesh, [f_fluid, f_struct], [label_fluid, label_struct])
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    f_interface = Function(V).interpolate(conditional(Or(And(And(x > x3, x < x5), Or(And(y > 0.189, y < 0.191), And(y > 0.209, y < 0.211))), 
+                                                      And(And(x > x5 - .001, x < x5 + .001), And(y > 0.19, y < 0.21))), 1., 0.))
+    return RelabeledMesh(mesh, [f_fluid, f_struct, f_interface], [label_fluid, label_struct, label_interface])
 
 
 def _finalise_mesh(mesh, degree):
@@ -179,12 +182,12 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = True
+use_netgen = False
 quadrilateral = True
 degree = 4  # 2 - 4
 if use_netgen:
     nref = 1 #  # 2 - 5 tested for CSM 1 and 2
-    mesh  = make_mesh_netgen(0.1 / 2 ** nref,  nref, degree)
+    mesh  = make_mesh_netgen(0.1,  nref, degree)
     mesh = _elevate_degree(mesh, degree)
     mesh_f = Submesh(mesh, dmcommon.CELL_SETS_LABEL, label_fluid, mesh.topological_dimension())
     mesh_f = _elevate_degree(mesh_f, degree)
@@ -248,7 +251,7 @@ if mesh.comm.size == 1:
     plt.savefig('mesh_s.pdf')
     #raise RuntimeError("not error")
 
-case = "FSI3_2"
+case = "FSI3"
 
 if case in ["CFD1", "CFD2", "CFD3"]:
     T = 20 # 10.0 # 12.0
@@ -457,11 +460,15 @@ elif case in ["CSM1", "CSM2", "CSM3"]:
                 print(u_A)
 elif case in ["FSI1", "FSI2", "FSI3"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.0005)  #0.001
+    dt = Constant(0.002)  #0.001
     dt_plot = 0.01
-    ntimesteps = int(T / float(dt))
     t = Constant(0.0)
-    CNshift = 2
+    CNshift = 10
+    elast = True
+    linear_elast = True
+    fname_checkpoint = f"dumbdata/fsi3_0_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}"
+    fname_FD = f"time_series_0_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
+    fname_FL = f"time_series_0_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}.dat"
     if case == "FSI1":
         rho_s = 1.e+3
         nu_s = 0.4
@@ -492,40 +499,52 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     g_s = Constant(0.0)
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
-    V_0 = VectorFunctionSpace(mesh, "P", degree)
-    V_1 = FunctionSpace(mesh_f, "P", degree - 1)
+    V_0 = VectorFunctionSpace(mesh, "CG", degree)
+    V_1 = FunctionSpace(mesh_f, "CG", degree - 1)
     V = V_0 * V_0 * V_1
     solution = Function(V)
     solution_0 = Function(V)
     v, u, p = split(solution)
     v_0, u_0, p_0 = split(solution_0)
     dv, du, dp = split(TestFunction(V))
-    F = Identity(dim) + grad(u)
-    J = det(F)
-    E = 1. / 2. * (dot(transpose(F), F) - Identity(dim))
-    S = lambda_s * tr(E) * Identity(dim) + 2.0 * mu_s * E
-    F_0 = Identity(dim) + grad(u_0)
-    J_0 = det(F_0)
-    E_0 = 1. / 2. * (dot(transpose(F_0), F_0) - Identity(dim))
-    S_0 = lambda_s * tr(E_0) * Identity(dim) + 2.0 * mu_s * E_0
-    residual_f = (
-        rho_f * J * inner((v - v_0) / dt, dv) +
-        rho_f * J * inner(dot(dot(grad(v), inv(F)), v - (u - u_0) / dt), dv) +
-        rho_f * J * nu_f * inner(2 * sym(dot(grad(v), inv(F))), dot(grad(dv), inv(F))) -
-        J * inner(p, tr(dot(grad(dv), inv(F)))) +
-        J * inner(tr(dot(grad(v), inv(F))), dp) +
-        J * inner(dot(grad(u), inv(F)), dot(grad(du), inv(F)))
-    ) * dx_f  # dx(label_fluid)
-    residual_s = (
-        rho_s * J * inner((v - v_0) / dt, dv) +
-        inner(dot(F, S), grad(dv)) -
-        rho_s * J * inner(as_vector([0., - g_s]), dv) +
-        J * inner((u - u_0) / dt - v, du)
-    ) * dx_s  # dx(label_struct)
+    for subf, name in zip(solution.subfunctions, ["v", "u", "p"]):
+        subf.rename(name)
+    def compute_elast_tensors(dim, u, lambda_s, mu_s):
+        F = Identity(dim) + grad(u)
+        J = det(F)
+        E = 1. / 2. * (dot(transpose(F), F) - Identity(dim))
+        S = lambda_s * tr(E) * Identity(dim) + 2.0 * mu_s * E
+        return F, J, E, S
+    if True:
+        theta_p = Constant(1. / 2. + CNshift * float(dt))
+        theta_m = Constant(1. / 2. - CNshift * float(dt))
+        v_dot = (v - v_0) / dt
+        u_dot = (u - u_0) / dt
+        def _fluid_elast_lin(v_f, u_f, p):
+            F_f, J_f, E_f, S_f = compute_elast_tensors(dim, u_f, lambda_s, mu_s)
+            epsilon = sym(grad(u_f))
+            sigma = 2 * mu_s * epsilon + lambda_s * tr(epsilon) * Identity(dim)
+            return (inner(rho_f * J_f * v_dot, dv) +
+                    inner(rho_f * J_f * dot(dot(grad(v_f), inv(F_f)), v_f - u_dot), dv) +
+                    inner(rho_f * J_f * nu_f * 2 * sym(dot(grad(v_f), inv(F_f))), dot(grad(dv), inv(F_f))) -
+                    J_f * inner(p, tr(dot(grad(dv), inv(F_f)))) +
+                    J_f * inner(tr(dot(grad(v_f), inv(F_f))), dp) +
+                    inner(sigma, grad(du))) * dx_f
+        def _struct(v_s, u_s):
+            F_s, J_s, E_s, S_s = compute_elast_tensors(dim, u_s, lambda_s, mu_s)
+            return (inner(rho_s * J_s * v_dot, dv) +
+                    inner(dot(F_s, S_s), grad(dv)) -
+                    inner(rho_s * J_s * as_vector([0., - g_s]), dv) +
+                    inner(J_s * (u_dot - v_s), du)) * dx_s
+        residual_f = theta_p * _fluid_elast_lin(v, u, p) + \
+                     theta_m * _fluid_elast_lin(v_0, u_0, p_0)
+        residual_s = theta_p * _struct(v, u) + \
+                     theta_m * _struct(v_0, u_0)
     residual = residual_f + residual_s
-    #v_f_left = 1.5 * Ubar * y_f * (H - y_f) / ((H / 2) ** 2) * conditional(t < 2.0, (1 - cos(pi / 2 * t)) / 2., 1.)
-    v_f_left = 1.5 * Ubar * y * (H - y) / ((H / 2) ** 2) * conditional(t < 2.0, (1 - cos(pi / 2 * t)) / 2., 1.)
-    bc_inflow = DirichletBC(V.sub(0), as_vector([v_f_left, 0.]), (label_left, ))
+    def v_f_left(t_):
+        return 1.5 * Ubar * y * (H - y) / ((H / 2) ** 2) * conditional(t_ < 2.0 + dt / 10., (1 - cos(pi / 2 * t_)) / 2., 1.)
+    bc_inflow = DirichletBC(V.sub(0), as_vector([theta_p * v_f_left(t - dt + theta_p * dt) +
+                                                 theta_m * v_f_left(t - dt + theta_m * dt), 0.]), (label_left, ))
     bc_noslip_v = DirichletBC(V.sub(0), Constant((0, 0)), (label_bottom, label_top, label_circle))
     bc_noslip_u = DirichletBC(V.sub(1), Constant((0, 0)), (label_left, label_right, label_bottom, label_top, label_circle))
     bbc = DirichletBC(V.sub(1), Constant((0, 0)), ((label_circle, label_interface), ))
@@ -587,35 +606,61 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     sample_t = np.arange(0.0, T, dt_plot) + dt_plot
     sample_FD = np.empty_like(sample_t)
     sample_FL = np.empty_like(sample_t)
-    print("num cells = ", mesh_f.comm.allreduce(mesh_f.cell_set.size))
-    if mesh.comm.rank == 0:
-        with open("time_series_FD.dat", 'w') as outfile:
-             outfile.write("t val" + "\n")
-        with open("time_series_FL.dat", 'w') as outfile:
-             outfile.write("t val" + "\n")
-    for itimestep in range(ntimesteps):
+    print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size), flush=True)
+    print("num DoFs = ", V.dim(), flush=True)
+    v_split = Function(VectorFunctionSpace(mesh_f, "P", degree)).interpolate(solution.subfunctions[0])
+    u_split = Function(VectorFunctionSpace(mesh_f, "P", degree)).interpolate(solution.subfunctions[1])
+    F_f_, J_f_, _, _ = compute_elast_tensors(dim, u_split, lambda_s, mu_s)
+    sigma_f_ = - p * Identity(dim) + rho_f * nu_f * 2 * sym(dot(grad(v_split), inv(F_f_)))
+    if os.path.exists(fname_checkpoint + ".h5"):
+        with DumbCheckpoint(fname_checkpoint, mode=FILE_READ) as chk:
+            steps, indices = chk.get_timesteps()
+            t.assign(steps[-1])
+            iplot = indices[-1]
+            print(f"loaded solution at t = {float(t)}")
+            chk.set_timestep(float(t), iplot)
+            for subsolution, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
+                chk.load(subsolution)
+                subfunction_0.assign(subsolution)
+    else:
+        iplot = 0
         if mesh.comm.rank == 0:
-            print(f"time = {float(dt) * itimestep} : {itimestep} / {ntimesteps}", flush=True)
-        t.assign((itimestep + 1) * float(dt))
+            with open(fname_FD, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+            with open(fname_FL, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+    ii = 0
+    while float(t) < T:
+        t.assign(float(t) + float(dt))
+        ii += 1
+        if mesh.comm.rank == 0:
+            print(f"Computing solution at time = {float(t)} (dt = {float(dt)}, CNshift={CNshift})", flush=True)
         solver.solve()
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
-        v_split = Function(VectorFunctionSpace(mesh_f, "P", degree)).interpolate(solution.subfunctions[0])
-        FD = assemble((- p * n_f + rho_f * nu_f * dot(2 * sym(grad(v_split)), n_f))[0] * ds_f((label_circle, label_interface)))
-        FL = assemble((- p * n_f + rho_f * nu_f * dot(2 * sym(grad(v_split)), n_f))[1] * ds_f((label_circle, label_interface)))
-        u_A = solution.subfunctions[1].at(pointA)
+        # Everything is now up to date.
+        FD = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[0] * ds_f((label_circle, label_interface)))
+        FL = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[1] * ds_f((label_circle, label_interface)))
+        u_A = solution.subfunctions[1].at(pointA, tolerance=1.e-6)
         if mesh.comm.rank == 0:
-            print(f"FD = {FD}")
-            print(f"FL = {FL}")
-            print(f"uA = {u_A}")
-            if itimestep % (ntimesteps // nsample) == 0:
-                with open("time_series_FD.dat", 'a') as outfile:
+            print(f"FD     = {FD}")
+            print(f"FL     = {FL}")
+            print(f"uA     = {u_A}")
+            if ii % 10 == 0:
+                with open(fname_FD, 'a') as outfile:
                     outfile.write(f"{float(t)} {FD}" + "\n")
-                with open("time_series_FL.dat", 'a') as outfile:
+                with open(fname_FL, 'a') as outfile:
                     outfile.write(f"{float(t)} {FL}" + "\n")
                     #sample_FD[itimestep // (ntimesteps // nsample)] = FD
                     #sample_FL[itimestep // (ntimesteps // nsample)] = FL
                     #np.savetxt(outfile, np.concatenate([sample_t.reshape(-1, 1), sample_FD.reshape(-1, 1)], axis=1))
+        if ii % 10 == 0:
+            iplot += 1
+            with DumbCheckpoint(fname_checkpoint, mode=FILE_UPDATE) as chk:
+                chk.set_timestep(float(t), iplot)
+                for subsolution in solution.subfunctions:
+                    chk.store(subsolution)
+
     end = time.time()
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
@@ -623,7 +668,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     dt = Constant(0.001)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 10
+    CNshift = 1
     elast = True
     linear_elast = True
     if use_netgen:
