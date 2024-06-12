@@ -13,7 +13,7 @@ import islpy as isl
 import pymbolic.primitives as pym
 
 from collections import OrderedDict, defaultdict
-from functools import singledispatch, reduce
+from functools import singledispatch, reduce, partial
 import itertools
 import operator
 
@@ -401,6 +401,12 @@ def instruction_dependencies(instructions, initialisers):
 
 
 def generate(builder, wrapper_name=None):
+    # Reset all terminal counters to avoid generated code becoming different across ranks
+    Argument._count = defaultdict(partial(itertools.count))
+    Index._count = itertools.count()
+    Materialise._count = itertools.count()
+    RuntimeIndex._count = itertools.count()
+
     if builder.layer_index is not None:
         outer_inames = frozenset([builder._loop_index.name,
                                   builder.layer_index.name])
