@@ -5,8 +5,7 @@ from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 
-# @pytest.fixture(params=("square", "cube"))
-@pytest.fixture(params=("square",))
+@pytest.fixture(params=("square", "cube"))
 def hierarchy(request):
     if request.param == "square":
         base_msh = UnitSquareMesh(3, 3)
