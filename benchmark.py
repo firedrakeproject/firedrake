@@ -139,7 +139,7 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = False
+use_netgen = True
 quadrilateral = False
 degree = 4  # 2 - 4
 if use_netgen:
@@ -629,9 +629,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     elast = True
     linear_elast = True
     if use_netgen:
-        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
-        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
-        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
+        fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new_ALEparam1"
+        fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new_ALEparam1.dat"
+        fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new_ALEparam1.dat"
     else:
         if quadrilateral:
             fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
@@ -671,8 +671,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
     # ALE constants
-    nu_ale = Constant(0.45)  # Constant(float(nu_s))
-    mu_ale = Constant(1.0 * 1e+6)  # Constant(float(mu_s))
+    nu_ale = Constant(0.49)  # Constant(float(nu_s))
+    mu_ale = Constant(float(mu_s))
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
@@ -903,7 +903,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
         #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
         #pgfplot(fplot, "quiver.dat", degree=0)
-        #raise RuntimeError("only plotted solution")
+        raise RuntimeError("only plotted solution")
     ii = 0
     while float(t) < T:
         t.assign(float(t) + float(dt))
