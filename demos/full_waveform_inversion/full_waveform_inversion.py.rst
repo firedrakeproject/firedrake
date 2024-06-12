@@ -66,11 +66,11 @@ where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:
 The implementation of `Ricker
 wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the following code::
 
-    def ricker_wavelet(t, fs, amp=1.0):
-        ts = 1.5
-        t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
-        return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
-                * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
+    def ricker(f, T, dt, t0):
+        t = np.linspace(-t0, T-t0, int(T/dt))
+        tt = (np.pi**2) * (f**2) * (t**2)
+        y = (1.0 - 2.0 * tt) * np.exp(- tt)
+        return y
 
 
 
@@ -128,22 +128,23 @@ The source number is defined according to the rank of the ``Ensemble.ensemble_co
 
     source_number = my_ensemble.ensemble_comm.rank
 
-We consider a two dimensional square domain with side length 1.0 km. The mesh is created over the
+We consider a two dimensional square domain with side length 1000m. The mesh is created over the
 ``my_ensemble.comm`` communicator::
     
-    Lx, Lz = 1.0, 1.0
-    mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
+    Lx, Lz = 1000, 1000
+    Nx = Nz = 100
+    mesh = SquareMesh(100, 100, Lx, Lz, comm=my_ensemble.comm)
 
 The basic input for the FWI problem are defined as follows::
 
     import numpy as np
-    source_locations = np.linspace((0.3, 0.1), (0.7, 0.1), num_sources)
-    receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 10)
-    dt = 0.002  # time step
-    final_time = 0.8  # final time
-    frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet.
+    source_locations = np.linspace((300, 100), (700, 100), num_sources)
+    receiver_locations = np.linspace((100, 800), (900, 800), 20)
+    dt = 2.0  # time step
+    final_time = 1000.0  # final time
+    frequency_peak = 7.0 /1000  # The dominant frequency of the Ricker wavelet (KHz)
 
-We are using a 2D domain, 10 receivers, and 3 sources. Sources and receivers locations are illustrated
+We are using a 2D domain, 20 receivers, and 3 sources. Sources and receivers locations are illustrated
 in the following figure:
 
 .. image:: sources_receivers.png
@@ -161,7 +162,7 @@ circle in the centre of the domain, as shown in the coming code cell::
 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
-    c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
+    c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (125. - sqrt((x - 500.) ** 2 + (z - 500.) ** 2))))
 
 .. image:: c_true.png
     :scale: 40 %
@@ -194,6 +195,7 @@ We interpolate the inner product::
 onto the dual function space :math:`V^*`::
     
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
+    q_s *= assemble(inner(Function(V).assign(1.0), TestFunction(V))*dx).vector().max()
 
 which returns the source function :math:`q_s \in V^{\ast}`.
 
@@ -205,10 +207,9 @@ We now can proceed to compute the synthetic data and record them on the receiver
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_true, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
-
-    for step in range(total_steps):
-        f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
-        solver.solve()
+    wavelet = ricker(frequency_peak, final_time, dt, 1.5/frequency_peak)
+    for step in range(total_steps - 1):
+        f.assign(wavelet[step] * q_s)
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
         true_data_receivers.append(assemble(interpolate_receivers))
@@ -249,8 +250,8 @@ To have the step 4, we need first to tape the forward problem. That is done by c
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
     interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
     J_val = 0.0
-    for step in range(total_steps):
-        f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
+    for step in range(total_steps - 1):
+        f.assign(wavelet[step] * q_s)
         solver.solve()
         u_nm1.assign(u_n)
         u_n.assign(u_np1)
