@@ -139,8 +139,8 @@ def _elevate_degree(mesh, degree):
 
 
 dim = 2
-use_netgen = True
-quadrilateral = False
+use_netgen = False
+quadrilateral = True
 degree = 4  # 2 - 4
 if use_netgen:
     nref = 2 #  # 2 - 5 tested for CSM 1 and 2
@@ -634,9 +634,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
     else:
         if quadrilateral:
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -671,7 +671,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     E_s = mu_s * 2 * (1 + nu_s)
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
     # ALE constants
-    nu_ale = Constant(float(nu_s))
+    decay_r = Constant(0.5)  # decay ratio
+    #nu_ale = Constant(0.49) * (1. - decay_r * abs(x_f - pointA[0]) / (L - pointA[0])) * (1. - decay_r * abs(y_f - pointA[1]) / (L - pointA[0]))  # Constant(0.49)
+    nu_ale = Constant(0.49)
     mu_ale = Constant(float(mu_s))
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
@@ -683,7 +685,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         V_0 = VectorFunctionSpace(mesh_f, "Q", degree)
         V_1 = VectorFunctionSpace(mesh_s, "Q", degree)
         V_2 = FunctionSpace(mesh_f, "Q", degree - 1)
+        V_3 = VectorFunctionSpace(mesh_f, "S", degree)
     V = V_0 * V_1 * V_0 * V_1 * V_2
+    #V = V_0 * V_1 * V_3 * V_1 * V_2
     solution = Function(V)
     solution_0 = Function(V)
     v_f, v_s, u_f, u_s, p = split(solution)
