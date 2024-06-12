@@ -634,9 +634,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
     else:
         if quadrilateral:
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1_S"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1_S.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparam1_S.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -686,8 +686,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         V_1 = VectorFunctionSpace(mesh_s, "Q", degree)
         V_2 = FunctionSpace(mesh_f, "Q", degree - 1)
         V_3 = VectorFunctionSpace(mesh_f, "S", degree)
-    V = V_0 * V_1 * V_0 * V_1 * V_2
-    #V = V_0 * V_1 * V_3 * V_1 * V_2
+    #V = V_0 * V_1 * V_0 * V_1 * V_2
+    V = V_0 * V_1 * V_3 * V_1 * V_2
     solution = Function(V)
     solution_0 = Function(V)
     v_f, v_s, u_f, u_s, p = split(solution)
@@ -902,7 +902,9 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
     if True:
         coords = mesh_f.coordinates.dat.data_with_halos
-        coords[:] = coords[:] + solution.subfunctions[2].dat.data_ro_with_halos[:]
+        uplot = solution.subfunctions[2]
+        uplot = Function(V_0).project(solution.subfunctions[2])
+        coords[:] = coords[:] + uplot.dat.data_ro_with_halos[:]
         pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
         #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
         #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
