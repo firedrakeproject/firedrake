@@ -194,6 +194,52 @@ class ImplicitMatrixContext(object):
     def missingDiagonal(self, mat):
         return (False, -1)
 
+    @cached_property
+    def _block_diagonal(self):
+        from firedrake import Function, FunctionSpace
+        from ufl import MixedElement, TensorElement, VectorElement
+        assert self.on_diag
+
+        bs = self.block_size[0]
+        V = self._x.function_space()
+        scalar_element = V.ufl_element()
+        if isinstance(scalar_element, MixedElement):
+            if isinstance(scalar_element, (TensorElement, VectorElement)):
+                scalar_element = scalar_element.sub_elements()[0]
+            else:
+                raise NotImplementedError("Block diagonal assembly not implemented")
+        tensor_element = TensorElement(scalar_element, shape=(bs, bs))
+        W = FunctionSpace(V.mesh(), tensor_element)
+        return Function(W)
+
+    @cached_property
+    def _assemble_block_diagonal(self):
+        from firedrake.ufl_expr import TestFunction, TrialFunction
+        from firedrake.assemble import OneFormAssembler
+        W = self._block_diagonal.function_space()
+        v = TestFunction(W)
+        u = TrialFunction(W)
+        v = sum([v[:, j, ...] for j in range(v.ufl_shape[1])])
+        u = sum([u[i, :, ...] for i in range(u.ufl_shape[0])])
+        form = self.a(v, u, coefficients={})
+        return OneFormAssembler(form, tensor=self._block_diagonal,
+                                form_compiler_parameters=self.fc_params,
+                                diagonal=True).assemble
+
+    def invertBlockDiagonal(self, mat):
+        import numpy
+
+        self._assemble_block_diagonal()
+        result = numpy.linalg.inv(self._block_diagonal.dat.data_ro)
+
+        # FIXME cache bcdofs
+        W = self._block_diagonal.function_space()
+        wbcs = [bc.reconstruct(V=W, g=0) for bc in self.bcs]
+        bcdofs = W.local_to_global_map([]).indices[W.local_to_global_map(wbcs).indices < 0]
+        result.flat[bcdofs] = numpy.reshape(numpy.tile(numpy.eye(self.block_size[0]), (result.shape[0], 1, 1)), (-1,))
+        self._block_diag_inverse = numpy.asfortranarray(result.transpose((1, 2, 0)))
+        return self._block_diag_inverse
+
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
