@@ -23,3 +23,5 @@ element systems.
    A pressure-convection-diffusion preconditioner for the Navier-Stokes equations.</demos/navier_stokes.py>
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
+   Creating Firedrake-compatible meshes in Cubit.<demos/immersed_fem_cubit.py>
+

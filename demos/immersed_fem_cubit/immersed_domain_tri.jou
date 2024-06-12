@@ -1,0 +1,30 @@
+reset
+
+create surface rectangle width 12 height 4 zplane
+create surface circle radius 1 zplane 
+subtract volume 2 from volume 1 keep_tool
+merge all
+
+Trimesher surface gradation 1.3
+Trimesher geometry sizing on
+surface all  scheme trimesh geometry approximation angle 5
+surface 3 size 0.3
+surface 2 size 0.1
+mesh surface all
+
+sideset 11 add curve 1 3
+sideset 11 name "HorEdges"
+sideset 12 add curve 2 4
+sideset 12 name "VerEdges"
+sideset 13 add curve 5
+sideset 13 name "Interface"
+block 3 add surface 3
+block 3 name "PunchedDom"
+block 4 add surface 2
+block 4 name "Disc"
+
+block 3 4 element type tri3
+
+set exodus netcdf4 off
+set large exodus file on
+export mesh "immersed_domain_tri.e"  overwrite

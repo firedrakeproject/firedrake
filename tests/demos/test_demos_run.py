@@ -3,6 +3,7 @@ from os.path import abspath, basename, dirname, join, splitext
 import os
 import subprocess
 import glob
+import shutil
 import sys
 from firedrake.petsc import get_external_packages
 
@@ -63,6 +64,9 @@ def py_file(rst_file, tmpdir, monkeypatch):
         except (subprocess.CalledProcessError, OSError):
             # Skip if unable to make mesh
             pytest.skip("Unable to generate mesh file, skipping test")
+    # Copy any exodus mesh files into place.
+    for exodus in glob.glob("%s/*.e" % dirname(rst_file)):
+        shutil.copy(exodus, tmpdir)
 
     # Get the name of the python file that pylit will make
     name = splitext(basename(rst_file))[0]
