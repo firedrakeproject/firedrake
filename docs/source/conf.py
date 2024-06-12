@@ -152,6 +152,8 @@ linkcheck_ignore = [
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
+    r'https://.*\.baylor\.edu.*',
+    r'https://www.tuomaskarna.com',
 ]
 linkcheck_timeout = 30
 

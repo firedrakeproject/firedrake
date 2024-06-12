@@ -4,6 +4,7 @@ from collections.abc import Sequence  # noqa: F401
 import functools
 import itertools
 from itertools import product
+import numbers
 
 import cachetools
 import finat
@@ -463,8 +464,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
-            if all(isinstance(op, float) for op in args):
-                return sum(args)
+            if all(isinstance(op, numbers.Complex) for op in args):
+                return sum(weight * arg for weight, arg in zip(expr.weights(), args))
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
                 res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
