@@ -625,19 +625,19 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     dt = Constant(0.002)  #0.001
     dt_plot = 0.01
     t = Constant(0.0)
-    CNshift = 1
+    CNshift = 10
     elast = True
     linear_elast = True
-    serendipity = True
+    serendipity = False
     if use_netgen:
         fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
         fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
         fname_FL = f"time_series_FL_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
     else:
         if quadrilateral:
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -903,7 +903,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if False:
+    if True:
         coords = mesh_f.coordinates.dat.data_with_halos
         uplot = solution.subfunctions[2]
         uplot = Function(V_0).project(solution.subfunctions[2])
