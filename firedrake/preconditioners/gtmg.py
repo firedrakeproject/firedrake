@@ -13,7 +13,7 @@ class GTMGPC(PCBase):
 
     def initialize(self, pc):
         from firedrake import TestFunction, parameters
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         from firedrake.interpolation import Interpolator
         from firedrake.solving_utils import _SNESContext
         from firedrake.matrix_free.operators import ImplicitMatrixContext
@@ -50,15 +50,10 @@ class GTMGPC(PCBase):
 
             fine_mat_type = opts.getString(options_prefix + "mat_type",
                                            parameters["default_matrix_type"])
-            self.fine_op = allocate_matrix(fine_operator,
-                                           bcs=fine_bcs,
-                                           form_compiler_parameters=fcp,
-                                           mat_type=fine_mat_type,
-                                           options_prefix=options_prefix)
-            self._assemble_fine_op = TwoFormAssembler(fine_operator, tensor=self.fine_op,
-                                                      form_compiler_parameters=fcp,
-                                                      bcs=fine_bcs).assemble
-            self._assemble_fine_op()
+            fine_form_assembler = get_assembler(fine_operator, bcs=fine_bcs, form_compiler_parameters=fcp, mat_type=fine_mat_type, options_prefix=options_prefix)
+            self.fine_op = fine_form_assembler.allocate()
+            self._assemble_fine_op = fine_form_assembler.assemble
+            self._assemble_fine_op(tensor=self.fine_op)
             fine_petscmat = self.fine_op.petscmat
         else:
             fine_petscmat = P
@@ -90,15 +85,10 @@ class GTMGPC(PCBase):
         get_coarse_nullspace = appctx.get("get_coarse_op_nullspace", None)
         get_coarse_transpose_nullspace = appctx.get("get_coarse_op_transpose_nullspace", None)
 
-        self.coarse_op = allocate_matrix(coarse_operator,
-                                         bcs=coarse_space_bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=coarse_mat_type,
-                                         options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
-                                                    form_compiler_parameters=fcp,
-                                                    bcs=coarse_space_bcs).assemble
-        self._assemble_coarse_op()
+        coarse_form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
+        self.coarse_op = coarse_form_assembler.allocate()
+        self._assemble_coarse_op = coarse_form_assembler.assemble
+        self._assemble_coarse_op(tensor=self.coarse_op)
         coarse_opmat = self.coarse_op.petscmat
 
         # Set nullspace if provided
@@ -158,9 +148,9 @@ class GTMGPC(PCBase):
 
     def update(self, pc):
         if hasattr(self, "fine_op"):
-            self._assemble_fine_op()
+            self._assemble_fine_op(tensor=self.fine_op)
 
-        self._assemble_coarse_op()
+        self._assemble_coarse_op(tensor=self.coarse_op)
         self.pc.setUp()
 
     def apply(self, pc, X, Y):

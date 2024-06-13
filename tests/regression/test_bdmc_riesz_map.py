@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import pytest
 import numpy
 
@@ -13,11 +14,12 @@ def degree(request):
     return request.param
 
 
-sp = {"snes_type": "ksponly",
-      "ksp_type": "preonly",
-      "pc_type": "lu",
-      "pc_factor_mat_solver_type": "mumps",
-      "mat_mumps_icntl_14": 200}
+sp = {
+    "snes_type": "ksponly",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+    "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+}
 
 
 def error(N, problem, degree):

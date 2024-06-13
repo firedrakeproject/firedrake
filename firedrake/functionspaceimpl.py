@@ -50,8 +50,8 @@ def check_element(element, top=True):
         If the element is illegal.
     """
     if element.cell.cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ"]:
-        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
+       element.family() not in ["Q", "DQ", "Real"]:
+        raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
         inner = (element._element, )
@@ -95,7 +95,7 @@ class WithGeometryBase(object):
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
 
-        super().__init__(mesh, element)
+        super().__init__(mesh, element, label=cargo.topological._label or "")
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
@@ -466,6 +466,9 @@ class FunctionSpace(object):
        which provides extra error checking and argument sanitising.
 
     """
+
+    boundary_set = frozenset()
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
@@ -490,7 +493,8 @@ class FunctionSpace(object):
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
-        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element)
+        self._label = ""
+        self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
 
         self.rank = len(self.shape)
@@ -615,6 +619,9 @@ class FunctionSpace(object):
         r"""The :class:`~ufl.classes.FunctionSpace` associated with this space."""
         return self._ufl_function_space
 
+    def label(self):
+        return self._label
+
     def __len__(self):
         return 1
 
@@ -627,9 +634,7 @@ class FunctionSpace(object):
                                                    self.name)
 
     def __str__(self):
-        return "FunctionSpace(%s, %s, name=%s)" % (self.mesh(),
-                                                   self.ufl_element(),
-                                                   self.name)
+        return self.__repr__()
 
     @utils.cached_property
     def subfunctions(self):
@@ -670,7 +675,10 @@ class FunctionSpace(object):
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
-        return self.node_set.total_size
+        constrained_node_set = set()
+        for sub_domain in self.boundary_set:
+            constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
+        return self.node_set.total_size - len(constrained_node_set)
 
     @utils.cached_property
     def dof_count(self):
@@ -688,6 +696,40 @@ class FunctionSpace(object):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
+
+    def entity_node_map(self, integral_type):
+        r"""Return entity node map.
+
+        Parameters
+        ----------
+        integral_type : str
+            Integral type.
+
+        Returns
+        -------
+        pyop2.types.map.Map or None
+            Entity node map.
+
+        """
+        if integral_type == "cell":
+            self_map = self.cell_node_map()
+        elif integral_type == "exterior_facet_top":
+            self_map = self.cell_node_map()
+        elif integral_type == "exterior_facet_bottom":
+            self_map = self.cell_node_map()
+        elif integral_type == "interior_facet_horiz":
+            self_map = self.cell_node_map()
+        elif integral_type == "exterior_facet":
+            self_map = self.exterior_facet_node_map()
+        elif integral_type == "exterior_facet_vert":
+            self_map = self.exterior_facet_node_map()
+        elif integral_type == "interior_facet":
+            self_map = self.interior_facet_node_map()
+        elif integral_type == "interior_facet_vert":
+            self_map = self.interior_facet_node_map()
+        else:
+            raise ValueError(f"Unknown integral_type: {integral_type}")
+        return self_map
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -792,6 +834,90 @@ class FunctionSpace(object):
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
+class RestrictedFunctionSpace(FunctionSpace):
+    r"""A representation of a function space, with additional information
+    about where boundary conditions are to be applied.
+
+    If a :class:`FunctionSpace` is represented as V, we can decompose V into
+    V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
+    the boundary where a boundary condition is applied, and VΓ contains all
+    other basis functions. The :class:`RestrictedFunctionSpace`
+    corresponding to V takes functions only from V0 when solving problems, or
+    when creating a TestFunction and TrialFunction. The values on the boundary
+    set will remain constant when solving, but are present in the
+    output of the solver.
+
+    :arg function_space: The :class:`FunctionSpace` to restrict.
+    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
+        useful for later identification.
+    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
+        applied.
+
+    Notes
+    -----
+    If using this class to solve or similar, a list of DirichletBCs will still
+    need to be specified on this space and passed into the function.
+    """
+    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+        label = ""
+        for boundary_domain in boundary_set:
+            label += str(boundary_domain)
+            label += "_"
+        self.boundary_set = frozenset(boundary_set)
+        super().__init__(function_space._mesh.topology,
+                         function_space.ufl_element(), function_space.name)
+        self._label = label
+        self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
+                                                     function_space.ufl_element(),
+                                                     label=self._label)
+        self.function_space = function_space
+        self.name = name or (function_space.name or "Restricted" + "_"
+                             + "_".join(sorted(
+                                        [str(i) for i in self.boundary_set])))
+
+    def set_shared_data(self):
+        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
+        self._shared_data = sdata
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+
+        # check not all degrees of freedom are constrained
+        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+        if self.comm.allreduce(unconstrained_dofs) == 0:
+            raise ValueError("All degrees of freedom are constrained.")
+        self.finat_element = create_element(self.ufl_element())
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
+
+    def __eq__(self, other):
+        if not isinstance(other, RestrictedFunctionSpace):
+            return False
+        return self.function_space == other.function_space and \
+            self.boundary_set == other.boundary_set
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
+
+    def __hash__(self):
+        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
+                     self.boundary_set))
+
+    def local_to_global_map(self, bcs, lgmap=None):
+        return lgmap or self.dof_dset.lgmap
+
+
 class MixedFunctionSpace(object):
     r"""A function space on a mixed finite element.
 
@@ -815,6 +941,11 @@ class MixedFunctionSpace(object):
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
                                                      finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
+        label = ""
+        for s in spaces:
+            label += "(" + s._label + ")_"
+        self._label = label
+        self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
         self.comm = mesh.comm
@@ -940,6 +1071,22 @@ class MixedFunctionSpace(object):
         composed."""
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
+    def entity_node_map(self, integral_type):
+        r"""Return entity node map.
+
+        Parameters
+        ----------
+        integral_type : str
+            Integral type.
+
+        Returns
+        -------
+        pyop2.types.map.MixedMap
+            Entity node map.
+
+        """
+        return op2.MixedMap(s.entity_node_map(integral_type) for s in self._spaces)
+
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
         underlying mesh to the :attr:`node_set` of this
@@ -1048,6 +1195,55 @@ class ProxyFunctionSpace(FunctionSpace):
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
+class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
+    r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
+
+    :arg function_space: The function space to be restricted.
+    :kwarg name: The name of the restricted function space.
+    :kwarg boundary_set: The boundary domains on which boundary conditions will
+       be specified
+
+    .. warning::
+
+       Users should not build a :class:`ProxyRestrictedFunctionSpace` directly,
+       it is mostly used as an internal implementation detail.
+    """
+    def __new__(cls, function_space, name=None, boundary_set=frozenset()):
+        topology = function_space._mesh.topology
+        self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
+        if function_space._mesh is not topology:
+            return WithGeometry.create(self, function_space._mesh)
+        else:
+            return self
+
+    def __repr__(self):
+        return "%sProxyRestrictedFunctionSpace(%r, name=%r,  boundary_set=%r, index=%r, component=%r)" % \
+            (str(self.identifier).capitalize(),
+             str(self.function_space),
+             self.name,
+             self.boundary_set,
+             self.index,
+             self.component)
+
+    def __str__(self):
+        return self.__repr__()
+
+    identifier = None
+    r"""An optional identifier, for debugging purposes."""
+
+    no_dats = False
+    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def make_dat(self, *args, **kwargs):
+        r"""Create a :class:`pyop2.types.dat.Dat`.
+
+        :raises ValueError: if :attr:`no_dats` is ``True``.
+        """
+        if self.no_dats:
+            raise ValueError("Can't build Function on %s function space" % self.identifier)
+        return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
+
+
 def IndexedFunctionSpace(index, space, parent):
     r"""Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
@@ -1060,6 +1256,8 @@ def IndexedFunctionSpace(index, space, parent):
     """
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+    elif len(space.boundary_set) > 0:
+        new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
     else:
         new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
@@ -1127,6 +1325,9 @@ class RealFunctionSpace(FunctionSpace):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self._comm)
+
+    def entity_node_map(self, integral_type):
+        return None
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."

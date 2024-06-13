@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import preprocess_base_form, allocate_matrix
+from firedrake.assemble import BaseFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 import ufl
 
@@ -159,7 +159,7 @@ def test_preprocess_form(M, a, f):
     from ufl.algorithms import expand_indices, expand_derivatives
 
     expr = action(action(M, M), f)
-    A = preprocess_base_form(expr)
+    A = BaseFormAssembler.preprocess_base_form(expr)
     B = action(expand_derivatives(M), action(M, f))
 
     assert isinstance(A, ufl.Action)
@@ -186,7 +186,7 @@ def test_tensor_copy(a, M):
         assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
 
     # 2-form tensor
-    tensor = allocate_matrix(M)
+    tensor = get_assembler(M).allocate()
     formsum = assemble(M) + M
     res = assemble(formsum, tensor=tensor)
 
@@ -212,6 +212,20 @@ def test_cofunction_assign(a, M, f):
     c1.assign(action(M, f))
     for a, b in zip(c1.subfunctions, c2.subfunctions):
         assert np.allclose(a.dat.data, 0.5 * b.dat.data)
+
+
+def test_cofunction_action(a, f):
+    zero_form_ref = assemble(ufl.action(a, f))
+    v = assemble(a)
+
+    zero_form = assemble(action(v, f))
+    assert np.allclose(zero_form, zero_form_ref, rtol=1.0e-14)
+
+    zero_form = assemble(0.5 * action(v, f))
+    assert np.allclose(zero_form, 0.5 * zero_form_ref, rtol=1.0e-14)
+
+    zero_form = assemble(0.5 * action(v, f) - 0.25 * action(v, f))
+    assert np.allclose(zero_form, 0.25 * zero_form_ref, rtol=1.0e-14)
 
 
 def test_cofunction_riesz_representation(a):

@@ -12,16 +12,9 @@ from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
-from .paraview_reordering import (
-    vtk_lagrange_tet_reorder,
-    vtk_lagrange_hex_reorder,
-    vtk_lagrange_interval_reorder,
-    vtk_lagrange_triangle_reorder,
-    vtk_lagrange_quad_reorder,
-    vtk_lagrange_wedge_reorder,
-)
+from .paraview_reordering import *
 
-__all__ = ("File", )
+__all__ = ("VTKFile", )
 
 
 VTK_INTERVAL = 3
@@ -354,7 +347,7 @@ def get_array(function):
     return array
 
 
-class File(object):
+class VTKFile(object):
     _header = (b'<?xml version="1.0" ?>\n'
                b'<VTKFile type="Collection" version="0.1" '
                b'byte_order="LittleEndian">\n'
@@ -642,7 +635,7 @@ class File(object):
 
     @PETSc.Log.EventDecorator()
     def write(self, *functions, **kwargs):
-        """Write functions to this :class:`File`.
+        """Write functions to this :class:`VTKFile`.
 
         :arg functions: list of functions to write.
         :kwarg time: optional timestep value.

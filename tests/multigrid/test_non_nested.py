@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from functools import singledispatch
 
 
@@ -77,8 +78,7 @@ def test_sphere_mg():
                  "mg_coarse_pc_type": "python",
                  "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                  "mg_coarse_assembled_pc_type": "lu",
-                 "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-                 "mg_coarse_assembled_mat_mumps_icntl_14": 200,
+                 "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                  "mg_levels_pc_type": "python",
                  "mg_levels_pc_python_type": "firedrake.AssembledPC",
                  "mg_levels_assembled_pc_type": "bjacobi",

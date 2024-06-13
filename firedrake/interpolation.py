@@ -938,7 +938,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             tensor = None
         else:
             sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
-                                    ((V.cell_node_map(), argfs_map),),
+                                    [(V.cell_node_map(), argfs_map, None)],  # non-mixed
                                     name="%s_%s_sparsity" % (V.name, argfs.name),
                                     nest=False,
                                     block_sparse=True)

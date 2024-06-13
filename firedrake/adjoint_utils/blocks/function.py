@@ -57,48 +57,38 @@ class FunctionAssignBlock(Block):
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]
             elif isconstant(block_variable.output):
-                R = block_variable.output._ad_function_space(
-                    prepared.function_space().mesh()
+                adj_output = self._adj_assign_constant(
+                    prepared, block_variable.output.function_space()
                 )
-                return self._adj_assign_constant(prepared, R)
             else:
                 adj_output = firedrake.Function(
-                    block_variable.output.function_space())
+                    block_variable.output.function_space()
+                )
                 adj_output.assign(prepared)
-                adj_output = adj_output.riesz_representation(riesz_map="l2")
-                return adj_output
+            return adj_output.riesz_representation(riesz_map="l2")
         else:
             # Linear combination
             expr, adj_input_func = prepared
-            adj_output = firedrake.Function(adj_input_func.function_space())
-            if not isconstant(block_variable.output):
-                diff_expr = ufl.algorithms.expand_derivatives(
-                    ufl.derivative(
-                        expr, block_variable.saved_output, adj_input_func
-                    )
-                )
-                # Firedrake does not support assignment of conjugate functions
-                adj_output.interpolate(ufl.conj(diff_expr))
-                adj_output = adj_output.riesz_representation(riesz_map="l2")
-            else:
-                mesh = adj_output.function_space().mesh()
-                diff_expr = ufl.algorithms.expand_derivatives(
-                    ufl.derivative(
-                        expr,
-                        block_variable.saved_output,
-                        firedrake.Constant(1., domain=mesh)
-                    )
-                )
-                adj_output.assign(diff_expr)
-                return adj_output.dat.inner(adj_input_func.dat)
-
             if isconstant(block_variable.output):
                 R = block_variable.output._ad_function_space(
-                    adj_output.function_space().mesh()
+                    adj_input_func.function_space().mesh()
                 )
-                return self._adj_assign_constant(adj_output, R)
+                diff_expr = ufl.algorithms.expand_derivatives(
+                    ufl.derivative(expr, block_variable.saved_output,
+                                   firedrake.Function(R, val=1.0))
+                )
+                diff_expr_assembled = firedrake.Function(adj_input_func.function_space())
+                diff_expr_assembled.interpolate(ufl.conj(diff_expr))
+                adj_output = firedrake.Function(
+                    R, val=firedrake.assemble(ufl.Action(diff_expr_assembled, adj_input_func))
+                )
             else:
-                return adj_output
+                adj_output = firedrake.Function(adj_input_func.function_space())
+                diff_expr = ufl.algorithms.expand_derivatives(
+                    ufl.derivative(expr, block_variable.saved_output, adj_input_func)
+                )
+                adj_output.interpolate(ufl.conj(diff_expr))
+            return adj_output.riesz_representation(riesz_map="l2")
 
     def _adj_assign_constant(self, adj_output, constant_fs):
         r = firedrake.Function(constant_fs)
@@ -258,9 +248,9 @@ class FunctionMergeBlock(Block):
             return
         output = self.get_outputs()[0]
         fs = output.output.function_space()
-        f = firedrake.Function(fs)
+        f = type(output.output)(fs)
         output.add_tlm_output(
-            firedrake.Function.assign(f.sub(self.idx), tlm_input)
+            type(output.output).assign(f.sub(self.idx), tlm_input)
         )
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
@@ -271,7 +261,7 @@ class FunctionMergeBlock(Block):
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
         parent_in = inputs[1]
-        parent_out = firedrake.Function(parent_in)
+        parent_out = type(parent_in)(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
         return maybe_disk_checkpoint(parent_out)
 

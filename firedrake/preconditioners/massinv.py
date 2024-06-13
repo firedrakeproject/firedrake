@@ -26,3 +26,7 @@ class MassInvPC(AssembledPC):
         mu = appctx.get("mu", 1.0)
         a = inner((1/mu) * trial, test) * dx
         return a, bcs
+
+    def set_nullspaces(self, pc):
+        # the mass matrix does not have a nullspace
+        pass

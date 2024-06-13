@@ -632,7 +632,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
             if isinstance(coeff,
-                          (firedrake.Coefficient, firedrake.Constant)):
+                          (firedrake.Coefficient, firedrake.Constant,
+                           firedrake.Cofunction)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
                     assign_map[form_ad_count_map[coeff_count]] = \

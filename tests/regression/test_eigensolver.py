@@ -3,7 +3,14 @@ import pytest
 from firedrake import *
 
 
-def evals(n, degree=1, mesh=None):
+try:
+    from slepc4py import SLEPc  # noqa: F401
+except ImportError:
+    # SLEPc is not installed
+    pytest.skip("SLEPc not installed", allow_module_level=True)
+
+
+def evals(n, degree=1, mesh=None, restrict=False):
     '''We base this test on the 1D Poisson problem with Dirichlet boundary
     conditions, outlined in part 1 of Daniele Boffi's
     'Finite element approximation of eigenvalue problems' Acta Numerica 2010'''
@@ -18,7 +25,7 @@ def evals(n, degree=1, mesh=None):
 
     # Create eigenproblem with boundary conditions
     bc = DirichletBC(V, 0.0, "on_boundary")
-    eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-6666.)
+    eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-6666., restrict=restrict)
 
     # Create corresponding eigensolver, looking for n eigenvalues
     eigensolver = LinearEigensolver(
@@ -38,19 +45,20 @@ def evals(n, degree=1, mesh=None):
 
         estimates[k] = eigensolver.eigenvalue(k).real
 
-    true_values[-1] = eigenprob.bc_shift
-
+    if not restrict:
+        true_values[-1] = eigenprob.bc_shift
     # sort in case order of numerical and analytic values differs.
     return sorted(true_values), sorted(estimates)
 
 
+@pytest.mark.parametrize("restrict", [True, False])
 @pytest.mark.parametrize(('n', 'degree', 'tolerance'),
                          [(5, 1, 1e-13),
                           (10, 1, 1e-13),
                           (20, 1, 1e-13),
                           (30, 1, 1e-13)])
-def test_evals_1d(n, degree, tolerance):
-    true_values, estimates = evals(n, degree=degree)
+def test_evals_1d(n, degree, tolerance, restrict):
+    true_values, estimates = evals(n, degree=degree, restrict=restrict)
     assert np.allclose(true_values, estimates, rtol=tolerance)
 
 

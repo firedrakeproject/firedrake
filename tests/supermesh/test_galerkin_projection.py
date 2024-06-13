@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from firedrake.supermeshing import *
 from itertools import product
 import numpy
@@ -71,8 +72,7 @@ def test_galerkin_projection(mesh, shapify, A, B):
         "mat_type": "aij",
         "ksp_type": "preonly",
         "pc_type": "lu",
-        "pc_factor_mat_solver_type": "mumps",
-        "mat_mumps_icntl_14": 200
+        "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
     }
 
     f_B_project = project(f_A, V_B, solver_parameters=solver_parameters)

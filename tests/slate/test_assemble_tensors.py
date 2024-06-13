@@ -133,11 +133,11 @@ def test_assemble_matrix(rank_two_tensor):
 def test_assemble_vector_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
-    f = Function(V)
+    f = Cofunction(V.dual())
     # Assemble a SLATE tensor into f
-    f = assemble(Tensor(v * dx), f)
+    f = assemble(Tensor(v * dx), tensor=f)
     # Assemble a different tensor into f
-    f = assemble(Tensor(Constant(2) * v * dx), f)
+    f = assemble(Tensor(Constant(2) * v * dx), tensor=f)
     assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
 
 
@@ -147,7 +147,7 @@ def test_assemble_matrix_into_tensor(mesh):
     v = TrialFunction(V)
     M = assemble(Tensor(u * v * dx))
     # Assemble a different SLATE tensor into M
-    M = assemble(Tensor(Constant(2) * u * v * dx), M)
+    M = assemble(Tensor(Constant(2) * u * v * dx), tensor=M)
     assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
 
 

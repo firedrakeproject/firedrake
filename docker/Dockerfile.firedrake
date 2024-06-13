@@ -21,4 +21,5 @@ RUN bash -c "source firedrake/bin/activate; \
         --install gusto \
         --install icepack \
         --install irksome \
+        --install asQ \
         --install thetis"

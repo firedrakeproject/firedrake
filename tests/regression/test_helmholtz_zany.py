@@ -57,6 +57,7 @@ def helmholtz(n, el_type, degree, perturb):
 # not a suitable C^0 nonconforming one.
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Hermite', 3, 3.8),
+                          ('HCT', 3, 3.8),
                           ('Bell', 5, 4.8),
                           ('Argyris', 5, 4.8)])
 @pytest.mark.parametrize("perturb", [False, True], ids=["Regular", "Perturbed"])

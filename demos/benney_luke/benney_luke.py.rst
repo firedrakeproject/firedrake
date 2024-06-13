@@ -190,7 +190,7 @@ For visualisation, we save the computed and exact solutions to
 an output file.  Note that the visualised data will be interpolated
 from piecewise quadratic functions to piecewise linears::
 
-  output = File('output.pvd')
+  output = VTKFile('output.pvd')
   output.write(phi0, eta0, ex_phi, ex_eta, time=t)
 
 We are now ready to enter the main time iteration loop::

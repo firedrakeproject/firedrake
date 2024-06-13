@@ -188,7 +188,7 @@ and output the solution to a file. ::
 
   u, sigma = w.subfunctions
   u_solv.solve()
-  File("u.pvd").write(u)
+  VTKFile("u.pvd").write(u)
 
 An image of the solution is shown below.
 

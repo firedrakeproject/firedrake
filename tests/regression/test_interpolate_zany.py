@@ -8,7 +8,7 @@ def mesh():
     return UnitSquareMesh(10, 10)
 
 
-@pytest.fixture(params=[("Argyris", 5), ("Bell", 5),
+@pytest.fixture(params=[("Argyris", 5), ("Bell", 5), ("HCT", 3),
                         ("Morley", 2), ("Hermite", 3)],
                 scope="module",
                 ids=lambda x: x[0])

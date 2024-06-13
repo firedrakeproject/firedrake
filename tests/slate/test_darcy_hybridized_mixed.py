@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import pytest
 
 
@@ -49,7 +50,7 @@ def test_darcy_flow_hybridization(degree, hdiv_family):
     sc_params = {'mat_type': 'aij',
                  'ksp_type': 'preonly',
                  'pc_type': 'lu',
-                 'pc_factor_mat_solver_type': 'mumps'}
+                 'pc_factor_mat_solver_type': DEFAULT_DIRECT_SOLVER}
     solve(a == L, w2, bcs=bcs, solver_parameters=sc_params)
     nh_sigma, nh_u = w2.subfunctions
 

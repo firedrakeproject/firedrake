@@ -261,11 +261,10 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         # Replace instances of the constant with a new argument ``x``
         # and differentiate wrt ``x``.
         V = firedrake.FunctionSpace(mesh, "Real", 0)
-        x = ufl.Coefficient(V, n + 1)
-        n += 1
+        x = ufl.Coefficient(V)
         # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
         form = ufl.replace(form, {u: x})
-        u = x
+        u_orig, u = u, x
     else:
         raise RuntimeError("Can't compute derivative for form")
 
@@ -283,7 +282,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         raise ValueError("Shapes of u and du do not match.\n"
                          "If you passed an indexed part of split(u) into "
                          "derivative, you need to provide an appropriate du as well.")
-    return ufl.derivative(form, u, du, internal_coefficient_derivatives)
+    dform = ufl.derivative(form, u, du, internal_coefficient_derivatives)
+    if isinstance(uc, firedrake.Constant):
+        # If we replaced constants with ``x`` to differentiate,
+        # replace them back to the original symbolic constant
+        dform = ufl.replace(dform, {u: u_orig})
+    return dform
 
 
 @PETSc.Log.EventDecorator()

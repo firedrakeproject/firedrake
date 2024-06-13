@@ -2,6 +2,7 @@ import pytest
 import os
 import subprocess
 import glob
+from firedrake.petsc import get_external_packages
 
 
 try:
@@ -24,6 +25,11 @@ def ipynb_file(request):
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
+    import pytest  # Unclear why this needs to be imported again
+
+    if os.path.basename(ipynb_file) in ("08-composable-solvers.ipynb", "12-HPC_demo.ipynb"):
+        if "mumps" not in get_external_packages():
+            pytest.skip("MUMPS not installed with PETSc")
     monkeypatch.chdir(tmpdir)
     pytest = os.path.join(os.environ.get("VIRTUAL_ENV"), "bin", "pytest")
     subprocess.check_call([pytest, "--nbval-lax", ipynb_file])

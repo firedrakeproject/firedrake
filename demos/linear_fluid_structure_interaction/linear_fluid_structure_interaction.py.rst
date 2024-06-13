@@ -278,7 +278,7 @@ Let us set the initial condition. We choose no motion at the beginning in both f
 
 A file to store data for visualization::
 
-    outfile_phi = File("results_pvd/phi.pvd")
+    outfile_phi = VTKFile("results_pvd/phi.pvd")
 
 To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure::
 

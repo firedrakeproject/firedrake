@@ -1,3 +1,4 @@
+import functools
 import firedrake.dmhooks as dmhooks
 import numpy as np
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -27,7 +28,7 @@ class SCPC(SCBase):
         variables are recovered via back-substitution.
         """
 
-        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction
@@ -101,22 +102,14 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = OneFormAssembler(r_expr, tensor=self.condensed_rhs,
-                                               bcs=bcs, zero_bc_nodes=True,
-                                               form_compiler_parameters=self.cxt.fc_params).assemble
+        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, zero_bc_nodes=True, form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
-        self.S = allocate_matrix(S_expr,
-                                 bcs=bcs,
-                                 form_compiler_parameters=self.cxt.fc_params,
-                                 mat_type=mat_type,
-                                 options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
+        form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        self.S = form_assembler.allocate()
+        self._assemble_S = form_assembler.assemble
 
-        self._assemble_S = TwoFormAssembler(S_expr, tensor=self.S, bcs=bcs,
-                                            form_compiler_parameters=self.cxt.fc_params).assemble
-
-        self._assemble_S()
+        self._assemble_S(tensor=self.S)
         Smat = self.S.petscmat
 
         # If a different matrix is used for preconditioning,
@@ -131,17 +124,11 @@ class SCPC(SCBase):
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
-            self.S_pc = allocate_matrix(S_expr,
-                                        bcs=bcs,
-                                        form_compiler_parameters=self.cxt.fc_params,
-                                        mat_type=mat_type,
-                                        options_prefix=prefix,
-                                        appctx=self.get_appctx(pc))
+            form_assembler = get_assembler(S_pc_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+            self.S_pc = form_assembler.allocate()
+            self._assemble_S_pc = form_assembler.assemble
 
-            self._assemble_S_pc = TwoFormAssembler(S_pc_expr, tensor=self.S_pc, bcs=bcs,
-                                                   form_compiler_parameters=self.cxt.fc_params).assemble
-
-            self._assemble_S_pc()
+            self._assemble_S_pc(tensor=self.S_pc)
             Smat_pc = self.S_pc.petscmat
 
         else:
@@ -216,7 +203,7 @@ class SCPC(SCBase):
                           to recover.
         :arg schur_builder: a `SchurComplementBuilder`.
         """
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
         fields = x.subfunctions
@@ -228,8 +215,7 @@ class SCPC(SCBase):
             be = local_system.rhs
             i, = local_system.field_idx
             local_solve = Aeinv * be
-            solve_call = OneFormAssembler(local_solve, tensor=fields[i],
-                                          form_compiler_parameters=self.cxt.fc_params).assemble
+            solve_call = functools.partial(get_assembler(local_solve, form_compiler_parameters=self.cxt.fc_params).assemble, tensor=fields[i])
             local_solvers.append(solve_call)
 
         return local_solvers
@@ -240,12 +226,12 @@ class SCPC(SCBase):
         need to reconstruct symbolic objects.
         """
 
-        self._assemble_S()
+        self._assemble_S(tensor=self.S)
 
         # Only reassemble if a preconditioning operator
         # is provided for the condensed system
         if hasattr(self, "S_pc"):
-            self._assemble_S_pc()
+            self._assemble_S_pc(tensor=self.S_pc)
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
@@ -264,7 +250,7 @@ class SCPC(SCBase):
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
-        self._assemble_Srhs()
+        self._assemble_Srhs(tensor=self.condensed_rhs)
 
     def sc_solve(self, pc):
         """Solve the condensed linear system for the

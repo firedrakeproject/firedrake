@@ -12,7 +12,7 @@ jobs:
     name: "Run linter"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup python
         uses: actions/setup-python@v4
         with:
@@ -40,7 +40,7 @@ jobs:
     # #example-error-annotation-on-github-actions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check workflow files
         uses: docker://rhysd/actionlint:latest
         with:
@@ -53,7 +53,7 @@ jobs:
       env:
         HADOLINT_IGNORE: "DL3005,DL3007,DL3008,DL3015,DL3059"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Lint dockerfiles inside hadolint container
         run: |
           for DOCKERFILE in docker/Dockerfile.*; \

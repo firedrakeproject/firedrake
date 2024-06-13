@@ -178,12 +178,13 @@ def ml_operator(model, function_space, inputs_format=0):
 
     Example
     -------
-    ```
-    # Stage 1: Partially initialise the operator.
-    N = ml_operator(model, function_space=V)
-    # Stage 2: Define the operands and use the operator in a UFL expression.
-    F = (inner(grad(u), grad(v)) + inner(N(u), v) - inner(f, v)) * dx
-    ```
+
+    .. code-block:: python
+
+        # Stage 1: Partially initialise the operator.
+        N = ml_operator(model, function_space=V)
+        # Stage 2: Define the operands and use the operator in a UFL expression.
+        F = (inner(grad(u), grad(v)) + inner(N(u), v) - inner(f, v)) * dx
 
     Parameters
     ----------

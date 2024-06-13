@@ -42,7 +42,7 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     if not test_mode:
         print("The error is ", res)
-        file = File("side-bcs.pvd")
+        file = VTKFile("side-bcs.pvd")
         file.write(out, exact)
     return res
 
@@ -82,7 +82,7 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     if not test_mode:
         print("The error is ", res)
-        file = File("side-bcs.pvd")
+        file = VTKFile("side-bcs.pvd")
         file.write(out, exact)
     return res
 

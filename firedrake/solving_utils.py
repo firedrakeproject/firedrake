@@ -3,10 +3,9 @@ from itertools import chain
 import numpy
 
 from pyop2 import op2
-from firedrake_configuration import get_config
 from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
 from firedrake.logging import warning
@@ -18,33 +17,20 @@ def _make_reasons(reasons):
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
-
-
 SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
 
 
-if get_config()["options"]["petsc_int_type"] == "int32":
-    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
-                              "ksp_type": "preonly",
-                              "ksp_rtol": 1e-7,
-                              "pc_type": "lu",
-                              "pc_factor_mat_solver_type": "mumps",
-                              "mat_mumps_icntl_14": 200}
-else:
-    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
-                              "ksp_type": "preonly",
-                              "ksp_rtol": 1e-7,
-                              "pc_type": "lu",
-                              "pc_factor_mat_solver_type": "superlu_dist"}
-
-
-def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults={}):
+def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaults=None):
     """Set defaults for solver parameters.
 
     :arg solver_parameters: dict of user solver parameters to override/extend defaults
     :arg arguments: arguments for the bilinear form (need to know if we have a Real block).
     :arg ksp_defaults: Default KSP parameters.
     :arg snes_defaults: Default SNES parameters."""
+    if ksp_defaults is None:
+        ksp_defaults = {}
+    if snes_defaults is None:
+        snes_defaults = {}
     if solver_parameters:
         # User configured something, try and set sensible direct solve
         # defaults for missing bits.
@@ -178,7 +164,7 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None):
-        from firedrake.assemble import get_form_assembler
+        from firedrake.assemble import get_assembler
 
         if pmat_type is None:
             pmat_type = mat_type
@@ -197,7 +183,7 @@ class _SNESContext(object):
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
-        self._x = problem.u
+        self._x = problem.u_restrict
 
         if appctx is None:
             appctx = {}
@@ -233,9 +219,9 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
-        self._assemble_residual = get_form_assembler(self.F, self._F, bcs=self.bcs_F,
-                                                     form_compiler_parameters=self.fcp,
-                                                     zero_bc_nodes=True)
+        self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
+                                                form_compiler_parameters=self.fcp,
+                                                zero_bc_nodes=True).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -327,7 +313,7 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.subfunctions
+            us = problem.u_restrict.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
@@ -371,11 +357,11 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            F = replace(F, {problem.u: u})
-            J = replace(J, {problem.u: u})
+            F = replace(F, {problem.u_restrict: u})
+            J = replace(J, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u: u})
+                Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
             bcs = []
@@ -412,7 +398,7 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        ctx._assemble_residual()
+        ctx._assemble_residual(tensor=ctx._F)
 
         if ctx._post_function_callback is not None:
             with ctx._F.dat.vec as F_:
@@ -450,15 +436,14 @@ class _SNESContext(object):
 
         if ctx._pre_jacobian_callback is not None:
             ctx._pre_jacobian_callback(X)
-
-        ctx._assemble_jac()
+        ctx._assemble_jac(ctx._jac)
 
         if ctx._post_jacobian_callback is not None:
             ctx._post_jacobian_callback(X, J)
 
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
-            ctx._assemble_pjac()
+            ctx._assemble_pjac(ctx._pjac)
 
         ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
@@ -493,50 +478,46 @@ class _SNESContext(object):
                 if isinstance(bc, DirichletBC):
                     bc.apply(ctx._x)
 
-        ctx._assemble_jac()
+        ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle
-            ctx._assemble_pjac()
+            ctx._assemble_pjac(ctx._pjac)
+
+    @cached_property
+    def _assembler_jac(self):
+        from firedrake.assemble import get_assembler
+        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp, mat_type=self.mat_type, options_prefix=self.options_prefix, appctx=self.appctx)
 
     @cached_property
     def _jac(self):
-        from firedrake.assemble import allocate_matrix
-        return allocate_matrix(self.J,
-                               bcs=self.bcs_J,
-                               form_compiler_parameters=self.fcp,
-                               mat_type=self.mat_type,
-                               appctx=self.appctx,
-                               options_prefix=self.options_prefix)
+        return self._assembler_jac.allocate()
 
     @cached_property
     def _assemble_jac(self):
-        from firedrake.assemble import get_form_assembler
-        return get_form_assembler(self.J, self._jac, bcs=self.bcs_J,
-                                  mat_type=self.mat_type,
-                                  form_compiler_parameters=self.fcp)
+        return self._assembler_jac.assemble
 
     @cached_property
     def is_mixed(self):
         return self._jac.block_shape != (1, 1)
 
     @cached_property
+    def _assembler_pjac(self):
+        from firedrake.assemble import get_assembler
+        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+            return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, options_prefix=self.options_prefix, appctx=self.appctx)
+        else:
+            return self._assembler_jac
+
+    @cached_property
     def _pjac(self):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            from firedrake.assemble import allocate_matrix
-            return allocate_matrix(self.Jp,
-                                   bcs=self.bcs_Jp,
-                                   form_compiler_parameters=self.fcp,
-                                   mat_type=self.pmat_type,
-                                   appctx=self.appctx,
-                                   options_prefix=self.options_prefix)
+            return self._assembler_pjac.allocate()
         else:
             return self._jac
 
     @cached_property
     def _assemble_pjac(self):
-        from firedrake.assemble import get_form_assembler
-        return get_form_assembler(self.Jp, self._pjac, bcs=self.bcs_Jp,
-                                  form_compiler_parameters=self.fcp)
+        return self._assembler_pjac.assemble
 
     @cached_property
     def _F(self):

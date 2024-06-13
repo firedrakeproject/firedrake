@@ -228,6 +228,10 @@ def test_extruded_mixed_fs_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
+    for w1, w2 in zip(W1, W2):
+        assert w1.finat_element is w2.finat_element
+        for k in w1._shared_data.__slots__:
+            assert getattr(w1._shared_data, k) is getattr(w2._shared_data, k)
     assert all(w1._shared_data == w2._shared_data for w1, w2 in zip(W1, W2))
 
 

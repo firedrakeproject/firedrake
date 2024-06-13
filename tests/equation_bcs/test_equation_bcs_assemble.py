@@ -15,8 +15,6 @@ def test_equation_bcs_direct_assemble_one_form():
 
     g = assemble(F, bcs=bc.extract_form('F'))
     assert np.allclose(g.dat.data, [0.5, 0.5, 0, 0])
-    g = assemble(F, bcs=bc)
-    assert np.allclose(g.dat.data, [0.5, 0.5, 0, 0])
 
 
 def test_equation_bcs_direct_assemble_two_form():

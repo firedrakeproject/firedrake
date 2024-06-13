@@ -26,7 +26,7 @@ Programme
 * **Keynote lecture:** Dr Jennifer Ryan, University of East Anglia.
 * **Public lecture:** `Prof. Anders Logg <http://www.math.chalmers.se/~logg/>`_, Chalmers University.
 * **Featured talks:**
-   * `Dr Jack Hale <http://wwwfr.uni.lu/recherche/fstc/research_unit_in_engineering_sciences_rues/members/jack_hale>`_ University of Luxembourg.
+   * Dr Jack Hale University of Luxembourg.
    * `Dr Marie Rognes <http://www.simula.no/people/meg>`_ Simula Research Laboratory.
    * `Dr Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_ Imperial College London.
 

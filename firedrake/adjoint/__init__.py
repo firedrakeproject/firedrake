@@ -36,6 +36,7 @@ from pyadjoint import IPOPTSolver, ROLSolver, MinimizationProblem, \
 
 from firedrake.adjoint.ufl_constraints import UFLInequalityConstraint, \
     UFLEqualityConstraint  # noqa F401
+from firedrake.adjoint.ensemble_reduced_functional import EnsembleReducedFunctional  # noqa F401
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
 import types

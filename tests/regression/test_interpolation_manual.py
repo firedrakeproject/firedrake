@@ -4,6 +4,73 @@ import pytest
 import numpy as np
 
 
+def test_interpolate_operator():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    x, y = SpatialCoordinate(mesh)
+    expression = x * y
+    # [test_interpolate_operator 1]
+    # create a UFL expression for the interpolation operation.
+    f_i = interpolate(expression, V)
+
+    # numerically evaluate the interpolation to create a new Function
+    f = assemble(f_i)
+    # [test_interpolate_operator 2]
+    assert isinstance(f, Function)
+
+    # [test_interpolate_operator 3]
+    f = Function(V)
+    f.interpolate(expression)
+    # [test_interpolate_operator 4]
+    f2 = f
+    # [test_interpolate_operator 5]
+    f = Function(V)
+    f.assign(assemble(interpolate(expression, V)))
+    # [test_interpolate_operator 6]
+    assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
+
+    W = FunctionSpace(mesh, "RT", 1)
+    g = project(as_vector((sin(x), cos(y))), W)
+    # [test_interpolate_operator 7]
+    # g is a vector-valued Function, e.g. on an H(div) function space
+    f = assemble(interpolate(sqrt(3.2 * div(g)), V))
+    # [test_interpolate_operator 8]
+
+    # [test_interpolate_operator 9]
+    trace = FunctionSpace(mesh, "HDiv Trace", 0)
+    f = assemble(interpolate(expression, trace))
+    # [test_interpolate_operator 10]
+
+
+def test_interpolate_external():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, "CG", 2)
+    x, y = SpatialCoordinate(m)
+    expression = x * y
+
+    def mydata(points):
+        return [x*y for x, y in points]
+
+    # [test_interpolate_external 1]
+    # First, grab the mesh.
+    m = V.mesh()
+
+    # Now make the VectorFunctionSpace corresponding to V.
+    W = VectorFunctionSpace(m, V.ufl_element())
+
+    # Next, interpolate the coordinates onto the nodes of W.
+    X = assemble(interpolate(m.coordinates, W))
+
+    # Make an output function.
+    f = Function(V)
+
+    # Use the external data function to interpolate the values of f.
+    f.dat.data[:] = mydata(X.dat.data_ro)
+    # [test_interpolate_external 2]
+    f2 = assemble(interpolate(expression, V))
+    assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
+
+
 def test_line_integral():
     # [test_line_integral 1]
     # Start with a simple field exactly represented in the function space over

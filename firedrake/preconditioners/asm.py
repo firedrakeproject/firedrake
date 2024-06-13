@@ -50,25 +50,26 @@ class ASMPatchPC(PCBase):
         asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
 
-        backend = PETSc.Options().getString(self.prefix + "backend",
-                                            default="petscasm").lower()
+        opts = PETSc.Options(self.prefix)
+        backend = opts.getString("backend", default="petscasm").lower()
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
         if backend == "petscasm":
             asmpc.setType(asmpc.Type.ASM)
             # Set default solver parameters
             asmpc.setASMType(PETSc.PC.ASMType.BASIC)
-            opts = PETSc.Options(asmpc.getOptionsPrefix())
-            if "sub_pc_type" not in opts:
-                opts["sub_pc_type"] = "lu"
-            if "sub_pc_factor_shift_type" not in opts:
-                opts["sub_pc_factor_shift_type"] = "NONE"
+            sub_opts = PETSc.Options(asmpc.getOptionsPrefix())
+            if "sub_pc_type" not in sub_opts:
+                sub_opts["sub_pc_type"] = "lu"
+            if "sub_pc_factor_mat_ordering_type" not in sub_opts:
+                # Preserve the natural ordering to avoid zero pivots in saddle-point problems
+                sub_opts["sub_pc_factor_mat_ordering_type"] = "natural"
 
             # If an ordering type is provided, PCASM should not sort patch indices, otherwise it can.
             mat_type = P.getType()
             if not mat_type.endswith("sbaij"):
                 sentinel = object()
-                ordering = PETSc.Options().getString(self.prefix + "mat_ordering_type", default=sentinel)
+                ordering = opts.getString("mat_ordering_type", default=sentinel)
                 asmpc.setASMSortIndices(ordering is sentinel)
 
             lgmap = V.dof_dset.lgmap
@@ -113,8 +114,9 @@ class ASMPatchPC(PCBase):
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization
-        for sub in self.asmpc.getASMSubKSP():
-            sub.getOperators()[0].setUnfactored()
+        if self.asmpc.getType() == "asm":
+            for sub in self.asmpc.getASMSubKSP():
+                sub.getOperators()[0].setUnfactored()
 
     def apply(self, pc, x, y):
         self.asmpc.apply(x, y)
@@ -145,14 +147,12 @@ class ASMStarPC(ASMPatchPC):
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
-        depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
-                                             default="natural")
+        opts = PETSc.Options(self.prefix)
+        depth = opts.getInt("construct_dim", default=0)
+        ordering = opts.getString("mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = []
-        for (i, W) in enumerate(V):
-            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
+        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
         # Build index sets for the patches
         ises = []
@@ -202,18 +202,22 @@ class ASMVankaPC(ASMPatchPC):
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
-        depth = PETSc.Options().getInt(self.prefix + "construct_dim", default=-1)
-        height = PETSc.Options().getInt(self.prefix + "construct_codim", default=-1)
+        opts = PETSc.Options(self.prefix)
+        depth = opts.getInt("construct_dim", default=-1)
+        height = opts.getInt("construct_codim", default=-1)
         if (depth == -1 and height == -1) or (depth != -1 and height != -1):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
-        exclude_subspaces = [int(subspace) for subspace in PETSc.Options().getString(self.prefix+"exclude_subspaces", default="-1").split(",")]
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type", default="natural")
+        exclude_subspaces = list(map(int, opts.getString("exclude_subspaces", default="-1").split(",")))
+        include_type = opts.getString("include_type", default="star").lower()
+        if include_type not in ["star", "entity"]:
+            raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
+        include_star = include_type == "star"
+
+        ordering = opts.getString("mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = []
-        for (i, W) in enumerate(V):
-            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
+        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
         # Build index sets for the patches
         ises = []
@@ -229,18 +233,20 @@ class ASMVankaPC(ASMPatchPC):
 
             # Create point list from mesh DM
             star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = set()
-            for pt in star.tolist():
+            star = order_points(mesh_dm, star, ordering, self.prefix)
+            pt_array = []
+            for pt in reversed(star):
                 closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
-                pt_array.update(closure.tolist())
+                pt_array.extend(closure)
+            # Grab unique points with stable ordering
+            pt_array = list(reversed(dict.fromkeys(pt_array)))
 
-            pt_array = order_points(mesh_dm, list(pt_array), ordering, self.prefix)
             # Get DoF indices for patch
             indices = []
             for (i, W) in enumerate(V):
                 section = W.dm.getDefaultSection()
                 if i in exclude_subspaces:
-                    loop_list = [seed]
+                    loop_list = star if include_star else [seed]
                 else:
                     loop_list = pt_array
                 for p in loop_list:
@@ -284,8 +290,8 @@ class ASMLinesmoothPC(ASMPatchPC):
         dm = mesh.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
-        codim_list = PETSc.Options().getString(self.prefix+"codims", "0, 1")
-        codim_list = [int(ii) for ii in codim_list.split(",")]
+        opts = PETSc.Options(self.prefix)
+        codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
 
         # Build index sets for the patches
         ises = []
@@ -385,10 +391,9 @@ class ASMExtrudedStarPC(ASMStarPC):
             return super(ASMExtrudedStarPC, self).get_patches(V)
 
         # Obtain the topological entities to use to construct the stars
-        depth = PETSc.Options().getInt(self.prefix+"construct_dim",
-                                       default=0)
-        ordering = PETSc.Options().getString(self.prefix+"mat_ordering_type",
-                                             default="natural")
+        opts = PETSc.Options(self.prefix)
+        depth = opts.getInt("construct_dim", default=0)
+        ordering = opts.getString("mat_ordering_type", default="natural")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency

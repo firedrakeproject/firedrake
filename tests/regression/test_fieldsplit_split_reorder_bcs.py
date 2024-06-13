@@ -1,6 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 
 class SchurPC(AuxiliaryOperatorPC):
@@ -37,8 +38,7 @@ def solver_parameters(permute):
         "pc_python_type": f"{__name__}.SchurPC",
         "aux_pc_mat_type": "aij",
         "aux_pc_type": "lu",
-        "aux_pc_factor_mat_solver_type": "mumps",
-        "aux_mat_mumps_icntl_14": 200,
+        "aux_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
     }
 
     return {
@@ -52,8 +52,7 @@ def solver_parameters(permute):
         "pc_fieldsplit_1_fields": B,
         "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "lu",
-        "fieldsplit_0_pc_factor_mat_solver_type": "mumps",
-        "fieldsplit_0_mat_mumps_icntl_14": 200,
+        "fieldsplit_0_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         "fieldsplit_1": schurlu,
     }
 

@@ -16,7 +16,7 @@ def annotate_assemble(assemble):
         ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         with stop_annotating():
-            from firedrake.assemble import preprocess_base_form
+            from firedrake.assemble import BaseFormAssembler
             from firedrake.slate import slate
             if not isinstance(form, slate.TensorBase):
                 # Preprocess the form at the annotation stage so that the `AssembleBlock`
@@ -25,7 +25,7 @@ def annotate_assemble(assemble):
                 # -> `interp = Action(Interpolate(v1, v0), f)` with `v1` and `v0` being respectively `Argument`
                 # and `Coargument`. Differentiating `interp` is not currently supported as the action's left slot
                 # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
-                form = preprocess_base_form(form)
+                form = BaseFormAssembler.preprocess_base_form(form)
                 kwargs['is_base_form_preprocessed'] = True
             output = assemble(form, *args, **kwargs)
 
