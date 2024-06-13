@@ -155,11 +155,9 @@ class EnsembleReducedFunctional(ReducedFunctional):
         k = int(np.sum(sizes[:i]))
         for j, Jhat in enumerate(self.Jhats):
             if self.gather_functional:
-                der = Jhat.derivative(adj_input=adj_input[k],
-                                      options=options)
+                der = Jhat.derivative(adj_input=adj_input[k], options=options)
             else:
-                der = Jhat.derivative(adj_input=adj_input,
-                                      options=options)
+                der = Jhat.derivative(adj_input=adj_input, options=options)
             # we have the same controls for all local elements of the list
             # so the controls must be added
             if j == 0:
