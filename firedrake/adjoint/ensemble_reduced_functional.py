@@ -149,29 +149,28 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
         if self.gather_functional:
             adj_input = self.gather_functional.derivative(adj_input=adj_input,
-                                                        options=options)
+                                                          options=options)
         i = self.ensemble.ensemble_comm.rank
         sizes = self.ensemble.ensemble_comm.allgather(len(self.functional))
-        k = int(np.sum(sizes[:i])-1)
-        for Jhat in self.Jhats:
-            for j in range(len(self.functional)):
-                k += 1
-                if self.gather_functional:
-                    der = Jhat.derivative(adj_input=adj_input[k],
-                                          options=options)
+        k = int(np.sum(sizes[:i]))
+        for j, Jhat in enumerate(self.Jhats):
+            if self.gather_functional:
+                der = Jhat.derivative(adj_input=adj_input[k],
+                                      options=options)
+            else:
+                der = Jhat.derivative(adj_input=adj_input,
+                                      options=options)
+            # we have the same controls for all local elements of the list
+            # so the controls must be added
+            if j == 0:
+                dJdm_local = der
+            else:
+                if isinstance(der, list):
+                    for i in range(len(der)):
+                        dJdm_local[i] += der[i]
                 else:
-                    der = Jhat.derivative(adj_input=adj_input,
-                                          options=options)
-                # we have the same controls for all local elements of the list
-                # so the controls must be added
-                if j == 0:
-                    dJdm_local = der
-                else:
-                    if isinstance(der, list):
-                        for i in range(len(der)):
-                            dJdm_local[i] += der[i]
-                    else:
-                        dJdm_local += der
+                    dJdm_local += der
+            k += 1
 
         if self.scatter_control:
             dJdm_total = []
