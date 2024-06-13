@@ -91,7 +91,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
             for j in range(size):
                 if issubclass(Jtype, float):
                     if i == rank:
-                        Jsend = j
+                        Jsend = J[j]
                     else:
                         Jsend = 0.
                     vals.append(self.ensemble.ensemble_comm.bcast(Jsend, root=i))
