@@ -225,11 +225,7 @@ class FunctionMixin(FloatingType):
 
         V = options.get("function_space", self.function_space())
         if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            # In this case, we do not apply the Riesz map and return a zero
-            # Cofunction.
-            return Cofunction(V.dual())
+            return Function(V)
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")

@@ -164,16 +164,15 @@ class EnsembleReducedFunctional(ReducedFunctional):
                 if isinstance(der, list):
                     dJdm_local = []
                     for l, derl in enumerate(der):
-                        dJdm_local.append(derl.riesz_representation())
+                        dJdm_local.append(derl)
                 else:
-                    dJdm_local = der.riesz_representation()
+                    dJdm_local = der
             else:
                 if isinstance(der, list):
                     for l, derl in enumerate(der):
-                        print(l, i, j, dJdm_local[l], type(derl))
-                        dJdm_local[l] += derl.riesz_representation()
+                        dJdm_local[l] += derl
                 else:
-                    dJdm_local += der.riesz_representation()
+                    dJdm_local += der
             k += 1
 
         if self.scatter_control:

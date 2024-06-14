@@ -65,7 +65,6 @@ def test_verification_gather_functional_adjfloat():
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-
 def test_verification_gather_functional_list_adjfloat():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
@@ -116,7 +115,6 @@ def test_verification_gather_functional_list_adjfloat():
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-
 def test_verification_gather_functional_Function():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
