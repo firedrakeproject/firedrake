@@ -599,7 +599,7 @@ def test_io_function_extrusion_periodic(tmpdir):
     coordV = FunctionSpace(extm, elem)
     x, y = SpatialCoordinate(extm)
     coord = Function(coordV).interpolate(as_vector([x * cos(y), x * sin(y)]))
-    extm = make_mesh_from_coordinates(coord.topological, name=extruded_mesh_name)
+    extm = make_mesh_from_coordinates(coord.topological, name=extruded_mesh_name, comm=COMM_WORLD)
     extm._base_mesh = mesh
     V = FunctionSpace(extm, "RTCF", 3)
     method = get_embedding_method_for_checkpointing(V.ufl_element())

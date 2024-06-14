@@ -2760,7 +2760,7 @@ values from f.)"""
 
 
 @PETSc.Log.EventDecorator()
-def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
+def make_mesh_from_coordinates(coordinates, name, tolerance=0.5, comm=None):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
     Parameters
@@ -2780,6 +2780,9 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The mesh.
 
     """
+    if comm is None:
+        raise ValueError("A comm must be provided when creating a mesh from coordinates")
+
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
         if mesh is not None:
@@ -2986,7 +2989,7 @@ def Mesh(meshfile, **kwargs):
     else:
         coordinates = None
     if coordinates is not None:
-        return make_mesh_from_coordinates(coordinates, name)
+        return make_mesh_from_coordinates(coordinates, name, comm=user_comm)
 
     tolerance = kwargs.get("tolerance", 0.5)
 
@@ -3034,7 +3037,7 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
-    mesh = make_mesh_from_mesh_topology(topology, name)
+    mesh = make_mesh_from_mesh_topology(topology, name, user_comm)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
@@ -3181,7 +3184,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
                                 layer_height, extrusion_type=extrusion_type, kernel=kernel)
 
-    self = make_mesh_from_coordinates(coordinates, name)
+    self = make_mesh_from_coordinates(coordinates, name, comm=mesh.comm)
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":

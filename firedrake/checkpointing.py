@@ -1079,7 +1079,7 @@ class CheckpointFile(object):
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-            mesh = make_mesh_from_coordinates(coordinates, name)
+            mesh = make_mesh_from_coordinates(coordinates, name, comm=self.comm)
             if self.has_attr(path, PREFIX + "_radial_coordinates"):
                 radial_coord_element = self._load_ufl_element(path, PREFIX + "_radial_coordinate_element")
                 radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
@@ -1111,7 +1111,7 @@ class CheckpointFile(object):
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-            mesh = make_mesh_from_coordinates(coordinates, name)
+            mesh = make_mesh_from_coordinates(coordinates, name, comm=self.comm)
             # Load plex coordinates for a complete representation of plex.
             tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
             # Load cell_orientations for immersed meshes.
