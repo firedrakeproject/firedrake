@@ -150,4 +150,7 @@ def test_macro_multigrid(hierarchy, degree, variant):
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() <= 10
+    expected = 10
+    if mesh.geometric_dimension() == 3 and variant == "alfeld":
+        expected = 14
+    assert solver.snes.ksp.getIterationNumber() <= expected

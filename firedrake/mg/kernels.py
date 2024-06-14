@@ -525,12 +525,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_builder.set_coordinates(Vf.mesh())
 
     Vfe = create_element(Vf.ufl_element())
+    ref_complex = Vfe.complex
     variant = Vf.ufl_element().variant() or "default"
     if "alfeld" in variant.lower():
         from FIAT import macro
         ref_complex = macro.PowellSabinSplit(Vfe.cell)
-    else:
-        ref_complex = Vfe.complex
 
     macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
