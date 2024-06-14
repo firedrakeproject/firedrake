@@ -104,14 +104,12 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
         self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
 
-        self.uid = utils._new_uid()
-        self.name = name or 'constant_%d' % self.uid
-
         super().__init__()
         Counted.__init__(self, count, Counted)
+        self.name = name or f"constant_{self._count}"
 
     def __repr__(self):
-        return f"Constant({self.dat.data_ro}, {self.count()})"
+        return f"Constant({self.dat.data_ro}, name='{self.name}', count={self._count})"
 
     def _ufl_signature_data_(self, renumbering):
         return (type(self).__name__, renumbering[self])
