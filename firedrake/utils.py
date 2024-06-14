@@ -21,6 +21,7 @@ complex_mode = get_config()["options"].get("complex", False)
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
 
+
 def _new_uid(comm):
     uid = comm.Get_attr(FIREDRAKE_UID)
     if uid is None:
