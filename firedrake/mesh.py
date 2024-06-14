@@ -2711,7 +2711,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     mesh._tolerance = tolerance
     return mesh
