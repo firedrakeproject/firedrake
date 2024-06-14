@@ -93,7 +93,7 @@ def _get_mesh_and_V(params):
             coordV = FunctionSpace(mesh, elem)
             x, y = SpatialCoordinate(mesh)
             coord = Function(coordV).interpolate(as_vector([x * cos(y), x * sin(y)]))
-            mesh = make_mesh_from_coordinates(coord.topological, name=mesh_name, comm=COMM_WORLD)
+            mesh = make_mesh_from_coordinates(coord.topological, name=mesh_name)
             mesh._base_mesh = base
             V = FunctionSpace(mesh, "RTCF", 3)
         else:
