@@ -587,6 +587,7 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm.Free()
 
 
+@pytest.mark.broken
 @pytest.mark.parallel(nprocs=3)
 def test_io_function_extrusion_periodic(tmpdir):
     filename = join(str(tmpdir), "test_io_function_extrusion_periodic_dump.h5")

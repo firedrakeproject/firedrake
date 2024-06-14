@@ -60,6 +60,8 @@ def adjoint_example(mesh):
     return Jnew, grad_Jnew
 
 
+@pytest.mark.broken
+# This test pollutes the tape!!!
 @pytest.mark.skipcomplex
 # Waiting on stable parallel decompositions through disk checkpointing.
 @pytest.mark.xfail
