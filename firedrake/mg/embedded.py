@@ -12,7 +12,8 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
+native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
+non_native_integral_variants = frozenset(["integral", "fdm"])
 
 
 class Op(IntEnum):
@@ -58,7 +59,7 @@ class TransferManager(object):
             return True
         if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
             return reduce(and_, map(self.is_native, element.sub_elements))
-        return element.family() in native
+        return element.family() in native_families and not element.variant() in non_native_integral_variants
 
     def _native_transfer(self, element, op):
         try:

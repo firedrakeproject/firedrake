@@ -48,7 +48,7 @@ further facilitate their science goals.
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-The workshop dinner will be held at `the Pepys <http://www.thepepys.co.uk/>`_ on Monday 27 March.
+The workshop dinner will be held at the Pepys on Monday 27 March.
 
 Location
 ~~~~~~~~

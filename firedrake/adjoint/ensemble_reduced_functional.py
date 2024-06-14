@@ -161,13 +161,19 @@ class EnsembleReducedFunctional(ReducedFunctional):
             # we have the same controls for all local elements of the list
             # so the controls must be added
             if j == 0:
-                dJdm_local = der
+                if isinstance(der, list):
+                    dJdm_local = []
+                    for l, derl in enumerate(der):
+                        dJdm_local.append(derl.riesz_representation())
+                else:
+                    dJdm_local = der.riesz_representation()
             else:
                 if isinstance(der, list):
-                    for i in range(len(der)):
-                        dJdm_local[i] += der[i]
+                    for l, derl in enumerate(der):
+                        print(l, i, j, dJdm_local[l], type(derl))
+                        dJdm_local[l] += derl.riesz_representation()
                 else:
-                    dJdm_local += der
+                    dJdm_local += der.riesz_representation()
             k += 1
 
         if self.scatter_control:
