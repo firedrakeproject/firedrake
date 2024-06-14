@@ -6,11 +6,11 @@ from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import MPI
 from firedrake_configuration import get_config
 
 # MPI key value for storing a per communicator universal identifier
-FIREDRAKE_UID = COMM_WORLD.Create_keyval()
+FIREDRAKE_UID = MPI.Comm.Create_keyval()
 
 RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
