@@ -127,8 +127,20 @@ def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type):
         run_prolongation(hierarchy, space, degrees, variant)
 
 
+mg_params = {
+    "mat_type": "matfree",
+    "ksp_type": "cg",
+    "ksp_monitor": None,
+    "pc_type": "mg",
+    "mg_levels_ksp_type": "chebyshev",
+    "mg_levels_pc_type": "jacobi",
+    "mg_coarse_pc_type": "python",
+    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+}
+
+
 @pytest.mark.parametrize("degree", (1,))
-def test_macro_multigrid(hierarchy, degree, variant):
+def test_macro_multigrid_poisson(hierarchy, degree, variant):
     mesh = hierarchy[-1]
     V = FunctionSpace(mesh, "CG", degree, variant=variant)
     u = TrialFunction(V)
@@ -138,19 +150,39 @@ def test_macro_multigrid(hierarchy, degree, variant):
     bcs = [DirichletBC(V, 0, "on_boundary")]
 
     uh = Function(V)
-    sp = {
-        "mat_type": "matfree",
-        "ksp_type": "cg",
-        "pc_type": "mg",
-        "mg_levels_ksp_type": "chebyshev",
-        "mg_levels_pc_type": "jacobi",
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-    }
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=sp)
+    solver = LinearVariationalSolver(problem, solver_parameters=mg_params)
     solver.solve()
     expected = 10
     if mesh.geometric_dimension() == 3 and variant == "alfeld":
         expected = 14
+    assert solver.snes.ksp.getIterationNumber() <= expected
+
+
+@pytest.fixture()
+def square_hierarchy():
+    refine = 4
+    base = UnitSquareMesh(3, 3)
+    return MeshHierarchy(base, refine)
+
+
+@pytest.mark.parametrize("family", ("HCT-red", "HCT"))
+def test_macro_multigrid_biharmonic(square_hierarchy, family):
+    mesh = square_hierarchy[-1]
+    V = FunctionSpace(mesh, family, 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(div(grad(u)), div(grad(v))) * dx
+    L = inner(Constant(1), v) * dx
+    bcs = [DirichletBC(V, 0, "on_boundary")]
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=mg_params)
+    if complex_mode:
+        with pytest.raises(NotImplementedError):
+            solver.solve()
+    else:
+        solver.solve()
+    expected = 16
     assert solver.snes.ksp.getIterationNumber() <= expected
