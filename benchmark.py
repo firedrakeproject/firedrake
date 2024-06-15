@@ -627,7 +627,7 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
     dt = Constant(0.002)  #0.001
-    dt_plot = 0.01
+    chkstride = int(0.01 / float(dt))  # save every 0.01 sec
     t = Constant(0.0)
     CNshift = 1
     elast = True
@@ -643,11 +643,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             #fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
             #fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
             #fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
+            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
+            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -685,7 +685,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     decay_r = Constant(0.5)  # decay ratio
     #nu_ale = Constant(0.49) * (1. - decay_r * abs(x_f - pointA[0]) / (L - pointA[0])) * (1. - decay_r * abs(y_f - pointA[1]) / (L - pointA[0]))
     nu_ale = Constant(0.49)
-    mu_ale = Constant(float(mu_s))
+    #mu_ale = Constant(float(mu_s))
+    mu_ale = Constant(4 * float(mu_s))
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
@@ -891,10 +892,6 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         problem = NonlinearVariationalProblem(residual, solution, bcs=[bc_v_f_inflow, bc_v_f_zero, bc_v_f_noslip, bc_u_f_zero, bc_u_f_noslip, bc_v_s_zero, bc_u_s_zero])
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
     start = time.time()
-    nsample = int(T / dt_plot)
-    sample_t = np.arange(0.0, T, dt_plot) + dt_plot
-    sample_FD = np.empty_like(sample_t)
-    sample_FL = np.empty_like(sample_t)
     print("num cells = ", mesh.comm.allreduce(mesh.cell_set.size), flush=True)
     print("num DoFs = ", V.dim(), flush=True)
     if mesh.comm.rank == 0:
@@ -921,7 +918,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_FL, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if False:
+            with open(fname_ux, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+            with open(fname_uy, 'w') as outfile:
+                 outfile.write("t val" + "\n")
+    if True:
         coords = mesh_f.coordinates.dat.data_with_halos
         uplot = solution.subfunctions[2]
         uplot = Function(V_0).project(solution.subfunctions[2])
@@ -941,14 +942,14 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
         for subfunction, subfunction_0 in zip(solution.subfunctions, solution_0.subfunctions):
             subfunction_0.assign(subfunction)
         # Everything is now up to date.
-        FD = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[0] * ds_f((label_circle, label_interface)))
-        FL = assemble(dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[1] * ds_f((label_circle, label_interface)))
+        FD = assemble(-dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[0] * ds_f((label_circle, label_interface)))
+        FL = assemble(-dot(sigma_f_, dot(J_f_ * transpose(inv(F_f_)), n_f))[1] * ds_f((label_circle, label_interface)))
         u_A = solution.subfunctions[3].at(pointA, tolerance=1.e-6)
         if mesh.comm.rank == 0:
             print(f"FD     = {FD}")
             print(f"FL     = {FL}")
             print(f"uA     = {u_A}")
-            if ii % 10 == 0:
+            if ii % chkstride == 0:
                 with open(fname_FD, 'a') as outfile:
                     outfile.write(f"{float(t)} {FD}" + "\n")
                 with open(fname_FL, 'a') as outfile:
@@ -957,7 +958,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                     outfile.write(f"{float(t)} {u_A[0]}" + "\n")
                 with open(fname_uy, 'a') as outfile:
                     outfile.write(f"{float(t)} {u_A[1]}" + "\n")
-        if ii % 10 == 0:
+        if ii % chkstride == 0:
             iplot += 1
             with DumbCheckpoint(fname_checkpoint, mode=FILE_UPDATE) as chk:
                 chk.set_timestep(float(t), iplot)
