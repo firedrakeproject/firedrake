@@ -632,7 +632,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     CNshift = 1
     elast = True
     linear_elast = True
-    serendipity = True
+    serendipity = False
     slip_bc = True
     if use_netgen:
         fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
@@ -643,11 +643,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             #fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
             #fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
             #fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
-            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
-            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam2_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -685,8 +685,8 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     decay_r = Constant(0.5)  # decay ratio
     #nu_ale = Constant(0.49) * (1. - decay_r * abs(x_f - pointA[0]) / (L - pointA[0])) * (1. - decay_r * abs(y_f - pointA[1]) / (L - pointA[0]))
     nu_ale = Constant(0.49)
-    #mu_ale = Constant(float(mu_s))
-    mu_ale = Constant(4 * float(mu_s))
+    mu_ale = Constant(float(mu_s))
+    #mu_ale = Constant(4 * float(mu_s))
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
