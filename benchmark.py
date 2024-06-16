@@ -632,7 +632,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     CNshift = 1
     elast = True
     linear_elast = True
-    serendipity = True
+    serendipity = False
     slip_bc = True
     if use_netgen:
         fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
@@ -643,11 +643,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             #fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
             #fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
             #fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
-            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
+            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparam1.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
