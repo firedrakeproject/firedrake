@@ -916,7 +916,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                 while True:
                     #if abs(steps[iplot] - 3.96) < 1.e-6:
                     #if abs(steps[iplot] - 3.75) < 1.e-6:
-                    if abs(steps[iplot] - 3.76) < 1.e-6:
+                    if abs(steps[iplot] - 3.94) < 1.e-6:
                         t.assign(steps[iplot])
                         break
                     else:
