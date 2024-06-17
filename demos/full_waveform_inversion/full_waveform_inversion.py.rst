@@ -195,9 +195,13 @@ We interpolate the inner product::
 onto the dual function space :math:`V^*`::
     
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
-    q_s *= assemble(inner(Function(V).assign(1.0), TestFunction(V))*dx).vector().max()
 
-which returns the source function :math:`q_s \in V^{\ast}`.
+which returns the source function :math:`q_s \in V^{\ast}`. Our goal is to ensure that the force term
+:math:`f^*` arises from the formulation of the weak form. To achieve this, we scale :math:`q_s(\mathbf{x}_s)`
+by the assembled inner product of a ``Constant(1.0)`` and ``TestFunction`` in the function space ``V``::
+
+    nodes = np.where(q_s.dat.data_ro != 0.0)
+    q_s.dat.data[nodes] *= assemble(Constant(1.0) * TestFunction(V) * dx).dat.data[nodes]
 
 
 We now can proceed to compute the synthetic data and record them on the receivers::
