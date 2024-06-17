@@ -331,7 +331,7 @@ matplotlib.
 .. _VTK: http://www.vtk.org
 .. _PVD: http://www.paraview.org/Wiki/ParaView/Data_formats#PVD_File_Format
 .. _matplotlib: http://matplotlib.org
-.. _Arbitrary: https://blog.kitware.com/modeling-arbitrary-order-lagrange-finite-elements-in-the-visualization-toolkit/
+.. _Arbitrary: https://www.kitware.com/modeling-arbitrary-order-lagrange-finite-elements-in-the-visualization-toolkit/
 __ Arbitrary_
 .. _Tessellate: https://kitware.github.io/paraview-docs/latest/python/paraview.simple.Tessellate.html
 .. _Tessellation: https://ieeexplore.ieee.org/document/1634311/
