@@ -8,7 +8,7 @@ from functools import singledispatch
 import gem
 import numpy
 import ufl
-from FIAT.reference_element import make_affine_mapping
+from FIAT.reference_element import UFCSimplex, make_affine_mapping
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
@@ -195,6 +195,9 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_normals(self):
         cell = self.interface.fiat_cell
+        if (not isinstance(cell, UFCSimplex)) and cell.get_dimension() == 2:
+            raise NotImplementedError("Can't do physical normals on that cell yet")
+        
         num_edges = len(cell.get_topology()[1])
         pts = self.physical_tangents()
         return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(num_edges)])
