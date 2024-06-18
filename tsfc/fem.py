@@ -5,33 +5,30 @@ import collections
 import itertools
 from functools import singledispatch
 
-import numpy
-
-import ufl
-from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
-from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (
-    Argument, CellCoordinate, CellEdgeVectors, CellFacetJacobian,
-    CellOrientation, CellOrigin, CellVertices, CellVolume, Coefficient,
-    FacetArea, FacetCoordinate, GeometricQuantity, Jacobian,
-    JacobianDeterminant, NegativeRestricted, QuadratureWeight,
-    PositiveRestricted, ReferenceCellVolume, ReferenceCellEdgeVectors,
-    ReferenceFacetVolume, ReferenceNormal, SpatialCoordinate
-)
-from ufl.domain import extract_unique_domain
-
-from FIAT.reference_element import make_affine_mapping
-from FIAT.reference_element import UFCSimplex
-
 import gem
-from gem.node import traversal
-from gem.optimise import ffc_rounding, constant_fold_zero
-from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
-
-from finat.physically_mapped import PhysicalGeometry, NeedsCoordinateMappingElement
+import numpy
+import ufl
+from FIAT.reference_element import UFCSimplex, make_affine_mapping
+from finat.physically_mapped import (NeedsCoordinateMappingElement,
+                                     PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
+from gem.node import traversal
+from gem.optimise import constant_fold_zero, ffc_rounding
+from gem.unconcatenate import unconcatenate
+from gem.utils import cached_property
+from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
+                         CellFacetJacobian, CellOrientation, CellOrigin,
+                         CellVertices, CellVolume, Coefficient, FacetArea,
+                         FacetCoordinate, GeometricQuantity, Jacobian,
+                         JacobianDeterminant, NegativeRestricted,
+                         PositiveRestricted, QuadratureWeight,
+                         ReferenceCellEdgeVectors, ReferenceCellVolume,
+                         ReferenceFacetVolume, ReferenceNormal,
+                         SpatialCoordinate)
+from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
+from ufl.corealg.multifunction import MultiFunction
+from ufl.domain import extract_unique_domain
 
 from tsfc import ufl2gem
 from tsfc.finatinterface import as_fiat_cell, create_element
@@ -40,8 +37,8 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            entity_avg, one_times, simplify_abs,
-                            preprocess_expression, TSFCConstantMixin)
+                            TSFCConstantMixin, entity_avg, one_times,
+                            preprocess_expression, simplify_abs)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -198,6 +195,10 @@ class CoordinateMapping(PhysicalGeometry):
                                for i in range(3)])
 
     def physical_normals(self):
+        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
+                self.interface.fiat_cell.get_spatial_dimension() == 2):
+            raise NotImplementedError("Only works for triangles for now")
+
         pts = self.physical_tangents()
         return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(3)])
 
@@ -443,7 +444,8 @@ def translate_reference_normal(terminal, mt, ctx):
 
 @translate.register(ReferenceCellEdgeVectors)
 def translate_reference_cell_edge_vectors(terminal, mt, ctx):
-    from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
+    from FIAT.reference_element import \
+        TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
         raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
