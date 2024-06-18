@@ -7,7 +7,8 @@ from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, Su
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
     CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
-
+from numbers import Number
+import numpy as np
 
 class FunctionMixin(FloatingType):
 
@@ -277,6 +278,18 @@ class FunctionMixin(FloatingType):
     def _ad_convert_type(self, value, options=None):
         # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
         options = {} if options is None else options.copy()
+        options.setdefault("convert_to_function", False)
+        if options["convert_to_function"]:
+            if isinstance(value, Number):
+                f = type(self)(self.function_space())
+                return f.assign(value)
+            elif isinstance(value, firedrake.Function):
+                return value
+            elif isinstance(value, firedrake.Cofunction):
+                return self._ad_convert_riesz(value, options=options)
+            elif isinstance(value, np.ndarray):
+                return type(self)(self.function_space(), val=value)
+            
         options.setdefault("riesz_representation", "L2")
         if options["riesz_representation"] is None:
             return value
