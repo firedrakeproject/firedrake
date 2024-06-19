@@ -1872,11 +1872,11 @@ class MeshGeometryCargo:
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
+    def __new__(cls, element, comm):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid()
+        uid = utils._new_uid(internal_comm(comm, mesh))
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
@@ -2446,6 +2446,8 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The name of the mesh.
     tolerance : numbers.Number
         The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
 
     Returns
     -------
@@ -2467,7 +2469,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
@@ -2504,7 +2506,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
     mesh.name = name
     mesh._tolerance = tolerance
@@ -2537,7 +2539,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     tcell = topology.ufl_cell()
     cell = tcell.reconstruct(geometric_dimension=gdim)
     element = finat.ufl.VectorElement("DG", cell, 0)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
@@ -2709,7 +2711,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     mesh._tolerance = tolerance
     return mesh
