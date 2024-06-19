@@ -195,7 +195,7 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_normals(self):
         cell = self.interface.fiat_cell
-        if (not isinstance(cell, UFCSimplex)) and cell.get_dimension() == 2:
+        if not (isinstance(cell, UFCSimplex) and cell.get_dimension() == 2):
             raise NotImplementedError("Can't do physical normals on that cell yet")
 
         num_edges = len(cell.get_topology()[1])
