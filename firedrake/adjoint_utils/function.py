@@ -230,7 +230,7 @@ class FunctionMixin(FloatingType):
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
             # the functional is independent on the control variable.
-            return Function(V.dual())
+            return Function(V)
 
         if not isinstance(value, (Cofunction, Function)):
             raise TypeError("Expected a Cofunction or a Function")
