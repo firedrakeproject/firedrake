@@ -1,0 +1,50 @@
+% pgfplot_example.tex
+
+\documentclass{article}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepgfplotslibrary{patchplots}
+\usetikzlibrary{calc}
+\pgfplotsset{compat=1.15}
+\begin{document}
+\begin{figure}[ht]
+\begin{tikzpicture}
+\begin{axis}[title=function 33,
+             %xmin= 0.00, xmax= 2.50,
+             %ymin= 0.00, ymax= 0.41,
+             xmin= -0.50, xmax= 3.50,
+             ymin= -0.50, ymax= 0.91,
+             zmin= -100.00, zmax= 100.,
+             xlabel={$x$},
+             ylabel={$y$},
+             zlabel={$z$},
+             % xtick={0, 1, 2},
+             % xticklabels={0, 1, 2},
+             % ytick={0, 1},
+             % yticklabels={0, 1},
+             % ztick={0, 1},
+             % zticklabels={0, 1},
+             % axis equal,
+             axis equal image,
+             colorbar,
+             colormap/hot, % hot, cool, bluered, greenyellow, redyellow, violet, blackwhite
+             colorbar/width=10pt,
+             view={0}{90},
+             width=600pt,
+             height=300pt,
+             % axis line style={draw=none},
+             % tick style={draw=none},
+            ]
+\addplot3[patch,
+          patch type=biquadratic,
+          point meta=explicit,
+          shader=faceted interp, % interp, faceted, faceted interp
+          opacity=1.,
+         ] table[x=x, y=y, meta=function_33] {scalar.dat};
+\tikzstyle{quiver}=[draw=black,thick,-latex]
+\def\quiverscale{.1}
+\input{quiver.dat}
+\end{axis}
+\end{tikzpicture}
+\end{figure}
+\end{document}
