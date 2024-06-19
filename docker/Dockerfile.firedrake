@@ -13,7 +13,6 @@ RUN bash -c "source firedrake/bin/activate; \
         --documentation-dependencies \
         --netgen \
         --slepc \
-        --tinyasm \
         --install femlium \
         --install defcon \
         --install fascd \
