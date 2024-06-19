@@ -864,7 +864,17 @@ def test_assign_zero_cofunction():
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
     # The zero assignment should break the tape and hence cause a zero
     # gradient.
-    assert all(compute_gradient(J, Control(k)).dat.data_ro == 0.0)
+    grad_l2 = compute_gradient(J, Control(k), options={"riesz_representation": "l2"})
+    grad_none = compute_gradient(J, Control(k), options={"riesz_representation": None})
+    grad_h1 = compute_gradient(J, Control(k), options={"riesz_representation": "H1"})
+    grad_L2 = compute_gradient(J, Control(k), options={"riesz_representation": "L2"})
+    assert isinstance(grad_l2, Function) and isinstance(grad_L2, Function) \
+        and isinstance(grad_h1, Function)
+    assert isinstance(grad_none, Cofunction)
+    assert all(grad_none.dat.data_ro == 0.0)
+    assert all(grad_l2.dat.data_ro == 0.0)
+    assert all(grad_h1.dat.data_ro == 0.0)
+    assert all(grad_L2.dat.data_ro == 0.0)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
