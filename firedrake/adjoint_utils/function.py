@@ -223,17 +223,15 @@ class FunctionMixin(FloatingType):
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
 
+        options = {} if options is None else options
+        riesz_representation = options.get("riesz_representation", "L2")
+        solver_options = options.get("solver_options", {})
         V = options.get("function_space", self.function_space())
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
             # the functional is independent on the control variable.
-            # In this case, we do not apply the Riesz map and return a zero
-            # Cofunction.
-            return Cofunction(V.dual())
+            return Function(V.dual())
 
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        solver_options = options.get("solver_options", {})
         if not isinstance(value, (Cofunction, Function)):
             raise TypeError("Expected a Cofunction or a Function")
 
@@ -279,7 +277,13 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options.copy()
         options.setdefault("riesz_representation", "L2")
         if options["riesz_representation"] is None:
-            return value
+            if value == 0.:
+                # In adjoint-based differentiation, value == 0. arises only when
+                # the functional is independent on the control variable.
+                V = options.get("function_space", self.function_space())
+                return firedrake.Cofunction(V.dual())
+            else:
+                return value
         else:
             return self._ad_convert_riesz(value, options=options)
 
