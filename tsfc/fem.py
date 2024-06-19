@@ -5,33 +5,30 @@ import collections
 import itertools
 from functools import singledispatch
 
-import numpy
-
-import ufl
-from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
-from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (
-    Argument, CellCoordinate, CellEdgeVectors, CellFacetJacobian,
-    CellOrientation, CellOrigin, CellVertices, CellVolume, Coefficient,
-    FacetArea, FacetCoordinate, GeometricQuantity, Jacobian,
-    JacobianDeterminant, NegativeRestricted, QuadratureWeight,
-    PositiveRestricted, ReferenceCellVolume, ReferenceCellEdgeVectors,
-    ReferenceFacetVolume, ReferenceNormal, SpatialCoordinate
-)
-from ufl.domain import extract_unique_domain
-
-from FIAT.reference_element import make_affine_mapping
-from FIAT.reference_element import UFCSimplex
-
 import gem
-from gem.node import traversal
-from gem.optimise import ffc_rounding, constant_fold_zero
-from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
-
-from finat.physically_mapped import PhysicalGeometry, NeedsCoordinateMappingElement
+import numpy
+import ufl
+from FIAT.reference_element import UFCSimplex, make_affine_mapping
+from finat.physically_mapped import (NeedsCoordinateMappingElement,
+                                     PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
+from gem.node import traversal
+from gem.optimise import constant_fold_zero, ffc_rounding
+from gem.unconcatenate import unconcatenate
+from gem.utils import cached_property
+from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
+                         CellFacetJacobian, CellOrientation, CellOrigin,
+                         CellVertices, CellVolume, Coefficient, FacetArea,
+                         FacetCoordinate, GeometricQuantity, Jacobian,
+                         JacobianDeterminant, NegativeRestricted,
+                         PositiveRestricted, QuadratureWeight,
+                         ReferenceCellEdgeVectors, ReferenceCellVolume,
+                         ReferenceFacetVolume, ReferenceNormal,
+                         SpatialCoordinate)
+from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
+from ufl.corealg.multifunction import MultiFunction
+from ufl.domain import extract_unique_domain
 
 from tsfc import ufl2gem
 from tsfc.finatinterface import as_fiat_cell, create_element
@@ -40,8 +37,8 @@ from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            entity_avg, one_times, simplify_abs,
-                            preprocess_expression, TSFCConstantMixin)
+                            TSFCConstantMixin, entity_avg, one_times,
+                            preprocess_expression, simplify_abs)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -175,31 +172,35 @@ class CoordinateMapping(PhysicalGeometry):
         return map_expr_dag(context.translator, expr)
 
     def reference_normals(self):
-        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
-                self.interface.fiat_cell.get_spatial_dimension() == 2):
-            raise NotImplementedError("Only works for triangles for now")
-        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_normal(i) for i in range(3)]))
+        cell = self.interface.fiat_cell
+        sd = cell.get_spatial_dimension()
+        num_faces = len(cell.get_topology()[sd-1])
+
+        return gem.Literal(numpy.asarray([cell.compute_normal(i) for i in range(num_faces)]))
 
     def reference_edge_tangents(self):
-        return gem.Literal(numpy.asarray([self.interface.fiat_cell.compute_edge_tangent(i) for i in range(3)]))
+        cell = self.interface.fiat_cell
+        num_edges = len(cell.get_topology()[1])
+        return gem.Literal(numpy.asarray([cell.compute_edge_tangent(i) for i in range(num_edges)]))
 
     def physical_tangents(self):
-        if not (isinstance(self.interface.fiat_cell, UFCSimplex) and
-                self.interface.fiat_cell.get_spatial_dimension() == 2):
-            raise NotImplementedError("Only works for triangles for now")
-
-        rts = [self.interface.fiat_cell.compute_tangents(1, f)[0] for f in range(3)]
-        jac = self.jacobian_at([1/3, 1/3])
-
+        cell = self.interface.fiat_cell
+        sd = cell.get_spatial_dimension()
+        num_edges = len(cell.get_topology()[1])
         els = self.physical_edge_lengths()
+        rts = gem.ListTensor([cell.compute_tangents(1, i)[0] / els[i] for i in range(num_edges)])
+        jac = self.jacobian_at(cell.make_points(sd, 0, sd+1)[0])
 
-        return gem.ListTensor([[(jac[0, 0]*rts[i][0] + jac[0, 1]*rts[i][1]) / els[i],
-                                (jac[1, 0]*rts[i][0] + jac[1, 1]*rts[i][1]) / els[i]]
-                               for i in range(3)])
+        return rts @ jac.T
 
     def physical_normals(self):
+        cell = self.interface.fiat_cell
+        if not (isinstance(cell, UFCSimplex) and cell.get_dimension() == 2):
+            raise NotImplementedError("Can't do physical normals on that cell yet")
+
+        num_edges = len(cell.get_topology()[1])
         pts = self.physical_tangents()
-        return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(3)])
+        return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(num_edges)])
 
     def physical_edge_lengths(self):
         expr = ufl.classes.CellEdgeVectors(extract_unique_domain(self.mt.terminal))
@@ -208,8 +209,11 @@ class CoordinateMapping(PhysicalGeometry):
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
 
-        expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(3)])
-        config = {"point_set": PointSingleton([1/3, 1/3])}
+        cell = self.interface.fiat_cell
+        sd = cell.get_spatial_dimension()
+        num_edges = len(cell.get_topology()[1])
+        expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(num_edges)])
+        config = {"point_set": PointSingleton(cell.make_points(sd, 0, sd+1)[0])}
         config.update(self.config)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
@@ -443,7 +447,8 @@ def translate_reference_normal(terminal, mt, ctx):
 
 @translate.register(ReferenceCellEdgeVectors)
 def translate_reference_cell_edge_vectors(terminal, mt, ctx):
-    from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
+    from FIAT.reference_element import \
+        TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
         raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")
