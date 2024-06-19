@@ -24,13 +24,13 @@ source can be measured by the :math:`L^2` norm:
 
 .. math::
     
-    J_s(u, u^{obs}) = \sum_{r=0}^{N-1} \int_{\tau} \left(
-        u(c,\mathbf{x}_r,t) - u^{obs}(c, \mathbf{x}_r,t)\right)^2 \, dt,
+    J_s(u, u^{obs}) = \sum_{r=0}^{N_r} \sum_{t=0}^{T} \left(
+        u(c,\mathbf{x}_r,t) - u^{obs}(c, \mathbf{x}_r,t)\right)^2,
 
 where :math:`u = u(c, \mathbf{x}_r,t)` and :math:`u_{obs} = u_{obs}(c,\mathbf{x}_r,t)`,
 are respectively the computed and observed data, both recorded at a finite number
-of receivers :math:`N_r` that are located at the point positions :math:`\mathbf{x}_r \in \Omega`,
-in a time interval :math:`\tau\equiv[0, t_f]\subset \mathbb{R}`, where :math:`t_f` is the final time.
+of receivers :math:`N_r` located at the point positions :math:`\mathbf{x}_r \in \Omega`,
+in a time-step interval :math:`[0, T]`, where :math:`T` is the total time-step.
 
 The predicted data is here modeled here by an acoustic wave equation,
 
@@ -51,27 +51,23 @@ To solve the wave equation, we consider the following weak form over the domain 
 
 .. math:: \int_{\Omega} \left(
     \frac{\partial^2 u}{\partial t^2}v + c^2\nabla u \cdot \nabla v\right
-    ) \, dx = f^{*}, \quad \quad (2)
+    ) \, dx = f^{*}(\mathbf{x}_s,t), \quad \quad (2)
 
 for an arbitrary test function :math:`v\in V`, where :math:`V` is a function space. 
 
-The force term in Eq. (2) reads:
+The force term is defined in the dual space :math:`V^{\ast}` as:
 
 .. math::
 
-    f^{*}(\mathbf{x},t) = r(t) q_s(\mathbf{x})  \quad  \quad (3)
+    f^{*}(\mathbf{x}_s,t) = r(t) q_s(\mathbf{x}_s) = r(t) \int_{\Omega} \delta(\mathbf{x}-\mathbf{x}_s) \, dx,
 
-where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__, and 
-:math:`q_s(\mathbf{x}) \in V^{\ast}` is a source function, :math:`V^{\ast}` being the dual function space of :math:`V`.
-The implementation of `Ricker
-wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__ is given by the following code::
+where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__  coded as follows::
 
     def ricker_wavelet(t, fs, amp=1.0):
         ts = 1.5
         t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
         return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
-
 
 
 The weak form implementation in Firedrake is written as follows::
@@ -175,30 +171,28 @@ We define the receivers mesh and its function space :math:`V_r`::
 
 The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
-
-To model the source function :math:`q_s \in V^{\ast}`, our first step is to construct the source mesh and
-define a function space :math:`V_s` accordingly::
+Our first step to model the wave equation forcing term is to construct the source mesh over the
+source location :math:`\mathbf{x}_s`, for the source number ``source_number``::
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
+
+Next, we define a function space :math:`V_s` accordingly::
+
     V_s = FunctionSpace(source_mesh, "DG", 0)
 
-We then define the point source value :math:`d_s(\mathbf{x}_s) = 1.0`::
+The point source value :math:`d_s(\mathbf{x}_s) = 1.0` is coded as::
 
     d_s = Function(V_s)
     d_s.assign(1.0)
 
-We interpolate the inner product::
+We then inteporlate the cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}`::
 
     source_cofunction = assemble(d_s * TestFunction(V_s) * dx)
-
-onto the dual function space :math:`V^*`::
-    
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
 
-which returns the source function :math:`q_s \in V^{\ast}`.
+The source term :math:`f^{*}(\mathbf{x}_s,t)` will be computed in the time loop solver.
 
-
-We now can proceed to compute the synthetic data and record them on the receivers::
+We are now able to proceed with the synthetic data computations and record them on the receivers::
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
