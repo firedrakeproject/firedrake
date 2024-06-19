@@ -65,7 +65,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Internal comm
         self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
