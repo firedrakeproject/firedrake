@@ -254,7 +254,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     cdm = mc.topology_dm
     fdm = mf.topology_dm
     dim = cdm.getDimension()
-    nref = 2 ** dim
+    nref = <PetscInt> 2 ** dim
     ncoarse = mc.cell_set.size
     nfine = mf.cell_set.size
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")

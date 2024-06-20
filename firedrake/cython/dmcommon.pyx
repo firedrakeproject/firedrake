@@ -2,6 +2,7 @@
 
 # Utility functions common to all DMs used in Firedrake
 import functools
+import math
 import cython
 import numpy as np
 import firedrake
@@ -675,7 +676,7 @@ def closure_ordering(PETSc.DM dm,
                                 incident = 1
                                 break
                         if incident == 0:
-                            face_indices[nfaces] += v * 10**(1-fi)
+                            face_indices[nfaces] += v * <PetscInt> 10**(1-fi)
                             fi += 1
                     nfaces += 1
 
@@ -970,7 +971,7 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
         coneSize1 -= 1
     assert n == coneSize
     for k in range(n):
-        o += np.math.factorial(n - 1 - k) * inds[k]
+        o += math.factorial(n - 1 - k) * inds[k]
     CHKERR(PetscFree(cone1))
     CHKERR(PetscFree(inds))
     return o
@@ -1019,10 +1020,10 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
                     # io += (2**(dim - 1 - i)) * 0
                     pass
                 elif plex_cone_copy[2 * j + 1] == fiat_cone[2 * i] and plex_cone_copy[2 * j] == fiat_cone[2 * i + 1]:
-                    io += (2**(dim - 1 - i)) * 1
+                    io += <PetscInt> (2**(dim - 1 - i)) * 1
                 else:
                     raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
-                eo += np.math.factorial(dim - 1 - i) * j
+                eo += math.factorial(dim - 1 - i) * j
                 for k in range(j, dim1 - 1):
                     plex_cone_copy[2 * k] = plex_cone_copy[2 * k + 2]
                     plex_cone_copy[2 * k + 1] = plex_cone_copy[2 * k + 3]
@@ -1031,7 +1032,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
         else:
             raise RuntimeError("Found inconsistent fiat_cone and plex_cone")
     assert dim1 == 0
-    return (2**dim) * eo + io
+    return <PetscInt> (2**dim) * eo + io
 
 
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
@@ -2552,7 +2553,7 @@ cdef struct CommFacet:
     PetscInt global_u, global_v
     PetscInt local_facet
 
-cdef int CommFacet_cmp(const void *x_, const void *y_) nogil:
+cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
     """Three-way comparison C function for CommFacet structs."""
     cdef:
         CommFacet *x = <CommFacet *>x_
@@ -3334,7 +3335,7 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt p,
                                           PetscInt *adjSize,
                                           PetscInt adj[],
-                                          void *ctx) nogil:
+                                          void *ctx) noexcept nogil:
     """Custom adjacency callback for halo growth.
 
     :arg dm: The DMPlex object.

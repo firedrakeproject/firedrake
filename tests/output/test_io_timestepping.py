@@ -29,7 +29,7 @@ def _get_expr(V, i):
 
 def _project(f, expr, method):
     if f.function_space().ufl_element().family() == "Real":
-        f.dat.data.itemset(expr)
+        f.dat.data[...] = expr
     elif method == "project":
         getattr(f, method)(expr, solver_parameters={"ksp_rtol": 1.e-16})
     elif method == "interpolate":
