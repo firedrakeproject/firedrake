@@ -15,7 +15,7 @@ from firedrake_configuration import get_config
 try:
     from Cython.Distutils.extension import Extension
     config = get_config()
-    complex_mode = config['options'].get('complex', False)
+    complex_mode = config["options"].get("complex", False)
 except ImportError:
     # No Cython Extension means no complex mode!
     from setuptools import Extension
@@ -42,7 +42,7 @@ def get_petsc_dir():
 
 
 cmdclass = versioneer.get_cmdclass()
-cmdclass['build_ext'] = build_ext
+cmdclass["build_ext"] = build_ext
 
 if "clean" in sys.argv[1:]:
     # Forcibly remove the results of Cython.
@@ -53,7 +53,7 @@ if "clean" in sys.argv[1:]:
                 or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
-cython_compile_time_env = {'COMPLEX': complex_mode}
+cython_compile_time_env = {"COMPLEX": complex_mode}
 cythonfiles = [
     ("dmcommon", ["petsc"]),
     ("extrusion_numbering", ["petsc"]),
@@ -71,7 +71,7 @@ if os.environ.get("HDF5_DIR"):
 include_dirs = [np.get_include(), rtree.finder.get_include()]
 petsc_include = [petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs]
 include_dirs += petsc_include
-petsc_library = [os.path.join(petsc_dirs[1], 'lib')]
+petsc_library = [os.path.join(petsc_dirs[1], "lib")]
 
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
@@ -94,17 +94,18 @@ extensions = [
         sources=sorted(glob("tinyasm/*.cpp")),  # Sort source files for reproducibility
         include_dirs=petsc_include,
         library_dirs=petsc_library,
-        extra_link_args=['-lpetsc',],
+        extra_compile_args=["-std=c++11",],
+        extra_link_args=["-lpetsc",],
         runtime_library_dirs=petsc_library,
     )
 ]
 
-if 'CC' not in env:
-    env['CC'] = "mpicc"
+if "CC" not in env:
+    env["CC"] = "mpicc"
 
 
 setup(
-    name='firedrake',
+    name="firedrake",
     version=versioneer.get_version(),
     cmdclass=cmdclass,
     description="An automated finite element system.",
@@ -116,6 +117,6 @@ setup(
     url="http://firedrakeproject.org",
     packages=find_packages(),
     package_data={"firedrake": ["evaluate.h", "locate.c", "icons/*.png"]},
-    scripts=glob('scripts/*'),
+    scripts=glob("scripts/*"),
     ext_modules=extensions
 )
