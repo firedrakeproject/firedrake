@@ -178,7 +178,7 @@ cdef inline int SETERR(int ierr) with gil:
         PyErr_SetObject(<object>PyExc_RuntimeError, <long>ierr)
     return ierr
 
-cdef inline int CHKERR(int ierr) nogil except -1:
+cdef inline int CHKERR(int ierr) except -1 nogil:
     if ierr == 0:
         return 0 # no error
     else:

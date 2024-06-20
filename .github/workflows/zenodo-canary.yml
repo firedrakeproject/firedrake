@@ -19,10 +19,10 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: 3.12
       - name: Install deps
         run: |
-          pip install requests
+          pip install requests packaging
       - name: Zenodo API canary
         run: |
           python scripts/firedrake-install --test-doi-resolution
