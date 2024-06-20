@@ -70,7 +70,6 @@ jobs:
             --no-package-manager \
             --disable-ssh \
             --documentation-dependencies \
-            --tinyasm \
             --torch \
             --netgen \
             --slepc \
