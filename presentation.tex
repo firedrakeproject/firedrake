@@ -101,7 +101,16 @@ ifthen,
 \newcommand{\tikzmeshcelllen}{2}
 \newcommand{\tikzveccelllen}{0.5}
 \newcommand{\tikzveccelllensmall}{0.3}
-\newcommand{\tikzrankoff}{1.5}
+\newcommand{\tikzrankoffset}{2.5}
+    \tikzstyle{point}=[circle, minimum size=0pt,inner sep=0pt]
+    \tikzstyle{point1}=[circle, minimum size=0pt,inner sep=0pt,fill=gray!40]
+    \tikzstyle{orntarc}=[x radius=\tikzmeshcelllen*.2, y radius=\tikzmeshcelllen*.2]
+    \tikzstyle{dof}=[circle,fill,inner sep=1.5pt]
+    \tikzstyle{fsnode}=[circle,draw=black,minimum size=8pt,inner sep=0pt,fill=white]
+    \tikzstyle{fsnode1}=[circle,draw=black,minimum size=11pt,inner sep=0pt,fill=gray!40]
+    \tikzstyle{refnode}=[regular polygon,regular polygon sides=4,draw=black,minimum size=12pt,inner sep=-0em,fill=white]
+    %\tikzstyle{topoedge}=[draw=black,ultra thick,shorten <= 0pt,shorten >= 0pt,-stealth]
+    \tikzstyle{topoedge}=[draw=black,ultra thick,shorten <= 0pt,shorten >= 0pt]
 
 \definecolor{amber}{rgb}{1.0, 0.75, 0.0}
 \definecolor{armygreen}{rgb}{0.29, 0.33, 0.13}
@@ -137,6 +146,83 @@ ifthen,
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{frame}
 \frametitle{}
+\begin{figure}[]
+\begin{tikzpicture}
+  % Reference element.
+  \node[] (p0) [inner sep=0pt] at ($\tikzmeshcelllen*(0, 0)$) {}; % vertices
+  \node[] (p1) [inner sep=0pt] at ($\tikzmeshcelllen*(0, 1)$) {};
+  \node[] (p2) [inner sep=0pt] at ($\tikzmeshcelllen*(1, 0)$) {};
+  \node[] (p3) [inner sep=0pt] at ($\tikzmeshcelllen*(1, 1)$) {};
+  \node[] (p4) [inner sep=0pt] at ($\tikzmeshcelllen*(2, 0)$) {};
+  \node[] (p5) [inner sep=0pt] at ($\tikzmeshcelllen*(2, 1)$) {};
+  \node[] (p6) [inner sep=0pt] at ($\tikzmeshcelllen*(3, 0)$) {};
+  \node[] (p7) [inner sep=0pt] at ($\tikzmeshcelllen*(3, 1)$) {};
+  \node[] (p8) [inner sep=0pt] at ($\tikzmeshcelllen*(4, 0)$) {};
+  \node[] (p9) [inner sep=0pt] at ($\tikzmeshcelllen*(4, 1)$) {};
+  \node[] (p10) at ($(p0)!0.5!(p1)$) {}; % facets
+  \node[] (p11) at ($(p2)!0.5!(p3)$) {};
+  \node[] (p12) at ($(p4)!0.5!(p5)$) {};
+  \node[] (p13) at ($(p6)!0.5!(p7)$) {};
+  \node[] (p14) at ($(p8)!0.5!(p9)$) {};
+  \node[] (p15) at ($(p0)!0.5!(p2)$) {};
+  \node[] (p16) at ($(p2)!0.5!(p4)$) {};
+  \node[] (p17) at ($(p4)!0.5!(p6)$) {};
+  \node[] (p18) at ($(p6)!0.5!(p8)$) {};
+  \node[] (p19) at ($(p1)!0.5!(p3)$) {};
+  \node[] (p20) at ($(p3)!0.5!(p5)$) {};
+  \node[] (p21) at ($(p5)!0.5!(p7)$) {};
+  \node[] (p22) at ($(p7)!0.5!(p9)$) {};
+  \node[] (p23) at ($(p10)!0.5!(p11)$) {}; % cells
+  \node[] (p24) at ($(p11)!0.5!(p12)$) {};
+  \node[] (p25) at ($(p12)!0.5!(p13)$) {};
+  \node[] (p26) at ($(p13)!0.5!(p14)$) {};
+  \foreach \x in {0,1,...,26}
+  {
+    \node[] (p\x_0) [inner sep=0pt] at ($(p\x)-\tikzrankoffset*(0, 1)$) {};
+    \node[] (p\x_1) [inner sep=0pt] at ($(p\x)-\tikzrankoffset*(0, 2)$) {};
+  }
+  % meshO
+  \path[topoedge] ($(p0)$)--($(p1)$);
+  \path[topoedge] ($(p2)$)--($(p3)$);
+  \path[topoedge] ($(p4)$)--($(p5)$);
+  \path[topoedge] ($(p6)$)--($(p7)$);
+  \path[topoedge] ($(p8)$)--($(p9)$);
+  \path[topoedge] ($(p0)$)--($(p2)$);
+  \path[topoedge] ($(p2)$)--($(p4)$);
+  \path[topoedge] ($(p4)$)--($(p6)$);
+  \path[topoedge] ($(p6)$)--($(p8)$);
+  \path[topoedge] ($(p1)$)--($(p3)$);
+  \path[topoedge] ($(p3)$)--($(p5)$);
+  \path[topoedge] ($(p5)$)--($(p7)$);
+  \path[topoedge] ($(p7)$)--($(p9)$);
+  % meshO_0
+  \path[topoedge] ($(p0_0)$)--($(p1_0)$);
+  \path[topoedge] ($(p2_0)$)--($(p3_0)$);
+  \path[topoedge, dashed] ($(p4_0)$)--($(p5_0)$);
+  \path[topoedge, dashed] ($(p6_0)$)--($(p7_0)$);
+  \path[topoedge] ($(p0_0)$)--($(p2_0)$);
+  \path[topoedge] ($(p2_0)$)--($(p4_0)$);
+  \path[topoedge, dashed] ($(p4_0)$)--($(p6_0)$);
+  \path[topoedge] ($(p1_0)$)--($(p3_0)$);
+  \path[topoedge] ($(p3_0)$)--($(p5_0)$);
+  \path[topoedge, dashed] ($(p5_0)$)--($(p7_0)$);
+  % meshO_1
+  \path[topoedge, dashed] ($(p2_1)$)--($(p3_1)$);
+  \path[topoedge] ($(p4_1)$)--($(p5_1)$);
+  \path[topoedge] ($(p6_1)$)--($(p7_1)$);
+  \path[topoedge] ($(p8_1)$)--($(p9_1)$);
+  \path[topoedge, dashed] ($(p2_1)$)--($(p4_1)$);
+  \path[topoedge] ($(p4_1)$)--($(p6_1)$);
+  \path[topoedge] ($(p6_1)$)--($(p8_1)$);
+  \path[topoedge, dashed] ($(p3_1)$)--($(p5_1)$);
+  \path[topoedge] ($(p5_1)$)--($(p7_1)$);
+  \path[topoedge] ($(p7_1)$)--($(p9_1)$);
+  %
+\node[anchor=east] at ($(p10)$) {meshO};
+\node[anchor=east] at ($(p10_0)$) {rank 0};
+\node[anchor=east] at ($(p10_1)$) {rank 1};
+\end{tikzpicture}
+\end{figure}
 \end{frame}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{frame}
@@ -205,14 +291,14 @@ with CheckpointFile("solution.h5", "w") as chk:
              xticklabels={$1$,$2$, $3$},
              legend pos=south west,
              width=7cm,height=7cm]
-\addplot table[x index=0,y index=1,col sep=comma] {convergence_case_2_N_4.dat};
-\addlegendentry{$r=1$}
-\addplot table[x index=0,y index=2,col sep=comma] {convergence_case_2_N_4.dat};
-\addlegendentry{$r=2$}
-\addplot table[x index=0,y index=3,col sep=comma] {convergence_case_2_N_4.dat};
-\addlegendentry{$r=3$}
-\addplot table[x index=0,y index=4,col sep=comma] {convergence_case_2_N_4.dat};
-\addlegendentry{$r=4$}
+%\addplot table[x index=0,y index=1,col sep=comma] {convergence_case_2_N_4.dat};
+%\addlegendentry{$r=1$}
+%\addplot table[x index=0,y index=2,col sep=comma] {convergence_case_2_N_4.dat};
+%\addlegendentry{$r=2$}
+%\addplot table[x index=0,y index=3,col sep=comma] {convergence_case_2_N_4.dat};
+%\addlegendentry{$r=3$}
+%\addplot table[x index=0,y index=4,col sep=comma] {convergence_case_2_N_4.dat};
+%\addlegendentry{$r=4$}
 \end{axis}
 \end{tikzpicture}
 \end{figure}%

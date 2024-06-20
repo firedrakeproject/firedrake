@@ -633,7 +633,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     elast = True
     linear_elast = True
     serendipity = True
-    slip_bc = True
+    slip_bc = False
     if use_netgen:
         fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
         fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
@@ -643,11 +643,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             #fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
             #fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
             #fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar3_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar3_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar3_S.dat"
-            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar3_S.dat"
-            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar3_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -683,11 +683,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     lambda_s = nu_s * E_s / (1 + nu_s) / (1 - 2 * nu_s)
     # ALE constants
     #nu_ale = Constant(0.49)
-    #mu_ale = Constant(float(mu_s))
+    mu_ale = Constant(float(mu_s))
     decay_r = Constant(0.5)  # decay ratio
     profile = (1. - decay_r * abs(x_f - pointA[0]) / (L - pointA[0])) * (1. - decay_r * abs(y_f - pointA[1]) / (L - pointA[0]))
     nu_ale = Constant(0.49) * profile
-    mu_ale = Constant(2 * float(mu_s)) * profile
+    #mu_ale = Constant(2 * float(mu_s)) * profile
     E_ale = mu_ale * 2 * (1 + nu_ale)
     lambda_ale = nu_ale * E_ale / (1 + nu_ale) / (1 - 2 * nu_ale)
     if use_netgen or not quadrilateral:
@@ -934,14 +934,17 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             with open(fname_uy, 'w') as outfile:
                  outfile.write("t val" + "\n")
     if True:
+        vf = solution.subfunctions[0]
+        Vplot = FunctionSpace(mesh_f, "P", degree)
+        vfplot = Function(Vplot, name="velocity")
+        solve(J_f_ * inner(TrialFunction(Vplot), TestFunction(Vplot)) * dx_f == J_f_ * inner(sqrt(dot(vf, vf)), TestFunction(Vplot)) * dx_f, vfplot)
         coords = mesh_f.coordinates.dat.data_with_halos
         uplot = solution.subfunctions[2]
         uplot = Function(V_0).project(solution.subfunctions[2])
         coords[:] = coords[:] + uplot.dat.data_ro_with_halos[:]
-        pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
-        #Vplot = VectorFunctionSpace(mesh_f, "CG", 1)
-        #fplot = Function(Vplot).interpolate(as_vector([x_f, y_f]))
-        #pgfplot(fplot, "quiver.dat", degree=0)
+        pgfplot(vfplot, "velocity.dat", degree=2)
+        #pgfplot(solution.subfunctions[4], "pressure.dat", degree=2)
+        #pgfplot(solution.subfunctions[0], "quiver.dat", degree=0)
         raise RuntimeError("only plotted solution")
     ii = 0
     while float(t) < T:
