@@ -13,33 +13,42 @@ import pytest
 from firedrake import *
 
 
-def do_projection(n, el_type, degree):
-    # Create mesh and define function space
-    mesh = UnitSquareMesh(2**n, 2**n)
+@pytest.fixture
+def hierarchy(request):
+    msh = UnitSquareMesh(2, 2)
+    return MeshHierarchy(msh, 2)
 
+
+def do_projection(mesh, el_type, degree):
     V = FunctionSpace(mesh, el_type, degree)
 
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
-    x, y = SpatialCoordinate(mesh)
-    f = sin(x*pi)*sin(2*pi*y)
+    x = SpatialCoordinate(mesh)
+
+    f = np.prod([sin((1+i) * x[i]*pi) for i in range(len(x))])
+    f = f * Constant(np.ones(u.ufl_shape))
+
     a = inner(u, v) * dx
     L = inner(f, v) * dx
 
     # Compute solution
-    x = Function(V)
-    solve(a == L, x, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    fh = Function(V)
+    solve(a == L, fh, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
-    return sqrt(assemble(inner(x - f, x - f) * dx))
+    return sqrt(assemble(inner(fh - f, fh - f) * dx))
 
 
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
-                         [('Morley', 2, 2.4),
+                         [('Johnson-Mercier', 1, 1.8),
+                          ('Morley', 2, 2.4),
+                          ('HCT-red', 3, 2.7),
+                          ('HCT', 3, 3),
                           ('Hermite', 3, 3),
                           ('Bell', 5, 4),
                           ('Argyris', 5, 4.9)])
-def test_firedrake_projection_scalar_convergence(el, deg, convrate):
-    diff = np.array([do_projection(i, el, deg) for i in range(1, 4)])
+def test_projection_zany_convergence_2d(hierarchy, el, deg, convrate):
+    diff = np.array([do_projection(m, el, deg) for m in hierarchy])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate).all()
