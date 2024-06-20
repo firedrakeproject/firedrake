@@ -1,6 +1,5 @@
 cached_property
 cachetools
-ipython
 nbval
 packaging
 pkgconfig
