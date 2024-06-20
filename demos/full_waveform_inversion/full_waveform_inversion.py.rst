@@ -160,7 +160,7 @@ circle in the centre of the domain, as shown in the coming code cell::
     c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
 
 .. image:: c_true.png
-    :scale: 40 %
+    :scale: 70 %
     :alt: true velocity model
     :align: center
 
@@ -185,7 +185,7 @@ The point source value :math:`d_s(\mathbf{x}_s) = 1.0` is coded as::
     d_s = Function(V_s)
     d_s.assign(1.0)
 
-We then inteporlate the cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}`::
+We then inteporlate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to then have :math:`q_s \in V^{\ast}`::
 
     source_cofunction = assemble(d_s * TestFunction(V_s) * dx)
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
@@ -227,7 +227,7 @@ Next, the FWI problem is executed with the following steps:
 
 
 .. image:: c_initial.png
-    :scale: 40 %
+    :scale: 70 %
     :alt: initial velocity model
     :align: center
 
@@ -269,18 +269,23 @@ it returns the sum of these computations, which are input to the optimisation me
                             )
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
+For 10 iterations, the predicted velocity model is shown in the following figure.
+
+.. image:: c_predicted.png
+    :scale: 90 %
+    :alt: optimised velocity model
+    :align: center
 
 .. warning::
 
     The ``minimize`` function employs the SciPy Python library. However, for scenarios requiring higher levels
     of spatial parallelism, you should evaluate how SciPy works and whether it is the best option for your problem.
-    
+    In addition, we apply ``derivative_options={"riesz_representation": 'l2'}`` to avoid erroneous
+    computations in the SciPy optimisation algorithm, which is not an inner-product-aware implementation. 
+
 .. note::
 
-    This example is only a starting point for tackling more intricate FWI problems. As exercises, you can
-    increase the ``maxiter`` value, or change the initial guess for the velocity model. You can also
-    modify the synthetic data generation by changing the true velocity model or the source locations.
-    Fell free to explore more this example and adapt it to your needs.
+    This example is only a starting point to help you to tackle more intricate FWI problems.
 
 .. rubric:: References
 
