@@ -39,7 +39,7 @@ def num_points(request):
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_poisson_inverse_conductivity(num_points):
     # Have to import inside test to make sure cleanup fixtures work as intended
-    from firedrake.adjoint import Control, ReducedFunctional, minimize
+    from firedrake.adjoint import Control, minimize
 
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
@@ -60,8 +60,9 @@ def test_poisson_inverse_conductivity(num_points):
     # Compute the true solution of the PDE.
     u_true = Function(V)
     v = TestFunction(V)
-    f = Constant(1.0, domain=m)
-    k0 = Constant(0.5, domain=m)
+    R = FunctionSpace(m, 'R', 0)
+    f = Function(R, val=1.0)
+    k0 = Function(R, val=0.5)
     bc = DirichletBC(V, 0, 'on_boundary')
     F = (k0 * exp(q_true) * inner(grad(u_true), grad(v)) - f * v) * dx
     solve(F == 0, u_true, bc)
@@ -80,9 +81,10 @@ def test_poisson_inverse_conductivity(num_points):
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    σ = Constant(u_range / signal_to_noise, domain=point_cloud)
-    ζ = generator.standard_normal(len(xs))
-    u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
+    R = FunctionSpace(point_cloud, 'R', 0)
+    sigma = Function(R, val=u_range / signal_to_noise)
+    g = generator.standard_normal(len(xs))
+    u_obs_vals = np.array(u_true.at(xs)) + float(sigma) * g
 
     # Store data on the point_cloud by setting input ordering dat
     P0DG_input_ordering = FunctionSpace(point_cloud.input_ordering, 'DG', 0)
@@ -102,17 +104,17 @@ def test_poisson_inverse_conductivity(num_points):
     solve(F == 0, u, bc)
 
     # Two terms in the functional
-    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / σ)**2
-    α = Constant(0.5, domain=m)
-    regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
+    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / sigma)**2
+    R = FunctionSpace(m, 'R', 0)
+    alpha = Function(R, val=0.5)
+    regularisation_expr = 0.5 * alpha**2 * inner(grad(q), grad(q))
 
     # Form functional and reduced functional
     J = assemble(misfit_expr * dx) + assemble(regularisation_expr * dx)
-    q̂ = Control(q)
-    Ĵ = ReducedFunctional(J, q̂)
+    J_hat = FiredrakeReducedFunctional(J, Control(q))
 
     # Estimate q using Newton-CG which evaluates the hessian action
-    minimize(Ĵ, method='Newton-CG', options={'disp': True})
+    minimize(J_hat, method='Newton-CG', options={'disp': True})
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done

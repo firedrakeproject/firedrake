@@ -806,7 +806,11 @@ def test_3325():
     Jhat = ReducedFunctional(J, control)
 
     constraint = UFLInequalityConstraint(-inner(g, g)*ds(4), control)
-    minimize(Jhat, method="SLSQP", constraints=constraint)
+    opt = minimize(Jhat, method="SLSQP", constraints=constraint)
+    assert np.allclose(opt.dat.data_ro, 0.0)
+    Jhat = FiredrakeReducedFunctional(J, control)
+    opt = minimize(Jhat, method="SLSQP", constraints=constraint)
+    assert np.allclose(opt.dat.data_ro, 0.0)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done

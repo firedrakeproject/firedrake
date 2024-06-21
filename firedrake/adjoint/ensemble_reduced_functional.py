@@ -1,3 +1,4 @@
+from .reduced_functional import AbstractReducedFunctional
 from pyadjoint import ReducedFunctional
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
@@ -5,7 +6,7 @@ from pyop2.mpi import MPI
 import firedrake
 
 
-class EnsembleReducedFunctional(ReducedFunctional):
+class EnsembleReducedFunctional(AbstractReducedFunctional, ReducedFunctional):
     """Enable solving simultaneously reduced functionals in parallel.
 
     Consider a functional :math:`J` and its gradient :math:`\\dfrac{dJ}{dm}`,
@@ -60,7 +61,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
     """
     def __init__(self, J, control, ensemble, scatter_control=True,
                  gather_functional=None):
-        super(EnsembleReducedFunctional, self).__init__(J, control)
+        super().__init__(functional=J, controls=control)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
@@ -79,7 +80,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return vals
 
     def __call__(self, values):
-        local_functional = super(EnsembleReducedFunctional, self).__call__(values)
+        local_functional = self.rf(values)
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
             controls_g = self._allgather_J(local_functional)
@@ -95,7 +96,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return total_functional
 
     def derivative(self, adj_input=1.0, options=None):
-        """Compute derivatives of a functional with respect to the control parameters.
+        """Compute derivatives (dual space) of a functional with respect to the control parameters.
 
         Parameters
         ----------
@@ -120,22 +121,43 @@ class EnsembleReducedFunctional(ReducedFunctional):
             i = self.ensemble.ensemble_comm.rank
             adj_input = dJg_dmg[i]
 
-        dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
+        options = options or {}
+        options.setdefault("riesz_representation", None)
+        dJdm_local = self.rf.derivative(adj_input=adj_input, options=options)
 
         if self.scatter_control:
-            dJdm_local = Enlist(dJdm_local)
-            dJdm_total = []
+            self._scattering_control(dJdm_local)
+        return dJdm_local
 
-            for dJdm in dJdm_local:
-                if not isinstance(dJdm, (firedrake.Function, float)):
-                    raise NotImplementedError("This type of gradient is not supported.")
+    def gradient(self, adj_input=1.0, options=None):
+        """Compute gradients (primal space) of a functional with respect to the control parameters.
 
-                dJdm_total.append(
-                    self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
-                    if isinstance(dJdm, firedrake.Function)
-                    else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
-                )
-            return dJdm_local.delist(dJdm_total)
+        Parameters
+        ----------
+        adj_input : float
+            The adjoint input.
+        options : dict
+            Additional options for the derivative computation.
+
+        Returns
+        -------
+            dJdm_total : pyadjoint.OverloadedType
+            The result of Allreduce operations of ``dJdm_local`` into ``dJdm_total`` over the`Ensemble.ensemble_comm`.
+
+        See Also
+        --------
+        :meth:`~.ensemble.Ensemble.allreduce`, :meth:`pyadjoint.ReducedFunctional.derivative`.
+        """
+
+        if self.gather_functional:
+            dJg_dmg = self.gather_functional.gradient(adj_input=adj_input, options=options)
+            i = self.ensemble.ensemble_comm.rank
+            adj_input = dJg_dmg[i]
+
+        dJdm_local = self.rf.derivative(adj_input=adj_input, options=options)
+
+        if self.scatter_control:
+            self._scattering_control(dJdm_local)
         return dJdm_local
 
     def hessian(self, m_dot, options=None):
@@ -145,3 +167,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
             NotImplementedError: This method is not yet implemented for ensemble reduced functional.
         """
         raise NotImplementedError("Hessian is not yet implemented for ensemble reduced functional.")
+
+    def _scattering_control(self, dJdm_local):
+        dJdm_local = Enlist(dJdm_local)
+        dJdm_total = []
+
+        for dJdm in dJdm_local:
+            if not isinstance(dJdm, (firedrake.Function, firedrake.Cofunction, float)):
+                raise NotImplementedError("This type of gradient is not supported.")
+
+            dJdm_total.append(
+                self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
+                if isinstance(dJdm, (firedrake.Function, firedrake.Cofunction))
+                else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
+            )
+        return dJdm_local.delist(dJdm_total)
