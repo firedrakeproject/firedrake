@@ -626,14 +626,14 @@ elif case in ["FSI1", "FSI2", "FSI3"]:
     print(f"Time: {end - start}")
 elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
     T = 20 # 10.0 # 12.0
-    dt = Constant(0.002)  #0.001
+    dt = Constant(0.001)  #0.001
     chkstride = int(0.01 / float(dt))  # save every 0.01 sec
     t = Constant(0.0)
     CNshift = 1
     elast = True
     linear_elast = True
     serendipity = True
-    slip_bc = False
+    slip_bc = True
     if use_netgen:
         fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new"
         fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_netgen_new.dat"
@@ -643,11 +643,11 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
             #fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S"
             #fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
             #fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamvar1_S.dat"
-            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S"
-            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
-            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
-            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
-            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_checkpoint = f"dumbdata/fsi3_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S"
+            fname_FD = f"time_series_FD_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_FL = f"time_series_FL_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_ux = f"time_series_ux_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
+            fname_uy = f"time_series_uy_Q4_Q3_nref{nref}_0.001_shift{CNshift}_{elast}_{linear_elast}_{slip_bc}_ALEparamvar1_S.dat"
         else:
             fname_checkpoint = f"dumbdata/fsi3_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1"
             fname_FD = f"time_series_FD_P4_P2_nref{nref}_0.002_shift{CNshift}_{elast}_{linear_elast}_ALEparamtest1.dat"
@@ -933,7 +933,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
             with open(fname_uy, 'w') as outfile:
                  outfile.write("t val" + "\n")
-    if True:
+    if False:
         vf = solution.subfunctions[0]
         Vplot = FunctionSpace(mesh_f, "P", degree)
         vfplot = Function(Vplot, name="velocity")
