@@ -343,7 +343,7 @@ class FunctionMixin(FloatingType):
         return dst, offset
 
     @staticmethod
-    def _ad_to_list(m):
+    def _ad_to_list(m, gather=False):
         if not hasattr(m, "gather"):
             m_v = m.vector()
         else:
@@ -358,6 +358,12 @@ class FunctionMixin(FloatingType):
         r = Function(self.function_space())
         r.assign(self)
         return r
+    
+    def _ad_local_size(self):
+        return self.vector().local_size()
+    
+    def _ad_local_array(self):
+        return self.vector().get_local()
 
     def _ad_dim(self):
         return self.function_space().dim()
