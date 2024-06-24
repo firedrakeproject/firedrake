@@ -935,7 +935,7 @@ elif case in ["FSI1_2", "FSI2_2", "FSI3_2"]:
                  outfile.write("t val" + "\n")
     if True:
         Vplot = FunctionSpace(mesh_f, "P", degree)
-        vfplot = Function(Vplot, name="mesh_f")
+        vfplot = Function(Vplot, name="mesh_f").assign(Constant(1))
         #vf = solution.subfunctions[0]
         #solve(J_f_ * inner(TrialFunction(Vplot), TestFunction(Vplot)) * dx_f == J_f_ * inner(sqrt(dot(vf, vf)), TestFunction(Vplot)) * dx_f, vfplot)
         coords = mesh_f.coordinates.dat.data_with_halos
