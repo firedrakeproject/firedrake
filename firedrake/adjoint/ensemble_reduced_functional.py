@@ -61,14 +61,15 @@ class EnsembleReducedFunctional(ReducedFunctional):
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
     def __init__(self, J, control, ensemble, scatter_control=True,
-                 gather_functional=None):
+                 gather_functional=None, derivative_components=None):
         self.ensemble = ensemble
         self.controls = Enlist(control)
         J = Enlist(J)
         self.functional = J
         self.Jhats = []
         for i, J in enumerate(self.functional):
-            self.Jhats.append(ReducedFunctional(J, self.controls))
+            self.Jhats.append(ReducedFunctional(J, self.controls),
+                              derivative_components=derivative_components)
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
