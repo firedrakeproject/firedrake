@@ -68,8 +68,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
         self.functional = J
         self.Jhats = []
         for i, J in enumerate(self.functional):
-            self.Jhats.append(ReducedFunctional(J, self.controls),
-                              derivative_components=derivative_components)
+            from firedrake.petsc import PETSc
+            PETSc.Sys.Print(type(self.functional), type(J))
+            self.Jhats.append(ReducedFunctional(J, self.controls,
+                              derivative_components=derivative_components))
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
