@@ -139,7 +139,7 @@ where :math:`r(t)` is `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Rick
         ts = 1.5
         t0 = t - ts * np.sqrt(6.0) / (np.pi * fs)
         return (amp * (1.0 - (1.0 / 2.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)
-                * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0)).
+                * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 To compute the cofunction :math:`q_s(\mathbf{x})\in V^{\ast}`, we first construct the source mesh over the source location
 :math:`\mathbf{x}_s`, for the source number ``source_number``::
