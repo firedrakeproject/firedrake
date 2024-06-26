@@ -38,7 +38,10 @@ The predicted data is here modeled here by an acoustic wave equation,
 
     \frac{\partial^2 u}{\partial t^2}- c^2\frac{\partial^2 u}{\partial \mathbf{x}^2} = f(\mathbf{x},t),  \quad \quad (3)
 
-where :math:`c(\mathbf{x})` is the pressure wave velocity, which is assumed here a piecewise-constant and positive.
+where :math:`c(\mathbf{x})` is the pressure wave velocity, which is assumed here a piecewise-constant and positive. The
+function :math:`f(\mathbf{x},t)` models a point source function, were the time-dependency is given by the 
+`Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__.
+
 The acoustic wave equation should satisfy the initial conditions :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`.
 We are employing no-reflective absorbing boundary condition :cite:`Clayton:1977`:
 
@@ -158,11 +161,10 @@ We then inteporlate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to 
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
 
 
-The forward wave equation solver is defined as follows::
+The forward wave equation solver is written as follows::
 
     import finat
-    from firedrake import *
-    from firedrake.__future__ import Interpolator, interpolate
+    from firedrake.__future__ import interpolate
     
     def wave_equation_solver(c, source_function, dt, V):
         u = TrialFunction(V)
@@ -240,7 +242,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
-    interpolate_receivers = Interpolator(u_np1, V_r).interpolate()
+    interpolate_receivers = inteporlate(u_np1, V_r)
     J_val = 0.0
     for step in range(total_steps):
         f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
@@ -271,7 +273,7 @@ The ``minimize`` function executes the optimisation algorithm until the stopping
 For 10 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
-    :scale: 90 %
+    :scale: 70 %
     :alt: optimised velocity model
     :align: center
 
