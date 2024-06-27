@@ -15,12 +15,28 @@ The eighth Firedrake user and developer workshop will be held
 between 16-18 September 2024 at the University of Oxford. For more
 information see :doc:`the workshop page <firedrake_24>`.
 
+Algorithms for Exascale Computing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A summer school, aimed at Research Software Engineers and postgraduate
+students, will be a mix of expert lectures, hands-on workshops and
+informal discussion and networking sessions. This will include a
+Firedrake workshop on during the Wednesday morning session. `More
+information about the summer school
+<https://sites.google.com/view/algorithmsforexascale/home>`__.
+
 Firedrake '23
 ~~~~~~~~~~~~~
 
-The seventh Firedrake user and developer workshop will be held
+The seventh Firedrake user and developer workshop was held
 between 13-15 September 2023 at Missenden Abbey. For more
 information see :doc:`the workshop page <firedrake_23>`.
+
+RSECon23
+~~~~~~~~
+
+A Firedrake workshop was run during the Wednesday morning session of
+`RSECon23 <https://rsecon23.society-rse.org/>`__.
 
 PETSc4py documentation sprint
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
