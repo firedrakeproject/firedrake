@@ -238,3 +238,20 @@ def test_solve_cofunction_rhs():
     Aw = assemble(action(a, w))
     assert isinstance(Aw, Cofunction)
     assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)
+
+
+def test_solve_empty_form_rhs():
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = rhs(a)
+    assert L.empty()
+    x, = SpatialCoordinate(mesh)
+    bcs = DirichletBC(V, x, "on_boundary")
+
+    w = Function(V)
+    solve(a == L, w, bcs)
+    assert errornorm(x, w) < 1E-10
