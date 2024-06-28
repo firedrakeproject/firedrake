@@ -190,8 +190,10 @@ class GenericSolveBlock(Block):
         kwargs["bcs"] = bcs
         dFdu = firedrake.assemble(dFdu_adj_form, **kwargs)
 
+        dJdu_func = dJdu.riesz_representation(riesz_map="l2")
         for bc in bcs:
-            bc.apply(dJdu)
+            bc.apply(dJdu_func)
+        dJdu.assign(dJdu_func.riesz_representation(riesz_map="l2"))
 
         adj_sol = firedrake.Function(self.function_space)
         firedrake.solve(
@@ -201,7 +203,7 @@ class GenericSolveBlock(Block):
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = firedrake.Function(
-                self.function_space.dual(),
+                self.function_space,
                 dJdu_copy.dat - firedrake.assemble(
                     firedrake.action(dFdu_adj_form, adj_sol)
                 ).dat
@@ -812,7 +814,7 @@ class SupermeshProjectBlock(Block):
             self.add_dependency(bc, no_duplicates=True)
 
     def apply_mixedmass(self, a):
-        b = firedrake.Function(self.target_space)
+        b = self.backend.Cofunction(self.target_space.dual())
         with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)
         return b

@@ -381,7 +381,8 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    bc = DirichletBC(V, 0.0, [1])
    A = assemble(a, bcs=bc)
    b = assemble(l)
-   bc.apply(b)
+   b_riesz = b.riesz_representation(riesz_map="l2")
+   bc.apply(b_riesz)
    solve(A, sol, b, solver_parameters={"ksp_type": "cg", "pc_type": "lu"})
 
    VTKFile("output/Sphere.pvd").write(sol)

@@ -1201,7 +1201,7 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            if tensor is not None and test.function_space() != tensor.function_space():
+            if tensor is not None and test.function_space() != tensor.function_space().dual():
                 raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
