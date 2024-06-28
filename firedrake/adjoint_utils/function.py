@@ -220,72 +220,51 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, value, options=None):
+    def _ad_convert_riesz(self, value, riesz_map=None):
         from firedrake import Function, Cofunction
+        # Default to L2 even when passed `None`.
+        riesz_map = riesz_map or "L2" 
 
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
-        if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            return Function(V)
+        V = self.function_space()
 
         if not isinstance(value, (Cofunction, Function)):
             raise TypeError("Expected a Cofunction or a Function")
 
-        if riesz_representation == "l2":
+        if riesz_map == "l2":
             return Function(V, val=value.dat)
 
-        elif riesz_representation in ("L2", "H1"):
+        elif riesz_map in ("L2", "H1"):
             if not isinstance(value, Cofunction):
                 raise TypeError("Expected a Cofunction")
 
             ret = Function(V)
-            a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == value, ret, **solver_options)
+            a = self._define_riesz_map_form(riesz_map, V)
+            firedrake.solve(a == value, ret)
             return ret
 
-        elif callable(riesz_representation):
-            return riesz_representation(value)
+        elif callable(riesz_map):
+            return riesz_map(value)
 
         else:
             raise ValueError(
-                "Unknown Riesz representation %s" % riesz_representation)
+                "Unknown Riesz representation %s" % riesz_map)
 
-    def _define_riesz_map_form(self, riesz_representation, V):
+    def _define_riesz_map_form(self, riesz_map, V):
         from firedrake import TrialFunction, TestFunction
 
         u = TrialFunction(V)
         v = TestFunction(V)
-        if riesz_representation == "L2":
+        if riesz_map == "L2":
             a = firedrake.inner(u, v)*firedrake.dx
 
-        elif riesz_representation == "H1":
+        elif riesz_map == "H1":
             a = firedrake.inner(u, v)*firedrake.dx \
                 + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
 
         else:
             raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
+                "Unknown Riesz representation %s" % riesz_map)
         return a
-
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
-        options = {} if options is None else options.copy()
-        options.setdefault("riesz_representation", "L2")
-        if options["riesz_representation"] is None:
-            if value == 0.:
-                # In adjoint-based differentiation, value == 0. arises only when
-                # the functional is independent on the control variable.
-                V = options.get("function_space", self.function_space())
-                return firedrake.Cofunction(V.dual())
-            else:
-                return value
-        else:
-            return self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
