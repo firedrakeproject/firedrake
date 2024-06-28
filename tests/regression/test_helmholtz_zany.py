@@ -20,7 +20,7 @@ from firedrake import *
 def helmholtz(n, el_type, degree, perturb):
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
-        V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+        V = mesh.coordinates.function_space()
         eps = Constant(1 / 2**(n+1))
 
         x, y = SpatialCoordinate(mesh)
@@ -30,38 +30,40 @@ def helmholtz(n, el_type, degree, perturb):
 
     V = FunctionSpace(mesh, el_type, degree)
     x = SpatialCoordinate(V.mesh())
+    degree = V.ufl_element().degree()
 
     # Define variational problem
-    lmbda = 1
+    k = Constant(3)
+    u_exact = cos(x[0]*pi*k) * cos(x[1]*pi*k)
+
+    lmbda = Constant(1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
-    f.project((1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    a = (inner(grad(u), grad(v)) + lmbda * inner(u, v)) * dx
-    L = inner(f, v) * dx
+    a = inner(grad(u), grad(v))*dx + lmbda * inner(u, v)*dx
+    L = a(v, u_exact)
 
     # Compute solution
-    assemble(a)
-    assemble(L)
     sol = Function(V)
-    solve(a == L, sol, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    solve(a == L, sol)
 
-    # Analytical solution
-    f.project(cos(x[0]*pi*2)*cos(x[1]*pi*2))
-    return sqrt(assemble(inner(sol - f, sol - f) * dx))
+    # Return the H1 norm
+    return sqrt(assemble(a(sol - u_exact, sol - u_exact)))
 
 
-# Test convergence on Hermite, Bell, and Argyris
+# Test H1 convergence on Hermite, HCT, Bell, and Argyris
 # Morley is omitted since it only can be used on 4th-order problems.
 # It is, somewhat oddly, a suitable C^1 nonconforming element but
 # not a suitable C^0 nonconforming one.
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
-                         [('Hermite', 3, 3.8),
-                          ('HCT', 3, 3.8),
-                          ('Bell', 5, 4.8),
-                          ('Argyris', 5, 4.8)])
+                         [('Hermite', 3, 3),
+                          ('HCT', 3, 3),
+                          ('HCT', 4, 4),
+                          ('Bell', 5, 4),
+                          ('Argyris', 5, 5),
+                          ('Argyris', 6, 6)])
 @pytest.mark.parametrize("perturb", [False, True], ids=["Regular", "Perturbed"])
 def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate, perturb):
-    diff = np.array([helmholtz(i, el, deg, perturb) for i in range(1, 4)])
+    l = 4
+    diff = np.array([helmholtz(i, el, deg, perturb) for i in range(l, l+2)])
     conv = np.log2(diff[:-1] / diff[1:])
-    assert (np.array(conv) > convrate).all()
+    assert (np.array(conv) > convrate - 0.3).all()
