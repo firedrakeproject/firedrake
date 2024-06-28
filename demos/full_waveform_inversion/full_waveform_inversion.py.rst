@@ -62,7 +62,7 @@ In Firedrake, we can simultaneously compute functional values and their gradient
 using ``Ensemble``. This tutorial demonstrates how an ``Ensemble`` object is employed on the current inversion problem.
 First, we will need to define an ensemble object::
 
-    from firedrake import Ensemble, COMM_WORLD
+    from firedrake import *
     M = 2
     my_ensemble = Ensemble(COMM_WORLD, M)
 
@@ -117,7 +117,6 @@ pressure wave velocity model. The synthetic pressure wave velocity model is refe
 true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true`` consisting of a
 circle in the centre of the domain, as shown in the coming code cell::
 
-    from firedrake import *
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
     c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
@@ -242,7 +241,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
-    interpolate_receivers = inteporlate(u_np1, V_r)
+    interpolate_receivers = interpolate(u_np1, V_r)
     J_val = 0.0
     for step in range(total_steps):
         f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
