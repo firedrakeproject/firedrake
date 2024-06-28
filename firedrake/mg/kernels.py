@@ -217,9 +217,11 @@ def prolong_kernel(expression):
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
         assert hierarchy._meshes[int(idx)].cell_set._extruded
+    V = expression.function_space()
     key = (("prolong",)
            + expression.ufl_element().value_shape
-           + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
+           + entity_dofs_key(V.finat_element.complex.get_topology())
+           + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
@@ -300,6 +302,8 @@ def restrict_kernel(Vf, Vc):
         assert Vc.extruded
     key = (("restrict",)
            + Vf.ufl_element().value_shape
+           + entity_dofs_key(Vf.finat_element.complex.get_topology())
+           + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -386,6 +390,8 @@ def inject_kernel(Vf, Vc):
         level_ratio = 1
     key = (("inject", level_ratio)
            + Vf.ufl_element().value_shape
+           + entity_dofs_key(Vc.finat_element.complex.get_topology())
+           + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
@@ -519,7 +525,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_builder.set_coordinates(Vf.mesh())
 
     Vfe = create_element(Vf.ufl_element())
-    macro_quadrature_rule = make_quadrature(Vfe.cell, estimate_total_polynomial_degree(ufl.inner(f, f)))
+    ref_complex = Vfe.complex
+    variant = Vf.ufl_element().variant() or "default"
+    if "alfeld" in variant.lower():
+        from FIAT import macro
+        ref_complex = macro.PowellSabinSplit(Vfe.cell)
+
+    macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
     parameters = default_parameters()
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")

@@ -13,7 +13,15 @@ __all__ = ("TransferManager", )
 
 
 native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
-non_native_integral_variants = frozenset(["integral", "fdm"])
+alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced Hsieh-Clough-Tocher", "Johnson-Mercier"])
+non_native_variants = frozenset(["integral", "fdm"])
+
+
+def get_embedding_element(element):
+    dg_element = get_embedding_dg_element(element)
+    if element.family() in alfeld_families:
+        dg_element = dg_element.reconstruct(variant="alfeld")
+    return dg_element
 
 
 class Op(IntEnum):
@@ -28,7 +36,7 @@ class TransferManager(object):
 
         :arg element: The element to use for the caching."""
         def __init__(self, element):
-            self.embedding_element = get_embedding_dg_element(element)
+            self.embedding_element = get_embedding_element(element)
             self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -59,7 +67,7 @@ class TransferManager(object):
             return True
         if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
             return reduce(and_, map(self.is_native, element.sub_elements))
-        return element.family() in native_families and not element.variant() in non_native_integral_variants
+        return element.family() in native_families and not element.variant() in non_native_variants
 
     def _native_transfer(self, element, op):
         try:
