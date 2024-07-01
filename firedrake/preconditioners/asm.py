@@ -14,7 +14,7 @@ except ImportError:
     have_tinyasm = False
 
 
-__all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
+__all__ = ("ASMPatchPC", "ASMPointPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
 
 
 class ASMPatchPC(PCBase):
@@ -129,8 +129,59 @@ class ASMPatchPC(PCBase):
             self.asmpc.destroy()
 
 
+class ASMPointPC(ASMPatchPC):
+    '''Patch-based PC using mesh entities at single points implemented as
+    an :class:`ASMPatchPC`.
+
+    ASMPointPC is an additive Schwarz preconditioner where each patch
+    consists of all DoFs at the topological point of the mesh entity
+    specified by `pc_star_construct_dim`.
+
+    '''
+
+    _prefix = "pc_point_"
+
+    def get_patches(self, V):
+        mesh = V._mesh
+        mesh_dm = mesh.topology_dm
+        if mesh.cell_set._extruded:
+            warning("applying ASMStarPC on an extruded mesh")
+
+        # Obtain the topological entities to use to construct the patches
+        depth = PETSc.Options().getInt(self.prefix+"construct_dim", default=0)
+        # Accessing .indices causes the allocation of a global array,
+        # so we need to cache these for efficiency
+        V_local_ises_indices = []
+        for (i, W) in enumerate(V):
+            V_local_ises_indices.append(V.dof_dset.local_ises[i].indices)
+
+        # Build index sets for the patches
+        ises = []
+        (start, end) = mesh_dm.getDepthStratum(depth)
+        for seed in range(start, end):
+            # Only build patches over owned DoFs
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+
+            # Get DoF indices for patch
+            indices = []
+            for (i, W) in enumerate(V):
+                section = W.dm.getDefaultSection()
+                dof = section.getDof(seed)
+                if dof <= 0:
+                    continue
+                off = section.getOffset(seed)
+                # Local indices within W
+                W_indices = slice(off*W.value_size, W.value_size * (off + dof))
+                indices.extend(V_local_ises_indices[i][W_indices])
+            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+            ises.append(iset)
+
+        return ises
+
+
 class ASMStarPC(ASMPatchPC):
-    '''Patch-based PC using Star of mesh entities implmented as an
+    '''Patch-based PC using Star of mesh entities implemented as an
     :class:`ASMPatchPC`.
 
     ASMStarPC is an additive Schwarz preconditioner where each patch
@@ -185,8 +236,8 @@ class ASMStarPC(ASMPatchPC):
 
 
 class ASMVankaPC(ASMPatchPC):
-    '''Patch-based PC using closure of star of mesh entities implmented as an
-    :class:`ASMPatchPC`.
+    '''Patch-based PC using closure of star of mesh entities implemented
+    as an :class:`ASMPatchPC`.
 
     ASMVankaPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the closure of the star of the mesh entity
@@ -373,7 +424,7 @@ def get_basemesh_nodes(W):
 
 
 class ASMExtrudedStarPC(ASMStarPC):
-    '''Patch-based PC using Star of mesh entities implmented as an
+    '''Patch-based PC using Star of mesh entities implemented as an
     :class:`ASMPatchPC`.
 
     ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
