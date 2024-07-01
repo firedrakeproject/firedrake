@@ -380,12 +380,12 @@ class FunctionMixin(FloatingType):
         return self.copy(deepcopy=True)
 
 
-<<<<<<< Updated upstream
 class CofunctionMixin(FunctionMixin):
 
     def _ad_dot(self, other):
-        return assemble(firedrake.action(self, other))
-=======
+        return firedrake.assemble(firedrake.action(self, other))
+
+
 class RieszMap:
     """Return a map from a dual to a primal function space.
 
@@ -480,4 +480,3 @@ class RieszMap:
             output = Function(self._function_space)
             output.assign(soln)
         return output
->>>>>>> Stashed changes
