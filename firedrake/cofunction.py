@@ -8,13 +8,13 @@ import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
-from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
-class Cofunction(ufl.Cofunction, FunctionMixin):
+class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
     Like Functions, cofunctions are
     represented as sums of basis functions:
@@ -33,7 +33,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     """
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_init
+    @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  count=None):
         r"""
@@ -105,13 +105,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self._coefficients = (self,)
 
     @utils.cached_property
-    @FunctionMixin._ad_annotate_subfunctions
+    @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    @FunctionMixin._ad_annotate_subfunctions
+    @CofunctionMixin._ad_annotate_subfunctions
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
@@ -260,7 +260,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                                                      "riesz_representation": riesz_map,
                                                      "solver_options": solver_options})
 
-    @FunctionMixin._ad_annotate_iadd
+    @CofunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
@@ -276,7 +276,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_isub
+    @CofunctionMixin._ad_annotate_isub
     @utils.known_pyop2_safe
     def __isub__(self, expr):
 
@@ -293,7 +293,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_imul
+    @CofunctionMixin._ad_annotate_imul
     def __imul__(self, expr):
 
         if np.isscalar(expr):

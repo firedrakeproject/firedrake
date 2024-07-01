@@ -316,7 +316,10 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
-        from firedrake import assemble
+        from firedrake import assemble, action, Cofunction
+
+        if isinstance(other, Cofunction):
+            return assemble(action(other, self))
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
@@ -406,3 +409,9 @@ class FunctionMixin(FloatingType):
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
+
+
+class CofunctionMixin(FunctionMixin):
+
+    def _ad_dot(self, other):
+        return assemble(firedrake.action(self, other))
