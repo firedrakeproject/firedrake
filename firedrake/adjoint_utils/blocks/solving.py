@@ -756,7 +756,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
             mesh = F_form.ufl_domain()
@@ -793,7 +793,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanenty upstream in UFL.
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm

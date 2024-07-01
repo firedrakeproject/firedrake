@@ -1,4 +1,4 @@
-from functools import wraps
+from functools import wraps, cached_property
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -226,7 +226,6 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
             # the functional is independent on the control variable.
@@ -235,41 +234,11 @@ class FunctionMixin(FloatingType):
         if not isinstance(value, (Cofunction, Function)):
             raise TypeError("Expected a Cofunction or a Function")
 
-        if riesz_representation == "l2":
-            return Function(V, val=value.dat)
-
-        elif riesz_representation in ("L2", "H1"):
-            if not isinstance(value, Cofunction):
-                raise TypeError("Expected a Cofunction")
-
-            ret = Function(V)
-            a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == value, ret, **solver_options)
-            return ret
-
-        elif callable(riesz_representation):
+        if callable(riesz_representation):
             return riesz_representation(value)
 
-        else:
-            raise ValueError(
-                "Unknown Riesz representation %s" % riesz_representation)
-
-    def _define_riesz_map_form(self, riesz_representation, V):
-        from firedrake import TrialFunction, TestFunction
-
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        if riesz_representation == "L2":
-            a = firedrake.inner(u, v)*firedrake.dx
-
-        elif riesz_representation == "H1":
-            a = firedrake.inner(u, v)*firedrake.dx \
-                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
-        return a
+        return RieszMap(self, riesz_representation,
+                        solver_options=solver_options)(value)
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
@@ -411,7 +380,104 @@ class FunctionMixin(FloatingType):
         return self.copy(deepcopy=True)
 
 
+<<<<<<< Updated upstream
 class CofunctionMixin(FunctionMixin):
 
     def _ad_dot(self, other):
         return assemble(firedrake.action(self, other))
+=======
+class RieszMap:
+    """Return a map from a dual to a primal function space.
+
+    A `RieszMap` can be called on a `Cofunction` in the appropriate space
+    to yield the `Function` which is the Riesz representer under the.
+
+    Parameters
+    ----------
+    function_space_or_inner_product: FunctionSpace or DualSpace or Function or Cofunction or ufl.Form
+        The space from which to map, or a bilinear form defining an
+        inner product.
+    sobolev_space: String or ufl.sobolevspace.SobolevSpace.
+        Used to determine the inner product.
+    bcs: DirichletBC or list of DirichletBC
+        Boundary conditions to apply to the Riesz map.
+    solver_options: dict
+        A dictionary of PETSc options to be passed to the solver.
+    """
+
+    def __init__(self, function_space_or_inner_product=None,
+                 sobolev_space=ufl.L2, *, bcs=None,  solver_options=None):
+        if isinstance(function_space_or_inner_product, ufl.Form):
+            args = ufl.algorithms.extract_arguments(
+                function_space_or_inner_product
+            )
+            if len(args) != 2:
+                raise ValueError(f"inner_product has arity {len(args)}, "
+                                 "should be 2.")
+            function_space = args[0].function_space()
+            inner_product = function_space_or_inner_product
+        else:
+            function_space = function_space_or_inner_product
+            if hasattr(function_space, "function_space"):
+                function_space = function_space.function_space()
+            if ufl.duals.is_dual(function_space):
+                function_space = function_space.dual()
+
+            if str(sobolev_space) == "l2":
+                inner_product = "l2"
+            else:
+                from firedrake import TrialFunction, TestFunction
+                u = TrialFunction(function_space)
+                v = TestFunction(function_space)
+                inner_product = RieszMap._inner_product_form(
+                    sobolev_space, u, v
+                )
+
+        self._function_space = function_space
+        self._inner_product = inner_product
+        self._bcs = bcs
+        self._solver_options = solver_options
+
+    @staticmethod
+    def _inner_product_form(sobolev_space, u, v):
+        from firedrake import inner, dx, grad
+        inner_products = {
+            "L2": lambda u, v: inner(u, v)*dx,
+            "H1": lambda u, v: inner(u, v)*dx + inner(grad(u), grad(v))*dx
+        }
+        try:
+            return inner_products[str(sobolev_space)](u, v)
+        except KeyError:
+            raise ValueError("No inner product defined for Sobolev space "
+                             f"{sobolev_space}.")
+
+    @cached_property
+    def _solver(self):
+        from firedrake import (LinearVariationalSolver,
+                               LinearVariationalProblem, Function, Cofunction)
+        rhs = Cofunction(self._function_space.dual())
+        soln = Function(self._function_space)
+        lvp = LinearVariationalProblem(self._inner_product, rhs, soln,
+                                       bcs=self._bcs)
+        solver = LinearVariationalSolver(
+            lvp, solver_parameters=self._solver_options
+        )
+        return solver.solve, rhs, soln
+
+    def __call__(self, cofunction):
+        """Return the Riesz representer of a Cofunction."""
+        from firedrake import Function
+        if cofunction.function_space().dual() != self._function_space:
+            raise ValueError("Function space mismatch in RieszMap.")
+        output = Function(self._function_space)
+
+        if self._inner_product == "l2":
+            output.dat.data[:] = cofunction.dat.data[:]
+        else:
+            solve, rhs, soln = self._solver
+            rhs.assign(cofunction)
+            solve()
+            output = Function(self._function_space)
+            output.assign(soln)
+        return output
+>>>>>>> Stashed changes

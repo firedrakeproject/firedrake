@@ -16,8 +16,8 @@ from firedrake.petsc import PETSc
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
-    Like Functions, cofunctions are
-    represented as sums of basis functions:
+
+    Like Functions, cofunctions are represented as sums of basis functions:
 
     .. math::
 
