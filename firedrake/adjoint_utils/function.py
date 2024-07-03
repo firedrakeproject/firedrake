@@ -1,4 +1,5 @@
 from functools import wraps
+import contextlib
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -398,10 +399,17 @@ class FunctionMixin(FloatingType):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
 
-    def _ad_petsc_vec(self):
+    @contextlib.contextmanager
+    def _ad_petsc_vec_read_only(self):
         # Return the PETSc Vec object.
-        with self.dat.vec_ro as v:
-            return v
+        with self.dat.vec_ro as vec:
+            yield vec
+
+    @contextlib.contextmanager
+    def _ad_petsc_vec_write_only(self):
+        # Return the PETSc Vec object.
+        with self.dat.vec_wo as vec:
+            yield vec
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
