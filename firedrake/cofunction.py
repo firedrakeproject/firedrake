@@ -8,7 +8,7 @@ import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
-from firedrake.adjoint_utils.function import CofunctionMixin
+from firedrake.adjoint_utils.function import CofunctionMixin, RieszMap
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
@@ -228,37 +228,36 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         raise ValueError('Cannot assign %s' % expr)
 
-    def riesz_representation(self, riesz_map='L2', **solver_options):
-        """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+    def riesz_representation(self, riesz_map='L2', *, bcs=None,
+                             solver_options=None):
+        """Return the Riesz representation of this :class:`Cofunction`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
-        the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        solving the linear system ``Mx = self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
-        solver_options : dict
-                         Solver options to pass to the linear solver:
-                            - solver_parameters: optional solver parameters.
-                            - nullspace: an optional :class:`.VectorSpaceBasis` (or :class:`.MixedVectorSpaceBasis`)
-                                         spanning the null space of the operator.
-                            - transpose_nullspace: as for the nullspace, but used to make the right hand side consistent.
-                            - near_nullspace: as for the nullspace, but used to add the near nullspace.
-                            - options_prefix: an optional prefix used to distinguish PETSc options.
-                                              If not provided a unique prefix will be created.
-                                              Use this option if you want to pass options to the solver from the command line
-                                              in addition to through the ``solver_parameters`` dict.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable.
+        bcs: DirichletBC or list of DirichletBC
+            Boundary conditions to apply to the Riesz map.
+        solver_options: dict
+            A dictionary of PETSc options to be passed to the solver.
 
         Returns
         -------
         firedrake.function.Function
-            Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+            Riesz representation of this :class:`Cofunction` with respect to
+            the given Riesz map.
         """
-        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
-                                                     "riesz_representation": riesz_map,
-                                                     "solver_options": solver_options})
+        if not callable(riesz_map):
+            riesz_map = RieszMap(self.function_space(), riesz_map, bcs=bcs,
+                                 solver_options=solver_options)
+
+        return riesz_map(self)
 
     @CofunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
