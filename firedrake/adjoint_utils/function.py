@@ -472,7 +472,8 @@ class RieszMap:
         output = Function(self._function_space)
 
         if self._inner_product == "l2":
-            output.dat.data[:] = cofunction.dat.data[:]
+            for o, c in zip(output.subfunctions, cofunction.subfunctions):
+                o.dat.data[:] = c.dat.data[:]
         else:
             solve, rhs, soln = self._solver
             rhs.assign(cofunction)
