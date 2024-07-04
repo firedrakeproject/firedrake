@@ -412,7 +412,7 @@ class RieszMap:
         self._function_space = function_space
         self._inner_product = inner_product
         self._bcs = bcs
-        self._solver_options = solver_options
+        self._solver_options = solver_options or {}
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
