@@ -794,7 +794,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dFdm = replace(dFdm, replace_map)
 
         if isinstance(dFdm, firedrake.Argument):
-            #  Corner case. Should be fixed more permanenty upstream in UFL.
+            #  Corner case. Should be fixed more permanently upstream in UFL.
             dFdm = ufl.Action(dFdm, adj_sol)
         else:
             dFdm = dFdm * adj_sol
