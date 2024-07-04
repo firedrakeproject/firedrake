@@ -18,10 +18,10 @@ from pyop2.exceptions import DataTypeError, DataValueError
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-from firedrake.cofunction import Cofunction
+from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake import vector
-from firedrake.adjoint_utils import FunctionMixin, RieszMap
+from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
 
