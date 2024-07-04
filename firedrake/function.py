@@ -21,7 +21,7 @@ from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction
 from firedrake import utils
 from firedrake import vector
-from firedrake.adjoint_utils import FunctionMixin
+from firedrake.adjoint_utils import FunctionMixin, RieszMap
 from firedrake.petsc import PETSc
 
 
@@ -502,11 +502,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         if riesz_map == "l2":
             return Cofunction(V.dual(), val=self.dat)
 
-        elif riesz_map in ("L2", "H1"):
-            a = self._define_riesz_map_form(riesz_map, V)
-            return assemble(action(a, self))
+        if riesz_map in ("L2", "H1"):
+            riesz_map = RieszMap(V, riesz_map)
 
-        elif callable(riesz_map):
+        if callable(riesz_map):
             return riesz_map(self)
 
         else:

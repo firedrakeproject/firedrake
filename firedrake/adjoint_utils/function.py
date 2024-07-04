@@ -229,7 +229,7 @@ class FunctionMixin(FloatingType):
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
             # the functional is independent on the control variable.
-            return Function(V)
+            return Function(self.function_space())
 
         if not isinstance(value, (Cofunction, Function)):
             raise TypeError("Expected a Cofunction or a Function")
@@ -263,9 +263,7 @@ class FunctionMixin(FloatingType):
             return checkpoint
 
     def _ad_will_add_as_dependency(self):
-        """Method called when the object is added as a Block dependency.
-
-        """
+        """Method called when the object is added as a Block dependency."""
         with checkpoint_init_data():
             super()._ad_will_add_as_dependency()
 
@@ -273,7 +271,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        # `self` can be a Cofunction in which case only left multiplication
+        # with a scalar is allowed.
         r.assign(other * self)
         return r
 
@@ -406,7 +405,7 @@ class RieszMap:
     """
 
     def __init__(self, function_space_or_inner_product=None,
-                 sobolev_space=ufl.L2, *, bcs=None,  solver_options=None):
+                 sobolev_space=ufl.L2, *, bcs=None, solver_options=None):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -464,20 +463,38 @@ class RieszMap:
         )
         return solver.solve, rhs, soln
 
-    def __call__(self, cofunction):
-        """Return the Riesz representer of a Cofunction."""
-        from firedrake import Function
-        if cofunction.function_space().dual() != self._function_space:
-            raise ValueError("Function space mismatch in RieszMap.")
-        output = Function(self._function_space)
+    def __call__(self, value):
+        """Return the Riesz representer of a Function or Cofunction."""
+        from firedrake import Function, Cofunction
 
-        if self._inner_product == "l2":
-            for o, c in zip(output.subfunctions, cofunction.subfunctions):
-                o.dat.data[:] = c.dat.data[:]
-        else:
-            solve, rhs, soln = self._solver
-            rhs.assign(cofunction)
-            solve()
+        if ufl.duals.is_dual(value):
+            if value.function_space().dual() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
             output = Function(self._function_space)
-            output.assign(soln)
+
+            if self._inner_product == "l2":
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data[:]
+            else:
+                solve, rhs, soln = self._solver
+                rhs.assign(value)
+                solve()
+                output = Function(self._function_space)
+                output.assign(soln)
+        elif ufl.duals.is_primal(value):
+            if value.function_space().dual() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
+
+            if self._inner_product == "l2":
+                output = Cofunction(self._function_space.dual())
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data[:]
+            else:
+                output = firedrake.assemble(
+                    firedrake.action(self._inner_product, value)
+                )
+        else:
+            raise ValueError(
+                f"Unable to ascertain if {value} is primal or dual."
+            )
         return output
