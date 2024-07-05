@@ -2,7 +2,7 @@
 
 on the unit square of a function
 
-  f(x, y) = (1.0 + 8.0*pi**2)*cos(x[0]*2*pi)*cos(x[1]*2*pi)
+  f(x, y) = LegendreP(degree + 2, x + y)
 
 using elements with nonstandard pullbacks
 """
@@ -15,6 +15,14 @@ from firedrake import *
 
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
+
+
+def jrc(a, b, n):
+    """Jacobi recurrence coefficients"""
+    an = (2*n+1+a+b)*(2*n+2+a+b) / (2*(n+1)*(n+1+a+b))
+    bn = (a+b)*(a-b)*(2*n+1+a+b) / (2*(n+1)*(n+1+a+b)*(2*n+a+b))
+    cn = (n+a)*(n+b)*(2*n+2+a+b) / ((n+1)*(n+1+a+b)*(2*n+a+b))
+    return an, bn, cn
 
 
 @pytest.fixture
@@ -31,16 +39,23 @@ def do_projection(mesh, el_type, degree):
     v = TestFunction(V)
     x = SpatialCoordinate(mesh)
 
-    f = np.prod([sin(x[i]*pi) for i in range(len(x))])
-    f = f * Constant(np.ones(u.ufl_shape))
+    m = degree + 2
+    z = sum(x)
+    p0 = 1
+    p1 = z
+    for n in range(1, m):
+        an, bn, cn = jrc(0, 0, n)
+        ptemp = p1
+        p1 = (an * z + bn) * p1 - cn * p0
+        p0 = ptemp
 
+    f = p1 * Constant(np.ones(u.ufl_shape))
     a = inner(u, v) * dx
     L = inner(f, v) * dx
 
     # Compute solution
     fh = Function(V)
     solve(a == L, fh)
-
     return sqrt(assemble(inner(fh - f, fh - f) * dx))
 
 
@@ -50,13 +65,12 @@ def do_projection(mesh, el_type, degree):
                           ('HCT-red', 3, 2.7),
                           ('HCT', 3, 3.7),
                           ('HCT', 4, 4.8),
-                          ('Hermite', 3, 3),
-                          ('Bell', 5, 4),
-                          ('Argyris', 5, 6),
-                          ('Argyris', 6, 6.8)])
+                          ('Hermite', 3, 3.8),
+                          ('Bell', 5, 4.7),
+                          ('Argyris', 5, 5.8),
+                          ('Argyris', 6, 6.7)])
 def test_projection_zany_convergence_2d(hierarchy, el, deg, convrate):
-    l = 1 if deg > 3 else 2
-    diff = np.array([do_projection(m, el, deg) for m in hierarchy[l:l+3]])
+    diff = np.array([do_projection(m, el, deg) for m in hierarchy[2:]])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate).all()
 
