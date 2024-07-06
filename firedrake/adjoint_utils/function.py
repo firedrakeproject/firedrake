@@ -123,7 +123,7 @@ class FunctionMixin(FloatingType):
 
                 if isinstance(other, type(self)):
                     if self.function_space().mesh() == other.function_space().mesh():
-                        block_var.checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
+                        block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
@@ -289,34 +289,6 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
-            return checkpoint.restore()
-        else:
-            return checkpoint
-
-    def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointBase):
-            return checkpoint.restore()
-        else:
-            return checkpoint
-
-    def _ad_checkpoint_to_clear(self, to_keep=None):
-        if to_keep:
-            for bv in to_keep:
-                if isinstance(self, type(bv.output)):
-                    checkpoint = bv._checkpoint
-                    while isinstance(checkpoint, DelegatedFunctionCheckpoint):
-                        checkpoint = checkpoint._ad_checkpoint_to_clear()
-                    if self == checkpoint:
-                        # keep this checkpoint, since it is delegated.
-                        return None
-        return self
-
-    def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointBase):
-            checkpointing = get_working_tape()._checkpoint_manager
-            if checkpointing:
-                if checkpointing.mode.name == "RECORD":
-                    return None
             return checkpoint.restore()
         else:
             return checkpoint
