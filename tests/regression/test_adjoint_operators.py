@@ -947,3 +947,24 @@ def test_riesz_representation_for_adjoints():
         and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
         and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
     )
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_assign_functional():
+    """Test that cofunctions involving a functional assignment are correctly
+    annotated.
+    """
+    mesh = UnitIntervalMesh(5)
+    fs = FunctionSpace(mesh, "R", 0)
+    f = Function(fs)
+    f.assign(1.0)
+    f2 = Function(fs)
+    f2.assign(1.0)
+    v = TestFunction(fs)
+
+    cof = assemble(f * v * dx)
+    cof2 = Cofunction(cof)
+    cof2.assign(cof)  # Not currently taped!
+    J = assemble(action(cof2, f2))
+    Jhat = ReducedFunctional(J, Control(f))
+    assert np.allclose(float(Jhat.derivative()), 1.0)
