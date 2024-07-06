@@ -172,8 +172,11 @@ class FunctionAssignBlock(Block):
             Return either the firedrake function or `BlockVariable` checkpoint
             to which was delegated the checkpointing.
         """
-        if isinstance(block_variable.checkpoint, DelegatedFunctionCheckpoint):
-            return block_variable.checkpoint
+        if (
+            self.expr is None and inputs[0] == self._dependencies[0].checkpoint
+            and isinstance(inputs[0], (firedrake.Function, firedrake.Cofunction))
+        ):
+            return DelegatedFunctionCheckpoint(self._dependencies[0])
         else:
             if self.expr is None:
                 prepared = inputs[0]

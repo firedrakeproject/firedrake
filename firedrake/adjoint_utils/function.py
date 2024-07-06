@@ -123,7 +123,7 @@ class FunctionMixin(FloatingType):
 
                 if isinstance(other, type(self)):
                     if self.function_space().mesh() == other.function_space().mesh():
-                        block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
+                        block_var.checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
 
@@ -332,18 +332,6 @@ class FunctionMixin(FloatingType):
             return checkpoint.restore()
         else:
             return checkpoint
-
-    def _ad_is_to_clear_checkpoint(self, to_keep=None):
-        if to_keep:
-            for bv in to_keep:
-                if isinstance(self, type(bv.output)):
-                    checkpoint = bv._checkpoint
-                    while isinstance(checkpoint, DelegatedFunctionCheckpoint):
-                        checkpoint = checkpoint.other.checkpoint
-                    if self == checkpoint:
-                        # keep this checkpoint, since it is delegated.
-                        return False
-        return True
 
     def _ad_will_add_as_dependency(self):
         """Method called when the object is added as a Block dependency.

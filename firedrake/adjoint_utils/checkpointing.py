@@ -1,5 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape
+from pyadjoint import get_working_tape, OverloadedType
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 import tempfile
@@ -310,7 +310,7 @@ def maybe_disk_checkpoint(function):
     return CheckpointFunction(function) if disk_checkpointing() else function
 
 
-class DelegatedFunctionCheckpoint(CheckpointBase):
+class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
     """A wrapper which delegates the checkpoint of this Function to another Function.
 
     This enables us to avoid checkpointing a Function twice when it is copied.
