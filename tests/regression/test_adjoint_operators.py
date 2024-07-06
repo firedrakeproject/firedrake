@@ -951,8 +951,7 @@ def test_riesz_representation_for_adjoints():
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_cofunction_assign_functional():
-    """Test that cofunctions involving a functional assignment are correctly
-    annotated.
+    """Test that cofunction assignment is correctly annotated.
     """
     mesh = UnitIntervalMesh(5)
     fs = FunctionSpace(mesh, "R", 0)
