@@ -981,3 +981,24 @@ def test_lvs_constant_jacobian(constant_jacobian):
 
     assert cached_dFdu_adj is solver._ad_adj_cache.get("dFdu_adj", None)
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_assign_functional():
+    """Test that cofunctions involving a functional assignment are correctly
+    annotated.
+    """
+    mesh = UnitIntervalMesh(5)
+    fs = FunctionSpace(mesh, "R", 0)
+    f = Function(fs)
+    f.assign(1.0)
+    f2 = Function(fs)
+    f2.assign(1.0)
+    v = TestFunction(fs)
+
+    cof = assemble(f * v * dx)
+    cof2 = Cofunction(cof)
+    cof2.assign(cof)  # Not currently taped!
+    J = assemble(action(cof2, f2))
+    Jhat = ReducedFunctional(J, Control(f))
+    assert np.allclose(float(Jhat.derivative()), 1.0)
