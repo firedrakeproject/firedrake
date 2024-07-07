@@ -175,6 +175,7 @@ class FunctionAssignBlock(Block):
         if (
             self.expr is None and inputs[0] == self._dependencies[0].checkpoint
             and isinstance(inputs[0], (firedrake.Function, firedrake.Cofunction))
+            and inputs[0].function_space().mesh() == block_variable.output.function_space().mesh()
         ):
             return DelegatedFunctionCheckpoint(self._dependencies[0])
         else:
