@@ -294,7 +294,6 @@ class FunctionMixin(FloatingType):
             if tape._checkpoint_manager:
                 if tape._checkpoint_manager.mode == CheckpointingMode.RECORD:
                     return checkpoint
-                return checkpoint.restore()
             return checkpoint.restore()
         else:
             return checkpoint
