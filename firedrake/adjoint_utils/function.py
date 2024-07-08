@@ -96,6 +96,7 @@ class FunctionMixin(FloatingType):
             return func
 
         return wrapper
+    
 
     @staticmethod
     def _ad_annotate_assign(assign):
@@ -219,6 +220,9 @@ class FunctionMixin(FloatingType):
             return CheckpointFunction(self)
         else:
             return self.copy(deepcopy=True)
+    
+    def _ad_clear_checkpoint(self):
+        return True
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction

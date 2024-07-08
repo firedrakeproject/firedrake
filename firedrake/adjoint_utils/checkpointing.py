@@ -336,4 +336,7 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
                                       count=self.count)
 
     def _ad_create_checkpoint(self):
-        return type(self)(self.other)
+        return self
+
+    def _ad_clear_checkpoint(self):
+        return False
