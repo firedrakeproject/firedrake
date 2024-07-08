@@ -75,9 +75,6 @@ class ConstantMixin(OverloadedType):
 
     def _ad_create_checkpoint(self):
         return self._constant_from_values()
-    
-    def _ad_clear_checkpoint(self):
-        return True
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint
