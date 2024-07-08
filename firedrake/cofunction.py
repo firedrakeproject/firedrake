@@ -363,16 +363,18 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
 
 class RieszMap:
-    """Return a map from a dual to a primal function space.
+    """Return a map between dual and primal function spaces.
 
-    A `RieszMap` can be called on a `Cofunction` in the appropriate space
-    to yield the `Function` which is the Riesz representer under the.
+    A `RieszMap` can be called on a `Cofunction` in the appropriate space to
+    yield the `Function` which is the Riesz representer under the given inner
+    product. Conversely, it can be called on a `Function` to apply the given
+    inner product and return a `Cofunction`.
 
     Parameters
     ----------
-    function_space_or_inner_product: FunctionSpace or Function or Cofunction or ufl.Form
-        The space from which to map, or a bilinear form defining an
-        inner product.
+    function_space_or_inner_product: FunctionSpace or ufl.Form
+        The space from which to map, or a bilinear form defining an inner
+        product.
     sobolev_space: str or ufl.sobolevspace.SobolevSpace.
         Used to determine the inner product.
     bcs: DirichletBC or list of DirichletBC
