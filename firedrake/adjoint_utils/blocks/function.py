@@ -315,7 +315,7 @@ class CofunctionAssignBlock(Block):
             Return either the firedrake cofunction or `BlockVariable`
             checkpoint to which was delegated the checkpointing.
         """
-        assert idx == 0 #  There must be only one RHS.
+        assert idx == 0  # There must be only one RHS.
         if isinstance(block_variable.checkpoint, DelegatedFunctionCheckpoint):
             return block_variable.checkpoint
         else:
