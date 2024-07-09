@@ -1174,6 +1174,13 @@ class StandaloneInterpolationMatrix(object):
     _cache_work = {}
 
     def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
+        fmapping = Vf.finat_element.mapping
+        cmapping = Vc.finat_element.mapping
+        if fmapping != "identity" and fmapping == cmapping:
+            # Ignore Piola mapping if it is the same for both source and target, and simply transfer reference values.
+            Vf = firedrake.FunctionSpace(Vf.mesh(), finat.ufl.WithMapping(Vf.ufl_element(), mapping="identity"))
+            Vc = firedrake.FunctionSpace(Vc.mesh(), finat.ufl.WithMapping(Vc.ufl_element(), mapping="identity"))
+
         self.uc = self.work_function(Vc)
         self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()

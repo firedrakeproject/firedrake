@@ -561,3 +561,28 @@ def test_p_fas_nonlinear_scalar():
     check_coarsen_quadrature(solver_npmg)
     iter_npmg = solver_npmg.snes.getLinearSolveIterations()
     assert 2*iter_pfas <= iter_npmg
+
+
+@pytest.mark.parametrize("family, degree", (("N2curl", 2), ("N1div", 3)))
+def test_pmg_transfer_piola(family, degree):
+    """Test prolongation and restriction kernels for piola-mapped elements.
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+    mesh = UnitSquareMesh(2, 2)
+    Vf = FunctionSpace(mesh, family, degree)
+    Vc = Vf.reconstruct(degree=1)
+    P = prolongation_matrix_matfree(Vc, Vf)
+
+    uc = Function(Vc)
+    uf = Function(Vf)
+    with uc.dat.vec_ro as xc, uf.dat.vec as xf:
+        xc.setRandom()
+        P.mult(xc, xf)
+    assert norm(uf - uc) < 1E-12
+
+    rc = Cofunction(Vc.dual())
+    rf = Cofunction(Vf.dual())
+    with rf.dat.vec_ro as xf, rc.dat.vec as xc:
+        xf.setRandom()
+        P.multTranspose(xf, xc)
+    assert abs(assemble(action(rf, uf)) - assemble(action(rc, uc))) < 1E-12
