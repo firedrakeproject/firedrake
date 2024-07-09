@@ -149,6 +149,7 @@ def get_assembler(form, *args, **kwargs):
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     bcs = kwargs.get('bcs', None)
     fc_params = kwargs.get('form_compiler_parameters', None)
+    pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         mat_type = kwargs.get('mat_type', None)
         # Preprocess the DAG and restructure the DAG
@@ -157,9 +158,9 @@ def get_assembler(form, *args, **kwargs):
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
-            return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
+            return ZeroFormAssembler(form, form_compiler_parameters=fc_params, pyop3_compiler_parameters=pyop3_compiler_parameters)
         elif len(form.arguments()) == 1 or diagonal:
-            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
+            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, pyop3_compiler_parameters=pyop3_compiler_parameters , needs_zeroing=kwargs.get('needs_zeroing', True),
                                     zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
@@ -261,13 +262,14 @@ class AbstractFormAssembler(abc.ABC):
         ``form_compiler_parameters`` to use.
 
     """
-    def __init__(self, form, bcs=None, form_compiler_parameters=None):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None):
         self._form = form
         self._bcs = solving._extract_bcs(bcs)
         if any(isinstance(bc, EquationBC) for bc in self._bcs):
             raise TypeError("EquationBC objects not expected here. "
                             "Preprocess by extracting the appropriate form with bc.extract_form('Jp') or bc.extract_form('J')")
         self._form_compiler_params = form_compiler_parameters or {}
+        self._pyop3_compiler_parameters = pyop3_compiler_parameters
 
     @abc.abstractmethod
     def allocate(self):
@@ -308,6 +310,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  form,
                  bcs=None,
                  form_compiler_parameters=None,
+                 pyop3_compiler_parameters=None,
                  mat_type=None,
                  sub_mat_type=None,
                  options_prefix=None,
@@ -316,7 +319,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  diagonal=False,
                  weight=1.0,
                  allocation_integral_types=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
@@ -426,12 +429,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             form = expr
             rank = len(form.arguments())
             if rank == 0:
-                assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
+                assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters)
             elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
+                assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                                              zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal)
             elif rank == 2:
-                assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
+                assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
                                              allocation_integral_types=self.allocation_integral_types)
@@ -945,8 +948,8 @@ class FormAssembler(AbstractFormAssembler):
                 self._initialised = True
         return wrapper
 
-    def __init__(self, form, bcs=None, form_compiler_parameters=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters)
         # Ensure mesh is 'initialised' as we could have got here without building a
         # function space (e.g. if integrating a constant).
         for mesh in form.ufl_domains():
@@ -971,9 +974,10 @@ class ParloopFormAssembler(FormAssembler):
         Should ``tensor`` be zeroed before assembling?
 
     """
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
+        self._pyop3_compiler_parameters = pyop3_compiler_parameters
 
     def assemble(self, tensor=None):
         """Assemble the form.
@@ -1067,6 +1071,7 @@ class ParloopFormAssembler(FormAssembler):
                     subdomain_id,
                     self.all_integer_subdomain_ids,
                     diagonal=self.diagonal,
+                    pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                 )
             )
         return tuple(out)
@@ -1206,15 +1211,15 @@ class OneFormAssembler(ParloopFormAssembler):
     """
 
     @classmethod
-    def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
+    def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
                    zero_bc_nodes=False, diagonal=False):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
+        return tuple(bcs), tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
 
     @FormAssembler._skip_if_initialised
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
                  zero_bc_nodes=False, diagonal=False):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
         if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
@@ -1728,13 +1733,16 @@ class ParloopBuilder:
 
     """
     def __init__(self, form, bcs, local_knl, subdomain_id,
-                 all_integer_subdomain_ids, diagonal):
+                 all_integer_subdomain_ids, diagonal,
+                 *,
+                 pyop3_compiler_parameters):
         self._form = form
         self._local_knl = local_knl
         self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._diagonal = diagonal
         self._bcs = bcs
+        self._pyop3_compiler_parameters = pyop3_compiler_parameters
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
@@ -1758,7 +1766,7 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        return op3.loop(p, kernel(*args))
+        return op3.loop(p, kernel(*args), compiler_parameters=self._pyop3_compiler_parameters)
 
     @property
     def test_function_space(self):
