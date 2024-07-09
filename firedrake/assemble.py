@@ -1555,43 +1555,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             loop = (index, rmap, cmap, (None, None))
             loops.append(loop)
         return tuple(loops)
-=======
-                i, j = local_kernel.indices
-                # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-                integral_type = local_kernel.kinfo.integral_type
-                rmap_ = test.function_space().topological[i].entity_node_map(integral_type)
-                cmap_ = trial.function_space().topological[j].entity_node_map(integral_type)
-                region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-                maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
-            return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
-                    for block_indices, map_pair_to_region_set in maps_and_regions.items()}
-
-    @staticmethod
-    def _make_maps_and_regions_default(test, trial, allocation_integral_types):
-        # Make maps using outer-product of the component maps
-        # using the given allocation_integral_types.
-        if allocation_integral_types is None:
-            raise ValueError("allocation_integral_types can not be None")
-        maps_and_regions = defaultdict(lambda: defaultdict(set))
-        # Use outer product of component maps.
-        for integral_type in allocation_integral_types:
-            region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-            for i, rmap_ in enumerate(test.function_space().topological.entity_node_map(integral_type)):
-                for j, cmap_ in enumerate(trial.function_space().topological.entity_node_map(integral_type)):
-                    maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
-        return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
-                for block_indices, map_pair_to_region_set in maps_and_regions.items()}
-
-    _integral_type_region_map = \
-        {"cell": op2.ALL,
-         "exterior_facet_bottom": op2.ON_BOTTOM,
-         "exterior_facet_top": op2.ON_TOP,
-         "interior_facet_horiz": op2.ON_INTERIOR_FACETS,
-         "exterior_facet": op2.ALL,
-         "exterior_facet_vert": op2.ALL,
-         "interior_facet": op2.ALL,
-         "interior_facet_vert": op2.ALL}
->>>>>>> master
 
     @cached_property
     def _all_local_kernels(self):

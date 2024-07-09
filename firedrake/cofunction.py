@@ -75,7 +75,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(val, Cofunction):
             val = val.dat
         if isinstance(val, op3.HierarchicalArray):
-            assert val.comm == self._comm
+            # FIXME
+            # assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())

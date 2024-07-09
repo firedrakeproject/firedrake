@@ -575,8 +575,9 @@ def closure_ordering(mesh, closure_data, closure_sizes):
         PetscInt tdim, cell
         PetscInt nverts_per_cell, nedges_per_cell, nfacets_per_cell
         PetscInt *verts=NULL, *edges=NULL, *facets=NULL, *global_verts=NULL
-        PetscInt *edge_cone=NULL, *edge_verts=NULL, *edge_incident_verts=NULL
+        PetscInt *edge_verts=NULL, *edge_incident_verts=NULL
         PetscInt nfacet_closure, *facet_closure=NULL, *facet_verts=NULL
+        const PetscInt *edge_cone=NULL
 
     dm = mesh.topology_dm
     tdim = mesh.dimension
@@ -605,7 +606,7 @@ def closure_ordering(mesh, closure_data, closure_sizes):
         for vi, vert in enumerate(closure_data[0][cell]):
             verts[vi] = vert
             global_verts[vi] = mesh._global_vertex_numbering[vert]
-            
+
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
 

@@ -981,6 +981,89 @@ class FunctionSpace:
         return FunctionSpace(self.mesh(), self.ufl_element())
 
 
+class RestrictedFunctionSpace(FunctionSpace):
+    r"""A representation of a function space, with additional information
+    about where boundary conditions are to be applied.
+
+    If a :class:`FunctionSpace` is represented as V, we can decompose V into
+    V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
+    the boundary where a boundary condition is applied, and VΓ contains all
+    other basis functions. The :class:`RestrictedFunctionSpace`
+    corresponding to V takes functions only from V0 when solving problems, or
+    when creating a TestFunction and TrialFunction. The values on the boundary
+    set will remain constant when solving, but are present in the
+    output of the solver.
+
+    :arg function_space: The :class:`FunctionSpace` to restrict.
+    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
+        useful for later identification.
+    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
+        applied.
+
+    Notes
+    -----
+    If using this class to solve or similar, a list of DirichletBCs will still
+    need to be specified on this space and passed into the function.
+    """
+    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+        label = ""
+        for boundary_domain in boundary_set:
+            label += str(boundary_domain)
+            label += "_"
+        self.boundary_set = frozenset(boundary_set)
+        super().__init__(function_space._mesh.topology,
+                         function_space.ufl_element(), function_space.name)
+        self._label = label
+        self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
+                                                     function_space.ufl_element(),
+                                                     label=self._label)
+        self.function_space = function_space
+        self.name = name or (function_space.name or "Restricted" + "_"
+                             + "_".join(sorted(
+                                        [str(i) for i in self.boundary_set])))
+
+    def set_shared_data(self):
+        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
+        self._shared_data = sdata
+        self.node_set = sdata.node_set
+        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+                                    name="%s_nodes_dset" % self.name)
+        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+        degrees of freedom."""
+
+        # check not all degrees of freedom are constrained
+        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+        if self.comm.allreduce(unconstrained_dofs) == 0:
+            raise ValueError("All degrees of freedom are constrained.")
+        self.finat_element = create_element(self.ufl_element())
+        # Used for reconstruction of mixed/component spaces.
+        # sdata carries real_tensorproduct.
+        self.real_tensorproduct = sdata.real_tensorproduct
+        self.extruded = sdata.extruded
+        self.offset = sdata.offset
+        self.offset_quotient = sdata.offset_quotient
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+        self.global_numbering = sdata.global_numbering
+
+    def __eq__(self, other):
+        if not isinstance(other, RestrictedFunctionSpace):
+            return False
+        return self.function_space == other.function_space and \
+            self.boundary_set == other.boundary_set
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
+
+    def __hash__(self):
+        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
+                     self.boundary_set))
+
+    def local_to_global_map(self, bcs, lgmap=None):
+        return lgmap or self.dof_dset.lgmap
+
 
 class MixedFunctionSpace(object):
     r"""A function space on a mixed finite element.
