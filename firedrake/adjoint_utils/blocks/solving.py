@@ -655,11 +655,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.J)
 
     def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        dFdu = self._adj_cache.get("dFdu_adj", None)
-        if dFdu is None:
+        if "dFdu_adj" in self._adj_cache:
+            dFdu = self._adj_cache["dFdu_adj"]
+        else:
             dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-        if self._ad_nlvs._problem._constant_jacobian and "dFdu_adj" not in self._adj_cache:
-            self._adj_cache["dFdu_adj"] = dFdu
+            if self._ad_nlvs._problem._constant_jacobian:
+                self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
