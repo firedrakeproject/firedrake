@@ -37,7 +37,7 @@ def test_verification():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, size, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1))
+    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -60,7 +60,7 @@ def test_verification_gather_functional_adjfloat():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1))
+    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -84,7 +84,7 @@ def test_verification_gather_functional_Function():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1))
+    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=6)
