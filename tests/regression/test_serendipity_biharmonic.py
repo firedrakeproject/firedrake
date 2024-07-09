@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import numpy
 import pytest
 
@@ -8,11 +9,12 @@ pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def test_serendipity_biharmonic():
 
-    sp = {"snes_type": "ksponly",
-          "ksp_type": "preonly",
-          "pc_type": "lu",
-          "pc_factor_mat_solver_type": "mumps",
-          "mat_mumps_icntl_14": 200}
+    sp = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+    }
 
     def error(N):
         mesh = UnitSquareMesh(N, N, quadrilateral=True)

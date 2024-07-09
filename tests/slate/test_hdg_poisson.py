@@ -1,5 +1,7 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
+
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
@@ -67,18 +69,21 @@ def run_LDG_H_problem(r, degree, quads=False):
 
     L = inner(f, w)*dx
     F = a - L
-    params = {'snes_type': 'ksponly',
-              'mat_type': 'matfree',
-              'pmat_type': 'matfree',
-              'ksp_type': 'preonly',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.SCPC',
-              'pc_sc_eliminate_fields': '0, 1',
-              'condensed_field': {'ksp_type': 'preonly',
-                                  'pc_type': 'redundant',
-                                  "redundant_pc_type": "lu",
-                                  "redundant_pc_factor_mat_solver_type": "mumps",
-                                  "redundant_mat_mumps_icntl_14": 200}}
+    params = {
+        'snes_type': 'ksponly',
+        'mat_type': 'matfree',
+        'pmat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.SCPC',
+        'pc_sc_eliminate_fields': '0, 1',
+        'condensed_field': {
+            'ksp_type': 'preonly',
+            'pc_type': 'redundant',
+            "redundant_pc_type": "lu",
+            "redundant_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        }
+    }
 
     bcs = DirichletBC(W.sub(2), zero(), "on_boundary")
     problem = NonlinearVariationalProblem(F, s, bcs=bcs)

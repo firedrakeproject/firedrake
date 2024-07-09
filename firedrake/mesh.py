@@ -38,7 +38,9 @@ import firedrake.utils as utils
 from firedrake.utils import IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import (
+    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
+)
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 
@@ -1276,9 +1278,11 @@ class AbstractMeshTopology(abc.ABC):
         :arg real_tensorproduct: If True, assume extruded space is actually Foo x Real.
         :arg block_size: The integer by which nodes_per_entity is uniformly multiplied
             to get the true data layout.
+        :arg boundary_set: A set of boundary markers, indicating the subdomains
+            a boundary condition is specified on.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
 
     # delete?
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
@@ -2054,38 +2058,35 @@ class MeshTopology(AbstractMeshTopology):
             "shell", or `None` (unspecified). Ignored if the distribute parameter
             specifies the distribution.
         """
-        from firedrake_configuration import get_config
         if plex.comm.size == 1 or distribute is False:
             return
         partitioner = plex.getPartitioner()
         if distribute is True:
             if partitioner_type:
-                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
-                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
-                if partitioner_type == "chaco":
-                    if IntType.itemsize == 8:
-                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
-                                         "but your Integer is %d bit." % IntType.itemsize * 8)
-                    if plex.isDistributed():
-                        raise ValueError("Unable to use 'chaco': 'chaco' is a serial "
-                                         "patitioner, but the mesh is distributed.")
-                if partitioner_type == "parmetis":
-                    if not get_config().get("options", {}).get("with_parmetis", False):
-                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
-                                         "installed with 'parmetis'.")
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis", "simple", "shell"]:
+                    raise ValueError(
+                        f"Unexpected partitioner_type: {partitioner_type}")
+                if partitioner_type in ["chaco", "ptscotch", "parmetis"] and \
+                        partitioner_type not in get_external_packages():
+                    raise ValueError(
+                        f"Unable to use {partitioner_type} as PETSc is not "
+                        f"installed with {partitioner_type}."
+                    )
+                if partitioner_type == "chaco" and plex.isDistributed():
+                    raise ValueError(
+                        "Unable to use 'chaco' mesh partitioner, 'chaco' is a "
+                        "serial partitioner, but the mesh is distributed."
+                    )
             else:
-                if IntType.itemsize == 8 or plex.isDistributed():
-                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
-                    # Chaco does not work on distributed meshes.
-                    if get_config().get("options", {}).get("with_parmetis", False):
-                        partitioner_type = "parmetis"
-                    else:
-                        partitioner_type = "ptscotch"
-                else:
-                    partitioner_type = "chaco"
-            partitioner.setType({"chaco": partitioner.Type.CHACO,
-                                 "ptscotch": partitioner.Type.PTSCOTCH,
-                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+                partitioner_type = DEFAULT_PARTITIONER
+
+            partitioner.setType({
+                "chaco": partitioner.Type.CHACO,
+                "ptscotch": partitioner.Type.PTSCOTCH,
+                "parmetis": partitioner.Type.PARMETIS,
+                "shell": partitioner.Type.SHELL,
+                "simple": partitioner.Type.SIMPLE
+            }[partitioner_type])
         else:
             sizes, points = distribute
             partitioner.setType(partitioner.Type.SHELL)
@@ -2273,7 +2274,14 @@ class ExtrudedMeshTopology(MeshTopology):
         dofs_per_entity = np.zeros((1 + self._base_mesh.cell_dimension(), 2), dtype=IntType)
         for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b, v] += len(entities[0])
-        return tuplify(dofs_per_entity)
+
+        # Convert to a tuple of tuples with int (not numpy.intXX) values. This is
+        # to give us a string representation like ((0, 1), (2, 3)) instead of
+        # ((numpy.int32(0), numpy.int32(1)), (numpy.int32(2), numpy.int32(3))).
+        return tuple(
+            tuple(int(d_) for d_ in d)
+            for d in dofs_per_entity
+        )
 
     @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
@@ -2454,7 +2462,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
 
     def _memoize_closures(self, dim):
         assert dim == 0
@@ -2732,11 +2740,11 @@ class MeshGeometryCargo:
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
+    def __new__(cls, element, comm):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid()
+        uid = utils._new_uid(internal_comm(comm, mesh))
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
@@ -3334,6 +3342,8 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The name of the mesh.
     tolerance : numbers.Number
         The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
 
     Returns
     -------
@@ -3355,7 +3365,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
@@ -3392,7 +3402,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
     mesh.name = name
     mesh._tolerance = tolerance
@@ -3425,7 +3435,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     tcell = topology.ufl_cell()
     cell = tcell.reconstruct(geometric_dimension=gdim)
     element = finat.ufl.VectorElement("DG", cell, 0)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
@@ -3597,7 +3607,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     mesh._tolerance = tolerance
     return mesh

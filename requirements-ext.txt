@@ -5,6 +5,7 @@ nbval
 packaging
 pkgconfig
 progress
+pybind11
 pylint
 pylit
 pytest

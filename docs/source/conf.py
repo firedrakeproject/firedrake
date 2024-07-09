@@ -151,6 +151,9 @@ linkcheck_ignore = [
     r'https://asmedigitalcollection\.asme\.org/',
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
+    r'https://www.sciencedirect.com',
+    r'https://.*\.baylor\.edu.*',
+    r'https://www.tuomaskarna.com',
 ]
 linkcheck_timeout = 30
 
@@ -264,6 +267,7 @@ latex_elements = {
 \sphinxDUC{22C5}{$\cdot$}
 \sphinxDUC{25A3}{$\boxdot$}
 \sphinxDUC{03BB}{$\lambda$}
+\sphinxDUC{0393}{$\Gamma$}
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 

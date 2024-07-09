@@ -73,8 +73,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         # Internal comm
         self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid()
-        self._name = name or f"function_{self.uid}"
+        self.uid = utils._new_uid(self._comm)
+        self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, vector.Vector):
@@ -670,9 +670,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = self.comm.bcast(arg, root=0)
+        root_arg = self._comm.bcast(arg, root=0)
         same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self.comm.allreduce(int(not same_arg), op=MPI.SUM)
+        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 

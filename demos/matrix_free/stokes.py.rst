@@ -9,7 +9,6 @@ cavity.
 As ever, we import firedrake and define a mesh.::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
   N = 64
 

@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 from pyop2.utils import as_tuple
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 ksp = {
@@ -147,6 +149,7 @@ def test_p_independence_hgrad(mesh, variant):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
@@ -159,6 +162,7 @@ def test_p_independence_hcurl(mesh):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
@@ -321,7 +325,7 @@ def test_ipdg_direct_solver(fs):
         "pc_type": "python",
         "pc_python_type": "firedrake.PoissonFDMPC",
         "fdm_pc_type": "cholesky",
-        "fdm_pc_factor_mat_solver_type": "mumps",
+        "fdm_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
         "fdm_pc_factor_mat_ordering_type": "nd",
     }, appctx={"eta": eta, })
     solver.solve()

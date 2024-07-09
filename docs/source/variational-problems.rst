@@ -309,8 +309,48 @@ documentation <UFL_package_>`_ and the description of the language in
 for a more didactic introduction, we refer the reader to the
 :ref:`Firedrake tutorial examples <firedrake_tutorials>`.
 
-Building test and trial spaces
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There are two ways to express a variational problem in UFL. A linear
+variational problem is defined in terms of a bilinear form
+:math:`a(u,v)` and a linear form :math:`L[v]`, seeking :math:`u\in V`
+such that :math:`a(u,v)=L[v]\,\forall v\in V` for some finite element
+space :math:`V`. The following section of the notes describes how such
+problems can be expressed in UFL and solved using Firedrake. We shall
+see that the solve is invoked by writing
+
+.. code-block:: python3
+
+   solve(a == L, s)
+
+but solver reuse can be achieved using :py:class:`~.LinearVariationalSolver`,
+which is usually the most efficient option for timestepping problems.
+   
+A nonlinear variational problem is defined in terms of a linear form
+:math:`F[u;v]` which is linear in the test function :math:`v` but may
+be nonlinear in the coefficient :math:`u`. The nonlinear variational
+problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
+V`. In UFL, the solution variable should be of type :py:class:`~.Function`
+instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
+
+.. code-block:: python3
+
+   solve(F == 0, s)
+
+but solver reuse can be achieved using
+:py:class:`~.NonlinearVariationalSolver`, which is usually the most
+efficient option for timestepping problems. The solution approach for
+this problems is some form of Newton's method. UFL automates the
+symbolic differentiation of :math:`F` to obtain the Jacobian expressed
+as a bilinear form, which is then solved. Note that nonlinear problems
+can be linear (Firedrake and UFL will make no effort to detect this),
+in which case Newton's method will converge in one iteration.
+
+For more details about nonlinear
+variational problems, see the `UFL manual
+<UFL_package_>`_ as well as the :ref:`Firedrake tutorials
+<firedrake_tutorials>`.
+
+Building test and trial spaces for linear variational problems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Now that we have function spaces that our solution will live in, the
 next step is to actually write down the variational form of the

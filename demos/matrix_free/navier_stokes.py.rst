@@ -5,7 +5,6 @@ We solve the Navier-Stokes equations using Taylor-Hood elements.  The
 example is that of a lid-driven cavity. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
 
   N = 64
 

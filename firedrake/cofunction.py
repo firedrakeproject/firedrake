@@ -68,13 +68,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Internal comm
         self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
-        if isinstance(val, vector.Vector):
+        if isinstance(val, Cofunction):
             val = val.dat
         if isinstance(val, op3.HierarchicalArray):
+            assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
