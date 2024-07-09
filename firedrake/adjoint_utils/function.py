@@ -3,6 +3,7 @@ import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
+from pyadjoint.checkpointing import CheckpointingMode
 from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
@@ -289,6 +290,10 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
+            tape = get_working_tape()
+            if tape._checkpoint_manager:
+                if tape._checkpoint_manager.mode == CheckpointingMode.RECORD:
+                    return checkpoint
             return checkpoint.restore()
         else:
             return checkpoint
