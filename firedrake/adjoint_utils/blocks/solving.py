@@ -182,13 +182,16 @@ class GenericSolveBlock(Block):
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
+    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
+        return firedrake.assemble(dFdu_adj_form, **kwargs)
+
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
         kwargs = self.assemble_kwargs.copy()
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
         kwargs["bcs"] = bcs
-        dFdu = firedrake.assemble(dFdu_adj_form, **kwargs)
+        dFdu = self._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
 
         for bc in bcs:
             bc.apply(dJdu)
@@ -596,13 +599,14 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J,
+    def __init__(self, equation, func, bcs, adj_F, adj_cache, problem_J,
                  solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self.adj_F = adj_F
-        self._dFdm_cache = dFdm_cache
+        self._adj_cache = adj_cache
+        self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
@@ -649,6 +653,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
+
+    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
+        dFdu = self._adj_cache.get("dFdu_adj", None)
+        if dFdu is None:
+            dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
+        if self._ad_nlvs._problem._constant_jacobian and "dFdu_adj" not in self._adj_cache:
+            self._adj_cache["dFdu_adj"] = dFdu
+        return dFdu
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
