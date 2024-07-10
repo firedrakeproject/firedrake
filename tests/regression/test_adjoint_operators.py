@@ -1001,3 +1001,5 @@ def test_cofunction_assign_functional():
     J = assemble(action(cof2, f2))
     Jhat = ReducedFunctional(J, Control(f))
     assert np.allclose(float(Jhat.derivative()), 1.0)
+    f.assign(2.0)
+    assert np.allclose(Jhat(f), 2.0)
