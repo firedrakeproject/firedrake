@@ -34,11 +34,11 @@ def test_assembly():
     space = FunctionSpace(mesh, "Lagrange", 1)
     test = TestFunction(space)
 
-    u = Function(space, name="u").interpolate(X[0])
-    zeta = Function(space, name="tlm_u").interpolate(X[0])
-    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
-
     with reverse_over_forward():
+        u = Function(space, name="u").interpolate(X[0])
+        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
         J = assemble(u * u * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
@@ -49,10 +49,10 @@ def test_assembly():
 
 @pytest.mark.skipcomplex
 def test_constant_assignment():
-    a = Constant(2.5)
-    a.block_variable.tlm_value = Constant(-2.0)
-
     with reverse_over_forward():
+        a = Constant(2.5)
+        a.block_variable.tlm_value = Constant(-2.0)
+
         b = Constant(0.0).assign(a)
 
     assert float(b.block_variable.tlm_value) == -2.0
@@ -70,11 +70,11 @@ def test_function_assignment():
     space = FunctionSpace(mesh, "Lagrange", 1)
     test = TestFunction(space)
 
-    u = Function(space, name="u").interpolate(X[0] - 0.5)
-    zeta = Function(space, name="tlm_u").interpolate(X[0])
-    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
-
     with reverse_over_forward():
+        u = Function(space, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
         v = Function(space, name="v").assign(u)
         J = assemble(v * v * dx)
 
@@ -91,11 +91,11 @@ def test_function_assignment_expr():
     space = FunctionSpace(mesh, "Lagrange", 1)
     test = TestFunction(space)
 
-    u = Function(space, name="u").interpolate(X[0] - 0.5)
-    zeta = Function(space, name="tlm_u").interpolate(X[0])
-    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
-
     with reverse_over_forward():
+        u = Function(space, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
         v = Function(space, name="v").assign(-3 * u)
         J = assemble(v * v * dx)
 
@@ -138,11 +138,11 @@ def test_project():
     space_b = FunctionSpace(mesh, "Discontinuous Lagrange", 0)
     test_a = TestFunction(space_a)
 
-    u = Function(space_a, name="u").interpolate(X[0] - 0.5)
-    zeta = Function(space_a, name="tlm_u").interpolate(X[0])
-    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
-
     with reverse_over_forward():
+        u = Function(space_a, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space_a, name="tlm_u").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
         v = Function(space_b, name="v").project(u)
         J = assemble(v * v * dx)
 
@@ -161,11 +161,11 @@ def test_supermesh_project():
     space_b = FunctionSpace(mesh_b, "Discontinuous Lagrange", 0)
     test_a = TestFunction(space_a)
 
-    u = Function(space_a, name="u").interpolate(X_a[0] - 0.5)
-    zeta = Function(space_a, name="tlm_u").interpolate(X_a[0])
-    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
-
     with reverse_over_forward():
+        u = Function(space_a, name="u").interpolate(X_a[0] - 0.5)
+        zeta = Function(space_a, name="tlm_u").interpolate(X_a[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
         v = Function(space_b, name="v").project(u)
         J = assemble(v * v * dx)
 
