@@ -106,6 +106,31 @@ def test_function_assignment_expr():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("idx", [0, 1])
+def test_subfunction(idx):
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1) * FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+
+    with reverse_over_forward():
+        u = Function(space, name="u")
+        u.sub(idx).interpolate(-2 * X[0])
+        zeta = Function(space, name="zeta")
+        zeta.sub(idx).interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
+        v = Function(space, name="v")
+        v.sub(idx).assign(u.sub(idx))
+        J = assemble(u.sub(idx) * v.sub(idx) * dx)
+
+    _ = compute_gradient(J.block_variable.tlm_value, Control(u))
+    adj_value = u.block_variable.adj_value
+    assert np.allclose(adj_value.sub(idx).dat.data_ro,
+                       assemble(2 * inner(zeta[idx], test[idx]) * dx).dat.data_ro[idx])
+
+
+@pytest.mark.skipcomplex
 def test_project():
     mesh = UnitSquareMesh(10, 10)
     X = SpatialCoordinate(mesh)
