@@ -165,10 +165,10 @@ class AssembleBlock(Block):
         x.tlm_value = None
         if isinstance(tlm_rhs, int) and tlm_rhs == 0:
             return
-        tau_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
-        if tau_rhs.empty():
+        tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+        if tlm_rhs.empty():
             return
-        x.tlm_value = firedrake.assemble(tau_rhs)
+        x.tlm_value = firedrake.assemble(tlm_rhs)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
