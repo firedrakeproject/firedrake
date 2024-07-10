@@ -133,20 +133,27 @@ class FunctionAssignBlock(Block):
         x, = self.get_outputs()
         expr = self.expr
 
-        tlm_rhs = 0
-        for block_variable in self.get_dependencies():
-            dep = block_variable.output
-            tlm_dep = block_variable.tlm_value
-            if tlm_dep is not None:
-                tlm_rhs = tlm_rhs + ufl.derivative(expr, dep, tlm_dep)
+        if expr is None:
+            other, = self.get_dependencies()
+            if other.tlm_value is None:
+                x.tlm_value = None
+            else:
+                x.tlm_value = firedrake.Function(x.output.function_space()).assign(other.tlm_value)
+        else:
+            tlm_rhs = 0
+            for block_variable in self.get_dependencies():
+                dep = block_variable.output
+                tlm_dep = block_variable.tlm_value
+                if tlm_dep is not None:
+                    tlm_rhs = tlm_rhs + ufl.derivative(expr, dep, tlm_dep)
 
-        x.tlm_value = None
-        if isinstance(tlm_rhs, int) and tlm_rhs == 0:
-            return
-        tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
-        if isinstance(tlm_rhs, ufl.constantvalue.Zero):
-            return
-        x.tlm_value = firedrake.Function(x.output.function_space()).assign(tlm_rhs)
+            x.tlm_value = None
+            if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+                return
+            tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+            if isinstance(tlm_rhs, ufl.constantvalue.Zero):
+                return
+            x.tlm_value = firedrake.Function(x.output.function_space()).assign(tlm_rhs)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):

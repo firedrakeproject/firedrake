@@ -39,12 +39,12 @@ def test_assembly():
     u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
     with reverse_over_forward():
-        J = assemble(u * u.dx(0) * dx)
+        J = assemble(u * u * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
     assert np.allclose(adj_value.dat.data_ro,
-                       assemble(inner(zeta.dx(0), test) * dx + inner(zeta, test.dx(0)) * dx).dat.data_ro)
+                       assemble(2 * inner(zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -75,13 +75,34 @@ def test_function_assignment():
     u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
     with reverse_over_forward():
-        v = Function(space, name="v").assign(-3 * u)
-        J = assemble(v * v.dx(0) * dx)
+        v = Function(space, name="v").assign(u)
+        J = assemble(v * v * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
     assert np.allclose(adj_value.dat.data_ro,
-                       assemble(9 * inner(zeta.dx(0), test) * dx + 9 * inner(zeta, test.dx(0)) * dx).dat.data_ro)
+                       assemble(2 * inner(zeta, test) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex
+def test_function_assignment_expr():
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+
+    u = Function(space, name="u").interpolate(X[0] - 0.5)
+    zeta = Function(space, name="tlm_u").interpolate(X[0])
+    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
+    with reverse_over_forward():
+        v = Function(space, name="v").assign(-3 * u)
+        J = assemble(v * v * dx)
+
+    _ = compute_gradient(J.block_variable.tlm_value, Control(u))
+    adj_value = u.block_variable.adj_value
+    assert np.allclose(adj_value.dat.data_ro,
+                       assemble(18 * inner(zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
