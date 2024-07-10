@@ -59,6 +59,7 @@ jobs:
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
+          python -m pip install --upgrade pytools
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
             --honour-petsc-dir \
