@@ -4,7 +4,7 @@ from ufl.domain import as_domain
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
+from .block_utils import isconstant, restored_outputs
 
 
 class AssembleBlock(Block):
@@ -144,6 +144,32 @@ class AssembleBlock(Block):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = firedrake.assemble(dform)
         return dform
+
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        form = self.form
+
+        tlm_rhs = 0
+        for block_variable in self.get_dependencies():
+            dep = block_variable.output
+            tlm_dep = block_variable.tlm_value
+            if tlm_dep is not None:
+                if isinstance(dep, firedrake.MeshGeometry):
+                    dep = firedrake.SpatialCoordinate(dep)
+                    tlm_rhs = tlm_rhs + firedrake.derivative(
+                        form, dep, tlm_dep)
+                else:
+                    tlm_rhs = tlm_rhs + firedrake.action(
+                        firedrake.derivative(form, dep), tlm_dep)
+
+        x.tlm_value = None
+        if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+            return
+        tau_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+        if tau_rhs.empty():
+            return
+        with restored_outputs(x, restore=lambda x: x in form.coefficients()):
+            x.tlm_value = firedrake.assemble(tau_rhs)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
