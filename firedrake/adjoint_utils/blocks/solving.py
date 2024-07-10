@@ -332,10 +332,10 @@ class GenericSolveBlock(Block):
                 continue
             tlm_dep = block_variable.tlm_value
             if isinstance(dep, firedrake.DirichletBC):
-                if tlm_value is None:
+                if tlm_dep is None:
                     tlm_bcs.append(dep.reconstruct(g=0))
                 else:
-                    tlm_bcs.append(tlm_value)
+                    tlm_bcs.append(tlm_dep)
             elif tlm_dep is not None:
                 if isinstance(dep, firedrake.MeshGeometry):
                     dep = firedrake.SpatialCoordinate(dep)
