@@ -139,7 +139,7 @@ class FunctionAssignBlock(Block):
             tlm_dep = block_variable.tlm_value
             if tlm_dep is not None:
                 tlm_rhs = tlm_rhs + ufl.derivative(expr, dep, tlm_dep)
-                
+
         x.tlm_value = None
         if isinstance(tlm_rhs, int) and tlm_rhs == 0:
             return

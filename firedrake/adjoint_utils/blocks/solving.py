@@ -326,7 +326,7 @@ class GenericSolveBlock(Block):
 
         tlm_rhs = 0
         tlm_bcs = []
-        for block_variable in self.get_dependencies():            
+        for block_variable in self.get_dependencies():
             dep = block_variable.output
             if dep == x.output:
                 continue
