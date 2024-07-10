@@ -36,7 +36,7 @@ def test_assembly():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0])
-        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         J = assemble(u * u * dx)
@@ -72,7 +72,7 @@ def test_function_assignment():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
-        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space, name="v").assign(u)
@@ -93,7 +93,7 @@ def test_function_assignment_expr():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
-        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space, name="v").assign(-3 * u)
@@ -140,7 +140,7 @@ def test_project():
 
     with reverse_over_forward():
         u = Function(space_a, name="u").interpolate(X[0] - 0.5)
-        zeta = Function(space_a, name="tlm_u").interpolate(X[0])
+        zeta = Function(space_a, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space_b, name="v").project(u)
@@ -163,7 +163,7 @@ def test_supermesh_project():
 
     with reverse_over_forward():
         u = Function(space_a, name="u").interpolate(X_a[0] - 0.5)
-        zeta = Function(space_a, name="tlm_u").interpolate(X_a[0])
+        zeta = Function(space_a, name="zeta").interpolate(X_a[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space_b, name="v").project(u)
@@ -184,7 +184,7 @@ def test_dirichletbc():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
-        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
         bc = DirichletBC(space, u, "on_boundary")
         
