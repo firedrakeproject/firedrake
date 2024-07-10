@@ -175,7 +175,6 @@ def test_supermesh_project():
                        assemble(2 * inner(Function(space_a).project(Function(space_b).project(zeta)), test_a) * dx).dat.data_ro)
 
 
-
 @pytest.mark.skipcomplex
 def test_dirichletbc():
     mesh = UnitIntervalMesh(10)
@@ -187,7 +186,7 @@ def test_dirichletbc():
         zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
         bc = DirichletBC(space, u, "on_boundary")
-        
+
         v = project(Constant(0.0), space, bcs=bc)
         J = assemble(v * v * v * dx)
 
