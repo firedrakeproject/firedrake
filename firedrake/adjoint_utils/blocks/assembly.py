@@ -4,7 +4,7 @@ from ufl.domain import as_domain
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant, restored_outputs
+from .block_utils import isconstant
 
 
 class AssembleBlock(Block):
@@ -168,8 +168,7 @@ class AssembleBlock(Block):
         tau_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
         if tau_rhs.empty():
             return
-        with restored_outputs(x, restore=lambda x: x in form.coefficients()):
-            x.tlm_value = firedrake.assemble(tau_rhs)
+        x.tlm_value = firedrake.assemble(tau_rhs)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
