@@ -842,6 +842,7 @@ class SupermeshProjectBlock(Block):
             mesh = target_space.mesh()
         self.source_space = source.function_space()
         self.target_space = target_space
+        self._kwargs = dict(kwargs)
         self.projector = firedrake.Projector(source, target_space, **kwargs)
 
         # Assemble mixed mass matrix
@@ -921,6 +922,15 @@ class SupermeshProjectBlock(Block):
             dJdm += self.recompute_component([tlm_input], block_variable, idx,
                                              prepared)
         return dJdm
+
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        dep, = self.get_dependencies()
+        if dep.tlm_value is None:
+            x.tlm_value = None
+        else:
+            x.tlm_value = firedrake.Function(x.output.function_space())
+            firedrake.project(dep.tlm_value, x.tlm_value, **self._kwargs)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,

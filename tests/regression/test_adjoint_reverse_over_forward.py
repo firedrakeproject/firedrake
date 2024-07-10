@@ -86,22 +86,44 @@ def test_function_assignment():
 
 @pytest.mark.skipcomplex
 def test_project():
-    mesh = UnitIntervalMesh(10)
+    mesh = UnitSquareMesh(10, 10)
     X = SpatialCoordinate(mesh)
-    space = FunctionSpace(mesh, "Lagrange", 1)
-    test = TestFunction(space)
+    space_a = FunctionSpace(mesh, "Lagrange", 1)
+    space_b = FunctionSpace(mesh, "Discontinuous Lagrange", 0)
+    test_a = TestFunction(space_a)
 
-    u = Function(space, name="u").interpolate(X[0] - 0.5)
-    zeta = Function(space, name="tlm_u").interpolate(X[0])
+    u = Function(space_a, name="u").interpolate(X[0] - 0.5)
+    zeta = Function(space_a, name="tlm_u").interpolate(X[0])
     u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
-    space_0 = FunctionSpace(mesh, "Discontinuous Lagrange", 0)
-
     with reverse_over_forward():
-        v = Function(space_0, name="v").project(u)
+        v = Function(space_b, name="v").project(u)
         J = assemble(v * v * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
     assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(Function(space_0).project(zeta), test) * dx).dat.data_ro)
+                       assemble(2 * inner(Function(space_b).project(zeta), test_a) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex
+def test_supermesh_project():
+    mesh_a = UnitSquareMesh(10, 10)
+    mesh_b = UnitSquareMesh(5, 20)
+    X_a = SpatialCoordinate(mesh_a)
+    space_a = FunctionSpace(mesh_a, "Lagrange", 1)
+    space_b = FunctionSpace(mesh_b, "Discontinuous Lagrange", 0)
+    test_a = TestFunction(space_a)
+
+    u = Function(space_a, name="u").interpolate(X_a[0] - 0.5)
+    zeta = Function(space_a, name="tlm_u").interpolate(X_a[0])
+    u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
+    with reverse_over_forward():
+        v = Function(space_b, name="v").project(u)
+        J = assemble(v * v * dx)
+
+    _ = compute_gradient(J.block_variable.tlm_value, Control(u))
+    adj_value = u.block_variable.adj_value
+    assert np.allclose(adj_value.dat.data_ro,
+                       assemble(2 * inner(Function(space_a).project(Function(space_b).project(zeta)), test_a) * dx).dat.data_ro)
