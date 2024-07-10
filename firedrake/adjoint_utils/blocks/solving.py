@@ -345,12 +345,12 @@ class GenericSolveBlock(Block):
                     tlm_rhs = tlm_rhs - firedrake.action(
                         firedrake.derivative(form, dep), tlm_dep)
 
-        x.tlm_value = None
         if isinstance(tlm_rhs, int) and tlm_rhs == 0:
-            return
-        tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
-        if tlm_rhs.empty():
-            return
+            tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
+        else:
+            tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+            if tlm_rhs.empty():
+                tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
 
         if self.linear:
             J = self.lhs

@@ -173,3 +173,23 @@ def test_supermesh_project():
     adj_value = u.block_variable.adj_value
     assert np.allclose(adj_value.dat.data_ro,
                        assemble(2 * inner(Function(space_a).project(Function(space_b).project(zeta)), test_a) * dx).dat.data_ro)
+
+
+
+@pytest.mark.skipcomplex
+def test_dirichletbc():
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+
+    with reverse_over_forward():
+        u = Function(space, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space, name="tlm_u").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+        bc = DirichletBC(space, u, "on_boundary")
+        
+        v = project(Constant(0.0), space, bcs=bc)
+        J = assemble(v * v * v * dx)
+
+    J_hat = ReducedFunctional(J.block_variable.tlm_value, Control(u))
+    assert taylor_test(J_hat, u, Function(space).interpolate(X[0] * X[0])) > 1.9
