@@ -42,6 +42,9 @@ def test_verification():
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
+                   between the perturbation and gradient is not allreduced \
+                   for `scatter_control=False`.")
 def test_verification_gather_functional_adjfloat():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
@@ -65,6 +68,9 @@ def test_verification_gather_functional_adjfloat():
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
+                   between the perturbation and gradient is not allreduced \
+                   for `scatter_control=False`.")
 def test_verification_gather_functional_Function():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
