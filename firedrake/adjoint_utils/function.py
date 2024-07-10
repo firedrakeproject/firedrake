@@ -220,6 +220,18 @@ class FunctionMixin(FloatingType):
             return CheckpointFunction(self)
         else:
             return self.copy(deepcopy=True)
+    
+    def _ad_clear_checkpoint(self, checkpoint):
+        tape = get_working_tape()
+        if tape._checkpoint_manager:
+            if (
+                tape._checkpoint_manager.mode == CheckpointingMode.RECORD
+                and isinstance(self.block_variable._checkpoint, CheckpointBase)
+            ):
+                return checkpoint
+        else:
+            checkpoint = None
+            return None
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
@@ -290,10 +302,6 @@ class FunctionMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
-            tape = get_working_tape()
-            if tape._checkpoint_manager:
-                if tape._checkpoint_manager.mode == CheckpointingMode.RECORD:
-                    return checkpoint
             return checkpoint.restore()
         else:
             return checkpoint

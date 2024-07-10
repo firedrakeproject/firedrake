@@ -310,7 +310,7 @@ def maybe_disk_checkpoint(function):
     return CheckpointFunction(function) if disk_checkpointing() else function
 
 
-class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
+class DelegatedFunctionCheckpoint(CheckpointBase):
     """A wrapper which delegates the checkpoint of this Function to another Function.
 
     This enables us to avoid checkpointing a Function twice when it is copied.
@@ -334,9 +334,3 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
             return type(saved_output)(saved_output.function_space(),
                                       saved_output.dat,
                                       count=self.count)
-
-    def _ad_clear_checkpoint(self):
-        return self
-
-    def _ad_create_checkpoint(self):
-        return self

@@ -2,7 +2,7 @@ from functools import wraps
 from pyadjoint.overloaded_type import FloatingType
 from .blocks import DirichletBCBlock
 from pyadjoint.tape import stop_annotating, annotate_tape
-
+import weakref
 
 class DirichletBCMixin(FloatingType):
     @staticmethod
@@ -41,6 +41,10 @@ class DirichletBCMixin(FloatingType):
             return None
 
         return deps[0]
+    
+    def _ad_clear_checkpoint(self, checkpoint):
+        checkpoint = None
+        return checkpoint
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if checkpoint is not None:

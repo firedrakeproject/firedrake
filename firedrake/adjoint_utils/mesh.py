@@ -16,6 +16,11 @@ class MeshGeometryMixin(OverloadedType):
     @no_annotations
     def _ad_create_checkpoint(self):
         return self.coordinates.copy(deepcopy=True)
+    
+    @no_annotations
+    def _ad_clear_checkpoint(self, checkpoint):
+        checkpoint = None
+        return checkpoint
 
     @no_annotations
     def _ad_restore_at_checkpoint(self, checkpoint):
