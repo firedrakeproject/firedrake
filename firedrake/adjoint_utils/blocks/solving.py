@@ -317,6 +317,50 @@ class GenericSolveBlock(Block):
             dFdm, dudm, bcs
         )
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        if self.linear:
+            form = firedrake.action(self.lhs, x.output) - self.rhs
+        else:
+            form = self.lhs
+
+        tlm_rhs = 0
+        tlm_bcs = []
+        for block_variable in self.get_dependencies():            
+            dep = block_variable.output
+            if dep == x.output:
+                continue
+            tlm_dep = block_variable.tlm_value
+            if isinstance(dep, firedrake.DirichletBC):
+                if tlm_value is None:
+                    tlm_bcs.append(dep.reconstruct(g=0))
+                else:
+                    tlm_bcs.append(tlm_value)
+            elif tlm_dep is not None:
+                if isinstance(dep, firedrake.MeshGeometry):
+                    dep = firedrake.SpatialCoordinate(dep)
+                    tlm_rhs = tlm_rhs - firedrake.derivative(
+                        form, dep, tlm_dep)
+                else:
+                    tlm_rhs = tlm_rhs - firedrake.action(
+                        firedrake.derivative(form, dep), tlm_dep)
+
+        x.tlm_value = None
+        if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+            return
+        tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+        if tlm_rhs.empty():
+            return
+
+        if self.linear:
+            J = self.lhs
+        else:
+            J = firedrake.derivative(form, x.output, firedrake.TrialFunction(x.output.function_space()))
+
+        x.tlm_value = firedrake.Function(x.output.function_space())
+        firedrake.solve(J == tlm_rhs, x.tlm_value, tlm_bcs, *self.forward_args,
+                        **self.forward_kwargs)
+
     def _assemble_and_solve_tlm_eq(self, dFdu, dFdm, dudm, bcs):
         return self._assembled_solve(dFdu, dFdm, dudm, bcs)
 
