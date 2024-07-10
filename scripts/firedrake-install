@@ -79,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "tinyasm", "torch",
+                           "opencascade", "torch",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -132,18 +132,14 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 12):
-    print("""\nCan not install Firedrake with Python 3.12 at the moment:
-Some wheels are not yet available for Python 3.12 for some required package(s).
-Please install with Python 3.11 (or an earlier version >= 3.8).""")
+if sys.version_info >= (3, 13):
+    print("""\nCan not install Firedrake with Python 3.13 at the moment:
+Some wheels are not yet available for Python 3.13 for some required package(s).
+Please install with Python 3.12 (or an earlier version >= 3.9).""")
     sys.exit(1)
-elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
-    print("""
-Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
-some required package(s) are not available for earlier Python versions.""")
-elif sys.version_info < (3, 8):
+elif sys.version_info < (3, 9):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.8.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.9.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -266,8 +262,6 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true",
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
@@ -406,8 +400,6 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -692,7 +684,6 @@ def check_output(args):
         raise
 
 
-pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -996,12 +987,8 @@ def run_pip_install(pipargs):
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
     with environment(**blas):
-        pipargs = ["-vvv"] + pipargs
+        pipargs = ["-v"] + pipargs
         check_call(pipinstall + pipargs)
-
-
-def run_cmd(args):
-    check_call(args)
 
 
 def get_requirements(reqfname):
@@ -1016,14 +1003,6 @@ def run_pip_install_wrap(reqs, parallel_compiler_env):
         if package_name in parallel_packages:
             with environment(**parallel_compiler_env):
                 run_pip_install([req])
-        elif package_name == "numpy":
-            # Downgrade setuptools and wheel for numpy
-            run_pip(["install", "-U", "setuptools==59.2.0"])
-            run_pip(["install", "-U", "wheel==0.37.0"])
-            run_pip_install(["numpy==1.24"])
-            # Upgrade setuptools and wheel for everything else
-            run_pip(["install", "-U", "setuptools"])
-            run_pip(["install", "-U", "wheel"])
         else:
             run_pip_install([req])
 
@@ -1295,32 +1274,6 @@ def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
         log.info("No need to rebuild libsupermesh")
 
 
-def build_and_install_tinyasm():
-    log.info("Installing TinyASM")
-    if os.path.exists("TinyASM"):
-        log.info("Updating the git repository for TinyASM")
-        with directory("TinyASM"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            tinyasm_changed = git_sha != git_sha_new
-            if tinyasm_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
-        tinyasm_changed = True
-
-    if tinyasm_changed:
-        with directory("TinyASM"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            run_pip_install(["-e", "."])
-    else:
-        log.info("No need to rebuild TinyASM")
-
-
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
@@ -1570,6 +1523,7 @@ if mode == "install" or not args.update_script:
                              "make",
                              "automake",
                              "cmake",
+                             "ninja",
                              "libtool",
                              "boost"]
         if args.with_blas is None and mode == "install":
@@ -1588,6 +1542,7 @@ if mode == "install" or not args.update_script:
                              "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
+                             "ninja-build",  # for meson/numpy
                              "python3-dev",
                              "python3-pip",
                              "python3-tk",
@@ -1727,15 +1682,18 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
-# numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
-run_pip(["install", "-U", "setuptools==59.2.0"])
+run_pip(["install", "-U", "setuptools"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
-run_pip(["install", "-U", "wheel==0.37.0"])
+run_pip(["install", "-U", "wheel"])
 
-# Pin Cython because it's causing multiple packages to fail to build
-run_pip(["install", "-U", "Cython==0.29.36"])
+# Extra numpy dependendencies, see
+# https://github.com/numpy/numpy/blob/main/pyproject.toml
+run_pip(["install", "-U", "meson-python>=0.15.0"])
+run_pip(["install", "-U", "Cython>=3.0.6"])
+
+run_pip(["install", "-U", "numpy"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
@@ -1823,23 +1781,11 @@ if mode == "install":
     # recovery can be attempted if required.
     build_update_script()
 
-    # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython>=0.22"])
-
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
             run_pip_install_wrap(package.split(), {})
-
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
-    log.info("Installing numpy==1.24 due to performance regression")
-    # https://github.com/inducer/pytential/issues/211
-    run_pip_install(["numpy==1.24"])
-    log.info("Updating setuptools and wheel to latest versions")
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "wheel"])
 
     # Install VTK
     if not args.no_vtk:
@@ -2113,8 +2059,6 @@ with environment(**compiler_env):
                              PETSC_ARCH=petsc_arch):
                 install("slepc4py/")
 
-    if options["tinyasm"]:
-        build_and_install_tinyasm()
     if options["netgen"]:
         build_and_install_netgen()
 

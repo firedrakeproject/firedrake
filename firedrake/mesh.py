@@ -21,7 +21,7 @@ from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
-from pyop2.utils import as_tuple, tuplify
+from pyop2.utils import as_tuple
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -1445,7 +1445,14 @@ class ExtrudedMeshTopology(MeshTopology):
         dofs_per_entity = np.zeros((1 + self._base_mesh.cell_dimension(), 2), dtype=IntType)
         for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b, v] += len(entities[0])
-        return tuplify(dofs_per_entity)
+
+        # Convert to a tuple of tuples with int (not numpy.intXX) values. This is
+        # to give us a string representation like ((0, 1), (2, 3)) instead of
+        # ((numpy.int32(0), numpy.int32(1)), (numpy.int32(2), numpy.int32(3))).
+        return tuple(
+            tuple(int(d_) for d_ in d)
+            for d in dofs_per_entity
+        )
 
     @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
@@ -1872,11 +1879,11 @@ class MeshGeometryCargo:
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
+    def __new__(cls, element, comm):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid()
+        uid = utils._new_uid(internal_comm(comm, mesh))
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
@@ -2446,6 +2453,8 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The name of the mesh.
     tolerance : numbers.Number
         The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
 
     Returns
     -------
@@ -2467,7 +2476,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
@@ -2504,7 +2513,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
     mesh.name = name
     mesh._tolerance = tolerance
@@ -2537,7 +2546,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     tcell = topology.ufl_cell()
     cell = tcell.reconstruct(geometric_dimension=gdim)
     element = finat.ufl.VectorElement("DG", cell, 0)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
@@ -2709,7 +2718,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     mesh._tolerance = tolerance
     return mesh

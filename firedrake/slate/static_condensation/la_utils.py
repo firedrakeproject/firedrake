@@ -337,12 +337,15 @@ class SchurComplementBuilder(object):
             K1 = Tensor(split_trace_op_transpose[(id1, 0)])
             self.list_split_trace_ops_transpose = [K0, K1]
 
-    def _check_options(self, valid):
-        default = object()
+    def _check_options(self, valid_options):
         opts = PETSc.Options(self.prefix)
-        for key, supported in valid:
-            value = opts.getString(key, default=default)
-            if value is not default and value not in supported:
+        for key, supported in valid_options:
+            try:
+                value = opts.getString(key)
+            except KeyError:
+                continue
+
+            if value not in supported:
                 raise ValueError(f"Unsupported value ({value}) for '{self.prefix + key}'. "
                                  f"Should be one of {supported}")
 
