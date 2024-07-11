@@ -220,7 +220,7 @@ class FunctionMixin(FloatingType):
             return CheckpointFunction(self)
         else:
             return self.copy(deepcopy=True)
-    
+
     def _ad_clear_checkpoint(self, checkpoint):
         tape = get_working_tape()
         if tape._checkpoint_manager:

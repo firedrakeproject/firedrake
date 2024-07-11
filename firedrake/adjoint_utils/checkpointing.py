@@ -1,5 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape, OverloadedType
+from pyadjoint import get_working_tape
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 import tempfile
