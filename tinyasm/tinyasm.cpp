@@ -26,7 +26,7 @@ namespace py = pybind11;
 
 PetscLogEvent PC_tinyasm_SetASMLocalSubdomains, PC_tinyasm_apply, PC_tinyasm_setup;
 
-PetscErrorCode mymatinvert(PetscInt* n, PetscScalar* mat, PetscBLASInt* piv, PetscInt* info, PetscScalar* work);
+PetscErrorCode mymatinvert(PetscBLASInt* n, PetscScalar* mat, PetscBLASInt* piv, PetscBLASInt* info, PetscScalar* work);
 
 class BlockJacobi {
     public:
@@ -91,14 +91,14 @@ class BlockJacobi {
         }
 
         PetscInt updateValuesPerBlock(Mat P) {
-            PetscInt ierr, dof;
+            PetscInt ierr;
+            PetscBLASInt dof, info;
             int numBlocks = dofsPerBlock.size();
             ierr = MatCreateSubMatrices(P, numBlocks, dofis.data(), dofis.data(), localmats_aij ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX, &localmats_aij);CHKERRQ(ierr);
-            PetscInt info;
             PetscScalar *vv;
             for(int p=0; p<numBlocks; p++) {
                 ierr = MatConvert(localmats_aij[p], MATDENSE, localmats[p] ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX,&localmats[p]);CHKERRQ(ierr);
-                PetscInt dof = dofsPerBlock[p].size();
+                PetscCall(PetscBLASIntCast(dofsPerBlock[p].size(), &dof));
                 ierr = MatDenseGetArrayWrite(localmats[p],&vv);CHKERRQ(ierr);
                 if (dof) mymatinvert(&dof, vv, piv.data(), &info, fwork.data());
                 ierr = MatDenseRestoreArrayWrite(localmats[p],&vv);CHKERRQ(ierr);
@@ -108,10 +108,9 @@ class BlockJacobi {
 
 
         PetscInt solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
-            PetscBLASInt dof;
             PetscInt ierr;
             PetscScalar dOne = 1.0;
-            PetscBLASInt one = 1;
+            PetscBLASInt dof, one = 1;
             PetscScalar dZero = 0.0;
 
             const PetscScalar *matvalues;
