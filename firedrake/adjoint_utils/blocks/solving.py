@@ -6,7 +6,8 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, stop_annotating
 from pyadjoint.enlisting import Enlist
 import firedrake
-from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
+from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
+    CheckpointFunction
 from .block_utils import isconstant
 
 
@@ -525,6 +526,8 @@ class GenericSolveBlock(Block):
         func = prepared[2]
         bcs = prepared[3]
         result = self._forward_solve(lhs, rhs, func, bcs)
+        if isinstance(block_variable.checkpoint, firedrake.Function):
+            result = block_variable.checkpoint.assign(result)
         return maybe_disk_checkpoint(result)
 
 
