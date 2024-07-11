@@ -128,7 +128,9 @@ def test_star_equivalence(problem_type, backend):
         a = inner(grad(z), grad(v))*dx + inner(p, q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
-        nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+        nsp = MixedVectorSpaceBasis(
+            V, [V.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
+        )
 
         star_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -299,7 +301,9 @@ def test_vanka_equivalence(problem_type):
         a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(div(z), q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
-        nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+        nsp = MixedVectorSpaceBasis(
+            V, [V.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
+        )
 
         vanka_params = {"mat_type": "aij",
                         "snes_type": "ksponly",
