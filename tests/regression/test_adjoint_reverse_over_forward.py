@@ -153,7 +153,6 @@ def test_project():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.xfail  # Firedrake issue #3682
 def test_project_overwrite():
     mesh = UnitIntervalMesh(10)
     X = SpatialCoordinate(mesh)
@@ -166,13 +165,14 @@ def test_project_overwrite():
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space).project(-2 * u)
-        u.project(-2 * u)
-        assert np.allclose(u.dat.data_ro, v.dat.data_ro)
+        w = Function(space).assign(u)
+        w.project(-2 * w)
+        assert np.allclose(w.dat.data_ro, v.dat.data_ro)
         assert np.allclose(v.block_variable.tlm_value.dat.data_ro,
                            -2 * zeta.dat.data_ro)
-        assert np.allclose(u.block_variable.tlm_value.dat.data_ro,
+        assert np.allclose(w.block_variable.tlm_value.dat.data_ro,
                            -2 * zeta.dat.data_ro)
-        J = assemble(u * u * dx)
+        J = assemble(w * w * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
