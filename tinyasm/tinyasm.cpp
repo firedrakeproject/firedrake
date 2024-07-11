@@ -26,7 +26,7 @@ namespace py = pybind11;
 
 PetscLogEvent PC_tinyasm_SetASMLocalSubdomains, PC_tinyasm_apply, PC_tinyasm_setup;
 
-PetscErrorCode mymatinvert(PetscInt* n, PetscScalar* mat, PetscInt* piv, PetscInt* info, PetscScalar* work);
+PetscErrorCode mymatinvert(PetscInt* n, PetscScalar* mat, PetscBLASInt* piv, PetscInt* info, PetscScalar* work);
 
 class BlockJacobi {
     public:
@@ -41,7 +41,7 @@ class BlockJacobi {
         Mat *localmats;
 
         vector<IS> dofis;
-        vector<PetscInt> piv;
+        vector<PetscBLASInt> piv;
         vector<PetscScalar> fwork;
 
         BlockJacobi(vector<vector<PetscInt>> _dofsPerBlock, vector<vector<PetscInt>> _globalDofsPerBlock, int localSize, PetscSF _sf)
@@ -58,7 +58,7 @@ class BlockJacobi {
                 workb = vector<PetscScalar>(biggestBlock, 0);
                 localb = vector<PetscScalar>(localSize, 0);
                 localx = vector<PetscScalar>(localSize, 0);
-                piv = vector<PetscInt>(biggestBlock, 0.);
+                piv = vector<PetscBLASInt>(biggestBlock, 0.);
                 iota(piv.begin(), piv.end(), 1);
                 fwork = vector<PetscScalar>(biggestBlock, 0.);
                 localmats_aij = NULL;
