@@ -320,15 +320,18 @@ class GenericSolveBlock(Block):
     def solve_tlm(self):
         x, = self.get_outputs()
         if self.linear:
-            form = firedrake.action(self.lhs, x.output) - self.rhs
+            tmp_x = firedrake.Function(x.output.function_space())
+            replace_map = {tmp_x: x.output}
+            form = firedrake.action(self.lhs, tmp_x) - self.rhs
         else:
+            replace_map = None
             form = self.lhs
 
         tlm_rhs = 0
         tlm_bcs = []
         for block_variable in self.get_dependencies():
             dep = block_variable.output
-            if dep == x.output:
+            if dep == x.output and not self.linear:
                 continue
             tlm_dep = block_variable.tlm_value
             if isinstance(dep, firedrake.DirichletBC):
@@ -357,6 +360,9 @@ class GenericSolveBlock(Block):
         else:
             J = firedrake.derivative(form, x.output, firedrake.TrialFunction(x.output.function_space()))
 
+        if replace_map is not None:
+            J = ufl.replace(J, replace_map)
+            tlm_rhs = ufl.replace(tlm_rhs, replace_map)
         x.tlm_value = firedrake.Function(x.output.function_space())
         firedrake.solve(J == tlm_rhs, x.tlm_value, tlm_bcs, *self.forward_args,
                         **self.forward_kwargs)

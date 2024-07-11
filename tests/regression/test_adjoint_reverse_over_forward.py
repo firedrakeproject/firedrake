@@ -153,6 +153,34 @@ def test_project():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.xfail  # Firedrake issue #3682
+def test_project_overwrite():
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+
+    with reverse_over_forward():
+        u = Function(space, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space, name="zeta").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
+        v = Function(space).project(-2 * u)
+        u.project(-2 * u)
+        assert np.allclose(u.dat.data_ro, v.dat.data_ro)
+        assert np.allclose(v.block_variable.tlm_value.dat.data_ro,
+                           -2 * zeta.dat.data_ro)
+        assert np.allclose(u.block_variable.tlm_value.dat.data_ro,
+                           -2 * zeta.dat.data_ro)
+        J = assemble(u * u * dx)
+
+    _ = compute_gradient(J.block_variable.tlm_value, Control(u))
+    adj_value = u.block_variable.adj_value
+    assert np.allclose(adj_value.dat.data_ro,
+                       assemble(8 * inner(zeta, test) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex
 def test_supermesh_project():
     mesh_a = UnitSquareMesh(10, 10)
     mesh_b = UnitSquareMesh(5, 20)
