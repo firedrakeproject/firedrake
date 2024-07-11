@@ -170,7 +170,8 @@ def convert_finiteelement(element, **kwargs):
             # Let FIAT handle the general case
             lmbda = partial(finat.Lagrange, variant=kind)
     elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
-                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
+                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)",
+                              "Argyris"}:
         lmbda = partial(lmbda, variant=element.variant())
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'spectral':
