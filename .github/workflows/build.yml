@@ -82,9 +82,6 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat pbrubeck/high-order-hct \
-            --package-branch finat pbrubeck/high-order-hct \
-            --package-branch tsfc pbrubeck/argyris-variant \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
