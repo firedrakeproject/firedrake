@@ -1,7 +1,8 @@
-import firedrake
-import numpy
 from pyadjoint import Block, OverloadedType
+import numpy
+
 from pyadjoint.reduced_functional_numpy import gather
+import firedrake
 from .block_utils import isconstant
 
 
