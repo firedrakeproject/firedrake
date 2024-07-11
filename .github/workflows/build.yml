@@ -61,6 +61,7 @@ jobs:
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
+            --petsc-int-type=int64 \
             --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
             --mpicxx="$MPICH_DIR"/mpicxx \
@@ -150,3 +151,12 @@ jobs:
       tag: ${{ needs.docker_tag.outputs.tag }}
       status: ${{ needs.build.result }}
     secrets: inherit
+  docker_testing:
+    # Strictly for testing!
+    uses: ./.github/workflows/docker_reuse.yml
+    with:
+      target: firedrake-test
+      tag: latest
+      dockerfile: docker/Dockerfile.testing
+    secrets: inherit
+
