@@ -166,7 +166,7 @@ class AssembleBlock(Block):
         if isinstance(tlm_rhs, int) and tlm_rhs == 0:
             return
         tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
-        if tlm_rhs.empty():
+        if isinstance(tlm_rhs, ufl.ZeroBaseForm) or (isinstance(tlm_rhs, ufl.Form) and tlm_rhs.empty()):
             return
         x.tlm_value = firedrake.assemble(tlm_rhs)
 

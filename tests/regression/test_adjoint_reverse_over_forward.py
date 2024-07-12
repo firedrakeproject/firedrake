@@ -131,6 +131,28 @@ def test_subfunction(idx):
 
 
 @pytest.mark.skipcomplex
+def test_interpolate():
+    mesh = UnitSquareMesh(10, 10)
+    X = SpatialCoordinate(mesh)
+    space_a = FunctionSpace(mesh, "Lagrange", 1)
+    space_b = FunctionSpace(mesh, "Lagrange", 2)
+    test_a = TestFunction(space_a)
+
+    with reverse_over_forward():
+        u = Function(space_a, name="u").interpolate(X[0] - 0.5)
+        zeta = Function(space_a, name="zeta").interpolate(X[0])
+        u.block_variable.tlm_value = zeta.copy(deepcopy=True)
+
+        v = Function(space_b, name="v").interpolate(u)
+        J = assemble(v * v * dx)
+
+    _ = compute_gradient(J.block_variable.tlm_value, Control(u))
+    adj_value = u.block_variable.adj_value
+    assert np.allclose(adj_value.dat.data_ro,
+                       assemble(2 * inner(zeta, test_a) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex
 def test_project():
     mesh = UnitSquareMesh(10, 10)
     X = SpatialCoordinate(mesh)
