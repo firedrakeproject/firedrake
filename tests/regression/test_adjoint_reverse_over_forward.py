@@ -22,9 +22,11 @@ def _():
 def reverse_over_forward():
     continue_annotation()
     continue_reverse_over_forward()
-    yield
-    pause_annotation()
-    pause_reverse_over_forward()
+    try:
+        yield
+    finally:
+        pause_annotation()
+        pause_reverse_over_forward()
 
 
 @pytest.mark.skipcomplex
