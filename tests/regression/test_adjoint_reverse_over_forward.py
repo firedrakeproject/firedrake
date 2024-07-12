@@ -218,5 +218,7 @@ def test_dirichletbc():
         v = project(Constant(0.0), space, bcs=bc)
         J = assemble(v * v * v * dx)
 
+    J_hat = ReducedFunctional(J, Control(u))
+    assert taylor_test(J_hat, u, zeta, dJdm=J.block_variable.tlm_value) > 1.9
     J_hat = ReducedFunctional(J.block_variable.tlm_value, Control(u))
     assert taylor_test(J_hat, u, Function(space).interpolate(X[0] * X[0])) > 1.9
