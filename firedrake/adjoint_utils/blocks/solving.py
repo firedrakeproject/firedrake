@@ -352,7 +352,7 @@ class GenericSolveBlock(Block):
             tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
         else:
             tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
-            if tlm_rhs.empty():
+            if isinstance(tlm_rhs, ufl.ZeroBaseForm) or (isinstance(tlm_rhs, ufl.Form) and tlm_rhs.empty()):
                 tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
 
         if self.linear:
