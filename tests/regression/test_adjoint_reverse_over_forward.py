@@ -35,16 +35,18 @@ def test_assembly():
     test = TestFunction(space)
 
     with reverse_over_forward():
-        u = Function(space, name="u").interpolate(X[0])
+        u = Function(space, name="u").interpolate(X[0] - 0.5)
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
-        J = assemble(u * u * dx)
+        J = assemble((u ** 3) * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(zeta, test) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(6 * inner(u_ref * zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -72,16 +74,18 @@ def test_function_assignment():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space, name="v").assign(u)
-        J = assemble(v * v * dx)
+        J = assemble((v ** 3) * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(zeta, test) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(6 * inner(u_ref * zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -94,15 +98,17 @@ def test_function_assignment_expr():
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
         zeta = Function(space, name="zeta").interpolate(X[0])
+        u_ref = u.copy(deepcopy=True)
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space, name="v").assign(-3 * u)
-        J = assemble(v * v * dx)
+        J = assemble((v ** 3) * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(18 * inner(zeta, test) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(-162 * inner(u_ref * zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -116,18 +122,20 @@ def test_subfunction(idx):
     with reverse_over_forward():
         u = Function(space, name="u")
         u.sub(idx).interpolate(-2 * X[0])
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space, name="zeta")
         zeta.sub(idx).interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space, name="v")
         v.sub(idx).assign(u.sub(idx))
-        J = assemble(u.sub(idx) * v.sub(idx) * dx)
+        J = assemble((u.sub(idx) ** 2) * v.sub(idx) * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.sub(idx).dat.data_ro,
-                       assemble(2 * inner(zeta[idx], test[idx]) * dx).dat.data_ro[idx])
+    assert np.allclose(
+        adj_value.sub(idx).dat.data_ro,
+        assemble(6 * inner(u_ref[idx] * zeta[idx], test[idx]) * dx).dat.data_ro[idx])
 
 
 @pytest.mark.skipcomplex
@@ -140,16 +148,18 @@ def test_interpolate():
 
     with reverse_over_forward():
         u = Function(space_a, name="u").interpolate(X[0] - 0.5)
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space_a, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space_b, name="v").interpolate(u)
-        J = assemble(v * v * dx)
+        J = assemble(v ** 3 * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(zeta, test_a) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(6 * inner(u_ref * zeta, test_a) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -162,16 +172,18 @@ def test_project():
 
     with reverse_over_forward():
         u = Function(space_a, name="u").interpolate(X[0] - 0.5)
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space_a, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space_b, name="v").project(u)
-        J = assemble(v * v * dx)
+        J = assemble(v ** 3 * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(Function(space_b).project(zeta), test_a) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(6 * inner(Function(space_b).project(u_ref) * Function(space_b).project(zeta), test_a) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -183,6 +195,7 @@ def test_project_overwrite():
 
     with reverse_over_forward():
         u = Function(space, name="u").interpolate(X[0] - 0.5)
+        u_ref = u.copy(deepcopy=True)
         zeta = Function(space, name="zeta").interpolate(X[0])
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
@@ -194,12 +207,13 @@ def test_project_overwrite():
                            -2 * zeta.dat.data_ro)
         assert np.allclose(w.block_variable.tlm_value.dat.data_ro,
                            -2 * zeta.dat.data_ro)
-        J = assemble(w * w * dx)
+        J = assemble(w ** 3 * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(8 * inner(zeta, test) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(-48 * inner(u_ref * zeta, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -217,12 +231,13 @@ def test_supermesh_project():
         u.block_variable.tlm_value = zeta.copy(deepcopy=True)
 
         v = Function(space_b, name="v").project(u)
-        J = assemble(v * v * dx)
+        J = assemble(v ** 2 * dx)
 
     _ = compute_gradient(J.block_variable.tlm_value, Control(u))
     adj_value = u.block_variable.adj_value
-    assert np.allclose(adj_value.dat.data_ro,
-                       assemble(2 * inner(Function(space_a).project(Function(space_b).project(zeta)), test_a) * dx).dat.data_ro)
+    assert np.allclose(
+        adj_value.dat.data_ro,
+        assemble(2 * inner(Function(space_a).project(Function(space_b).project(zeta)), test_a) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex
@@ -238,7 +253,7 @@ def test_dirichletbc():
         bc = DirichletBC(space, u, "on_boundary")
 
         v = project(Constant(0.0), space, bcs=bc)
-        J = assemble(v * v * v * dx)
+        J = assemble(v ** 3 * dx)
 
     J_hat = ReducedFunctional(J, Control(u))
     assert taylor_test(J_hat, u, zeta, dJdm=J.block_variable.tlm_value) > 1.9
