@@ -72,19 +72,21 @@ class ConstantAssignBlock(Block):
         return constant_from_values(block_variable.output, values)
 
     def solve_tlm(self):
-        x, = self.get_outputs()
-        if len(x.output.ufl_shape) == 0:
-            x.tlm_value = firedrake.Constant(0.0)
-        else:
-            x.tlm_value = firedrake.Constant(
-                numpy.reshape(numpy.zeros_like(x.output.values()), x.output.ufl_shape))
         if self.assigned_list:
             # Not reachable?
             raise NotImplementedError
+
+        x, = self.get_outputs()
+        dep, = self.get_dependencies()
+        if dep.tlm_value is None:
+            x.tlm_value = None
         else:
-            dep, = self.get_dependencies()
-            if dep.tlm_value is not None:
-                x.tlm_value.assign(dep.tlm_value)
+            if len(x.output.ufl_shape) == 0:
+                x.tlm_value = firedrake.Constant(0.0)
+            else:
+                x.tlm_value = firedrake.Constant(
+                    numpy.reshape(numpy.zeros_like(x.output.values()), x.output.ufl_shape))
+            x.tlm_value.assign(dep.tlm_value)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
