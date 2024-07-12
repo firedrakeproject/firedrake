@@ -18,62 +18,64 @@ class OffloadPC(PCBase):
     _prefix = "offload_"
 
     def initialize(self, pc):
-        A, P = pc.getOperators()  # P preconditioner
+        with PETSc.Log.Event("Event: initialize offload"):  #
+            A, P = pc.getOperators()
 
-        outer_pc = pc
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+            outer_pc = pc
+            appctx = self.get_appctx(pc)
+            fcp = appctx.get("form_compiler_parameters")
 
-        V = get_function_space(pc.getDM())
-        if len(V) == 1:
-            V = FunctionSpace(V.mesh(), V.ufl_element())
-        else:
-            V = MixedFunctionSpace([V_ for V_ in V])
-        test = TestFunction(V)
-        trial = TrialFunction(V)
+            V = get_function_space(pc.getDM())
+            if len(V) == 1:
+                V = FunctionSpace(V.mesh(), V.ufl_element())
+            else:
+                V = MixedFunctionSpace([V_ for V_ in V])
+            test = TestFunction(V)
+            trial = TrialFunction(V)
 
-        (a, bcs) = self.form(pc, test, trial)
+            (a, bcs) = self.form(pc, test, trial)
 
-        if P.type == "assembled":
-            context = P.getPythonContext()
-            # It only makes sense to preconditioner/invert a diagonal
-            # block in general.  That's all we're going to allow.
-            if not context.on_diag:
-                raise ValueError("Only makes sense to invert diagonal block")
+            if P.type == "assembled":
+                context = P.getPythonContext()
+                # It only makes sense to preconditioner/invert a diagonal
+                # block in general.  That's all we're going to allow.
+                if not context.on_diag:
+                    raise ValueError("Only makes sense to invert diagonal block")
 
-        prefix = pc.getOptionsPrefix()
-        options_prefix = prefix + self._prefix
+            prefix = pc.getOptionsPrefix()
+            options_prefix = prefix + self._prefix
 
-        mat_type = PETSc.Options().getString(options_prefix + "mat_type", "cusparse")
+            mat_type = PETSc.Options().getString(options_prefix + "mat_type", "cusparse")
 
-        # Convert matrix to ajicusparse
-        P_cu = P.convert(mat_type='aijcusparse')
+            # Convert matrix to ajicusparse
+            with PETSc.Log.Event("Event: matrix offload"):
+                P_cu = P.convert(mat_type='aijcusparse')  # todo
 
-        # Transfer nullspace
-        P_cu.setNullSpace(P.getNullSpace())
-        tnullsp = P.getTransposeNullSpace()
-        if tnullsp.handle != 0:
-            P_cu.setTransposeNullSpace(tnullsp)
-        P_cu.setNearNullSpace(P.getNearNullSpace())
+            # Transfer nullspace
+            P_cu.setNullSpace(P.getNullSpace())
+            tnullsp = P.getTransposeNullSpace()
+            if tnullsp.handle != 0:
+                P_cu.setTransposeNullSpace(tnullsp)
+            P_cu.setNearNullSpace(P.getNearNullSpace())
 
-        # PC object set-up
-        pc = PETSc.PC().create(comm=outer_pc.comm)
-        pc.incrementTabLevel(1, parent=outer_pc)
+            # PC object set-up
+            pc = PETSc.PC().create(comm=outer_pc.comm)
+            pc.incrementTabLevel(1, parent=outer_pc)
 
-        # We set a DM and an appropriate SNESContext on the constructed PC
-        # so one can do e.g. multigrid or patch solves.
-        dm = outer_pc.getDM()
-        self._ctx_ref = self.new_snes_ctx(
-            outer_pc, a, bcs, mat_type,
-            fcp=fcp, options_prefix=options_prefix
-        )
+            # We set a DM and an appropriate SNESContext on the constructed PC
+            # so one can do e.g. multigrid or patch solves.
+            dm = outer_pc.getDM()
+            self._ctx_ref = self.new_snes_ctx(
+                outer_pc, a, bcs, mat_type,
+                fcp=fcp, options_prefix=options_prefix
+            )
 
-        pc.setDM(dm)
-        pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(A, P_cu)
-        self.pc = pc
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
-            pc.setFromOptions()
+            pc.setDM(dm)
+            pc.setOptionsPrefix(options_prefix)
+            pc.setOperators(A, P_cu)
+            self.pc = pc
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
+                pc.setFromOptions()
 
     def update(self, pc):
         _, P = pc.getOperators()
@@ -91,14 +93,18 @@ class OffloadPC(PCBase):
 
     # Convert vectors to CUDA, solve and get solution on CPU back
     def apply(self, pc, x, y):
-        dm = pc.getDM()
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-            y_cu = PETSc.Vec()
-            y_cu.createCUDAWithArrays(y)
-            x_cu = PETSc.Vec()
-            x_cu.createCUDAWithArrays(x)
-            self.pc.apply(x_cu, y_cu)
-        y.copy(y_cu)
+        with PETSc.Log.Event("Event: apply offload"):  #
+            dm = pc.getDM()
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+                with PETSc.Log.Event("Event: vectors offload"):
+                    y_cu = PETSc.Vec()  # begin
+                    y_cu.createCUDAWithArrays(y)
+                    x_cu = PETSc.Vec()
+                    x_cu.createCUDAWithArrays(x)  # end
+                with PETSc.Log.Event("Event: solve"):
+                    self.pc.apply(x_cu, y_cu)  #
+            with PETSc.Log.Event("Event: vectors copy back"):
+                y.copy(y_cu)  #
 
     def applyTranspose(self, pc, X, Y):
         raise NotImplementedError
