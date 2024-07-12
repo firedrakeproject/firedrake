@@ -1,22 +1,24 @@
+from functools import cached_property
 import numpy as np
 import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
-from pyadjoint.tape import stop_annotating, annotate_tape
+from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
-from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
-class Cofunction(ufl.Cofunction, FunctionMixin):
+class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
-    Like Functions, cofunctions are
-    represented as sums of basis functions:
+
+    Like Functions, cofunctions are represented as sums of basis functions:
 
     .. math::
 
@@ -32,7 +34,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     """
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_init
+    @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  count=None):
         r"""
@@ -104,13 +106,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self._coefficients = (self,)
 
     @utils.cached_property
-    @FunctionMixin._ad_annotate_subfunctions
+    @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    @FunctionMixin._ad_annotate_subfunctions
+    @CofunctionMixin._ad_annotate_subfunctions
     def split(self):
         import warnings
         warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
@@ -198,8 +200,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
+                if subset is not None:
+                    raise NotImplementedError("Cofunction subset assignment "
+                                              "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
                 self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
+                get_working_tape().add_block(
+                    CofunctionAssignBlock(self, expr)
+                )
+
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
@@ -211,39 +220,38 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         raise ValueError('Cannot assign %s' % expr)
 
-    def riesz_representation(self, riesz_map='L2', **solver_options):
-        """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+    def riesz_representation(self, riesz_map='L2', *, bcs=None,
+                             solver_options=None):
+        """Return the Riesz representation of this :class:`Cofunction`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
-        the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        solving the linear system ``Mx = self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
-        solver_options : dict
-                         Solver options to pass to the linear solver:
-                            - solver_parameters: optional solver parameters.
-                            - nullspace: an optional :class:`.VectorSpaceBasis` (or :class:`.MixedVectorSpaceBasis`)
-                                         spanning the null space of the operator.
-                            - transpose_nullspace: as for the nullspace, but used to make the right hand side consistent.
-                            - near_nullspace: as for the nullspace, but used to add the near nullspace.
-                            - options_prefix: an optional prefix used to distinguish PETSc options.
-                                              If not provided a unique prefix will be created.
-                                              Use this option if you want to pass options to the solver from the command line
-                                              in addition to through the ``solver_parameters`` dict.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable.
+        bcs: DirichletBC or list of DirichletBC
+            Boundary conditions to apply to the Riesz map.
+        solver_options: dict
+            A dictionary of PETSc options to be passed to the solver.
 
         Returns
         -------
         firedrake.function.Function
-            Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+            Riesz representation of this :class:`Cofunction` with respect to
+            the given Riesz map.
         """
-        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
-                                                     "riesz_representation": riesz_map,
-                                                     "solver_options": solver_options})
+        if not callable(riesz_map):
+            riesz_map = RieszMap(self.function_space(), riesz_map, bcs=bcs,
+                                 solver_options=solver_options)
 
-    @FunctionMixin._ad_annotate_iadd
+        return riesz_map(self)
+
+    @CofunctionMixin._ad_annotate_iadd
     @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
@@ -259,7 +267,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_isub
+    @CofunctionMixin._ad_annotate_isub
     @utils.known_pyop2_safe
     def __isub__(self, expr):
 
@@ -276,7 +284,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_imul
+    @CofunctionMixin._ad_annotate_imul
     def __imul__(self, expr):
 
         if np.isscalar(expr):
@@ -343,3 +351,120 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     def cell_node_map(self):
         return self.function_space().cell_node_map()
+
+
+class RieszMap:
+    """Return a map between dual and primal function spaces.
+
+    A `RieszMap` can be called on a `Cofunction` in the appropriate space to
+    yield the `Function` which is the Riesz representer under the given inner
+    product. Conversely, it can be called on a `Function` to apply the given
+    inner product and return a `Cofunction`.
+
+    Parameters
+    ----------
+    function_space_or_inner_product: FunctionSpace or ufl.Form
+        The space from which to map, or a bilinear form defining an inner
+        product.
+    sobolev_space: str or ufl.sobolevspace.SobolevSpace.
+        Used to determine the inner product.
+    bcs: DirichletBC or list of DirichletBC
+        Boundary conditions to apply to the Riesz map.
+    solver_options: dict
+        A dictionary of PETSc options to be passed to the solver.
+    """
+
+    def __init__(self, function_space_or_inner_product=None,
+                 sobolev_space=ufl.L2, *, bcs=None, solver_options=None):
+        if isinstance(function_space_or_inner_product, ufl.Form):
+            args = ufl.algorithms.extract_arguments(
+                function_space_or_inner_product
+            )
+            if len(args) != 2:
+                raise ValueError(f"inner_product has arity {len(args)}, "
+                                 "should be 2.")
+            function_space = args[0].function_space()
+            inner_product = function_space_or_inner_product
+        else:
+            function_space = function_space_or_inner_product
+            if hasattr(function_space, "function_space"):
+                function_space = function_space.function_space()
+            if ufl.duals.is_dual(function_space):
+                function_space = function_space.dual()
+
+            if str(sobolev_space) == "l2":
+                inner_product = "l2"
+            else:
+                from firedrake import TrialFunction, TestFunction
+                u = TrialFunction(function_space)
+                v = TestFunction(function_space)
+                inner_product = RieszMap._inner_product_form(
+                    sobolev_space, u, v
+                )
+
+        self._function_space = function_space
+        self._inner_product = inner_product
+        self._bcs = bcs
+        self._solver_options = solver_options or {}
+
+    @staticmethod
+    def _inner_product_form(sobolev_space, u, v):
+        from firedrake import inner, dx, grad
+        inner_products = {
+            "L2": lambda u, v: inner(u, v)*dx,
+            "H1": lambda u, v: inner(u, v)*dx + inner(grad(u), grad(v))*dx
+        }
+        try:
+            return inner_products[str(sobolev_space)](u, v)
+        except KeyError:
+            raise ValueError("No inner product defined for Sobolev space "
+                             f"{sobolev_space}.")
+
+    @cached_property
+    def _solver(self):
+        from firedrake import (LinearVariationalSolver,
+                               LinearVariationalProblem, Function, Cofunction)
+        rhs = Cofunction(self._function_space.dual())
+        soln = Function(self._function_space)
+        lvp = LinearVariationalProblem(self._inner_product, rhs, soln,
+                                       bcs=self._bcs)
+        solver = LinearVariationalSolver(
+            lvp, solver_parameters=self._solver_options
+        )
+        return solver.solve, rhs, soln
+
+    def __call__(self, value):
+        """Return the Riesz representer of a Function or Cofunction."""
+        from firedrake import Function, Cofunction
+
+        if ufl.duals.is_dual(value):
+            if value.function_space().dual() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
+            output = Function(self._function_space)
+
+            if self._inner_product == "l2":
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data[:]
+            else:
+                solve, rhs, soln = self._solver
+                rhs.assign(value)
+                solve()
+                output = Function(self._function_space)
+                output.assign(soln)
+        elif ufl.duals.is_primal(value):
+            if value.function_space().dual() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
+
+            if self._inner_product == "l2":
+                output = Cofunction(self._function_space.dual())
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data[:]
+            else:
+                output = firedrake.assemble(
+                    firedrake.action(self._inner_product, value)
+                )
+        else:
+            raise ValueError(
+                f"Unable to ascertain if {value} is primal or dual."
+            )
+        return output
