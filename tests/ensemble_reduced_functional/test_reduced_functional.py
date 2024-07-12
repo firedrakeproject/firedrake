@@ -2,6 +2,7 @@ from firedrake import *
 from firedrake.adjoint import *
 import pytest
 from numpy.testing import assert_allclose
+from pyop2.mpi import MPI
 
 
 @pytest.fixture(autouse=True)
@@ -37,14 +38,12 @@ def test_verification():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, size, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 2.0 * size, rtol=1e-12)
+    dJdm = ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
     assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
 def test_verification_gather_functional_adjfloat():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
@@ -63,14 +62,12 @@ def test_verification_gather_functional_adjfloat():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
+    dJdm = ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
     assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
 def test_verification_gather_functional_Function():
     ensemble = Ensemble(COMM_WORLD, 2)
     rank = ensemble.ensemble_comm.rank
@@ -90,6 +87,7 @@ def test_verification_gather_functional_Function():
     dJdm = rf.derivative()
     assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
     assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
+    dJdm = ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
     assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
