@@ -3,7 +3,6 @@ import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
-from pyadjoint.checkpointing import CheckpointingMode
 from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
@@ -221,16 +220,14 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_clear_checkpoint(self, checkpoint):
-        tape = get_working_tape()
-        if tape._checkpoint_manager:
-            if (
-                tape._checkpoint_manager.mode == CheckpointingMode.RECORD
-                and isinstance(self.block_variable._checkpoint, CheckpointBase)
-            ):
-                return checkpoint
+    def _ad_value_to_clear_checkpoint(self, checkpoint):
+        if isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            # Do not clear the checkpoint if it is a
+            # `DelegatedFunctionCheckpoint`.
+            # Clearing the checkpoint may result in the loss of information
+            # associated with the delegated checkpoint, which could be unsafe.
+            return checkpoint
         else:
-            checkpoint = None
             return None
 
     def _ad_convert_riesz(self, value, options=None):

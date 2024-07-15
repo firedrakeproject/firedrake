@@ -525,6 +525,8 @@ class GenericSolveBlock(Block):
         func = prepared[2]
         bcs = prepared[3]
         result = self._forward_solve(lhs, rhs, func, bcs)
+        if isinstance(block_variable.checkpoint, firedrake.Function):
+            result = block_variable.checkpoint.assign(result)
         return maybe_disk_checkpoint(result)
 
 
