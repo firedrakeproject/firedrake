@@ -83,7 +83,7 @@ jobs:
             --install gadopt \
             --install asQ \
             --package-branch petsc dolci/merge_upstream \
-            --package-branch slepc dolci/merge-upstream \
+            --package-branch slepc dolci/merge_upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
