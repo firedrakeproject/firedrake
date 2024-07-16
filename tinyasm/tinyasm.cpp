@@ -26,7 +26,7 @@ namespace py = pybind11;
 
 PetscLogEvent PC_tinyasm_SetASMLocalSubdomains, PC_tinyasm_apply, PC_tinyasm_setup;
 
-PetscErrorCode mymatinvert(PetscInt* n, PetscScalar* mat, PetscInt* piv, PetscInt* info, PetscScalar* work);
+PetscErrorCode mymatinvert(PetscBLASInt* n, PetscScalar* mat, PetscBLASInt* piv, PetscBLASInt* info, PetscScalar* work);
 
 class BlockJacobi {
     public:
@@ -41,7 +41,7 @@ class BlockJacobi {
         Mat *localmats;
 
         vector<IS> dofis;
-        vector<PetscInt> piv;
+        vector<PetscBLASInt> piv;
         vector<PetscScalar> fwork;
 
         BlockJacobi(vector<vector<PetscInt>> _dofsPerBlock, vector<vector<PetscInt>> _globalDofsPerBlock, int localSize, PetscSF _sf)
@@ -49,7 +49,7 @@ class BlockJacobi {
 
                 int numBlocks = dofsPerBlock.size();
                 PetscInt dof;
-                int biggestBlock = 0;
+                PetscInt biggestBlock = 0;
                 for(int p=0; p<numBlocks; p++) {
                     dof = dofsPerBlock[p].size();
                     biggestBlock = max(biggestBlock, dof);
@@ -58,7 +58,7 @@ class BlockJacobi {
                 workb = vector<PetscScalar>(biggestBlock, 0);
                 localb = vector<PetscScalar>(localSize, 0);
                 localx = vector<PetscScalar>(localSize, 0);
-                piv = vector<PetscInt>(biggestBlock, 0.);
+                piv = vector<PetscBLASInt>(biggestBlock, 0.);
                 iota(piv.begin(), piv.end(), 1);
                 fwork = vector<PetscScalar>(biggestBlock, 0.);
                 localmats_aij = NULL;
@@ -91,14 +91,14 @@ class BlockJacobi {
         }
 
         PetscInt updateValuesPerBlock(Mat P) {
-            PetscInt ierr, dof;
+            PetscInt ierr;
+            PetscBLASInt dof, info;
             int numBlocks = dofsPerBlock.size();
             ierr = MatCreateSubMatrices(P, numBlocks, dofis.data(), dofis.data(), localmats_aij ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX, &localmats_aij);CHKERRQ(ierr);
-            PetscInt info;
             PetscScalar *vv;
             for(int p=0; p<numBlocks; p++) {
                 ierr = MatConvert(localmats_aij[p], MATDENSE, localmats[p] ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX,&localmats[p]);CHKERRQ(ierr);
-                PetscInt dof = dofsPerBlock[p].size();
+                PetscCall(PetscBLASIntCast(dofsPerBlock[p].size(), &dof));
                 ierr = MatDenseGetArrayWrite(localmats[p],&vv);CHKERRQ(ierr);
                 if (dof) mymatinvert(&dof, vv, piv.data(), &info, fwork.data());
                 ierr = MatDenseRestoreArrayWrite(localmats[p],&vv);CHKERRQ(ierr);
@@ -108,9 +108,9 @@ class BlockJacobi {
 
 
         PetscInt solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
-            PetscInt dof, ierr;
+            PetscInt ierr;
             PetscScalar dOne = 1.0;
-            PetscInt one = 1;
+            PetscBLASInt dof, one = 1;
             PetscScalar dZero = 0.0;
 
             const PetscScalar *matvalues;
@@ -324,9 +324,9 @@ PetscErrorCode PCView_TinyASM(PC pc, PetscViewer viewer) {
         PetscInt biggestblock = *std::max_element(blocksizes.begin(), blocksizes.end());
         PetscScalar avgblock = std::accumulate(blocksizes.begin(), blocksizes.end(), 0.)/nblocks;
         ierr = PetscViewerASCIIPushTab(viewer);CHKERRQ(ierr);
-        ierr = PetscViewerASCIIPrintf(viewer, "TinyASM (block Jacobi) preconditioner with %d blocks\n", nblocks);CHKERRQ(ierr);
+        ierr = PetscViewerASCIIPrintf(viewer, "TinyASM (block Jacobi) preconditioner with %" PetscInt_FMT " blocks\n", nblocks);CHKERRQ(ierr);
         ierr = PetscViewerASCIIPrintf(viewer, "Average block size %f \n", avgblock);CHKERRQ(ierr);
-        ierr = PetscViewerASCIIPrintf(viewer, "Largest block size %d \n", biggestblock);CHKERRQ(ierr);
+        ierr = PetscViewerASCIIPrintf(viewer, "Largest block size %" PetscInt_FMT " \n", biggestblock);CHKERRQ(ierr);
         ierr = PetscViewerASCIIPopTab(viewer);CHKERRQ(ierr);
     }
     return 0;
@@ -428,6 +428,6 @@ PYBIND11_MODULE(_tinyasm, m) {
               auto blockjacobi = new BlockJacobi(dofsPerBlock, globalDofsPerBlock, localsize, newsf);
               pc->data = (void*)blockjacobi;
               ierr = PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0);CHKERRQ(ierr);
-              return ierr;
+              return (int) ierr;
           });
 }
