@@ -3,11 +3,13 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
+from pyadjoint.tape import stop_annotating, annotate_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.petsc import PETSc
 
 
@@ -31,7 +33,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -55,20 +58,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self, V.ufl_function_space())
+        ufl.Cofunction.__init__(self, V.ufl_function_space(), count=count)
 
         # User comm
         self.comm = V.comm
         # Internal comm
         self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
+        if isinstance(val, Cofunction):
             val = val.dat
+
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self._comm
             self.dat = val
@@ -168,7 +171,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return self.assign(0, subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_not_implemented
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         r"""Set the :class:`Cofunction` value to the pointwise value of
@@ -189,15 +191,21 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
+            with stop_annotating(modifies=(self,)):
+                self.dat.zero(subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
+            # do not annotate in case of self assignment
+            if annotate_tape() and self != expr:
+                self.block_variable = self.create_block_variable()
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable to write down c += B where c is a Cofunction
-            # and B an appropriate BaseForm object
+            # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
+            # If annotation is enabled, the following operation will result in an assemble block on the
+            # Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
             return self.assign(assembled_expr, subset=subset)
 

@@ -18,18 +18,19 @@ concurrency:
 jobs:
   build_docs:
     name: Run doc build
-    # The type of runner that the job will run on
+    # Run on the Github hosted runner
     runs-on: ubuntu-latest
-    # The docker container to use.
     container:
       image: firedrakeproject/firedrake-docdeps:latest
+      # Github hosted runners require running as root user:
+      # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#docker-container-filesystem
       options: --user root
       volumes:
         - ${{ github.workspace }}:/home/firedrake/output
     # Steps represent a sequence of tasks that will be executed as
     # part of the jobs
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install checkedout Firedrake
         run: |
           . /home/firedrake/firedrake/bin/activate
@@ -57,7 +58,7 @@ jobs:
           cd docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: /__w/firedrake/firedrake/docs/build/html
@@ -76,4 +77,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4

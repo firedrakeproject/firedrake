@@ -8,7 +8,7 @@ digraph triage {
     venv_activated [label="venv activated?"];
     install_script_up_to_date [label="Install script\nup to date?"];
     using_anaconda [label="Using\nAnaconda?"];
-    python_version [label="Python <3.8?"];
+    python_version [label="Python <3.9?"];
     using_macos [label="Using\nMacOS?"];
     using_homebrew [label="Using\nHomebrew?"];
     url_error [label="URL Error with SSL\ncertificate failure?"];
@@ -16,7 +16,7 @@ digraph triage {
 
     activate_venv [label="Activate the\nvenv first."];
     uninstall_anaconda [label="Deactivate\nAnaconda."];
-    update_python [label="Get Python 3.8-3.11"];
+    update_python [label="Get Python 3.9-3.12"];
     update_install_script [label="Fetch new\ninstall script"];
     get_homebrew [label="Use Homebrew."];
     brew_doctor [label="brew doctor"];

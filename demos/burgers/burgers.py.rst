@@ -34,7 +34,6 @@ stability we elect to use a backward Euler discretisation:
 We can now proceed to set up the problem. We choose a resolution and set up a square mesh::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   n = 30
   mesh = UnitSquareMesh(n, n)
 
@@ -94,11 +93,12 @@ We now create an object for output visualisation::
 
 Output only supports visualisation of linear fields (either P1, or
 P1DG).  In this example we project to a linear space by hand.  Another
-option is to let the :class:`~.VTKFile` object manage the decimation.  It
-supports both interpolation to linears (the default) or projection (by
-passing ``project_output=True`` when creating the :class:`~.VTKFile`).
-Outputting data is carried out using the :meth:`~.VTKFile.write` method
-of :class:`~.VTKFile` objects::
+option is to let the :class:`~.vtk_output.VTKFile` object manage the
+decimation.  It supports both interpolation to linears (the default) or
+projection (by passing ``project_output=True`` when creating the
+:class:`~.vtk_output.VTKFile`). Outputting data is carried out using
+the :meth:`~.vtk_output.VTKFile.write` method of
+:class:`~.vtk_output.VTKFile` objects::
 
   outfile.write(project(u, V_out, name="Velocity"))
 

@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from numpy.random import rand
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
+from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -51,15 +52,14 @@ def vector(request):
 def test_interpolate_constant():
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)
-
-    c = Constant(1.0, domain=mesh)
+    R = FunctionSpace(mesh, "R", 0)
+    c = Function(R, val=1.0)
     u = assemble(interpolate(c, V1))
 
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(c))
 
-    h = Constant(0.1, domain=mesh)
-    assert taylor_test(rf, c, h) > 1.9
+    assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -88,12 +88,13 @@ def test_interpolate_scalar_valued():
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
     V3 = FunctionSpace(mesh, "CG", 3)
+    R = FunctionSpace(mesh, "R", 0)
 
     x, = SpatialCoordinate(mesh)
     f = assemble(interpolate(x, V1))
     g = assemble(interpolate(sin(x), V2))
     u = Function(V3)
-    u.interpolate(3*f**2 + Constant(4.0, domain=mesh)*g)
+    u.interpolate(3*f**2 + Function(R, val=4.0) * g)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
@@ -161,28 +162,28 @@ def test_interpolate_tlm_with_constant():
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 2)
     V2 = FunctionSpace(mesh, "DG", 1)
+    R = FunctionSpace(mesh, "R", 0)
 
     x = SpatialCoordinate(mesh)
     f = assemble(interpolate(x[0], V1))
     g = assemble(interpolate(sin(x[0]), V1))
-    c = Constant(5.0, domain=mesh)
+    c = Function(R, val=5.0)
     u = Function(V2)
     u.interpolate(c * f ** 2)
 
     # test tlm w.r.t constant only:
-    c.block_variable.tlm_value = Constant(1.0, domain=mesh)
+    c.block_variable.tlm_value = Function(R, val=1.0)
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    h = Constant(1.0, domain=mesh)
 
     tape = get_working_tape()
     tape.evaluate_tlm()
     assert abs(J.block_variable.tlm_value - 2.0) < 1e-5
-    assert taylor_test(rf, c, h, dJdm=J.block_variable.tlm_value) > 1.9
+    assert taylor_test(rf, c, Function(R, val=1.0), dJdm=J.block_variable.tlm_value) > 1.9
 
     # test tlm w.r.t constant c and function f:
     tape.reset_tlm_values()
-    c.block_variable.tlm_value = Constant(0.4, domain=mesh)
+    c.block_variable.tlm_value = Function(R, val=0.4)
     f.block_variable.tlm_value = g
     rf(c)  # replay to reset checkpoint values based on c=5
     tape.evaluate_tlm()
@@ -193,16 +194,17 @@ def test_interpolate_tlm_with_constant():
 def test_interpolate_bump_function():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
+    R = FunctionSpace(mesh, "R", 0)
 
     x, y = SpatialCoordinate(mesh)
-    cx = Constant(0.5, domain=mesh)
-    cy = Constant(0.5, domain=mesh)
+    cx = Function(R, val=0.5)
+    cy = Function(R, val=0.5)
     f = assemble(interpolate(exp(-1/(1-(x-cx)**2)-1/(1-(y-cy)**2)), V))
 
     J = assemble(f*y**3*dx)
     rf = ReducedFunctional(J, [Control(cx), Control(cy)])
 
-    h = [Constant(0.1, domain=mesh), Constant(0.1, domain=mesh)]
+    h = [Function(R, val=0.1), Function(R, val=0.1)]
     assert taylor_test(rf, [cx, cy], h) > 1.9
 
 
@@ -210,33 +212,31 @@ def test_interpolate_bump_function():
 def test_self_interpolate():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
     u = Function(V)
 
-    c = Constant(1., domain=mesh)
+    c = Function(R, val=1.0)
     u.interpolate(u+c)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-
-    h = Constant(0.1, domain=mesh)
-    assert taylor_test(rf, c, h) > 1.9
+    assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_interpolate_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
     u = Function(V)
 
-    c = Constant(1., domain=mesh)
+    c = Function(R, val=1.0)
     assemble(interpolate(u+c, V), tensor=u)
     assemble(interpolate(u+c*u**2, V), tensor=u)
 
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(c))
-
-    h = Constant(0.1, domain=mesh)
-    assert taylor_test(rf, Constant(3., domain=mesh), h) > 1.9
+    assert taylor_test(rf, Function(R, val=3.0), Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -244,17 +244,17 @@ def test_interpolate_to_function_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
     W = FunctionSpace(mesh, "DG", 1)
+    R = FunctionSpace(mesh, "R", 0)
     u = Function(V)
 
     x = SpatialCoordinate(mesh)
     u.interpolate(x[0])
-    c = Constant(1., domain=mesh)
+    c = Function(R, val=1.0)
     w = assemble(interpolate((u+c)*u, W))
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    h = Constant(0.1, domain=mesh)
-    assert taylor_test(rf, Constant(1., domain=mesh), h) > 1.9
+    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -263,17 +263,17 @@ def test_interpolate_to_function_space_cross_mesh():
     mesh_dest = UnitSquareMesh(3, 3, quadrilateral=True)
     V = FunctionSpace(mesh_src, "CG", 1)
     W = FunctionSpace(mesh_dest, "DG", 1)
+    R = FunctionSpace(mesh_src, "R", 0)
     u = Function(V)
 
     x = SpatialCoordinate(mesh_src)
     u.interpolate(x[0])
-    c = Constant(1., domain=mesh_src)
+    c = Function(R, val=1.0)
     w = Function(W).interpolate((u+c)*u)
 
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
-    h = Constant(0.1, domain=mesh_src)
-    assert taylor_test(rf, Constant(1., domain=mesh_src), h) > 1.9
+    assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -292,6 +292,7 @@ def test_interpolate_hessian_linear_expr():
     # of interpolation. Functions in W form our control space c, our expansion
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
+    R = FunctionSpace(mesh, "R", 0)
     f = Function(W)
     f.vector()[:] = 5
     # Note that we interpolate from a linear expression
@@ -299,7 +300,7 @@ def test_interpolate_hessian_linear_expr():
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
+    bc = DirichletBC(V, Function(R, val=1.0), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -348,6 +349,7 @@ def test_interpolate_hessian_nonlinear_expr():
     # of interpolation. Functions in W form our control space c, our expansion
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
+    R = FunctionSpace(mesh, "R", 0)
     f = Function(W)
     f.vector()[:] = 5
     # Note that we interpolate from a nonlinear expression
@@ -355,7 +357,7 @@ def test_interpolate_hessian_nonlinear_expr():
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
+    bc = DirichletBC(V, Function(R, val=1.0), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -404,17 +406,18 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     # of interpolation. Functions in W form our control space c, our expansion
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
+    R = FunctionSpace(mesh, "R", 0)
     f = Function(W)
     f.vector()[:] = 5
     w = Function(W)
     w.vector()[:] = 4
-    c = Constant(2., domain=mesh)
+    c = Function(R, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1, domain=mesh), "on_boundary")
+    bc = DirichletBC(V, Function(R, val=1.0), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -459,23 +462,25 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
 
     mesh_dest = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh_dest, "Lagrange", 1)
+    R_dest = FunctionSpace(mesh_dest, "R", 0)
 
     # Interpolate from f in another function space on another mesh to force
     # hessian evaluation of interpolation. Functions in W form our control
     # space c, our expansion space h and perterbation direction g.
     mesh_src = UnitSquareMesh(11, 11)
+    R_src = FunctionSpace(mesh_src, "R", 0)
     W = FunctionSpace(mesh_src, "Lagrange", 2)
     f = Function(W)
     f.vector()[:] = 5
     w = Function(W)
     w.vector()[:] = 4
-    c = Constant(2., domain=mesh_src)
+    c = Function(R_src, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
 
     u = Function(V)
     v = TestFunction(V)
-    bc = DirichletBC(V, Constant(1, domain=mesh_dest), "on_boundary")
+    bc = DirichletBC(V, Function(R_dest, val=1.0), "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx - u**2*v*dx - expr_interped * v * dx
     solve(F == 0, u, bc)
@@ -706,8 +711,9 @@ def test_supermesh_project_hessian(vector):
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_init_constant():
     mesh = UnitSquareMesh(1, 1)
-    c1 = Constant(1.0, domain=mesh)
-    c2 = Constant(0.0, domain=mesh)
+    R = FunctionSpace(mesh, "R", 0)
+    c1 = Function(R, val=1.0)
+    c2 = Function(R, val=0.0)
     c2.assign(c1)
     J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
@@ -718,19 +724,22 @@ def test_init_constant():
 def test_init_constant_diff_mesh():
     mesh = UnitSquareMesh(1, 1)
     mesh0 = UnitSquareMesh(2, 2)
-    c1 = Constant(1.0, domain=mesh)
-    c2 = Constant(0.0, domain=mesh0)
+    R = FunctionSpace(mesh, "R", 0)
+    R0 = FunctionSpace(mesh0, "R", 0)
+    c1 = Function(R, val=1.0)
+    c2 = Function(R0, val=0.0)
     c2.assign(c1)
     J = assemble(c2*dx(domain=mesh0))
     rf = ReducedFunctional(J, Control(c1))
-    assert np.isclose(rf(Constant(-1.0, domain=mesh)), -1.0)
+    assert np.isclose(rf(Function(R, val=-1.0)), -1.0)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_copy_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    one = Constant(1.0, domain=mesh)
+    R = FunctionSpace(mesh, "R", 0)
+    one = Function(R, val=1.0)
     f = assemble(interpolate(one, V))
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
@@ -743,7 +752,8 @@ def test_copy_function():
 def test_consecutive_nonlinear_solves():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
-    uic = Constant(2.0, domain=mesh)
+    R = FunctionSpace(mesh, "R", 0)
+    uic = Function(R, val=2.0)
     u1 = Function(V).assign(uic)
     u0 = Function(u1)
     v = TestFunction(V)
@@ -755,8 +765,7 @@ def test_consecutive_nonlinear_solves():
         solver.solve()
     J = assemble(u1**16*dx)
     rf = ReducedFunctional(J, Control(uic))
-    h = Constant(0.01, domain=mesh)
-    assert taylor_test(rf, uic, h) > 1.9
+    assert taylor_test(rf, uic, Function(R, val=0.01)) > 1.9
 
 
 @pytest.mark.skipcomplex
@@ -798,3 +807,143 @@ def test_3325():
 
     constraint = UFLInequalityConstraint(-inner(g, g)*ds(4), control)
     minimize(Jhat, method="SLSQP", constraints=constraint)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.parametrize("solve_type", ["solve", "linear_variational_solver"])
+def test_assign_cofunction(solve_type):
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
+    # This function tests the case where Cofunction assigns a
+    # Cofunction and a BaseForm.
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    k = Function(V).assign(1.0)
+    a = k * u * v * dx
+    b = Constant(1.0) * v * dx
+    u0 = Cofunction(V.dual(), name="u0")
+    u1 = Cofunction(V.dual(), name="u1")
+    sol = Function(V, name="sol")
+    if solve_type == "linear_variational_solver":
+        problem = LinearVariationalProblem(lhs(a), rhs(a) + u1, sol)
+        solver = LinearVariationalSolver(problem)
+    J = 0
+    for i in range(2):
+        # This loop emulates a time-dependent problem, where the Cofunction
+        # added on the right-hand of the equation is updated at each time step.
+        u0.assign(assemble(b))
+        u1.assign(i * u0 + b)
+        if solve_type == "solve":
+            solve(a == u1, sol)
+        if solve_type == "linear_variational_solver":
+            solver.solve()
+        J += assemble(((sol + Constant(1.0)) ** 2) * dx)
+    rf = ReducedFunctional(J, Control(k))
+    assert rf(k) == J
+    assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_assign_zero_cofunction():
+    # See https://github.com/firedrakeproject/firedrake/issues/3464 .
+    # It is expected the tape breaks since the functional loses its dependency
+    # on the control after the Cofunction assigns Zero.
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    k = Function(V).assign(1.0)
+    a = u * v * dx
+    b = k * v * dx
+    u0 = Cofunction(V.dual(), name="u0")
+    u0.assign(b)
+    u0.assign(Zero())
+    sol = Function(V, name="c")
+    solve(a == u0, sol)
+    J = assemble(((sol + Constant(1.0)) ** 2) * dx)
+    # The zero assignment should break the tape and hence cause a zero
+    # gradient.
+    grad_l2 = compute_gradient(J, Control(k), options={"riesz_representation": "l2"})
+    grad_none = compute_gradient(J, Control(k), options={"riesz_representation": None})
+    grad_h1 = compute_gradient(J, Control(k), options={"riesz_representation": "H1"})
+    grad_L2 = compute_gradient(J, Control(k), options={"riesz_representation": "L2"})
+    assert isinstance(grad_l2, Function) and isinstance(grad_L2, Function) \
+        and isinstance(grad_h1, Function)
+    assert isinstance(grad_none, Cofunction)
+    assert all(grad_none.dat.data_ro == 0.0)
+    assert all(grad_l2.dat.data_ro == 0.0)
+    assert all(grad_h1.dat.data_ro == 0.0)
+    assert all(grad_L2.dat.data_ro == 0.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_subfunctions_with_adjoint():
+    # See https://github.com/firedrakeproject/firedrake/issues/3469
+    mesh = UnitSquareMesh(2, 2)
+    BDM = FunctionSpace(mesh, "BDM", 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    W = BDM * DG
+    sigma, u = TrialFunctions(W)
+    tau, v = TestFunctions(W)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(DG).interpolate(
+        10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
+    bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
+    bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
+    k = Function(DG).assign(1.0)
+    a = (dot(sigma, tau) + (dot(div(tau), u))) * dx + k * div(sigma)*v*dx
+    b = assemble(-f*TestFunction(DG)*dx)
+    w = Function(W)
+    b1 = Cofunction(W.dual())
+    # The following operation generates the FunctionMergeBlock.
+    b1.sub(1).interpolate(b)
+    solve(a == b1, w, bcs=[bc0, bc1])
+    J = assemble(0.5*dot(w, w)*dx)
+    J_hat = ReducedFunctional(J, Control(k))
+    k.block_variable.tlm_value = Constant(1)
+    get_working_tape().evaluate_tlm()
+    assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_riesz_representation_for_adjoints():
+    # Check if the Riesz representation norms for adjoints are working as expected.
+    mesh = UnitIntervalMesh(1)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
+    J = assemble((f ** 2) * dx)
+    rf = ReducedFunctional(J, Control(f))
+    with stop_annotating():
+        v = TestFunction(space)
+        u = TrialFunction(space)
+        dJdu_cofunction = assemble(derivative((f ** 2) * dx, f, v))
+
+        # Riesz representation with l2
+        dJdu_function_l2 = Function(space, val=dJdu_cofunction.dat)
+
+        # Riesz representation with H1
+        a = u * v * dx + inner(grad(u), grad(v)) * dx
+        dJdu_function_H1 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_H1)
+
+        # Riesz representation with L2
+        a = u*v*dx
+        dJdu_function_L2 = Function(space)
+        solve(a == dJdu_cofunction, dJdu_function_L2)
+
+    dJdu_none = rf.derivative(options={"riesz_representation": None})
+    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
+    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
+    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
+    dJdu_default_L2 = rf.derivative()
+    assert (
+        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+        and isinstance(dJdu_L2, Function)
+        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
+    )

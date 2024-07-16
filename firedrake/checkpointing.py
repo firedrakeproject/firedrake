@@ -1359,7 +1359,7 @@ class CheckpointFile(object):
         if element.family() == "Real":
             assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
-            tf.dat.data.itemset(value)
+            tf.dat.data[...] = value
         else:
             if path in self.h5pyfile:
                 timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")
@@ -1437,7 +1437,7 @@ class CheckpointFile(object):
         sd_key = self._get_shared_data_key_for_checkpointing(tV.mesh(), tV.ufl_element())
         if isinstance(tV.ufl_element(), (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             nodes_per_entity, real_tensorproduct, block_size = sd_key
-            global_numbering = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
+            global_numbering, _ = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
             topology_dm = tV.mesh().topology_dm
             dm = PETSc.DMShell().create(tV.mesh()._comm)
             dm.setPointSF(topology_dm.getPointSF())

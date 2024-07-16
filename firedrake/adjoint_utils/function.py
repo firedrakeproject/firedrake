@@ -62,15 +62,15 @@ class FunctionMixin(FloatingType):
                 output = subfunctions(self, *args, **kwargs)
 
             if annotate:
-                output = tuple(firedrake.Function(output[i].function_space(),
-                                                  output[i],
-                                                  block_class=SubfunctionBlock,
-                                                  _ad_floating_active=True,
-                                                  _ad_args=[self, i],
-                                                  _ad_output_args=[i],
-                                                  output_block_class=FunctionMergeBlock,
-                                                  _ad_outputs=[self],
-                                                  ad_block_tag=ad_block_tag)
+                output = tuple(type(self)(output[i].function_space(),
+                                          output[i],
+                                          block_class=SubfunctionBlock,
+                                          _ad_floating_active=True,
+                                          _ad_args=[self, i],
+                                          _ad_output_args=[i],
+                                          output_block_class=FunctionMergeBlock,
+                                          _ad_outputs=[self],
+                                          ad_block_tag=ad_block_tag)
                                for i in range(len(output)))
             return output
         return wrapper
@@ -224,20 +224,24 @@ class FunctionMixin(FloatingType):
         from firedrake import Function, Cofunction
 
         options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "l2")
+        riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
         V = options.get("function_space", self.function_space())
+        if value == 0.:
+            # In adjoint-based differentiation, value == 0. arises only when
+            # the functional is independent on the control variable.
+            return Function(V)
 
-        if riesz_representation != "l2" and not isinstance(value, Cofunction):
-            raise TypeError("Expected a Cofunction")
-        elif not isinstance(value, (float, (Cofunction, Function))):
-            raise TypeError("Expected a Cofunction, Function or a float")
+        if not isinstance(value, (Cofunction, Function)):
+            raise TypeError("Expected a Cofunction or a Function")
 
         if riesz_representation == "l2":
-            value = value.dat if isinstance(value, (Cofunction, Function)) else value
-            return Function(V, val=value)
+            return Function(V, val=value.dat)
 
         elif riesz_representation in ("L2", "H1"):
+            if not isinstance(value, Cofunction):
+                raise TypeError("Expected a Cofunction")
+
             ret = Function(V)
             a = self._define_riesz_map_form(riesz_representation, V)
             firedrake.solve(a == value, ret, **solver_options)
@@ -247,7 +251,7 @@ class FunctionMixin(FloatingType):
             return riesz_representation(value)
 
         else:
-            raise NotImplementedError(
+            raise ValueError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
     def _define_riesz_map_form(self, riesz_representation, V):
@@ -269,8 +273,19 @@ class FunctionMixin(FloatingType):
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annoated unlike to `_ad_convert_riesz`
-        return self._ad_convert_riesz(value, options=options)
+        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
+        options = {} if options is None else options.copy()
+        options.setdefault("riesz_representation", "L2")
+        if options["riesz_representation"] is None:
+            if value == 0.:
+                # In adjoint-based differentiation, value == 0. arises only when
+                # the functional is independent on the control variable.
+                V = options.get("function_space", self.function_space())
+                return firedrake.Cofunction(V.dual())
+            else:
+                return value
+        else:
+            return self._ad_convert_riesz(value, options=options)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
@@ -306,7 +321,7 @@ class FunctionMixin(FloatingType):
         from firedrake import assemble
 
         options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "l2")
+        riesz_representation = options.get("riesz_representation", "L2")
         if riesz_representation == "l2":
             return self.dat.inner(other.dat)
         elif riesz_representation == "L2":

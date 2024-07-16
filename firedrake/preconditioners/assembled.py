@@ -57,12 +57,7 @@ class AssembledPC(PCBase):
         self._assemble_P(tensor=self.P)
 
         # Transfer nullspace over
-        Pmat = self.P.petscmat
-        Pmat.setNullSpace(P.getNullSpace())
-        tnullsp = P.getTransposeNullSpace()
-        if tnullsp.handle != 0:
-            Pmat.setTransposeNullSpace(tnullsp)
-        Pmat.setNearNullSpace(P.getNearNullSpace())
+        self.set_nullspaces(pc)
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -78,7 +73,7 @@ class AssembledPC(PCBase):
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)
-        pc.setOperators(A, Pmat)
+        pc.setOperators(A, self.P.petscmat)
         self.pc = pc
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
             pc.setFromOptions()
@@ -94,6 +89,16 @@ class AssembledPC(PCBase):
         else:
             context = dmhooks.get_appctx(pc.getDM())
             return (context.Jp or context.J, context._problem.bcs)
+
+    def set_nullspaces(self, pc):
+        # Copy nullspaces over from parent P matrix
+        _, P = pc.getOperators()
+        Pmat = self.P.petscmat
+        Pmat.setNullSpace(P.getNullSpace())
+        tnullsp = P.getTransposeNullSpace()
+        if tnullsp.handle != 0:
+            Pmat.setTransposeNullSpace(tnullsp)
+        Pmat.setNearNullSpace(P.getNearNullSpace())
 
     def apply(self, pc, x, y):
         dm = pc.getDM()

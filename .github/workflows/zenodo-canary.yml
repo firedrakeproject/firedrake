@@ -13,21 +13,21 @@ jobs:
     name: "Run zenodo canary"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.8
+          python-version: 3.12
       - name: Install deps
         run: |
-          pip install requests
+          pip install requests packaging
       - name: Zenodo API canary
         run: |
           python scripts/firedrake-install --test-doi-resolution
       - name: Upload log
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: "zenodo-canary"

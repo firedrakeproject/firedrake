@@ -3,10 +3,9 @@ from itertools import chain
 import numpy
 
 from pyop2 import op2
-from firedrake_configuration import get_config
 from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError
-from firedrake.petsc import PETSc
+from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
 from firedrake.logging import warning
@@ -18,33 +17,20 @@ def _make_reasons(reasons):
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
-
-
 SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
 
 
-if get_config()["options"]["petsc_int_type"] == "int32":
-    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
-                              "ksp_type": "preonly",
-                              "ksp_rtol": 1e-7,
-                              "pc_type": "lu",
-                              "pc_factor_mat_solver_type": "mumps",
-                              "mat_mumps_icntl_14": 200}
-else:
-    DEFAULT_KSP_PARAMETERS = {"mat_type": "aij",
-                              "ksp_type": "preonly",
-                              "ksp_rtol": 1e-7,
-                              "pc_type": "lu",
-                              "pc_factor_mat_solver_type": "superlu_dist"}
-
-
-def set_defaults(solver_parameters, arguments, *, ksp_defaults={}, snes_defaults={}):
+def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaults=None):
     """Set defaults for solver parameters.
 
     :arg solver_parameters: dict of user solver parameters to override/extend defaults
     :arg arguments: arguments for the bilinear form (need to know if we have a Real block).
     :arg ksp_defaults: Default KSP parameters.
     :arg snes_defaults: Default SNES parameters."""
+    if ksp_defaults is None:
+        ksp_defaults = {}
+    if snes_defaults is None:
+        snes_defaults = {}
     if solver_parameters:
         # User configured something, try and set sensible direct solve
         # defaults for missing bits.
@@ -197,7 +183,7 @@ class _SNESContext(object):
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
-        self._x = problem.u
+        self._x = problem.u_restrict
 
         if appctx is None:
             appctx = {}
@@ -327,7 +313,7 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u.subfunctions
+            us = problem.u_restrict.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
@@ -371,11 +357,11 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            F = replace(F, {problem.u: u})
-            J = replace(J, {problem.u: u})
+            F = replace(F, {problem.u_restrict: u})
+            J = replace(J, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u: u})
+                Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
             bcs = []

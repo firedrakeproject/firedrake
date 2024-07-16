@@ -23,9 +23,8 @@ env:
 jobs:
   build:
     name: "Build Firedrake"
-    # The type of runner that the job will run on
+    # Run on our self-hosted machines
     runs-on: self-hosted
-    # The docker container to use.
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
@@ -49,7 +48,7 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
         run: |
@@ -71,7 +70,6 @@ jobs:
             --no-package-manager \
             --disable-ssh \
             --documentation-dependencies \
-            --tinyasm \
             --torch \
             --netgen \
             --slepc \
@@ -92,7 +90,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
-            pytest-cov pytest-timeout pytest-xdist pytest-timeout ipympl
+            pytest-xdist pytest-timeout ipympl
           python -m pip list
       - name: Test Firedrake
         run: |
@@ -103,7 +101,6 @@ jobs:
           python -m pytest -v tests/test_0init.py
           python -m pytest \
             --durations=200 \
-            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \

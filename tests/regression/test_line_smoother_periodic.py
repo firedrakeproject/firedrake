@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from firedrake.utils import RealType
 import pytest
 
@@ -77,20 +78,24 @@ def test_line_smoother_periodic():
                  "patch_sub_ksp_type": "preonly",
                  "patch_sub_pc_type": "lu"}
 
-    params = {"ksp_type": "richardson",
-              "ksp_richardson_self_scale": False,
-              "ksp_norm_type": "unpreconditioned",
-              "pc_type": "mg",
-              "pc_mg_type": "full",
-              "pc_mg_log": None,
-              "mg_levels": mg_levels,
-              "mg_coarse_pc_type": "python",
-              "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-              "mg_coarse_assembled": {"mat_type": "aij",
-                                      "pc_type": "telescope",
-                                      "pc_telescope_subcomm_type": "contiguous",
-                                      "telescope_pc_type": "lu",
-                                      "telescope_pc_factor_mat_solver_type": "superlu_dist"}}
+    params = {
+        "ksp_type": "richardson",
+        "ksp_richardson_self_scale": False,
+        "ksp_norm_type": "unpreconditioned",
+        "pc_type": "mg",
+        "pc_mg_type": "full",
+        "pc_mg_log": None,
+        "mg_levels": mg_levels,
+        "mg_coarse_pc_type": "python",
+        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+        "mg_coarse_assembled": {
+            "mat_type": "aij",
+            "pc_type": "telescope",
+            "pc_telescope_subcomm_type": "contiguous",
+            "telescope_pc_type": "lu",
+            "telescope_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+        }
+    }
 
     params = {**base, **params}
 

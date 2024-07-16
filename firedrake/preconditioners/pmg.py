@@ -377,7 +377,9 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False), None
+        interpolation = self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False)
+        rscale = interpolation.createVecRight()
+        return interpolation, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -439,7 +441,7 @@ class PMGPC(PCBase, PMGBase):
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
+        ppc.setOptionsPrefix(pc.getOptionsPrefix() + self._prefix)
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
@@ -452,7 +454,7 @@ class PMGPC(PCBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+        opts = PETSc.Options(pc.getOptionsPrefix() + self._prefix)
         opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
 
         return ppc
@@ -473,7 +475,7 @@ class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
-        psnes.setOptionsPrefix(snes.getOptionsPrefix() + "pfas_")
+        psnes.setOptionsPrefix(snes.getOptionsPrefix() + self._prefix)
         psnes.setType("fas")
         psnes.setDM(pdm)
         psnes.setTolerances(max_it=1)
@@ -495,7 +497,7 @@ class PMGSNES(SNESBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+        opts = PETSc.Options(snes.getOptionsPrefix() + self._prefix)
         opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
         opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
 
@@ -1164,11 +1166,17 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     return decl, prolong, restrict
 
 
+def reference_value_space(V):
+    element = finat.ufl.WithMapping(V.ufl_element(), mapping="identity")
+    return firedrake.FunctionSpace(V.mesh(), element)
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
 
+    _cache_kernels = {}
     _cache_work = {}
 
     def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
@@ -1178,6 +1186,17 @@ class StandaloneInterpolationMatrix(object):
         self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
         self.Vf_bcs = Vf_bcs
+
+        fmapping = self.Vf.ufl_element().mapping()
+        cmapping = self.Vc.ufl_element().mapping()
+        if type(self.Vf.ufl_element()) is not finat.ufl.MixedElement and fmapping != "identity" and fmapping == cmapping:
+            # Ignore Piola mapping if it is the same for both source and target, and simply transfer reference values.
+            self.Vc = reference_value_space(self.Vc)
+            self.Vf = reference_value_space(self.Vf)
+            self.uc = firedrake.Function(self.Vc, val=self.uc.dat)
+            self.uf = firedrake.Function(self.Vf, val=self.uf.dat)
+            self.Vc_bcs = [bc.reconstruct(V=self.Vc) for bc in self.Vc_bcs]
+            self.Vf_bcs = [bc.reconstruct(V=self.Vf) for bc in self.Vf_bcs]
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1272,8 +1291,7 @@ class StandaloneInterpolationMatrix(object):
         else:
             raise ValueError("Unknown info type %s" % info)
 
-    @staticmethod
-    def make_blas_kernels(Vf, Vc):
+    def make_blas_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
@@ -1283,6 +1301,12 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
@@ -1410,7 +1434,7 @@ class StandaloneInterpolationMatrix(object):
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel, coefficients
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def make_kernels(self, Vf, Vc):
         """
@@ -1418,12 +1442,18 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
-        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = cache_generate_code(matrix_kernel, Vf._comm)
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
         coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
@@ -1447,7 +1477,7 @@ class StandaloneInterpolationMatrix(object):
             requires_zeroed_output_arguments=True,
             events=matrix_kernel.events,
         )
-        return prolong_kernel, restrict_kernel, coefficients
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):
         """

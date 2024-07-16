@@ -3,6 +3,7 @@ import numpy as np
 
 from firedrake import *
 from firedrake.__future__ import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.mark.skipcomplex
@@ -159,6 +160,38 @@ def test_real_extruded_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
+def mixed_poisson_opts():
+    # The default R space solver options are sufficient if the direct solver is
+    # MUMPS, otherwise we use an iterative solver to ensure the tests pass
+    if DEFAULT_DIRECT_SOLVER == "mumps":
+        opts = None
+    else:
+        opts = {
+            "mat_type": "matfree",
+            "ksp_type": "fgmres",
+            "pc_type": "fieldsplit",
+            "pc_fieldsplit_type": "schur",
+            "pc_fieldsplit_schur_fact_type": "full",
+            "pc_fieldsplit_0_fields": "0",
+            "pc_fieldsplit_1_fields": "1",
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                "assembled": {
+                    "ksp_type": "gmres",
+                    "ksp_rtol": 1e-7,
+                    "pc_type": "jacobi",
+                },
+            },
+            "fieldsplit_1": {
+                "ksp_type": "gmres",
+                "pc_type": "none",
+            }
+        }
+    return opts
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_real_mixed_solve():
@@ -185,7 +218,7 @@ def test_real_mixed_solve():
 
         residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
-        solve(residual_form == 0, phi)
+        solve(residual_form == 0, phi, solver_parameters=mixed_poisson_opts())
 
         return sqrt(assemble(inner(f - phi, f - phi) * dx))
 
@@ -218,7 +251,7 @@ def test_real_mixed_solve_split_comms():
 
         residual_form = (inner(grad(phi_0), grad(v)) + inner(phi_1, v) + phi_0 * q - inner(f0, v)) * dx
 
-        solve(residual_form == 0, phi)
+        solve(residual_form == 0, phi, solver_parameters=mixed_poisson_opts())
 
         return sqrt(assemble(inner(f - phi, f - phi) * dx))
 
@@ -301,3 +334,17 @@ def test_real_interpolate():
     R = FunctionSpace(mesh, "R", 0)
     a_int = assemble(interpolate(Constant(1.0), R))
     assert np.allclose(float(a_int), 1.0)
+
+
+def test_real_space_hex():
+    mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
+    DG = FunctionSpace(mesh, "DQ", 0)
+    R = FunctionSpace(mesh, "R", 0)
+    dg = Function(DG).assign(1.)
+    r = Function(R).assign(1.)
+    val = assemble(r * dx)
+    assert abs(val - 2.) < 1.e-14
+    val = assemble(inner(dg, TestFunction(R)) * dx)
+    assert np.allclose(val.dat.data_ro, [2.])
+    val = assemble(inner(r, TestFunction(DG)) * dx)
+    assert np.allclose(val.dat.data, [1., 1.])

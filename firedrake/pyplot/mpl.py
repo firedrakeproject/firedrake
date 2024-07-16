@@ -162,7 +162,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
-        cmap = matplotlib.cm.get_cmap("Dark2")
+        # matplotlib.cm.get_cmap was deprecated in Matplotlib 3.9, see:
+        # https://matplotlib.org/3.9.0/api/prev_api_changes/api_changes_3.9.0.html#top-level-cmap-registration-and-access-functions-in-mpl-cm
+        try:
+            cmap = matplotlib.cm.get_cmap("Dark2")
+        except AttributeError:
+            cmap = matplotlib.colormaps["Dark2"]
         num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:
