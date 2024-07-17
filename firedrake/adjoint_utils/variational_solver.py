@@ -46,7 +46,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
-            self._ad_dFdm_cache = {}
+            self._ad_adj_cache = {}
 
         return wrapper
 
@@ -70,7 +70,7 @@ class NonlinearVariationalSolverMixin:
                                                        problem._ad_u,
                                                        problem._ad_bcs,
                                                        problem._ad_adj_F,
-                                                       dFdm_cache=self._ad_dFdm_cache,
+                                                       adj_cache=self._ad_adj_cache,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
@@ -133,5 +133,6 @@ class NonlinearVariationalSolverMixin:
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
                                            J=replace(problem.J, J_replace_map))
+        nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
         return nlvp
