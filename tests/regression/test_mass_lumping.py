@@ -61,7 +61,7 @@ def test_spectral_mass_lumping(mesh, degree):
     assert numpy.allclose(values, 0)
 
     # Test that we get the correct value in the diagonal
-    f = assemble(v*dx)
+    f = assemble(inner(1, v)*dx)
     assert numpy.allclose(f.dat.data_ro, Adiag.getArray())
 
     # Test that matfree diagonal assembly gives the correct result
