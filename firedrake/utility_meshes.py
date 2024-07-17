@@ -3,17 +3,13 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from firedrake.utils import IntType, RealType, ScalarType
+from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
     VectorFunctionSpace,
     FunctionSpace,
     Function,
     Constant,
-    par_loop,
-    dx,
-    WRITE,
-    READ,
     assemble,
     Interpolate,
     FiniteElement,
