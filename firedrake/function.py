@@ -521,7 +521,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         IMulAssigner(self, expr).assign()
         return self
 
-    @FunctionMixin._ad_annotate_idiv
+    @FunctionMixin._ad_annotate_itruediv
     def __itruediv__(self, expr):
         from firedrake.assign import IDivAssigner
         IDivAssigner(self, expr).assign()
