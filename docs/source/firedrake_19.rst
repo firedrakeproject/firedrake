@@ -35,18 +35,8 @@ Key Dates
 * Early registration deadline: 17 August 2019
 * Registration deadline: 6 September 2019 (via Durham event
   registration).
-* Abstract submission deadline: 17 August 2019 (`via Easychair
-  <https://easychair.org/conferences/?conf=firedrake19>`_).
+* Abstract submission deadline: 17 August 2019.
 * Workshop: 26-27 September 2019
-
-
-Abstract submission
--------------------
-
-Submission for talks is now closed. If you would still like to bring a
-poster, please submit an abstract `on Easychair
-<https://easychair.org/conferences/?conf=firedrake19>`_ (so it appears
-in the programme, and we know how many poster boards we'll need).
 
 Programme
 ---------
