@@ -82,6 +82,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat pbrubeck/hct/hierarchical \
+            --package-branch finat pbrubeck/hct/hierarchical \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
