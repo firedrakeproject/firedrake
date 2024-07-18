@@ -352,9 +352,6 @@ class FunctionMixin(FloatingType):
         offset += dst.vector().size()
         return dst, offset
 
-    def _ad_assign(self, other):
-        self.assign(other)
-
     @staticmethod
     def _ad_to_list(m):
         if not hasattr(m, "gather"):
