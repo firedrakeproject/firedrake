@@ -1,6 +1,6 @@
-from firedrake import *
 import numpy
 import pytest
+from firedrake import *
 
 
 @pytest.fixture(scope="module")
@@ -9,7 +9,8 @@ def mesh():
 
 
 @pytest.fixture(params=[("Argyris", 5), ("Bell", 5), ("HCT", 3),
-                        ("Morley", 2), ("Hermite", 3)],
+                        ("Morley", 2), ("Hermite", 3),
+                        ("PS6", 2)],
                 scope="module",
                 ids=lambda x: x[0])
 def element(request):
