@@ -343,6 +343,9 @@ class FunctionMixin(FloatingType):
         offset += dst.vector().size()
         return dst, offset
 
+    def _ad_assign(self, other):
+        self.assign(other)
+
     @staticmethod
     def _ad_to_list(m):
         if not hasattr(m, "gather"):
@@ -399,13 +402,14 @@ class FunctionMixin(FloatingType):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
 
-    def _to_petsc(self, vec):
-        with self.dat.vec_ro as self_v:
-            self_v.copy(result=vec)
-
-    def _from_petsc(self, vec):
+    def _ad_vec_from_petsc(self, vec):
         with self.dat.vec_wo as self_v:
             vec.copy(result=self_v)
+
+    def _ad_vec_to_petsc(self):
+        with self.dat.vec_ro as self_v:
+            new_vec = self_v.copy()
+        return new_vec
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)

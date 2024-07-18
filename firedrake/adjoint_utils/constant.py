@@ -99,6 +99,9 @@ class ConstantMixin(OverloadedType):
         dst.assign(numpy.reshape(src[offset:offset + l], dst.ufl_shape), annotate=False)
         offset += l
         return dst, offset
+    
+    def _ad_assign(self, other):
+        self.assign(other)
 
     @staticmethod
     def _ad_to_list(m):
@@ -141,6 +144,7 @@ class ConstantMixin(OverloadedType):
 
     def __deepcopy__(self, memodict={}):
         return self._constant_from_values()
+
 
     def _constant_from_values(self, values=None):
         """Returns a new Constant with self.dat.data_ro.reshape(-1) while preserving self.ufl_shape.
