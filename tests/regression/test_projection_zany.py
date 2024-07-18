@@ -9,7 +9,6 @@ using elements with nonstandard pullbacks
 
 import numpy as np
 import pytest
-
 from firedrake import *
 
 
@@ -43,6 +42,7 @@ def do_projection(mesh, el_type, degree):
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Johnson-Mercier', 1, 1.8),
                           ('Morley', 2, 2.4),
+                          ('PS6', 2, 2.4),
                           ('HCT-red', 3, 2.7),
                           ('HCT', 3, 3),
                           ('Hermite', 3, 3),
