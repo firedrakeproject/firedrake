@@ -199,7 +199,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def __imul__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
-    def __itruediv__(self, o):
+    def __idiv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
     def __str__(self):

@@ -182,16 +182,13 @@ class GenericSolveBlock(Block):
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
-    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        return firedrake.assemble(dFdu_adj_form, **kwargs)
-
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
         kwargs = self.assemble_kwargs.copy()
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
         kwargs["bcs"] = bcs
-        dFdu = self._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
+        dFdu = firedrake.assemble(dFdu_adj_form, **kwargs)
 
         for bc in bcs:
             bc.apply(dJdu)
@@ -601,14 +598,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, adj_F, adj_cache, problem_J,
+    def __init__(self, equation, func, bcs, adj_F, dFdm_cache, problem_J,
                  solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self.adj_F = adj_F
-        self._adj_cache = adj_cache
-        self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
+        self._dFdm_cache = dFdm_cache
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
@@ -673,6 +669,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
+<<<<<<< HEAD
     def _ad_adj_lvs_replace_jacobian(self):
         # Is this the correct way?
         problem = self._ad_adj_varsolver._problem
@@ -687,6 +684,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 
+=======
+>>>>>>> a0a5ead0d (wip)
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
 

@@ -196,11 +196,11 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
-    def _ad_annotate_itruediv(__itruediv__):
-        @wraps(__itruediv__)
+    def _ad_annotate_idiv(__idiv__):
+        @wraps(__idiv__)
         def wrapper(self, other, **kwargs):
             with stop_annotating():
-                func = __itruediv__(self, other, **kwargs)
+                func = __idiv__(self, other, **kwargs)
 
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
@@ -351,6 +351,9 @@ class FunctionMixin(FloatingType):
         dst.vector().apply('insert')
         offset += dst.vector().size()
         return dst, offset
+
+    def _ad_assign(self, other):
+        return self.assign(other)
 
     @staticmethod
     def _ad_to_list(m):
