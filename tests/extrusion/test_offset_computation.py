@@ -39,7 +39,7 @@ def test_offset_enriched():
     #  |     |
     #  o--x--o
     assert (V.exterior_facet_node_map().offset
-            == [2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 2, 2, 2]).all()
+            == [2, 2, 1, 1, 1, 1, 2, 2, 1, 1, 2, 2, 2, 2, 2]).all()
 
 
 def run_offset_parallel():
