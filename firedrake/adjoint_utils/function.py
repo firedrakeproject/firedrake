@@ -399,17 +399,13 @@ class FunctionMixin(FloatingType):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
 
-    @contextlib.contextmanager
-    def _ad_petsc_vec_read_only(self):
-        # Return the PETSc Vec object.
-        with self.dat.vec_ro as vec:
-            yield vec
+    def _to_petsc(self, vec):
+        with self.dat.vec_ro as self_v:
+            self_v.copy(result=vec)
 
-    @contextlib.contextmanager
-    def _ad_petsc_vec_write_only(self):
-        # Return the PETSc Vec object.
-        with self.dat.vec_wo as vec:
-            yield vec
+    def _from_petsc(self, vec):
+        with self.dat.vec_wo as self_v:
+            vec.copy(result=self_v)
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
