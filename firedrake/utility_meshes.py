@@ -277,10 +277,10 @@ cells are not currently supported"
     )
     x, y = SpatialCoordinate(m)
     eps = 1.e-14
-    indicator.interpolate(conditional(gt(y, 0), 0., 1.))
+    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
     new_coordinates.interpolate(
         as_vector((conditional(
-            gt(x, 1. - eps), indicator,  # Periodic break.
+            gt(real(x), real(1. - eps)), indicator,  # Periodic break.
             # Unwrap rest of circle.
             atan2(real(-y), real(-x))/(2 * pi) + 0.5
         ) * length,))
@@ -989,22 +989,22 @@ def PeriodicRectangleMesh(
     x, y, z = SpatialCoordinate(m)
     eps = 1.e-14
     indicator_y = Function(FunctionSpace(m, coord_family, 0))
-    indicator_y.interpolate(conditional(gt(y, 0), 0., 1.))
+    indicator_y.interpolate(conditional(real(y), 0), 0., 1.))
     x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
     x_coord.interpolate(
         # Periodic break.
-        conditional(And(gt(eps, abs(y)), gt(x, 0.)), indicator_y,
+        conditional(And(gt(real(eps), real(abs(y))), gt(real(x), 0.)), indicator_y,
                     # Unwrap rest of circle.
                     atan2(real(-y), real(-x))/(2*pi)+0.5)
     )
     phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
     dr = dot(as_vector((x, y))-phi_coord, phi_coord)
     indicator_z = Function(FunctionSpace(m, coord_family, 0))
-    indicator_z.interpolate(conditional(gt(z, 0), 0., 1.))
+    indicator_z.interpolate(conditional(real(z), 0), 0., 1.))
     new_coordinates.interpolate(as_vector((
         x_coord * Lx,
         # Periodic break.
-        conditional(And(gt(eps, abs(z)), gt(dr, 0.)), indicator_z,
+        conditional(And(gt(real(eps), real(abs(z))), gt(real(dr), 0.)), indicator_z,
                     # Unwrap rest of circle.
                     atan2(real(-z), real(-dr))/(2*pi)+0.5) * Ly
     )))
@@ -2274,10 +2274,10 @@ def OctahedralSphereMesh(
     s = ufl.real(abs(z) - z0) / (1 - z0)
     exp = ufl.exp
     taper = ufl.conditional(
-        ufl.gt(s, 1.0 - tol),
+        ufl.gt(real(s), real(1.0 - tol)),
         1.0,
         ufl.conditional(
-            ufl.gt(s, tol), exp(-1.0 / s) / (exp(-1.0 / s) + exp(-1.0 / (1.0 - s))), 0.0
+            ufl.gt(real(s), real(tol)), exp(-1.0 / s) / (exp(-1.0 / s) + exp(-1.0 / (1.0 - s))), 0.0
         ),
     )
     m.coordinates.interpolate(taper * Xradial + (1 - taper) * Xlatitudinal)
@@ -3034,7 +3034,7 @@ def PartiallyPeriodicRectangleMesh(
     )
     x, y, z = SpatialCoordinate(m)
     eps = 1.e-14
-    indicator.interpolate(conditional(gt(y, 0), 0., 1.))
+    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
     if direction == "x":
         transform = as_tensor([[Lx, 0.], [0., Ly]])
     else:
@@ -3042,7 +3042,7 @@ def PartiallyPeriodicRectangleMesh(
     new_coordinates.interpolate(dot(
         transform,
         as_vector((
-            conditional(gt(x, 1. - eps), indicator,  # Periodic break.
+            conditional(gt(real(x), real(1. - eps)), indicator,  # Periodic break.
                         # Unwrap rest of circle.
                         atan2(real(-y), real(-x))/(2 * pi) + 0.5),
             z
