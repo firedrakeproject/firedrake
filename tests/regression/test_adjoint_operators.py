@@ -997,7 +997,7 @@ def test_cofunction_assign_functional():
 
     cof = assemble(f * v * dx)
     cof2 = Cofunction(cof)
-    cof2.assign(cof)  # Not currently taped!
+    cof2.assign(cof)  # Test is checking that this is taped.
     J = assemble(action(cof2, f2))
     Jhat = ReducedFunctional(J, Control(f))
     assert np.allclose(float(Jhat.derivative()), 1.0)
