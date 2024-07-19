@@ -25,7 +25,8 @@ from firedrake import (
     dot,
     And,
     sin,
-    cos
+    cos,
+    real
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -278,9 +279,11 @@ cells are not currently supported"
     eps = 1.e-14
     indicator.interpolate(conditional(gt(y, 0), 0., 1.))
     new_coordinates.interpolate(
-        as_vector((conditional(gt(x, 1. - eps), indicator,  # Periodic break.
-                               # Unwrap rest of circle.
-                               atan2(-y, -x)/(2 * pi) + 0.5) * length,))
+        as_vector((conditional(
+            gt(x, 1. - eps), indicator,  # Periodic break.
+            # Unwrap rest of circle.
+            atan2(real(-y), real(-x))/(2 * pi) + 0.5
+        ) * length,))
     )
 
     return _postprocess_periodic_mesh(new_coordinates,
@@ -992,7 +995,7 @@ def PeriodicRectangleMesh(
         # Periodic break.
         conditional(And(gt(eps, abs(y)), gt(x, 0.)), indicator_y,
                     # Unwrap rest of circle.
-                    atan2(-y, -x)/(2*pi)+0.5)
+                    atan2(real(-y), real(-x))/(2*pi)+0.5)
     )
     phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
     dr = dot(as_vector((x, y))-phi_coord, phi_coord)
@@ -1003,7 +1006,7 @@ def PeriodicRectangleMesh(
         # Periodic break.
         conditional(And(gt(eps, abs(z)), gt(dr, 0.)), indicator_z,
                     # Unwrap rest of circle.
-                    atan2(-z, -dr)/(2*pi)+0.5) * Ly
+                    atan2(real(-z), real(-dr))/(2*pi)+0.5) * Ly
     )))
 
     return _postprocess_periodic_mesh(new_coordinates,
@@ -3041,7 +3044,7 @@ def PartiallyPeriodicRectangleMesh(
         as_vector((
             conditional(gt(x, 1. - eps), indicator,  # Periodic break.
                         # Unwrap rest of circle.
-                        atan2(-y, -x)/(2 * pi) + 0.5),
+                        atan2(real(-y), real(-x))/(2 * pi) + 0.5),
             z
         ))
     ))
