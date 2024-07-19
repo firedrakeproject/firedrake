@@ -181,3 +181,16 @@ def test_matrix_types(W):
     A = assemble(a, mat_type="nest", sub_mat_type="baij")
 
     assert A.M[1, 1].handle.getType() == "seqbaij"
+
+
+def test_block_matrix_type():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v)*dx
+    f = Function(V)
+    f.interpolate(Constant((1, 2)))
+    result = Function(V)
+    solve(a == inner(f, v)*dx, result, solver_parameters={'mat_type':'baij'})
+    assert errornorm(f, result) < 1e-10
