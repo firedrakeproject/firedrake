@@ -342,4 +342,8 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
         return self
 
     def _ad_assign(self, other):
-        return other
+        if not isinstance(other, DelegatedFunctionCheckpoint):
+            raise TypeError(
+                "{other} should be a DelegatedFunctionCheckpoint object."
+            )
+        self.other = other.other

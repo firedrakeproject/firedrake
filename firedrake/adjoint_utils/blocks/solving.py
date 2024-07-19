@@ -1,5 +1,6 @@
 import numpy
 import ufl
+import weakref
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 
@@ -48,7 +49,7 @@ class GenericSolveBlock(Block):
         # Equation RHS
         self.rhs = rhs
         # Solution function
-        self.func = func
+        self._func = weakref.ref(func)
         self.function_space = self.func.function_space()
         # Boundary conditions
         self.bcs = []
@@ -71,6 +72,10 @@ class GenericSolveBlock(Block):
         mesh = self.lhs.ufl_domain()
         self.add_dependency(mesh)
         self._init_solver_parameters(args, kwargs)
+
+    @property
+    def func(self):
+        return self._func()
 
     def _init_solver_parameters(self, args, kwargs):
         self.forward_args = kwargs.pop("forward_args", [])

@@ -353,7 +353,7 @@ class FunctionMixin(FloatingType):
         return dst, offset
 
     def _ad_assign(self, other):
-        return self.assign(other)
+        self.assign(other)
 
     @staticmethod
     def _ad_to_list(m):

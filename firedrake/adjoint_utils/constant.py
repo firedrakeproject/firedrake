@@ -102,7 +102,6 @@ class ConstantMixin(OverloadedType):
 
     def _ad_assign(self, other):
         self.assign(other)
-        return self
 
     @staticmethod
     def _ad_to_list(m):
