@@ -10,7 +10,7 @@ def mesh():
 
 @pytest.fixture(params=[("Argyris", 5), ("Bell", 5), ("HCT", 3),
                         ("Morley", 2), ("Hermite", 3),
-                        ("PS6", 2)],
+                        ("PS6", 2), ("PS12", 2)],
                 scope="module",
                 ids=lambda x: x[0])
 def element(request):
