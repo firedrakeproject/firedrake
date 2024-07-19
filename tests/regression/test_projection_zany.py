@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 from firedrake import *
 
-
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
 
@@ -62,6 +61,7 @@ def do_projection(mesh, el_type, degree):
                          [('Johnson-Mercier', 1, 1.8),
                           ('Morley', 2, 2.4),
                           ('PS6', 2, 2.4),
+                          ('PS12',2, 2.4),
                           ('HCT-red', 3, 2.7),
                           ('HCT', 3, 3.7),
                           ('HCT', 4, 4.8),
