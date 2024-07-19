@@ -9,6 +9,7 @@ from ufl import as_ufl, as_tensor
 from finat.ufl import VectorElement
 import finat
 
+import pyop3 as op3
 import pyop2 as op2
 from pyop2 import exceptions
 from pyop2.utils import as_tuple
@@ -26,7 +27,7 @@ from firedrake.petsc import PETSc
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
 
-class BCBase(object):
+class BCBase:
     r'''Implementation of a base class of Dirichlet-like boundary conditions.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -39,36 +40,21 @@ class BCBase(object):
     '''
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
-
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+        if (
+            isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell))
+            or (
+                isinstance(V.finat_element, finat.Hermite)
+                and V.mesh().topological_dimension() > 1
+            )
+        ):
+            raise NotImplementedError(
+                f"Strong BCs not implemented for element {V.finat_element}, use "
+                "Nitsche-type methods until we figure this out"
+            )
+
         self._function_space = V
         self.sub_domain = sub_domain
-        # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
-        # indices.
-        components = []
-        indexing = []
-        indices = []
-        fs = self._function_space
-        while True:
-            # Add index to indices if found
-            if fs.index is not None:
-                indexing.append(fs.index)
-                indices.append(fs.index)
-            if fs.component is not None:
-                components.append(fs.component)
-                indices.append(fs.component)
-            # Now try the parent
-            if fs.parent is not None:
-                fs = fs.parent
-            else:
-                # All done
-                break
-        # Used for indexing functions passed in.
-        self._indices = tuple(reversed(indices))
         # init bcs
         self.bcs = []
         # Remember the depth of the bc
@@ -84,6 +70,13 @@ class BCBase(object):
 
         return self._function_space
 
+    @utils.cached_property
+    def parent_function_space(self):
+        space = self._function_space
+        while space.parent is not None:
+            space = space.parent
+        return space
+
     def function_space_index(self):
         fs = self._function_space
         if fs.component is not None:
@@ -93,82 +86,100 @@ class BCBase(object):
         return fs.index
 
     @utils.cached_property
-    def domain_args(self):
-        r"""The sub_domain the BC applies to."""
-        # Define facet, edge, vertex using tuples:
-        # Ex in 3D:
-        #           user input                                                         returned keys
-        # facet  = ((1, ), )                                  ->     ((2, ((1, ), )), (1, ()),         (0, ()))
-        # edge   = ((1, 2), )                                 ->     ((2, ()),        (1, ((1, 2), )), (0, ()))
-        # vertex = ((1, 2, 4), )                              ->     ((2, ()),        (1, ()),         (0, ((1, 2, 4), ))
-        #
-        # Multiple facets:
-        # (1, 2, 4) := ((1, ), (2, ), (4,))                   ->     ((2, ((1, ), (2, ), (4, ))), (1, ()), (0, ()))
-        #
-        # One facet and two edges:
-        # ((1,), (1, 3), (1, 4))                              ->     ((2, ((1,),)), (1, ((1,3), (1, 4))), (0, ()))
-        #
-
-        sub_d = self.sub_domain
-        # if string, return
-        if isinstance(sub_d, str):
-            return (sub_d, )
-        # convert: i -> (i, )
-        sub_d = as_tuple(sub_d)
-        # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
-        sub_d = [as_tuple(i) for i in sub_d]
-
-        ndim = self.function_space().mesh().topology_dm.getDimension()
-        sd = [[] for _ in range(ndim)]
-        for i in sub_d:
-            sd[ndim - len(i)].append(i)
-        s = []
-        for i in range(ndim):
-            s.append((ndim - 1 - i, as_tuple(sd[i])))
-        return as_tuple(s)
-
-    @utils.cached_property
-    def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
-
-        def hermite_stride(bcnodes):
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
+    def _indices(self):
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
+            if fs.index is not None:
+                indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
+            # Now try the parent
+            if fs.parent is not None:
+                fs = fs.parent
             else:
-                return bcnodes
+                # All done
+                break
+        return tuple(reversed(indices))
 
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
-        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
-        bcnodes = []
-        for s in sub_d:
-            if isinstance(s, str):
-                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
-            else:
-                # s is of one of the following formats:
-                # facet: (i, )
-                # edge: (i, j)
-                # vertex: (i, j, k)
-                # take intersection of facet nodes, and add it to bcnodes
-                # i, j, k can also be strings.
-                bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
-                for ss in s:
-                    # intersection of facets
-                    # Edge conditions have only been tested with Lagrange elements.
-                    # Need to expand the list.
-                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
-                bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
-
+    # TODO: this should return an axis tree instead of a slice - more flexible
     @utils.cached_property
-    def node_set(self):
-        '''The subset corresponding to the nodes at which this
-        boundary condition applies.'''
+    def constrained_points(self):
+        """Return the subset of mesh points constrained by the boundary condition."""
+        # NOTE: This returns facets, whose closure is then used when applying the BC
+        mesh = self._function_space.mesh().topology
+        tdim = mesh.dimension
 
-        return op2.Subset(self._function_space.node_set, self.nodes)
+        # 1D Hermite elements have strange vertex properties, we only want every
+        # other entry
+        if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
+            raise NotImplementedError("TODO, need to have inner slice with stride 2")
+
+        subset_data_per_dim = {
+            dim: [] for dim in range(tdim + 1)
+        }
+
+        if isinstance(self.sub_domain, str):
+            subdomain_ids = ((self.sub_domain,),)
+        else:
+            # bit convoluted
+            subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+
+        # This check should be moved into __init__
+        mesh = self.function_space().mesh().topology
+        valid_markers = set(mesh.interior_facets.unique_markers)
+        valid_markers |= set(mesh.exterior_facets.unique_markers)
+
+        for subdomain_id in subdomain_ids:
+            # subdomain_id is of one of the following formats:
+            # facet: (i,)
+            # edge: (i, j)
+            # vertex: (i, j, k)
+            # i, j, k can also be strings.
+            if (
+                len(subdomain_id) > 1
+                and not isinstance(
+                    self._function_space.finat_element,
+                    (finat.Lagrange, finat.GaussLobattoLegendre)
+                )
+            ):
+                raise TypeError(
+                    "Currently, edge conditions have only been tested with "
+                    "CG Lagrange elements"
+                )
+
+            if len(subdomain_id) > 1:
+                raise NotImplementedError(
+                    "TODO pyop3, need to intersect (see previous `nodes` method)"
+                )
+
+            if subdomain_id not in {("on_boundary",), ("top",), ("bottom",)}:
+                invalid = set(subdomain_id) - valid_markers
+                if invalid:
+                    raise LookupError(f"BC construction got invalid markers {invalid}. "
+                                      f"Valid markers are '{valid_markers}'")
+
+            subsets = mesh.subdomain_points(subdomain_id)
+            for dim, subset_data in subset_data_per_dim.items():
+                subset_data.append(subsets[dim])
+
+        flat_subset_data = {
+            dim: functools.reduce(np.union1d, data)
+            for dim, data in subset_data_per_dim.items()
+        }
+
+        subsets = []
+        for dim, data in flat_subset_data.items():
+            point_label = str(dim)
+            n, = data.shape
+            array = op3.HierarchicalArray(op3.Axis(n), data=data, prefix="subset", dtype=utils.IntType)
+            subset = op3.Subset(point_label, array)
+            subsets.append(subset)
+        return op3.Slice(mesh.points.label, subsets)
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -183,10 +194,11 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        try:
-            r.dat.zero(subset=self.node_set)
-        except exceptions.MapValueError:
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+        if r.function_space() != self._function_space:
+            raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
+
+        r.dat.zero(subset=self.constrained_points)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
@@ -197,10 +209,12 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        if not np.isscalar(val):
+        if isinstance(val, firedrake.Cofunction):
             for idx in self._indices:
                 val = val.sub(idx)
-        r.assign(val, subset=self.node_set)
+        else:
+            assert np.isscalar(val)
+        r.assign(val, subset=self.constrained_points)
 
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
@@ -236,6 +250,15 @@ class BCBase(object):
     def extract_forms(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
+
+    # @utils.cached_property
+    # def nodes(self):
+    #     offsets = []
+    #     parent_space = self.parent_function_space
+    #     for pt in parent_space.axes[self.constrained_points].iter():
+    #         offset = parent_space.axes.offset(pt.target_exprs, path=pt.target_path)
+    #         offsets.append(offset)
+    #     return np.asarray(offsets, dtype=utils.IntType)
 
 
 class DirichletBC(BCBase, DirichletBCMixin):
@@ -438,9 +461,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if u:
                 u = u.sub(idx)
         if u:
-            r.assign(u - self.function_arg, subset=self.node_set)
+            r.assign(u - self.function_arg, subset=self.constrained_points)
         else:
-            r.assign(self.function_arg, subset=self.node_set)
+            r.assign(self.function_arg, subset=self.constrained_points)
 
     def integrals(self):
         return []

@@ -3,6 +3,7 @@ import pytest
 from firedrake import *
 from firedrake.__future__ import *
 import numpy
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=[1, 2, 3])

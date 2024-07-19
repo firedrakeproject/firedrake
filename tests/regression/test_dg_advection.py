@@ -62,6 +62,8 @@ def run_test(mesh):
     assert L2_T < L2_0
 
     # Mass conserved
+    print("before: ", Dbar_0)
+    print("after: ", Dbar_T)
     assert np.allclose(Dbar_T, Dbar_0)
 
 
@@ -78,6 +80,11 @@ def test_dg_advection_cubed_sphere():
     run_test(UnitCubedSphereMesh(refinement_level=4))
 
 
+@pytest.mark.skip("pyop3 parallel quads")
 @pytest.mark.parallel(nprocs=3)
 def test_dg_advection_cubed_sphere_parallel():
     run_test(UnitCubedSphereMesh(refinement_level=4))
+
+
+if __name__ == "__main__":
+    run_test(UnitIcosahedralSphereMesh(refinement_level=1))

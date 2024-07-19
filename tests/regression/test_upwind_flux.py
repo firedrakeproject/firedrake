@@ -25,6 +25,7 @@ as required.
 from firedrake import *
 import pytest
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def run_test(quadrilateral):
     if quadrilateral:

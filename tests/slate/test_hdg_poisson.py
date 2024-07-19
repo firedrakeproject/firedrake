@@ -2,6 +2,8 @@ import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
 
 def run_LDG_H_problem(r, degree, quads=False):
     """

@@ -239,7 +239,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -312,7 +312,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.dat.vec_rw as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors

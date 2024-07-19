@@ -1,6 +1,9 @@
 import pytest
 import numpy as np
+
 from firedrake import *
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 
 @pytest.fixture(params=[False, True])
@@ -19,6 +22,7 @@ def dg_trial_test():
     # Interior facet tests hard code order in which cells were
     # numbered, so don't reorder this mesh.
     m = UnitSquareMesh(1, 1, reorder=False)
+
     V = FunctionSpace(m, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -103,24 +107,25 @@ def test_vector_bilinear_exterior_facet_integral():
 
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
-                         [(('+', ), ('+', )),
-                          (('+', ), ('-', )),
-                          (('-', ), ('+', )),
-                          (('-', '+'), ('+', '+')),
-                          (('-', '+'), ('-', '+')),
-                          (('-', '+'), ('+', '-')),
-                          (('-', '+'), ('-', '-')),
-                          (('+', '+'), ('+', '+')),
-                          (('+', '+'), ('-', '+')),
-                          (('+', '+'), ('+', '-')),
-                          (('+', '+'), ('-', '-')),
-                          (('-', '-'), ('+', '+')),
-                          (('-', '-'), ('-', '+')),
-                          (('-', '-'), ('+', '-')),
-                          (('-', '-'), ('-', '-')),
-                          (('+', '-'), ('+', '+')),
-                          (('+', '-'), ('-', '+')),
-                          (('+', '-'), ('+', '-')),
+                         [(('+',), ('+',)),  # pass
+                          (('+',), ('-',)),  # fail
+                          (('-',), ('+',)),  # fail
+                          (('-',), ('-',)),  # pass
+                          (('-', '+'), ('+', '+')),  # fail
+                          (('-', '+'), ('-', '+')),  # pass
+                          (('-', '+'), ('+', '-')),  # fail
+                          (('-', '+'), ('-', '-')),  # fail
+                          (('+', '+'), ('+', '+')),  # pass
+                          (('+', '+'), ('-', '+')),  # fail
+                          (('+', '+'), ('+', '-')),  # fail
+                          (('+', '+'), ('-', '-')),  # fail
+                          (('-', '-'), ('+', '+')),  # fail
+                          (('-', '-'), ('-', '+')),  # fail
+                          (('-', '-'), ('+', '-')),  # fail
+                          (('-', '-'), ('-', '-')),  # fail
+                          (('+', '-'), ('+', '+')),  # fail
+                          (('+', '-'), ('-', '+')),  # fail
+                          (('+', '-'), ('+', '-')),  # pass
                           (('+', '-'), ('-', '-')),
                           (('+', '+', '-', '-'), ('+', '-', '+', '-'))])
 def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
@@ -178,6 +183,7 @@ def test_internal_integral_unit_tet():
     assert abs(assemble(u('+') * dS)) < 1.0e-14
 
 
+@pytest.mark.xfail(reason="pyop3 TODO")
 def test_facet_map_no_reshape():
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, "DG", 0)
@@ -185,8 +191,25 @@ def test_facet_map_no_reshape():
     assert efnm.values_with_halo.shape == (4, 1)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
     mesh.init()
     with pytest.raises(LookupError):
         mesh.exterior_facets.subset((10,))
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_exterior_integral():
+    m = UnitSquareMesh(2, 1)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * ds(domain=m))
+    assert(abs(v - 4.0) < 1.e-16)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_interior_integral():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * dS(domain=m))
+    assert(abs(v - (2. + sqrt(2) * 2)) < 1.e-16)

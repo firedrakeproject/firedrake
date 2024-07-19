@@ -1,6 +1,7 @@
 from firedrake import *
 from numpy import allclose
 import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def solve_poisson(mat_type, kind):

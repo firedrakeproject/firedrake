@@ -248,14 +248,14 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     for tsfc_loopy in tsfc_kernels:
         slate_wrapper = merge([slate_wrapper, tsfc_loopy])
         names = tsfc_loopy.callables_table
-        for name in names:
-            if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-                slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+        # for name in names:
+        #     if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+        #         slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
     slate_wrapper = merge([slate_wrapper, slate_loopy])
     names = slate_loopy.callables_table
-    for name in names:
-        if isinstance(slate_wrapper.callables_table[name], CallableKernel):
-            slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
+    # for name in names:
+    #     if isinstance(slate_wrapper.callables_table[name], CallableKernel):
+    #         slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
 
     events = tsfc_events + (slate_wrapper_event, slate_init_event) if PETSc.Log.isActive() else ()
     return slate_wrapper, tuple(kernel_args), events

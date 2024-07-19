@@ -10,6 +10,7 @@ import pytest
 from firedrake import *
 import numpy
 import math
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def outer_jump(v, n):

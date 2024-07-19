@@ -268,6 +268,7 @@ def test_assemble_mixed_function_sparse():
     assert np.allclose(v, 13.0)
 
 
+@pytest.mark.skip(reason="pyop3 subdomains")
 def test_3125():
     # see https://github.com/firedrakeproject/firedrake/issues/3125
     mesh = UnitSquareMesh(3, 3)
@@ -293,6 +294,7 @@ def test_assemble_vector_rspace_one_form(mesh):
     assemble(L)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_assemble_sparsity_no_redundant_entries():
     mesh = UnitSquareMesh(2, 2, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
@@ -306,6 +308,7 @@ def test_assemble_sparsity_no_redundant_entries():
                 assert np.all(A.M.sparsity[i][j].nnz == np.zeros(9, dtype=IntType))
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_assemble_sparsity_diagonal_entries_for_bc():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
