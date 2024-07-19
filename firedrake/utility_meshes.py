@@ -989,7 +989,7 @@ def PeriodicRectangleMesh(
     x, y, z = SpatialCoordinate(m)
     eps = 1.e-14
     indicator_y = Function(FunctionSpace(m, coord_family, 0))
-    indicator_y.interpolate(conditional(real(y), 0), 0., 1.))
+    indicator_y.interpolate(conditional(gt(real(y), 0), 0., 1.))
     x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
     x_coord.interpolate(
         # Periodic break.
@@ -1000,7 +1000,7 @@ def PeriodicRectangleMesh(
     phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
     dr = dot(as_vector((x, y))-phi_coord, phi_coord)
     indicator_z = Function(FunctionSpace(m, coord_family, 0))
-    indicator_z.interpolate(conditional(real(z), 0), 0., 1.))
+    indicator_z.interpolate(conditional(gt(real(z), 0), 0., 1.))
     new_coordinates.interpolate(as_vector((
         x_coord * Lx,
         # Periodic break.
