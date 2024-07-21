@@ -73,9 +73,6 @@ class GenericSolveBlock(Block):
         self.add_dependency(mesh)
         self._init_solver_parameters(args, kwargs)
 
-    @property
-    def func(self):
-        return self._func()
 
     def _init_solver_parameters(self, args, kwargs):
         self.forward_args = kwargs.pop("forward_args", [])
