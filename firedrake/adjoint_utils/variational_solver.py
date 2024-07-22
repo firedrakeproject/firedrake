@@ -2,8 +2,6 @@ import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
-from firedrake import Cofunction, Function, LinearVariationalProblem, \
-    LinearVariationalSolver, NonlinearVariationalProblem
 from ufl import replace
 
 
@@ -62,6 +60,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
+            from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -79,7 +78,7 @@ class NonlinearVariationalSolverMixin:
                                                        solver_kwargs=self._ad_kwargs,
                                                        ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
-                # Forward solver.
+                # Forward variational solver.
                 if not self._ad_nlvs:
                     self._ad_nlvs = type(self)(
                         self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
@@ -88,18 +87,14 @@ class NonlinearVariationalSolverMixin:
 
                 block._ad_nlvs = self._ad_nlvs
 
-                # Adjoint solver.
+                # Adjoint variational Solver.
                 with stop_annotating():
                     if not self._ad_adj_varsolver:
-                        self._ad_dJdu = Cofunction(problem._ad_u.function_space().dual())
-                        adj_sol = Function(self._ad_problem._ad_u.function_space())
-                        problem = LinearVariationalProblem(
-                            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol)
+                        problem = self._ad_create_lvs_problem(
+                            problem._ad_u.function_space(), block.get_dependencies())
                         self._ad_adj_varsolver = LinearVariationalSolver(
                             problem, solver_parameters=self.parameters)
-                    else:
-                        adj_sol = self._ad_adj_varsolver._ad_problem.u
-                
+
                 block._ad_dJdu = self._ad_dJdu
                 block._ad_adj_varsolver = self._ad_adj_varsolver
 
@@ -123,6 +118,40 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
+        from firedrake import NonlinearVariationalProblem
+        _ad_count_map, F_replace_map, J_replace_map = self._build_count_map(
+            problem, dependencies)
+        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
+                                           F_replace_map[problem.u_restrict],
+                                           bcs=problem.bcs,
+                                           J=replace(problem.J, J_replace_map))
+        nlvp._constant_jacobian = problem._constant_jacobian
+        nlvp._ad_count_map_update(_ad_count_map)
+        return nlvp
+
+    @no_annotations
+    def _ad_create_lvs_problem(self, fwd_func_space, dependencies):
+        """Creates a LinearVariationalProblem instance for the adjoint variational problem."""
+        from firedrake import Cofunction, Function, LinearVariationalProblem, NonlinearVariationalProblem
+
+        self._ad_dJdu = Cofunction(fwd_func_space.dual())
+        adj_sol = Function(fwd_func_space)
+        tmp_problem = LinearVariationalProblem(
+            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol,
+            bcs=self._ad_problem._ad_bcs)
+        _ad_count_map, F_replace_map, J_replace_map = self._build_count_map(
+            tmp_problem, dependencies)
+        # lvp = LinearVariationalProblem(
+        #     replace(tmp_problem.J, J_replace_map),
+        #     self._ad_dJdu,
+        #     adj_sol,
+        #     bcs=tmp_problem.bcs)
+        # lvp._ad_count_map_update(_ad_count_map)
+        return tmp_problem
+
+    def _build_count_map(self, problem, dependencies):
+        from firedrake import Function
+
         F_replace_map = {}
         J_replace_map = {}
 
@@ -147,11 +176,4 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
-
-        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u_restrict],
-                                           bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
-        nlvp._constant_jacobian = problem._constant_jacobian
-        nlvp._ad_count_map_update(_ad_count_map)
-        return nlvp
+        return _ad_count_map, F_replace_map, J_replace_map
