@@ -631,10 +631,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
     
     def _adjoint_solve(self, dJdu, adj_sol):
-        # self._ad_adj_lvs_replace_jacobian()
+        self._ad_adj_lvs_replace_jacobian()
         self._ad_adj_varsolver.parameters.update(self.solver_params)
         # Replace right-hand side with dJdu.
-        self._ad_dJdu.dat.data[:] = 0.0
+        self._ad_dJdu.assign(dJdu)
         self._ad_adj_varsolver.solve()
         adj_sol.assign(self._ad_adj_varsolver._problem.u)
         return adj_sol
@@ -694,19 +694,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         F_form = self._create_F_form()
 
-        # dFdu_form = self.adj_F
         dJdu = dJdu.copy()
-
-        # Replace the form coefficients with checkpointed values.
-        # replace_map = self._replace_map(dFdu_form)
-        # replace_map[self.func] = self.get_outputs()[0].saved_output
-        # dFdu_form = replace(dFdu_form, replace_map)
 
         # compute_bdy = self._should_compute_boundary_adjoint(
         #     relevant_dependencies
-        # )
-        # adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-        #     dFdu_form, dJdu, compute_bdy
         # )
         adj_sol = firedrake.Function(self.function_space)
         self.adj_sol = self._adjoint_solve(dJdu, adj_sol)
