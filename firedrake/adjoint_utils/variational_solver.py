@@ -2,6 +2,8 @@ import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake import Cofunction, Function, LinearVariationalProblem, \
+    LinearVariationalSolver, NonlinearVariationalProblem
 from ufl import replace
 
 
@@ -47,6 +49,8 @@ class NonlinearVariationalSolverMixin:
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
             self._ad_adj_cache = {}
+            self._ad_adj_varsolver = None
+            self._ad_dJdu = None
 
         return wrapper
 
@@ -58,7 +62,6 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -76,6 +79,7 @@ class NonlinearVariationalSolverMixin:
                                                        solver_kwargs=self._ad_kwargs,
                                                        ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
+                # Forward solver.
                 if not self._ad_nlvs:
                     self._ad_nlvs = type(self)(
                         self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
@@ -83,6 +87,22 @@ class NonlinearVariationalSolverMixin:
                     )
 
                 block._ad_nlvs = self._ad_nlvs
+
+                # Adjoint solver.
+                with stop_annotating():
+                    if not self._ad_adj_varsolver:
+                        self._ad_dJdu = Cofunction(problem._ad_u.function_space().dual())
+                        adj_sol = Function(self._ad_problem._ad_u.function_space())
+                        problem = LinearVariationalProblem(
+                            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol)
+                        self._ad_adj_varsolver = LinearVariationalSolver(
+                            problem, solver_parameters=self.parameters)
+                    else:
+                        adj_sol = self._ad_adj_varsolver._ad_problem.u
+                
+                block._ad_dJdu = self._ad_dJdu
+                block._ad_adj_varsolver = self._ad_adj_varsolver
+
                 tape.add_block(block)
 
             with stop_annotating():
@@ -103,7 +123,6 @@ class NonlinearVariationalSolverMixin:
         affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
         expressions, we'll instead create clones of them.
         """
-        from firedrake import Function, NonlinearVariationalProblem
         F_replace_map = {}
         J_replace_map = {}
 
