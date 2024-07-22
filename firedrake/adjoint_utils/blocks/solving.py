@@ -631,7 +631,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
     
     def _adjoint_solve(self, dJdu, adj_sol):
-        self._ad_adj_lvs_replace_jacobian()
+        # self._ad_adj_lvs_replace_jacobian()
         self._ad_adj_varsolver.parameters.update(self.solver_params)
         # Replace right-hand side with dJdu.
         self._ad_dJdu.assign(dJdu)
