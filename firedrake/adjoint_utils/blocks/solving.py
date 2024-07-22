@@ -49,7 +49,7 @@ class GenericSolveBlock(Block):
         # Equation RHS
         self.rhs = rhs
         # Solution function
-        self._func = weakref.ref(func)
+        self.func = func
         self.function_space = self.func.function_space()
         # Boundary conditions
         self.bcs = []
@@ -671,7 +671,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
-<<<<<<< HEAD
     def _ad_adj_lvs_replace_jacobian(self):
         # Is this the correct way?
         problem = self._ad_adj_varsolver._problem
@@ -686,8 +685,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 
-=======
->>>>>>> a0a5ead0d (wip)
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
 

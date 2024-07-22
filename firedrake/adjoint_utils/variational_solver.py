@@ -176,14 +176,5 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
-<<<<<<< HEAD
-        return _ad_count_map, F_replace_map, J_replace_map
-=======
 
-        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u_restrict],
-                                           bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
-        nlvp._ad_count_map_update(_ad_count_map)
-        return nlvp
->>>>>>> a0a5ead0d (wip)
+        return _ad_count_map, F_replace_map, J_replace_map
