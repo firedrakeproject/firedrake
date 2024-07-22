@@ -28,7 +28,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
-from firedrake.utils import IntType, RealType
+from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import (
@@ -2276,12 +2276,13 @@ values from f.)"""
         try:
             return cache[tolerance]
         except KeyError:
+            IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
+                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints)
                 {{
-                    size_t j = 0;  /* index into x and X */
-                    for(size_t i=0; i<npoints; i++) {{
+                    {IntTypeC} j = 0;  /* index into x and X */
+                    for({IntTypeC} i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
 
                         /* The type definitions and arguments used here are defined as
