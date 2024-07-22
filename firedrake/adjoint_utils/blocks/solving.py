@@ -629,12 +629,28 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_nlvs.solve()
         func.assign(self._ad_nlvs._problem.u)
         return func
+    
+    def _adjoint_solve(self, dJdu, adj_sol):
+        # self._ad_adj_lvs_replace_jacobian()
+        self._ad_adj_varsolver.parameters.update(self.solver_params)
+        # Replace right-hand side with dJdu.
+        self._ad_dJdu.dat.data[:] = 0.0
+        self._ad_adj_varsolver.solve()
+        adj_sol.assign(self._ad_adj_varsolver._problem.u)
+        return adj_sol
 
-    def _ad_assign_map(self, form):
-        count_map = self._ad_nlvs._problem._ad_count_map
+    def _ad_assign_map(self, form, count_map):
         assign_map = {}
-        form_ad_count_map = dict((count_map[coeff], coeff)
-                                 for coeff in form.coefficients())
+        # form_ad_count_map = dict((count_map[coeff], coeff)
+        #                          for coeff in form.coefficients())
+        form_ad_count_map = dict()
+        for coeff in form.coefficients():
+            if coeff != self._ad_dJdu and coeff != self._ad_adj_varsolver._problem.u:
+                form_ad_count_map[count_map[coeff]] = coeff
+                # dict((count_map[coeff], coeff))
+                # form_ad_count_map[count_map[coeff]] = count_map[coeff]
+                # dict((count_map[coeff], coeff))
+
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
             if isinstance(coeff,
@@ -646,8 +662,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                         block_variable.saved_output
         return assign_map
 
-    def _ad_assign_coefficients(self, form):
-        assign_map = self._ad_assign_map(form)
+    def _ad_assign_coefficients(self, form, solver_mode="forward"):
+        if solver_mode == "forward":
+            count_map = self._ad_nlvs._problem._ad_count_map
+        else:
+            count_map = self._ad_adj_varsolver._problem._ad_count_map
+        assign_map = self._ad_assign_map(form, count_map)
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
@@ -655,6 +675,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
+
+    def _ad_adj_lvs_replace_jacobian(self):
+        problem = self._ad_adj_varsolver._problem
+        self._ad_assign_coefficients(problem.J, solver_mode="adjoint")
 
     def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
         if "dFdu_adj" in self._adj_cache:
@@ -670,30 +694,31 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         F_form = self._create_F_form()
 
-        dFdu_form = self.adj_F
+        # dFdu_form = self.adj_F
         dJdu = dJdu.copy()
 
         # Replace the form coefficients with checkpointed values.
-        replace_map = self._replace_map(dFdu_form)
-        replace_map[self.func] = self.get_outputs()[0].saved_output
-        dFdu_form = replace(dFdu_form, replace_map)
+        # replace_map = self._replace_map(dFdu_form)
+        # replace_map[self.func] = self.get_outputs()[0].saved_output
+        # dFdu_form = replace(dFdu_form, replace_map)
 
-        compute_bdy = self._should_compute_boundary_adjoint(
-            relevant_dependencies
-        )
-        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-            dFdu_form, dJdu, compute_bdy
-        )
-        self.adj_sol = adj_sol
+        # compute_bdy = self._should_compute_boundary_adjoint(
+        #     relevant_dependencies
+        # )
+        # adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
+        #     dFdu_form, dJdu, compute_bdy
+        # )
+        adj_sol = firedrake.Function(self.function_space)
+        self.adj_sol = self._adjoint_solve(dJdu, adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
-        if self.adj_bdy_cb is not None and compute_bdy:
-            self.adj_bdy_cb(adj_sol_bdy)
+        # if self.adj_bdy_cb is not None and compute_bdy:
+        #     self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
         r["form"] = F_form
         r["adj_sol"] = adj_sol
-        r["adj_sol_bdy"] = adj_sol_bdy
+        r["adj_sol_bdy"] = None
         return r
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
@@ -744,7 +769,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        dFdm = ufl.Action(dFdm, adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
