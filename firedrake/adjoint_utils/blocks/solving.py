@@ -631,7 +631,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
     
     def _adjoint_solve(self, dJdu, adj_sol):
-        # self._ad_adj_lvs_replace_jacobian()
+        self._ad_adj_lvs_replace_jacobian()
         self._ad_adj_varsolver.parameters.update(self.solver_params)
         # Replace right-hand side with dJdu.
         self._ad_dJdu.assign(dJdu)
@@ -641,15 +641,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _ad_assign_map(self, form, count_map):
         assign_map = {}
-        # form_ad_count_map = dict((count_map[coeff], coeff)
-        #                          for coeff in form.coefficients())
         form_ad_count_map = dict()
         for coeff in form.coefficients():
-            if coeff != self._ad_dJdu and coeff != self._ad_adj_varsolver._problem.u:
+            if (
+                coeff != self._ad_dJdu
+                and coeff != self._ad_adj_varsolver._problem.u):
                 form_ad_count_map[count_map[coeff]] = coeff
-                # dict((count_map[coeff], coeff))
-                # form_ad_count_map[count_map[coeff]] = count_map[coeff]
-                # dict((count_map[coeff], coeff))
 
         for block_variable in self.get_dependencies():
             coeff = block_variable.output
@@ -677,6 +674,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.J)
 
     def _ad_adj_lvs_replace_jacobian(self):
+        # Is this the correct way?
         problem = self._ad_adj_varsolver._problem
         self._ad_assign_coefficients(problem.J, solver_mode="adjoint")
 
