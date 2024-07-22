@@ -137,17 +137,16 @@ class NonlinearVariationalSolverMixin:
         self._ad_dJdu = Cofunction(fwd_func_space.dual())
         adj_sol = Function(fwd_func_space)
         tmp_problem = LinearVariationalProblem(
-            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol,
-            bcs=self._ad_problem._ad_bcs)
+            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol)
         _ad_count_map, F_replace_map, J_replace_map = self._build_count_map(
             tmp_problem, dependencies)
-        # lvp = LinearVariationalProblem(
-        #     replace(tmp_problem.J, J_replace_map),
-        #     self._ad_dJdu,
-        #     adj_sol,
-        #     bcs=tmp_problem.bcs)
-        # lvp._ad_count_map_update(_ad_count_map)
-        return tmp_problem
+        lvp = LinearVariationalProblem(
+            replace(tmp_problem.J, J_replace_map),
+            self._ad_dJdu,
+            adj_sol,
+            bcs=tmp_problem.bcs)
+        lvp._ad_count_map_update(_ad_count_map)
+        return lvp
 
     def _build_count_map(self, problem, dependencies):
         from firedrake import Function
