@@ -53,6 +53,8 @@ supported_elements = {
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
     "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
+    "QuadraticPowellSabin6": finat.QuadraticPowellSabin6,
+    "QuadraticPowellSabin12": finat.QuadraticPowellSabin12,
     "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Morley": finat.Morley,
