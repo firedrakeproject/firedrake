@@ -3,13 +3,14 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
-from pyadjoint.tape import stop_annotating, annotate_tape
+from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
@@ -198,8 +199,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
+                if subset is not None:
+                    raise NotImplementedError("Cofunction subset assignment "
+                                              "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
                 self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
+                get_working_tape().add_block(
+                    CofunctionAssignBlock(self, expr)
+                )
+
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
