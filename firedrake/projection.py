@@ -2,8 +2,10 @@ import abc
 import ufl
 import finat.ufl
 from ufl.domain import extract_unique_domain
+from typing import Optional, Union
 
 import firedrake
+from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
@@ -49,34 +51,55 @@ def check_meshes(source, target):
 @PETSc.Log.EventDecorator()
 @annotate_project
 def project(
-    v, V, bcs=None,
-    solver_parameters=None,
-    form_compiler_parameters=None,
-    use_slate_for_inverse=True,
-    quadrature_degree=None,
-    name=None,
-    ad_block_tag=None
-):
-    """Project a UFL expression into a :class:`.FunctionSpace`
+    v: ufl.core.expr.Expr,
+    V: Union[firedrake.functionspaceimpl.FunctionSpace, firedrake.Function],
+    bcs: Optional[BCBase] = None,
+    solver_parameters: Optional[dict] = None,
+    form_compiler_parameters: Optional[dict] = None,
+    use_slate_for_inverse: Optional[bool] = True,
+    quadrature_degree: Optional[int] = None,
+    name: Optional[str] = None,
+    ad_block_tag: Optional[str] = None
+) -> firedrake.Function:
+    """Project a UFL expression into a :class:`.FunctionSpace` .
+
+    Parameters
+    ----------
+    v
+        The :class:`ufl.core.expr.Expr` to project.
+    V
+        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+    bcs
+        Boundary conditions to apply in the projection.
+    solver_parameters
+        Parameters to pass to the solver used when projecting.
+    form_compiler_parameters
+        Parameters to the form compiler.
+    use_slate_for_inverse
+        Compute mass inverse cell-wise using SLATE (ignored for non-DG
+        function spaces).
+    name
+        The name of the resulting :class:`.Function`.
+    ad_block_tag
+        String for tagging the resulting block on the Pyadjoint tape.
+
+    Returns
+    -------
+    firedrake.function.Function
+        The :class:`.Function` on the new :class:`.FunctionSpace`.
+
+    Notes
+    -----
+
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    :arg v: the :class:`ufl.core.expr.Expr` to project
-    :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
-    :kwarg bcs: boundary conditions to apply in the projection
-    :kwarg solver_parameters: parameters to pass to the solver used when
-         projecting.
-    :kwarg form_compiler_parameters: parameters to the form compiler
-    :kwarg use_slate_for_inverse: compute mass inverse cell-wise using
-         SLATE (ignored for non-DG function spaces).
-    :kwarg name: name of the resulting :class:`.Function`
-    :kwarg ad_block_tag: string for tagging the resulting block on the Pyadjoint tape
+    If ``V`` is a :class:`.Function` then ``v`` is projected into ``V``
+    and ``V`` is returned. If `V` is a :class:`.FunctionSpace` then
+    ``v`` is projected into a new :class:`.Function` and that
+    :class:`.Function` is returned.
 
-    If ``V`` is a :class:`.Function` then ``v`` is projected into
-    ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
-    then ``v`` is projected into a new :class:`.Function` and that
-    :class:`.Function` is returned."""
-
+    """
     val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
                     form_compiler_parameters=form_compiler_parameters,
                     use_slate_for_inverse=use_slate_for_inverse).project()
