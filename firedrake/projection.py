@@ -48,12 +48,15 @@ def check_meshes(source, target):
 
 @PETSc.Log.EventDecorator()
 @annotate_project
-def project(v, V, bcs=None,
-            solver_parameters=None,
-            form_compiler_parameters=None,
-            use_slate_for_inverse=True,
-            name=None,
-            ad_block_tag=None):
+def project(
+    v, V, bcs=None,
+    solver_parameters=None,
+    form_compiler_parameters=None,
+    use_slate_for_inverse=True,
+    quadrature_degree=None,
+    name=None,
+    ad_block_tag=None
+):
     """Project a UFL expression into a :class:`.FunctionSpace`
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
@@ -92,9 +95,11 @@ class Assigner(object):
 
 
 class ProjectorBase(object, metaclass=abc.ABCMeta):
-    def __init__(self, source, target, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, constant_jacobian=True,
-                 use_slate_for_inverse=True):
+    def __init__(
+        self, source, target, bcs=None, solver_parameters=None,
+        form_compiler_parameters=None, constant_jacobian=True,
+        use_slate_for_inverse=True, quadrature_degree=None
+    ):
         if solver_parameters is None:
             solver_parameters = {}
         else:
@@ -127,6 +132,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             is_variable_layers = True
         self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
                                       and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+        self.quadrature_degree = quadrature_degree
 
     @cached_property
     def A(self):
@@ -136,16 +142,20 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
         if not mixed and isinstance(F.finat_element, HDivTrace):
             if F.extruded:
-                a = (firedrake.inner(u, v)*firedrake.ds_t
-                     + firedrake.inner(u, v)*firedrake.ds_v
-                     + firedrake.inner(u, v)*firedrake.ds_b
-                     + firedrake.inner(u('+'), v('+'))*firedrake.dS_h
-                     + firedrake.inner(u('+'), v('+'))*firedrake.dS_v)
+                a = (
+                    firedrake.inner(u, v)*firedrake.ds_t(degree=self.quadrature_degree)
+                    + firedrake.inner(u, v)*firedrake.ds_v(degree=self.quadrature_degree)
+                    + firedrake.inner(u, v)*firedrake.ds_b(degree=self.quadrature_degree)
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_h(degree=self.quadrature_degree)
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_v(degree=self.quadrature_degree)
+                )
             else:
-                a = (firedrake.inner(u, v)*firedrake.ds
-                     + firedrake.inner(u('+'), v('+'))*firedrake.dS)
+                a = (
+                    firedrake.inner(u, v)*firedrake.ds(degree=self.quadrature_degree)
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS(degree=self.quadrature_degree)
+                )
         else:
-            a = firedrake.inner(u, v)*firedrake.dx
+            a = firedrake.inner(u, v)*firedrake.dx(degree=self.quadrature_degree)
         if self.use_slate_for_inverse:
             a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
@@ -203,17 +213,21 @@ class BasicProjector(ProjectorBase):
             # FIXME The restrictions of cg onto the facets is also a trace space,
             # but we only cover DGT.
             if F.extruded:
-                form = (firedrake.inner(self.source, v)*firedrake.ds_t
-                        + firedrake.inner(self.source, v)*firedrake.ds_v
-                        + firedrake.inner(self.source, v)*firedrake.ds_b
-                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_h
-                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_v)
+                form = (
+                    firedrake.inner(self.source, v)*firedrake.ds_t(degree=self.quadrature_degree)
+                    + firedrake.inner(self.source, v)*firedrake.ds_v(degree=self.quadrature_degree)
+                    + firedrake.inner(self.source, v)*firedrake.ds_b(degree=self.quadrature_degree)
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_h(degree=self.quadrature_degree)
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_v(degree=self.quadrature_degree)
+                )
             else:
-                form = (firedrake.inner(self.source, v)*firedrake.ds
-                        + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS)
+                form = (
+                    firedrake.inner(self.source, v)*firedrake.ds(degree=self.quadrature_degree)
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS(degree=self.quadrature_degree)
+                )
 
         else:
-            form = firedrake.inner(self.source, v)*firedrake.dx
+            form = firedrake.inner(self.source, v)*firedrake.dx(degree=self.quadrature_degree)
         return form
 
     @cached_property
@@ -243,9 +257,11 @@ class SupermeshProjector(ProjectorBase):
 
 
 @PETSc.Log.EventDecorator()
-def Projector(v, v_out, bcs=None, solver_parameters=None,
-              form_compiler_parameters=None, constant_jacobian=True,
-              use_slate_for_inverse=False):
+def Projector(
+    v, v_out, bcs=None, solver_parameters=None,
+    form_compiler_parameters=None, constant_jacobian=True,
+    use_slate_for_inverse=False, quadrature_degree=None
+):
     """
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -276,16 +292,22 @@ def Projector(v, v_out, bcs=None, solver_parameters=None,
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
     elif source_mesh == target_mesh:
-        return BasicProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
-                              form_compiler_parameters=form_compiler_parameters,
-                              constant_jacobian=constant_jacobian,
-                              use_slate_for_inverse=use_slate_for_inverse)
+        return BasicProjector(
+            source, target, bcs=bcs, solver_parameters=solver_parameters,
+            form_compiler_parameters=form_compiler_parameters,
+            constant_jacobian=constant_jacobian,
+            use_slate_for_inverse=use_slate_for_inverse,
+            quadrature_degree=quadrature_degree
+        )
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
         if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
-        return SupermeshProjector(source, target, bcs=bcs, solver_parameters=solver_parameters,
-                                  form_compiler_parameters=form_compiler_parameters,
-                                  constant_jacobian=constant_jacobian,
-                                  use_slate_for_inverse=use_slate_for_inverse)
+        return SupermeshProjector(
+            source, target, bcs=bcs, solver_parameters=solver_parameters,
+            form_compiler_parameters=form_compiler_parameters,
+            constant_jacobian=constant_jacobian,
+            use_slate_for_inverse=use_slate_for_inverse,
+            quadrature_degree=quadrature_degree
+        )
