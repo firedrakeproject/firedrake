@@ -109,9 +109,9 @@ The basic input for the FWI problem are defined as follows::
 
     import numpy as np
     source_locations = np.linspace((0.3, 0.1), (0.7, 0.1), num_sources)
-    receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 10)
-    dt = 0.002  # time step
-    final_time = 0.8  # final time in seconds
+    receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 20)
+    dt = 0.002  # time step in seconds
+    final_time = 1.0  # final time in seconds
     frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
 
 Sources and receivers locations are illustrated in the following figure:
@@ -131,10 +131,10 @@ circle in the centre of the domain, as shown in the following code cell::
 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
-    c_true = Function(V).interpolate(2.5 + 1 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
+    c_true = Function(V).interpolate(1.75 + 0.25 * tanh(200 * (0.125 - sqrt((x - 0.5) ** 2 + (z - 0.5) ** 2))))
 
 .. image:: c_true.png
-    :scale: 70 %
+    :scale: 30 %
     :alt: true velocity model
     :align: center
 
@@ -240,11 +240,11 @@ Next, the FWI problem is executed with the following steps:
 
 **Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s::
 
-    c_guess = Function(V).assign(1.5)
+    c_guess = Function(V).interpolate(1.5)
 
 
 .. image:: c_initial.png
-    :scale: 70 %
+    :scale: 30 %
     :alt: initial velocity model
     :align: center
 
@@ -282,14 +282,14 @@ based on the ``my_ensemble`` configuration.
 is then passed as an argument to the ``minimize`` function::
 
     c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
-                            bounds=(1.5, 3.5), derivative_options={"riesz_representation": 'l2'}
+                            bounds=(1.5, 2.0), derivative_options={"riesz_representation": 'l2'}
                             )
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
-For 10 iterations, the predicted velocity model is shown in the following figure.
+For 20 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
-    :scale: 70 %
+    :scale: 30 %
     :alt: optimised velocity model
     :align: center
 
