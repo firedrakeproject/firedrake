@@ -326,7 +326,7 @@ honoured.""",
                         help="Install the dependencies required to build the documentation")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
+    parser.add_argument("--with-blas", default=(None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
                         help="Install NGSolve/Netgen and ngsPETSc.")
@@ -434,7 +434,7 @@ else:
                         help="Print out the package manager used and packages installed/required.")
     parser.add_argument("--remove-build-files", action="store_true",
                         help="Cleans up build artefacts from Firedrake venv. Unless you really cannot spare the disk space, this option is not recommended")
-    parser.add_argument("--with-blas", default=("download" if osname == "Darwin" else None),
+    parser.add_argument("--with-blas", default=(None),
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
@@ -1261,7 +1261,6 @@ def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
                 cmd = [
                     "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
                     "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                    "-DCMAKE_CXX_FLAGS=-std=c++11",
                     "-DMPI_C_COMPILER=" + cc,
                     "-DMPI_CXX_COMPILER=" + cxx,
                     "-DMPI_Fortran_COMPILER=" + f90,
