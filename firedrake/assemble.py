@@ -1162,8 +1162,8 @@ class ZeroFormAssembler(ParloopFormAssembler):
         return
 
     @FormAssembler._skip_if_initialised
-    def __init__(self, form, form_compiler_parameters=None):
-        super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters)
+    def __init__(self, form, form_compiler_parameters=None, pyop3_compiler_parameters=None):
+        super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=None)
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward

@@ -162,7 +162,15 @@ class TSFCKernel(Cached):
             constant_numbers_per_kernel = constant_numbers
 
             events = (kernel.event,)
-            pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
+
+            ast = kernel.ast
+            if parameters.get("add_likwid_markers", False):
+                from pyop3.ir.transform import add_likwid_markers
+
+                ep = add_likwid_markers(ast.default_entrypoint)
+                ast = ast.with_kernel(ep)
+
+            pyop2_kernel = as_pyop2_local_kernel(ast, kernel.name,
                                                  len(kernel.arguments),
                                                  flop_count=kernel.flop_count,
                                                  events=events)

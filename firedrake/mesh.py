@@ -1082,11 +1082,12 @@ class AbstractMeshTopology(abc.ABC):
 
         return fiat_closures
 
-    def star(self, index):
-        return self._star(index)
+    def star(self, index, *, k=None):
+        return self._star(k=k)(index)
 
-    @cached_property
-    def _star(self):
+    # TODO: restore caching here
+    # @cached_property
+    def _star(self, *, k):
         def star_func(pt):
             return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
 
@@ -1100,6 +1101,9 @@ class AbstractMeshTopology(abc.ABC):
             for map_dim, (size, data) in enumerate(
                 checked_zip(sizes, map_data)
             ):
+                if k is not None and k != map_dim:
+                    continue
+
                 outer_axis = self.points[str(dim)].root
                 size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
                 inner_axis = op3.Axis(size_dat)
