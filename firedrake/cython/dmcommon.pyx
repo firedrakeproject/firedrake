@@ -3655,7 +3655,6 @@ def submesh_create(PETSc.DM dm,
     CHKERR(DMPlexFilter(dm.dm, label.dmlabel, label_value, PETSC_FALSE, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
-    subdm.clearLabelStratum(label_name, label_value)
     return subdm
 
 
