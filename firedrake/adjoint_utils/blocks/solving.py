@@ -650,11 +650,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                                 firedrake.Cofunction)):
                             problem.J.coefficients()[index].assign(
                                 block_variable.checkpoint)
-                    elif isinstance(
-                        block_variable.checkpoint, DelegatedFunctionCheckpoint
-                    ):
-                        problem.J.coefficients()[index].assign(
-                            block_variable.checkpoint.restore())
+                        elif isinstance(
+                            block_variable.checkpoint, DelegatedFunctionCheckpoint
+                        ):
+                            problem.J.coefficients()[index].assign(
+                                block_variable.checkpoint.restore())
+                    index += 1
 
         bv = self.get_outputs()[0]
         if bv.output in self.adj_F.coefficients():

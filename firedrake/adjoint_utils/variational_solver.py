@@ -107,7 +107,7 @@ class NonlinearVariationalSolverMixin:
                 # Eagerly checkpoint the outputs. This is necessary for the
                 # for the adjoint solver to work correctly. The adjoint solver
                 # will always use the checkpoint forward coefficients.
-                # tape._eagerly_checkpoint_outputs = True
+                tape._eagerly_checkpoint_outputs = True
                 block.add_output(self._ad_problem._ad_u.create_block_variable())
 
             return out
