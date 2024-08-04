@@ -87,11 +87,11 @@ class NonlinearVariationalSolverMixin:
 
                 block._ad_nlvs = self._ad_nlvs
 
-                # Adjoint variational Solver.
+                # Adjoint variational solver.
                 with stop_annotating():
                     if not self._ad_adj_varsolver:
                         problem = self._ad_create_lvs_problem(
-                            problem._ad_u.function_space(), block.get_dependencies())
+                            problem._ad_u.function_space(), block)
                         self._ad_adj_varsolver = LinearVariationalSolver(
                             problem, solver_parameters=self.parameters)
 
@@ -104,6 +104,11 @@ class NonlinearVariationalSolverMixin:
                 out = solve(self, **kwargs)
 
             if annotate:
+                # Eagerly checkpoint the outputs. This is necessary for the
+                # for the adjoint solver to work correctly. The adjoint solver
+                # will always use the checkpoint forward coefficients.
+                # tape._eagerly_checkpoint_outputs = True
+                tape._eagerly_checkpoint_outputs = True
                 block.add_output(self._ad_problem._ad_u.create_block_variable())
 
             return out
@@ -125,27 +130,32 @@ class NonlinearVariationalSolverMixin:
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
                                            J=replace(problem.J, J_replace_map))
+        nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
         return nlvp
 
     @no_annotations
-    def _ad_create_lvs_problem(self, fwd_func_space, dependencies):
+    def _ad_create_lvs_problem(self, fwd_func_space, block):
         """Creates a LinearVariationalProblem instance for the adjoint variational problem."""
-        from firedrake import Cofunction, Function, LinearVariationalProblem, NonlinearVariationalProblem
+        from firedrake import Cofunction, Function, LinearVariationalProblem
 
         self._ad_dJdu = Cofunction(fwd_func_space.dual())
         adj_sol = Function(fwd_func_space)
+        # Homogeneous boundary conditions for the adjoint problem
+        # when Dirichlet boundary conditions are applied.
+        bcs = block._homogenize_bcs()
         tmp_problem = LinearVariationalProblem(
-            self._ad_problem._ad_adj_F, self._ad_dJdu, adj_sol)
-        _ad_count_map, F_replace_map, J_replace_map = self._build_count_map(
-            tmp_problem, dependencies)
+            block.adj_F, self._ad_dJdu, adj_sol, bcs=bcs)
+        _ad_count_map, _, J_replace_map = self._build_count_map(
+            tmp_problem, block._dependencies)
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map),
             self._ad_dJdu,
             adj_sol,
             bcs=tmp_problem.bcs)
         lvp._ad_count_map_update(_ad_count_map)
+        del tmp_problem
         return lvp
 
     def _build_count_map(self, problem, dependencies):
