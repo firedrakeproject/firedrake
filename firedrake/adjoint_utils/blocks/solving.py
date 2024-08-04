@@ -632,7 +632,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_nlvs.solve()
         func.assign(self._ad_nlvs._problem.u)
         return func
-    
+
     def _adjoint_solve(self, dJdu):
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
@@ -662,7 +662,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             for coeff in self.adj_F.coefficients():
                 if coeff == bv.output:
                     problem.J.coefficients()[index].assign(
-                            bv.checkpoint)
+                        bv.checkpoint)
                 index += 1
 
         self._ad_adj_varsolver.parameters.update(self.solver_params)
