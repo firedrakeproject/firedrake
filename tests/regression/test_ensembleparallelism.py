@@ -56,7 +56,7 @@ def unique_function(mesh, rank, W):
     return u
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def ensemble():
     if COMM_WORLD.size == 1:
         return
