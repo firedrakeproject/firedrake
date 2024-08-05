@@ -47,7 +47,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
             self._ad_adj_cache = {}
-            self._ad_adj_lvs = None
+            self._ad_adj_solver = None
             self._ad_dJdu = None
 
         return wrapper
@@ -60,7 +60,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
+            from firedrake import LinearVariationalSolver, assemble, LinearSolver, Cofunction
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -86,17 +86,25 @@ class NonlinearVariationalSolverMixin:
                     )
 
                 block._ad_nlvs = self._ad_nlvs
-
-                # Adjoint variational solver.
-                with stop_annotating():
-                    if not self._ad_adj_lvs:
-                        problem = self._ad_adj_lvs_problem(
-                            problem._ad_u.function_space(), block)
-                        self._ad_adj_lvs = LinearVariationalSolver(
-                            problem, solver_parameters=self.parameters)
-
+                if not self._ad_dJdu:
+                    # Right-hand side of the adjoint equation.
+                    self._ad_dJdu = Cofunction(block.function_space.dual())
                 block._ad_dJdu = self._ad_dJdu
-                block._ad_adj_lvs = self._ad_adj_lvs
+
+                # Adjoint solver: LinearVariationalSolver if the forward
+                # problem in nonlinear, otherwise LinearSolver.
+                with stop_annotating():
+                    if not self._ad_adj_solver:
+                        if block._ad_nlvs._problem._constant_jacobian:
+                            self._ad_adj_solver = LinearSolver(
+                                assemble(block.adj_F),
+                                solver_parameters=self.parameters)
+                        else:
+                            problem = self._ad_adj_lvs_problem(block)
+                            self._ad_adj_solver = LinearVariationalSolver(
+                                    problem, solver_parameters=self.parameters)
+
+                block._ad_adj_solver = self._ad_adj_solver
 
                 tape.add_block(block)
 
@@ -131,20 +139,17 @@ class NonlinearVariationalSolverMixin:
         return nlvp
 
     @no_annotations
-    def _ad_adj_lvs_problem(self, fwd_func_space, block):
+    def _ad_adj_lvs_problem(self, block):
         """Create the adjoint variational problem."""
-        from firedrake import Cofunction, Function, LinearVariationalProblem
-
-        # Right-hand side of the adjoint equation.
-        self._ad_dJdu = Cofunction(fwd_func_space.dual())
-        adj_sol = Function(fwd_func_space)
+        from firedrake import Function, LinearVariationalProblem
+        adj_sol = Function(block.function_space)
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()
         # Create a temporary LinearVariationalProblem instance to
         # using the adjoint form `block.adj_F`.
         tmp_problem = LinearVariationalProblem(
-            block.adj_F, self._ad_dJdu, adj_sol, bcs=bcs)
+            block.adj_F, block._ad_dJdu, adj_sol, bcs=bcs)
         # The `block.adj_F` coefficients hold the output references.
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the forward
