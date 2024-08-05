@@ -638,39 +638,35 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         bcs = self._homogenize_bcs()
         for bc in bcs:
             bc.apply(dJdu)
-        problem = self._ad_adj_varsolver._problem
+        problem = self._ad_adj_lvs._problem
         for block_variable in self.get_dependencies():
+            # The self.adj_F coefficients hold the forward output
+            # (user-defined variables) references.
             if block_variable.output in self.adj_F.coefficients():
-                index = 0
-                for coeff in self.adj_F.coefficients():
-                    if coeff == block_variable.output:
-                        if isinstance(
-                            block_variable.checkpoint, (
-                                firedrake.Function, firedrake.Constant,
-                                firedrake.Cofunction)):
-                            problem.J.coefficients()[index].assign(
+                index = self.adj_F.coefficients().index(block_variable.output)
+                if isinstance(
+                        block_variable.checkpoint, (
+                            firedrake.Function, firedrake.Constant,
+                            firedrake.Cofunction)):
+                    problem.J.coefficients()[index].assign(
                                 block_variable.checkpoint)
-                        elif isinstance(
-                            block_variable.checkpoint, DelegatedFunctionCheckpoint
-                        ):
-                            problem.J.coefficients()[index].assign(
-                                block_variable.checkpoint.restore())
-                    index += 1
+                elif isinstance(
+                        block_variable.checkpoint, DelegatedFunctionCheckpoint
+                ):
+                    problem.J.coefficients()[index].assign(
+                        block_variable.checkpoint.restore())
 
         bv = self.get_outputs()[0]
         if bv.output in self.adj_F.coefficients():
-            index = 0
-            for coeff in self.adj_F.coefficients():
-                if coeff == bv.output:
-                    problem.J.coefficients()[index].assign(
-                        bv.checkpoint)
-                index += 1
+            index = self.adj_F.coefficients().index(bv.output)
+            problem.J.coefficients()[index].assign(
+                bv.checkpoint)
 
-        self._ad_adj_varsolver.parameters.update(self.solver_params)
+        self._ad_adj_lvs.parameters.update(self.solver_params)
         # Update the right hand side of the adjoint equation.
         self._ad_dJdu.assign(dJdu)
-        self._ad_adj_varsolver.solve()
-        return self._ad_adj_varsolver._problem.u
+        self._ad_adj_lvs.solve()
+        return self._ad_adj_lvs._problem.u
 
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
@@ -718,7 +714,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self.compute_adj_bdy(
-                self.adj_sol, adj_sol_bdy, self._ad_adj_varsolver._problem.F,
+                self.adj_sol, adj_sol_bdy, self._ad_adj_lvs._problem.F,
                 dJdu)
         if self.adj_cb is not None:
             self.adj_cb(self.adj_sol)

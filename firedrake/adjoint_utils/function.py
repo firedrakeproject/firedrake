@@ -47,7 +47,6 @@ class FunctionMixin(FloatingType):
                 output = project(self, b, *args, **kwargs)
 
             if annotate:
-                tape._eagerly_checkpoint_outputs = True
                 block.add_output(output.create_block_variable())
 
             return output

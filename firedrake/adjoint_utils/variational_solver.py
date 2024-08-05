@@ -47,7 +47,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
             self._ad_adj_cache = {}
-            self._ad_adj_varsolver = None
+            self._ad_adj_lvs = None
             self._ad_dJdu = None
 
         return wrapper
@@ -89,14 +89,14 @@ class NonlinearVariationalSolverMixin:
 
                 # Adjoint variational solver.
                 with stop_annotating():
-                    if not self._ad_adj_varsolver:
-                        problem = self._ad_create_lvs_problem(
+                    if not self._ad_adj_lvs:
+                        problem = self._ad_adj_lvs_problem(
                             problem._ad_u.function_space(), block)
-                        self._ad_adj_varsolver = LinearVariationalSolver(
+                        self._ad_adj_lvs = LinearVariationalSolver(
                             problem, solver_parameters=self.parameters)
 
                 block._ad_dJdu = self._ad_dJdu
-                block._ad_adj_varsolver = self._ad_adj_varsolver
+                block._ad_adj_lvs = self._ad_adj_lvs
 
                 tape.add_block(block)
 
@@ -104,10 +104,6 @@ class NonlinearVariationalSolverMixin:
                 out = solve(self, **kwargs)
 
             if annotate:
-                # Eagerly checkpoint the outputs. This is necessary for the
-                # for the adjoint solver to work correctly. The adjoint solver
-                # will always use the checkpoint forward coefficients.
-                tape._eagerly_checkpoint_outputs = True
                 block.add_output(self._ad_problem._ad_u.create_block_variable())
 
             return out
@@ -135,23 +131,28 @@ class NonlinearVariationalSolverMixin:
         return nlvp
 
     @no_annotations
-    def _ad_create_lvs_problem(self, fwd_func_space, block):
-        """Creates a LinearVariationalProblem instance for the adjoint variational problem."""
+    def _ad_adj_lvs_problem(self, fwd_func_space, block):
+        """Create the adjoint variational problem."""
         from firedrake import Cofunction, Function, LinearVariationalProblem
 
+        # Right-hand side of the adjoint equation.
         self._ad_dJdu = Cofunction(fwd_func_space.dual())
         adj_sol = Function(fwd_func_space)
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()
+        # Create a temporary LinearVariationalProblem instance to
+        # using the adjoint form `block.adj_F`.
         tmp_problem = LinearVariationalProblem(
             block.adj_F, self._ad_dJdu, adj_sol, bcs=bcs)
+        # The `block.adj_F` coefficients hold the output references.
+        # We do not want to modify the user-defined values. Hence, the adjoint
+        # linear variational problem is created with a deep copy of the forward
+        # outputs.
         _ad_count_map, _, J_replace_map = self._build_count_map(
             tmp_problem, block._dependencies)
         lvp = LinearVariationalProblem(
-            replace(tmp_problem.J, J_replace_map),
-            self._ad_dJdu,
-            adj_sol,
+            replace(tmp_problem.J, J_replace_map), self._ad_dJdu, adj_sol,
             bcs=tmp_problem.bcs)
         lvp._ad_count_map_update(_ad_count_map)
         del tmp_problem

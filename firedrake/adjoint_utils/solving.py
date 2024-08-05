@@ -61,7 +61,6 @@ def annotate_solve(solve):
                 block_variable = args[1].create_block_variable()
             else:
                 block_variable = args[1].function.create_block_variable()
-            tape._eagerly_checkpoint_outputs = True
             block.add_output(block_variable)
 
         return output
