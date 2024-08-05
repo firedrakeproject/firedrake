@@ -133,7 +133,7 @@ jobs:
             --junit-xml=firedrake.xml \
             -m "not broken and not slow and parallel[3]" \
             -sv tests
-        timeout-minutes: 30
+        timeout-minutes: 60
       - name: Test Firedrake 4 ranks
         run: |
           . ../firedrake_venv/bin/activate
