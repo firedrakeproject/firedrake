@@ -643,7 +643,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             problem = self._ad_adj_solver._problem
             for block_variable in self.get_dependencies():
                 # The self.adj_F coefficients hold the forward output
-                # (user-defined variables) references.
+                # references.
                 if block_variable.output in self.adj_F.coefficients():
                     index = self.adj_F.coefficients().index(block_variable.output)
                     # Update adjoint problem coefficients with the
@@ -730,11 +730,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.adj_sol = adj_sol
         adj_sol_bdy = None
         if compute_bdy:
+            # TODO: I need to test this part of the code.
             if isinstance(self._ad_adj_solver, firedrake.LinearVariationalSolver):
                 adj_sol_bdy = self.compute_adj_bdy(
-                    adj_sol, adj_sol_bdy, self._ad_adj_lvs._problem.F, dJdu)
+                    adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.F, dJdu)
             elif isinstance(self._ad_adj_solver, firedrake.LinearSolver):
-                print("trying to compute adjoint boundary")
+                adj_sol_bdy = self.compute_adj_bdy(
+                    adj_sol, adj_sol_bdy, self._ad_adj_solver.A, dJdu)
             else:
                 raise NotImplementedError(
                     "Only LinearVariationalSolver and LinearSolver are supported.")

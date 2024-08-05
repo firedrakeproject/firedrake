@@ -91,8 +91,7 @@ class NonlinearVariationalSolverMixin:
                     self._ad_dJdu = Cofunction(block.function_space.dual())
                 block._ad_dJdu = self._ad_dJdu
 
-                # Adjoint solver: LinearVariationalSolver if the forward
-                # problem in nonlinear, otherwise LinearSolver.
+                # Adjoint solver.
                 with stop_annotating():
                     if not self._ad_adj_solver:
                         if block._ad_nlvs._problem._constant_jacobian:
