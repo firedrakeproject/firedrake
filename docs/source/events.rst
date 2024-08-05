@@ -101,7 +101,7 @@ Firedrake tutorial at CSE 19
 
 The Firedrake team presented a live cloud tutorial at the SIAM
 Conference on Computational Science and Engineering in Spokane
-Washington on 1 March 2019. See `the conference page <https://www.siam.org/Conferences/CM/Program/Minitutorials/cse19-minitutorials>`_.
+Washington on 1 March 2019.
 
 Firedrake tutorial Jan 11 2019
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
