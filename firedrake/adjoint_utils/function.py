@@ -398,14 +398,17 @@ class FunctionMixin(FloatingType):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
 
-    def _ad_from_petsc(self, vec):
+    def _ad_from_petsc(self, vec: firedrake.PETSc.Vec):
         with self.dat.vec_wo as self_v:
             vec.copy(result=self_v)
 
-    def _ad_to_petsc(self):
+    def _ad_to_petsc(self, vec: firedrake.PETSc.Vec = None):
         with self.dat.vec_ro as self_v:
-            new_vec = self_v.copy()
-        return new_vec
+            if vec:
+                vec.copy(result=self_v)
+            else:
+                vec = self_v.copy()
+        return vec
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
