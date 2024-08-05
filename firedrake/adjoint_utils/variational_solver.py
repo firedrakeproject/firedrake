@@ -102,7 +102,7 @@ class NonlinearVariationalSolverMixin:
                         else:
                             problem = self._ad_adj_lvs_problem(block)
                             self._ad_adj_solver = LinearVariationalSolver(
-                                    problem, solver_parameters=self.parameters)
+                                problem, solver_parameters=self.parameters)
 
                 block._ad_adj_solver = self._ad_adj_solver
 

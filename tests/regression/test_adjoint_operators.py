@@ -950,7 +950,8 @@ def test_riesz_representation_for_adjoints():
 
 
 @pytest.mark.skipcomplex
-def test_lvs_constant_jacobian():
+@pytest.mark.parametrize("constant_jacobian", [False, True])
+def test_lvs_constant_jacobian(constant_jacobian):
     mesh = UnitIntervalMesh(10)
     X = SpatialCoordinate(mesh)
     space = FunctionSpace(mesh, "Lagrange", 1)
@@ -962,7 +963,8 @@ def test_lvs_constant_jacobian():
         u_ref = u.copy(deepcopy=True)
     v = Function(space, name="v")
     problem = LinearVariationalProblem(
-        inner(trial, test) * dx, inner(u, test) * dx, v)
+        inner(trial, test) * dx, inner(u, test) * dx, v,
+        constant_jacobian=constant_jacobian)
     solver = LinearVariationalSolver(problem)
     solver.solve()
     J = assemble(v * v * dx)

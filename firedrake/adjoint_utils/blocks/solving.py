@@ -737,8 +737,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 print("trying to compute adjoint boundary")
             else:
                 raise NotImplementedError(
-                    "Only LinearVariationalSolver and LinearSolver are supported."
-                )                                    
+                    "Only LinearVariationalSolver and LinearSolver are supported.")
         if self.adj_cb is not None:
             self.adj_cb(self.adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
