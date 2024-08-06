@@ -650,7 +650,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                                 firedrake.Cofunction)):
                         # `problem.J` is a deep copy of `self.adj_F`.
                         # The indices of `self.adj_F` serve as a map for
-                        # updating the coefficients.
+                        # updating the coefficients of the adjoint solver.
                         problem.J.coefficients()[index].assign(
                             block_variable.saved_output)
             bv = self.get_outputs()[0]
@@ -714,12 +714,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dJdu = adj_inputs[0]
         dJdu_copy = dJdu.copy()
         adj_sol = firedrake.Function(self.function_space)
-        # Solve the adjoint equation and update the adjoint solution
-        # (`adj_sol`).
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
         for bc in bcs:
             bc.apply(dJdu)
+        # Solve the adjoint equation and update the adjoint solution
+        # (`adj_sol`).
         adj_sol = self._adjoint_solve(dJdu, adj_sol)
         self.adj_sol = adj_sol
         adj_sol_bdy = None
@@ -737,7 +737,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
 
         if self.adj_cb is not None:
-            self.adj_cb(self.adj_sol)
+            self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
             self.adj_bdy_cb(adj_sol_bdy)
 
