@@ -23,7 +23,6 @@ import ctypes
 from pyop2 import op2
 from pyop2.mpi import COMM_SELF
 import pyop2.types
-import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -379,7 +378,7 @@ typedef struct {{
     return struct, call, Struct
 
 
-def make_residual_wrapper(coeffs, maps):
+def make_residual_wrapper(coeffs, maps, flops):
     struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=False)
 
     return """
@@ -436,12 +435,13 @@ PetscErrorCode ComputeResidual(PC pc,
    if (x) {{
      ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
    }}
+   PetscLogFlops({} * npoints);
    PetscFunctionReturn(0);
 }}
-""".format(struct_decl, pyop2_call), struct
+""".format(struct_decl, pyop2_call, flops), struct
 
 
-def make_jacobian_wrapper(coeffs, maps):
+def make_jacobian_wrapper(coeffs, maps, flops):
     struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=True)
 
     return """
@@ -495,9 +495,10 @@ PetscErrorCode ComputeJacobian(PC pc,
    if (x) {{
      ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
    }}
+   PetscLogFlops({} * npoints);
    PetscFunctionReturn(0);
 }}
-""".format(struct_decl, pyop2_call), struct
+""".format(struct_decl, pyop2_call, flops), struct
 
 
 def load_c_function(code, name, comm):
@@ -829,9 +830,10 @@ class PatchBase(PCSNESBase):
 
         Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
         Jcell_kernel, = Jcell_kernels
+        Jcell_flops = Jcell_kernel.kinfo.kernel.num_flops
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
-        code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
+        code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args, Jcell_flops)
         Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
@@ -839,10 +841,11 @@ class PatchBase(PCSNESBase):
         if len(Jint_facet_kernels) > 0:
             Jint_facet_kernel, = Jint_facet_kernels
             Jhas_int_facet_kernel = True
+            Jint_facet_flops = Jint_facet_kernel.kinfo.kernel.num_flops
             facet_Jop_data_args, facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
-            code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
+            code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args, Jint_facet_flops)
             facet_Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
             point2facet = mesh.interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
@@ -856,12 +859,11 @@ class PatchBase(PCSNESBase):
             Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
 
             Fcell_kernel, = Fcell_kernels
-
+            Fcell_flops = Fcell_kernel.kinfo.kernel.num_flops
             Fop_data_args, Fop_map_args = make_c_arguments(F, Fcell_kernel, Fstate,
                                                            operator.methodcaller("cell_node_map"),
                                                            require_state=True)
-
-            code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
+            code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args, Fcell_flops)
             Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
@@ -869,12 +871,12 @@ class PatchBase(PCSNESBase):
             if len(Fint_facet_kernels) > 0:
                 Fint_facet_kernel, = Fint_facet_kernels
                 Fhas_int_facet_kernel = True
-
+                Fint_facet_flops = Fint_facet_kernel.kinfo.kernel.num_flops
                 facet_Fop_data_args, facet_Fop_map_args = make_c_arguments(F, Fint_facet_kernel, Fstate,
                                                                            operator.methodcaller("interior_facet_node_map"),
                                                                            require_state=True,
                                                                            require_facet_number=True)
-                code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
+                code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args, Fint_facet_flops)
                 facet_Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
                 point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
