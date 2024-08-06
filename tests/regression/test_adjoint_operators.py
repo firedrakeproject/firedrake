@@ -971,13 +971,13 @@ def test_lvs_constant_jacobian(constant_jacobian):
     dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
+
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("constant_jacobian", [False, True])
 def test_adjoint_solver_compute_bdy(constant_jacobian):
     # Testing the case where is required to compute the adjoint
     # boundary condition.
     mesh = UnitIntervalMesh(10)
-    X = SpatialCoordinate(mesh)
     space = FunctionSpace(mesh, "Lagrange", 1)
     test = TestFunction(space)
     trial = TrialFunction(space)
