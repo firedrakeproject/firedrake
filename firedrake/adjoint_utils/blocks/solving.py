@@ -203,12 +203,12 @@ class GenericSolveBlock(Block):
 
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = self.compute_adj_bdy(
+            adj_sol_bdy = self._compute_adj_bdy(
                 adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
 
         return adj_sol, adj_sol_bdy
 
-    def compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
+    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
         adj_sol_bdy = firedrake.Function(
             self.function_space.dual(), dJdu.dat - firedrake.assemble(
                 firedrake.action(dFdu_adj_form, adj_sol)).dat)
@@ -669,7 +669,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         adj_sol.assign(self._ad_adj_solver._problem.u)
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = self.compute_adj_bdy(
+            adj_sol_bdy = self._compute_adj_bdy(
                 adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.J,
                 dJdu_copy)
         return adj_sol, adj_sol_bdy
