@@ -145,8 +145,6 @@ class NonlinearVariationalSolverMixin:
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()
-        # Create a temporary LinearVariationalProblem instance to
-        # using the adjoint form `block.adj_F`.
         tmp_problem = LinearVariationalProblem(
             block.adj_F, block._ad_dJdu, adj_sol, bcs=bcs)
         # The `block.adj_F` coefficients hold the output references.

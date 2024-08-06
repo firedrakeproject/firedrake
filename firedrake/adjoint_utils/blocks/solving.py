@@ -6,8 +6,7 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, stop_annotating
 from pyadjoint.enlisting import Enlist
 import firedrake
-from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint, \
-    DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 
 
@@ -634,11 +633,15 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
 
     def _adjoint_solve(self, dJdu, adj_sol):
-
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
         for bc in bcs:
             bc.apply(dJdu)
+
+        # Update the right hand side of the adjoint equation.
+        self._ad_dJdu.assign(dJdu)
+
+        # Update the left hand side coefficients of the adjoint equation.
         if isinstance(self._ad_adj_solver, firedrake.LinearVariationalSolver):
             problem = self._ad_adj_solver._problem
             for block_variable in self.get_dependencies():
@@ -646,33 +649,25 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 # references.
                 if block_variable.output in self.adj_F.coefficients():
                     index = self.adj_F.coefficients().index(block_variable.output)
-                    # Update adjoint problem coefficients with the
-                    # block_variable checkpoint values.
                     if isinstance(
-                            block_variable.checkpoint, (
+                            block_variable.output, (
                                 firedrake.Function, firedrake.Constant,
                                 firedrake.Cofunction)):
+                        # `problem.J` is a deep copy of `self.adj_F`.
+                        # The indices of `self.adj_F` serve as a map for
+                        # updating the coefficients in the adjoint problem.
                         problem.J.coefficients()[index].assign(
-                            block_variable.checkpoint)
-                    elif isinstance(
-                            block_variable.checkpoint, DelegatedFunctionCheckpoint
-                    ):
-                        problem.J.coefficients()[index].assign(
-                            block_variable.checkpoint.restore())
-
+                            block_variable.saved_output)
             bv = self.get_outputs()[0]
             if bv.output in self.adj_F.coefficients():
                 index = self.adj_F.coefficients().index(bv.output)
                 problem.J.coefficients()[index].assign(
                     bv.checkpoint)
-
-            # Update the right hand side of the adjoint equation.
-            self._ad_dJdu.assign(dJdu)
             # Solve the adjoint equation.
             self._ad_adj_solver.solve()
             adj_sol.assign(self._ad_adj_solver._problem.u)
         elif isinstance(self._ad_adj_solver, firedrake.LinearSolver):
-            self._ad_dJdu.assign(dJdu)
+            # Solve the adjoint equation.
             self._ad_adj_solver.solve(adj_sol, self._ad_dJdu)
         else:
             raise NotImplementedError(
