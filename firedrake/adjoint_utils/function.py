@@ -352,6 +352,9 @@ class FunctionMixin(FloatingType):
 
         return m_a.tolist()
 
+    def _ad_assign(self, other):
+        self.assign(other)
+
     def _ad_copy(self):
         from firedrake import Function
 

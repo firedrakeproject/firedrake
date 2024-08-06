@@ -145,6 +145,34 @@ class AssembleBlock(Block):
             dform = firedrake.assemble(dform)
         return dform
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        form = self.form
+
+        tlm_rhs = 0
+        for block_variable in self.get_dependencies():
+            dep = block_variable.output
+            tlm_dep = block_variable.tlm_value
+            if tlm_dep is not None:
+                if isinstance(dep, firedrake.MeshGeometry):
+                    dep = firedrake.SpatialCoordinate(dep)
+                    tlm_rhs = tlm_rhs + firedrake.derivative(
+                        form, dep, tlm_dep)
+                else:
+                    tlm_rhs = tlm_rhs + firedrake.action(
+                        firedrake.derivative(form, dep), tlm_dep)
+
+        x.tlm_value = None
+        if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+            return
+        tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+        if isinstance(tlm_rhs, ufl.ZeroBaseForm) or (isinstance(tlm_rhs, ufl.Form) and tlm_rhs.empty()):
+            return
+        tlm_rhs = firedrake.assemble(tlm_rhs)
+        if tlm_rhs in {dep.output for dep in self.get_dependencies()}:
+            tlm_rhs = tlm_rhs.copy(deepcopy=True)
+        x.tlm_value = tlm_rhs
+
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
         return self.prepare_evaluate_adj(inputs, adj_inputs,

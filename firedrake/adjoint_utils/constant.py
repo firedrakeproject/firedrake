@@ -104,6 +104,9 @@ class ConstantMixin(OverloadedType):
     def _ad_to_list(m):
         return m.dat.data_ro.reshape(-1).tolist()
 
+    def _ad_assign(self, other):
+        self.assign(other)
+
     def _ad_copy(self):
         return self._constant_from_values()
 
