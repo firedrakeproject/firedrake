@@ -970,3 +970,33 @@ def test_lvs_constant_jacobian(constant_jacobian):
     J = assemble(v * v * dx)
     dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("constant_jacobian", [False, True])
+def test_adjoint_solver_compute_bdy(constant_jacobian):
+    # Testing the case where is required to compute the adjoint
+    # boundary condition.
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+    trial = TrialFunction(space)
+    sol = Function(space, name="sol")
+    # Dirichlet boundary conditions
+    R = FunctionSpace(mesh, "R", 0)
+    a = Function(R, val=1.0)
+    b = Function(R, val=2.0)
+    bc_left = DirichletBC(space, a, 1)
+    bc_right = DirichletBC(space, b, 2)
+    bc = [bc_left, bc_right]
+    F = dot(grad(trial), grad(test)) * dx
+    problem = LinearVariationalProblem(lhs(F), rhs(F), sol, bcs=bc,
+                                       constant_jacobian=constant_jacobian)
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+    J = assemble(sol * sol * dx)
+    J_hat = ReducedFunctional(J, [Control(a), Control(b)])
+
+    assert taylor_test(
+        J_hat, [a, b], [Function(R, val=rand(1)), Function(R, val=rand(1))]
+    ) > 1.9

@@ -94,12 +94,15 @@ class NonlinearVariationalSolverMixin:
                 # Adjoint solver.
                 with stop_annotating():
                     if not self._ad_adj_solver:
+                        # Homogeneous boundary conditions for the adjoint problem
+                        # when Dirichlet boundary conditions are applied.
+                        bcs = block._homogenize_bcs()
                         if block._ad_nlvs._problem._constant_jacobian:
                             self._ad_adj_solver = LinearSolver(
-                                assemble(block.adj_F),
+                                assemble(block.adj_F, bcs=bcs),
                                 solver_parameters=self.parameters)
                         else:
-                            problem = self._ad_adj_lvs_problem(block)
+                            problem = self._ad_adj_lvs_problem(block, bcs)
                             self._ad_adj_solver = LinearVariationalSolver(
                                 problem, solver_parameters=self.parameters)
 
@@ -138,13 +141,10 @@ class NonlinearVariationalSolverMixin:
         return nlvp
 
     @no_annotations
-    def _ad_adj_lvs_problem(self, block):
+    def _ad_adj_lvs_problem(self, block, bcs):
         """Create the adjoint variational problem."""
         from firedrake import Function, LinearVariationalProblem
         adj_sol = Function(block.function_space)
-        # Homogeneous boundary conditions for the adjoint problem
-        # when Dirichlet boundary conditions are applied.
-        bcs = block._homogenize_bcs()
         tmp_problem = LinearVariationalProblem(
             block.adj_F, block._ad_dJdu, adj_sol, bcs=bcs)
         # The `block.adj_F` coefficients hold the output references.

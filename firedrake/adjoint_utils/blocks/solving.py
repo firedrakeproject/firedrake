@@ -633,11 +633,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
 
     def _adjoint_solve(self, dJdu, adj_sol):
-        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
-        bcs = self._homogenize_bcs()
-        for bc in bcs:
-            bc.apply(dJdu)
-
         # Update the right hand side of the adjoint equation.
         self._ad_dJdu.assign(dJdu)
 
@@ -655,7 +650,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                                 firedrake.Cofunction)):
                         # `problem.J` is a deep copy of `self.adj_F`.
                         # The indices of `self.adj_F` serve as a map for
-                        # updating the coefficients in the adjoint problem.
+                        # updating the coefficients.
                         problem.J.coefficients()[index].assign(
                             block_variable.saved_output)
             bv = self.get_outputs()[0]
@@ -716,25 +711,31 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         )
         # Forward form.
         F_form = self._create_F_form()
-
-        dJdu = adj_inputs[0].copy()
+        dJdu = adj_inputs[0]
+        dJdu_copy = dJdu.copy()
         adj_sol = firedrake.Function(self.function_space)
         # Solve the adjoint equation and update the adjoint solution
         # (`adj_sol`).
+        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        bcs = self._homogenize_bcs()
+        for bc in bcs:
+            bc.apply(dJdu)
         adj_sol = self._adjoint_solve(dJdu, adj_sol)
         self.adj_sol = adj_sol
         adj_sol_bdy = None
+
         if compute_bdy:
-            # TODO: I need to test this part of the code.
-            if isinstance(self._ad_adj_solver, firedrake.LinearVariationalSolver):
-                adj_sol_bdy = self.compute_adj_bdy(
-                    adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.F, dJdu)
+            if isinstance(
+                self._ad_adj_solver, firedrake.LinearVariationalSolver
+            ):
+                dFdu_adj_form = self._ad_adj_solver._problem.J
             elif isinstance(self._ad_adj_solver, firedrake.LinearSolver):
-                adj_sol_bdy = self.compute_adj_bdy(
-                    adj_sol, adj_sol_bdy, self._ad_adj_solver.A, dJdu)
-            else:
-                raise NotImplementedError(
-                    "Only LinearVariationalSolver and LinearSolver are supported.")
+                # Jacobian is constant in this case.
+                dFdu_adj_form = self.adj_F
+
+            adj_sol_bdy = self.compute_adj_bdy(
+                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
+
         if self.adj_cb is not None:
             self.adj_cb(self.adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -793,8 +794,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map = self._replace_map(dFdm)
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
-
-        dFdm = ufl.Action(dFdm, adj_sol)
+        dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
