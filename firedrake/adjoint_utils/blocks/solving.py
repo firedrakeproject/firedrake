@@ -794,6 +794,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map = self._replace_map(dFdm)
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
+
         dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
