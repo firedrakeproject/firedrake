@@ -203,14 +203,16 @@ class GenericSolveBlock(Block):
 
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = firedrake.Function(
-                self.function_space.dual(),
-                dJdu_copy.dat - firedrake.assemble(
-                    firedrake.action(dFdu_adj_form, adj_sol)
-                ).dat
-            )
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
 
         return adj_sol, adj_sol_bdy
+
+    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
+        adj_sol_bdy = firedrake.Function(
+            self.function_space.dual(), dJdu.dat - firedrake.assemble(
+                firedrake.action(dFdu_adj_form, adj_sol)).dat)
+        return adj_sol_bdy
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
@@ -630,6 +632,48 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         func.assign(self._ad_nlvs._problem.u)
         return func
 
+    def _adjoint_solve(self, dJdu, compute_bdy):
+        dJdu_copy = dJdu.copy()
+        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        bcs = self._homogenize_bcs()
+        for bc in bcs:
+            bc.apply(dJdu)
+        # Update the right hand side of the adjoint equation.
+        self._ad_dJdu.assign(dJdu)
+
+        # Update the left hand side coefficients of the adjoint equation.
+        problem = self._ad_adj_solver._problem
+        for block_variable in self.get_dependencies():
+            # The self.adj_F coefficients hold the forward output
+            # references.
+            if block_variable.output in self.adj_F.coefficients():
+                index = self.adj_F.coefficients().index(block_variable.output)
+                if isinstance(
+                        block_variable.output, (
+                            firedrake.Function, firedrake.Constant,
+                            firedrake.Cofunction)):
+                    # `problem.J` is a deep copy of `self.adj_F`.
+                    # The indices of `self.adj_F` serve as a map for
+                    # updating the coefficients of the adjoint solver.
+                    problem.J.coefficients()[index].assign(
+                        block_variable.saved_output)
+        bv = self.get_outputs()[0]
+        if bv.output in self.adj_F.coefficients():
+            index = self.adj_F.coefficients().index(bv.output)
+            problem.J.coefficients()[index].assign(
+                bv.checkpoint)
+        # Solve the adjoint equation.
+        self._ad_adj_solver.solve()
+
+        adj_sol = firedrake.Function(self.function_space)
+        adj_sol.assign(self._ad_adj_solver._problem.u)
+        adj_sol_bdy = None
+        if compute_bdy:
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.J,
+                dJdu_copy)
+        return adj_sol, adj_sol_bdy
+
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
         assign_map = {}
@@ -667,23 +711,28 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
-
-        F_form = self._create_F_form()
-
-        dFdu_form = self.adj_F
         dJdu = dJdu.copy()
-
-        # Replace the form coefficients with checkpointed values.
-        replace_map = self._replace_map(dFdu_form)
-        replace_map[self.func] = self.get_outputs()[0].saved_output
-        dFdu_form = replace(dFdu_form, replace_map)
 
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-            dFdu_form, dJdu, compute_bdy
-        )
+        # Forward form.
+        F_form = self._create_F_form()
+
+        if self._ad_nlvs._problem._constant_jacobian:
+            dFdu_form = self.adj_F
+            # Replace the form coefficients with checkpointed values.
+            replace_map = self._replace_map(dFdu_form)
+            replace_map[self.func] = self.get_outputs()[0].saved_output
+            dFdu_form = replace(dFdu_form, replace_map)
+
+            adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
+                dFdu_form, dJdu, compute_bdy
+            )
+        else:
+            # Adjoint solver using linear variational solver.
+            adj_sol, adj_sol_bdy = self._adjoint_solve(dJdu, compute_bdy)
+
         self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
