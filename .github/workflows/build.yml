@@ -82,6 +82,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat pbrubeck/restrict-dual \
+            --package-branch finat pbrubeck/reduced \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
