@@ -8,6 +8,7 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
+import tempfile
 from hashlib import md5
 
 from firedrake_citations import Citations
@@ -28,6 +29,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
+from pyop2.caching import parallel_memory_only_cache
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -70,8 +72,10 @@ cell_to_facets_dtype = np.dtype(np.int8)
 try:
     _cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
 except KeyError:
-    _cachedir = os.path.join(tempfile.gettempdir(),
-                                  f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
+    _cachedir = os.path.join(
+        tempfile.gettempdir(),
+        f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}"
+    )
 
 
 def _cache_key(expr, compiler_parameters):
@@ -85,6 +89,18 @@ class SlateKernel(TSFCKernel, cachedir=_cachedir, key=_cache_key):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
+def compile_expression_hashkey(slate_expr, compiler_parameters=None):
+    comm = slate_expr.ufl_domains()[0].comm
+    params = copy.deepcopy(parameters)
+    if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
+        params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
+    if compiler_parameters:
+        params["form_compiler"].update(compiler_parameters)
+
+    return comm, getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+
+
+@parallel_memory_only_cache(key=compile_expression_hashkey)
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     ``pyop2.op2.Kernel`` object representing the Slate expression.
@@ -108,15 +124,8 @@ def compile_expression(slate_expr, compiler_parameters=None):
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
 
-    # If the expression has already been symbolically compiled, then
-    # simply reuse the produced kernel.
-    cache = slate_expr._metakernel_cache
-    key = str(sorted(params.items()))
-    try:
-        return cache[key]
-    except KeyError:
-        kernel = SlateKernel(slate_expr, params).split_kernel
-        return cache.setdefault(key, kernel)
+    kernel = SlateKernel(slate_expr, params).split_kernel
+    return kernel
 
 
 def get_temp_info(loopy_kernel):
