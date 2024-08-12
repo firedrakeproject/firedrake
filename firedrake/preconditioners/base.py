@@ -2,6 +2,7 @@ import abc
 
 from firedrake_citations import Citations
 from firedrake.petsc import PETSc
+import firedrake.dmhooks as dmhooks
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -57,6 +58,20 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
     def destroy(self, pc):
         if hasattr(self, "pc"):
             self.pc.destroy()
+
+    def form(self, pc, *args):
+        _, P = pc.getOperators()
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = tuple(ctx.row_bcs)
+        else:
+            ctx = dmhooks.get_appctx(pc.getDM())
+            a = ctx.Jp or ctx.J
+            bcs = tuple(ctx._problem.bcs)
+        if len(args):
+            a = a(*args)
+        return a, bcs
 
     @staticmethod
     def get_appctx(pc):

@@ -1,5 +1,3 @@
-import abc
-
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
@@ -81,15 +79,6 @@ class AssembledPC(PCBase):
     def update(self, pc):
         self._assemble_P(tensor=self.P)
 
-    def form(self, pc, test, trial):
-        _, P = pc.getOperators()
-        if P.getType() == "python":
-            context = P.getPythonContext()
-            return (context.a, context.row_bcs)
-        else:
-            context = dmhooks.get_appctx(pc.getDM())
-            return (context.Jp or context.J, context._problem.bcs)
-
     def set_nullspaces(self, pc):
         # Copy nullspaces over from parent P matrix
         _, P = pc.getOperators()
@@ -123,19 +112,3 @@ class AuxiliaryOperatorPC(AssembledPC):
     """
 
     _prefix = "aux_"
-
-    @abc.abstractmethod
-    def form(self, pc, test, trial):
-        """
-
-        :arg pc: a `PETSc.PC` object. Use `self.get_appctx(pc)` to get the
-             user-supplied application-context, if desired.
-
-        :arg test: a `TestFunction` on this `FunctionSpace`.
-
-        :arg trial: a `TrialFunction` on this `FunctionSpace`.
-
-        :returns `(a, bcs)`, where `a` is a bilinear `Form`
-        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
-        """
-        raise NotImplementedError

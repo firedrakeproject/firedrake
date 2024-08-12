@@ -6,6 +6,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
+from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
 from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
@@ -142,16 +143,7 @@ class HiptmairPC(TwoLevelPC):
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
-        _, P = pc.getOperators()
-        if P.getType() == "python":
-            ctx = P.getPythonContext()
-            a = ctx.a
-            bcs = tuple(ctx.bcs)
-        else:
-            ctx = dmhooks.get_appctx(pc.getDM())
-            a = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
-
+        a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
@@ -162,6 +154,13 @@ class HiptmairPC(TwoLevelPC):
             celement = div_to_curl(element)
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
+
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + self._prefix
+        opts = PETSc.Options(options_prefix)
+        domain = opts.getString("mg_coarse_restriction_domain", "")
+        if domain:
+            celement = restrict(celement, domain)
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
