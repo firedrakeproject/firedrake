@@ -33,6 +33,7 @@ import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
+import os
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
@@ -66,17 +67,22 @@ else:
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
-class SlateKernel(TSFCKernel):
-    @classmethod
-    def _cache_key(cls, expr, compiler_parameters):
-        return md5(
-            (expr.expression_hash + str(sorted(compiler_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
+try:
+    _cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
+except KeyError:
+    _cachedir = os.path.join(tempfile.gettempdir(),
+                                  f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
+
+def _cache_key(expr, compiler_parameters):
+    return expr.ufl_domains()[0].comm, md5(
+        (expr.expression_hash + str(sorted(compiler_parameters.items()))).encode()
+    ).hexdigest()
+
+
+class SlateKernel(TSFCKernel, cachedir=_cachedir, key=_cache_key):
     def __init__(self, expr, compiler_parameters):
-        if self._initialized:
-            return
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
-        self._initialized = True
 
 
 def compile_expression(slate_expr, compiler_parameters=None):

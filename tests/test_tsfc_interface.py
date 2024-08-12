@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from pyop2.caching import _disk_cache_get, _as_hexdigest
 import os
 import subprocess
 import sys
@@ -50,7 +51,11 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    return tsfc_interface.TSFCKernel(mass, 'mass', parameters["form_compiler"], (), (), None).cache_key
+    key = tsfc_interface.TSFCKernel_hashkey(
+        mass, 'mass', parameters["form_compiler"], (), (), None
+    )[1]
+    disk_key = _as_hexdigest((key, tsfc_interface.TSFCKernel.__qualname__))
+    return disk_key
 
 
 class TestTSFCCache:
@@ -60,13 +65,17 @@ class TestTSFCCache:
     def test_cache_key_persistent_across_invocations(self, tmpdir):
         code = """
 from firedrake import *
+from firedrake.tsfc_interface import TSFCKernel, TSFCKernel_hashkey
+from pyop2.caching import _as_hexdigest
 mesh = UnitSquareMesh(1, 1)
 V = FunctionSpace(mesh, "CG", 1)
 u = TrialFunction(V)
 v = TestFunction(V)
-key = tsfc_interface.TSFCKernel(inner(u,v)*dx, "mass", parameters["form_compiler"], (), (), None).cache_key
+obj = tsfc_interface.TSFCKernel(inner(u,v)*dx, "mass", parameters["form_compiler"], (), (), None)
+key = tsfc_interface.TSFCKernel_hashkey(inner(u,v)*dx, "mass", parameters["form_compiler"], (), (), None)[1]
+disk_key = _as_hexdigest((key, obj.__class__.__qualname__))
 with open("{file}", "w") as f:
-    f.write(key)
+    f.write(disk_key)
         """
         filea = tmpdir.join("a")
         fileb = tmpdir.join("b")
@@ -78,16 +87,15 @@ with open("{file}", "w") as f:
             key2 = f.read()
         assert key1 == key2
 
-    def test_tsfc_cache_persist_on_disk(self, cache_key):
+    def test_tsfc_cache_persist_on_disk(self, mass, cache_key):
         """TSFCKernel should be persisted on disk."""
+        tsfc_interface.TSFCKernel(mass, "mass", parameters["form_compiler"], (), (), None)
         shard, key = cache_key[:2], cache_key[2:]
-        assert os.path.exists(
-            os.path.join(tsfc_interface.TSFCKernel._cachedir, shard, key))
+        assert os.path.exists(os.path.join(tsfc_interface._cachedir, shard, key))
 
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
-        assert tsfc_interface.TSFCKernel._read_from_disk(
-            cache_key, COMM_WORLD).cache_key == cache_key
+        assert _disk_cache_get(tsfc_interface._cachedir, cache_key)._cache_key.value == cache_key
 
     def test_tsfc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""

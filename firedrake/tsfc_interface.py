@@ -4,15 +4,11 @@ transforms the TSFC-generated code to make it suitable for
 passing to the backends.
 
 """
-import pickle
-
 from hashlib import md5
 from os import path, environ, getuid, makedirs
-import gzip
-import os
-import zlib
 import tempfile
 import collections
+import cachetools
 
 import ufl
 import finat.ufl
@@ -24,8 +20,8 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import Cached
-from pyop2.mpi import COMM_WORLD, MPI
+from pyop2.caching import MemoryAndDiskCachedObject, parallel_memory_only_cache
+from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -52,75 +48,40 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "events"])
 
 
-class TSFCKernel(Cached):
+_cachedir = environ.get(
+    'FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
+    path.join(tempfile.gettempdir(), f'firedrake-tsfc-kernel-cache-uid{getuid()}')
+)
 
-    _cache = {}
 
-    _cachedir = environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
-                            path.join(tempfile.gettempdir(),
-                                      'firedrake-tsfc-kernel-cache-uid%d' % getuid()))
+def TSFCKernel_hashkey(*args, **kwargs):
+    arg_dict = dict(kwargs)
+    arg_names = [
+        "form", "name", "parameters", "coefficient_numbers",
+        "constant_numbers", "interface", "diagonal"
+    ]
+    for k, v in zip(arg_names, args):
+        arg_dict[k] = v
+    arg_dict.setdefault("diagonal", False)
+    comm = arg_dict["form"].ufl_domains()[0].comm
+    if isinstance(arg_dict["form"], str):
+        signature = arg_dict["form"]
+    else:
+        signature = arg_dict["form"].signature()
+    parts = (
+        signature,
+        arg_dict["name"],
+        sorted(arg_dict["parameters"].items()),
+        arg_dict["coefficient_numbers"],
+        arg_dict["constant_numbers"],
+        type(arg_dict["interface"]),
+        arg_dict["diagonal"]
+    )
+    key = md5(" ".join(map(str, parts)).encode()).hexdigest()
+    return comm, key
 
-    @classmethod
-    def _cache_lookup(cls, key):
-        key, comm = key
-        # comm has to be part of the in memory key so that when
-        # compiling the same code on different subcommunicators we
-        # don't get deadlocks. But MPI_Comm objects are not hashable,
-        # so use comm.py2f() since this is an internal communicator and
-        # hence the C handle is stable.
-        commkey = comm.py2f()
-        assert commkey != MPI.COMM_NULL.py2f()
-        return cls._cache.get((key, commkey)) or cls._read_from_disk(key, comm)
 
-    @classmethod
-    def _read_from_disk(cls, key, comm):
-        if comm.rank == 0:
-            cache = cls._cachedir
-            shard, disk_key = key[:2], key[2:]
-            filepath = os.path.join(cache, shard, disk_key)
-            val = None
-            if os.path.exists(filepath):
-                try:
-                    with gzip.open(filepath, 'rb') as f:
-                        val = f.read()
-                except zlib.error:
-                    pass
-
-            comm.bcast(val, root=0)
-        else:
-            val = comm.bcast(None, root=0)
-
-        if val is None:
-            raise KeyError(f"Object with key {key} not found")
-        return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
-
-    @classmethod
-    def _cache_store(cls, key, val):
-        key, comm = key
-        cls._cache[(key, comm.py2f())] = val
-        _ensure_cachedir(comm=comm)
-        if comm.rank == 0:
-            val._key = key
-            shard, disk_key = key[:2], key[2:]
-            filepath = os.path.join(cls._cachedir, shard, disk_key)
-            tempfile = os.path.join(cls._cachedir, shard, "%s_p%d.tmp" % (disk_key, os.getpid()))
-            # No need for a barrier after this, since non root
-            # processes will never race on this file.
-            os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
-            with gzip.open(tempfile, 'wb') as f:
-                pickle.dump(val, f, 0)
-            os.rename(tempfile, filepath)
-        comm.barrier()
-
-    @classmethod
-    def _cache_key(cls, form, name, parameters, coefficient_numbers, constant_numbers, interface, diagonal=False):
-        return md5((form.signature() + name
-                    + str(sorted(parameters.items()))
-                    + str(coefficient_numbers)
-                    + str(constant_numbers)
-                    + str(type(interface))
-                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
-
+class TSFCKernel(MemoryAndDiskCachedObject, cachedir=_cachedir, key=TSFCKernel_hashkey):
     def __init__(
         self,
         form,
@@ -141,8 +102,6 @@ class TSFCKernel(Cached):
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         :arg diagonal: If assembling a matrix is it diagonal?
         """
-        if self._initialized:
-            return
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
                                  diagonal=diagonal, log=PETSc.Log.isActive())
@@ -179,14 +138,22 @@ class TSFCKernel(Cached):
                                       arguments=kernel.arguments,
                                       events=events))
         self.kernels = tuple(kernels)
-        self._initialized = True
 
 
-SplitKernel = collections.namedtuple("SplitKernel", ["indices",
-                                                     "kinfo"])
+SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
+
+
+def compile_form_hashkey(*args, **kwargs):
+    # form, name, parameters, split, diagonal
+    comm = args[0].ufl_domains()[0].comm
+    parameters = kwargs.pop("parameters", None)
+    key = cachetools.keys.hashkey(*args, utils.tuplify(parameters), **kwargs)
+    kwargs.setdefault("parameters", parameters)
+    return comm, key
 
 
 @PETSc.Log.EventDecorator()
+@parallel_memory_only_cache(key=compile_form_hashkey)
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 
@@ -222,16 +189,6 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
 
-    # We stash the compiled kernels on the form so we don't have to recompile
-    # if we assemble the same form again with the same optimisations
-    cache = form._cache.setdefault("firedrake_kernels", {})
-
-    key = (name, utils.tuplify(parameters), split, diagonal)
-    try:
-        return cache[key]
-    except KeyError:
-        pass
-
     kernels = []
     numbering = form.terminal_numbering()
     if split:
@@ -258,15 +215,19 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
             numbering[c] for c in extract_firedrake_constants(f)
         )
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
-        kinfos = TSFCKernel(f, prefix, parameters,
-                            coefficient_numbers,
-                            constant_numbers,
-                            interface, diagonal).kernels
-        for kinfo in kinfos:
+        tsfc_kernel = TSFCKernel(
+            f,
+            prefix,
+            parameters,
+            coefficient_numbers,
+            constant_numbers,
+            interface, diagonal
+        )
+        for kinfo in tsfc_kernel.kernels:
             kernels.append(SplitKernel(idx, kinfo))
 
     kernels = tuple(kernels)
-    return cache.setdefault(key, kernels)
+    return kernels
 
 
 def _real_mangle(form):
@@ -291,7 +252,7 @@ def clear_cache(comm=None):
     comm = comm or COMM_WORLD
     if comm.rank == 0:
         import shutil
-        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+        shutil.rmtree(_cachedir, ignore_errors=True)
         _ensure_cachedir(comm=comm)
 
 
@@ -299,7 +260,7 @@ def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
     comm = comm or COMM_WORLD
     if comm.rank == 0:
-        makedirs(TSFCKernel._cachedir, exist_ok=True)
+        makedirs(_cachedir, exist_ok=True)
 
 
 def gather_integer_subdomain_ids(knls):
