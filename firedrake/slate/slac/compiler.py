@@ -100,6 +100,7 @@ def compile_expression_hashkey(slate_expr, compiler_parameters=None):
     return comm, getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
 
 
+# TODO: Decorate this with a disk/memory cache instead
 @parallel_memory_only_cache(key=compile_expression_hashkey)
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate

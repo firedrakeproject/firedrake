@@ -102,6 +102,7 @@ class TSFCKernel(MemoryAndDiskCachedObject, cachedir=_cachedir, key=TSFCKernel_h
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         :arg diagonal: If assembling a matrix is it diagonal?
         """
+        # TODO: wrap tsfc_compile_form in a cache
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
                                  diagonal=diagonal, log=PETSc.Log.isActive())
@@ -152,6 +153,7 @@ def compile_form_hashkey(*args, **kwargs):
     return comm, key
 
 
+# TODO: This should be disk cached
 @PETSc.Log.EventDecorator()
 @parallel_memory_only_cache(key=compile_form_hashkey)
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):

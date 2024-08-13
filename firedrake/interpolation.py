@@ -1211,7 +1211,7 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
     return comm, key
 
 
-@disk_cached({}, _expr_cachedir, key=_compile_expression_key, collective=True)
+@disk_cached(None, _expr_cachedir, key=_compile_expression_key, collective=True)
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
 
