@@ -46,8 +46,8 @@ Abstract submission is now closed.  The workshop programme is
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 7 June at `The
-Candlemaker <https://www.candlemaker.pub/>`_ in Battersea (easily
+There will be a workshop dinner in the evening of 7 June at The
+Candlemaker in Battersea (easily
 accessible from Imperial by bike, or public transport).
 
 Location
