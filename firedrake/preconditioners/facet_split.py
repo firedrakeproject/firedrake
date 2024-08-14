@@ -71,7 +71,9 @@ class FacetSplitPC(PCBase):
         self.work_vecs = None
         indices = self.get_indices(V, W)
         self.subset = None
+        self.needs_zeroing = False
         if indices is not None:
+            self.needs_zeroing = len(indices) < V.dof_count
             self.subset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
 
         if mat_type != "submatrix":
@@ -152,7 +154,8 @@ class FacetSplitPC(PCBase):
         self.pc.setUp()
 
     def prolong(self, x, y):
-        y.set(0.0)
+        if self.needs_zeroing:
+            y.set(0.0)
         array_x = x.getArray(readonly=True)
         array_y = y.getArray(readonly=False)
         with self.subset as subset_indices:
@@ -210,11 +213,10 @@ def restrict(ele, restriction_domain):
         return RestrictedElement(ele, restriction_domain)
 
 
-def split_dofs(elem, dim=None):
+def split_dofs(elem):
     """ Split DOFs into interior and facet DOF, where facets are sorted by entity.
     """
-    if dim is None:
-        dim = elem.cell.get_spatial_dimension()
+    dim = elem.cell.get_spatial_dimension()
     entity_dofs = elem.entity_dofs()
     edofs = [[], []]
     for key in sorted(entity_dofs.keys()):
@@ -229,7 +231,7 @@ def split_dofs(elem, dim=None):
     return tuple(numpy.array(e, dtype=PETSc.IntType) for e in edofs)
 
 
-def restricted_dofs(celem, felem, dim=None):
+def restricted_dofs(celem, felem):
     """ Find which DOFs from felem are on celem
     :arg celem: the restricted :class:`finat.FiniteElement`
     :arg felem: the unrestricted :class:`finat.FiniteElement`

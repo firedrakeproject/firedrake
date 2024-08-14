@@ -602,7 +602,7 @@ def evaluate_dual(source, target, derivative=None):
         A :class:`FIAT.CiarletElement` defining the interpolation space.
     derivative : ``str`` or ``None``
         An optional differential operator to apply on the source expression,
-        (currently only "grad" is supported).
+        either "grad", "curl", or "div".
 
     Returns
     -------
@@ -613,17 +613,18 @@ def evaluate_dual(source, target, derivative=None):
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
     B = numpy.transpose(primal.get_coeffs())
-    if derivative == "grad":
+    if derivative in ("grad", "curl", "div"):
         dmats = primal.get_dmats()
-        assert len(dmats) == 1
-        alpha = (1,)
-        for i in range(len(alpha)):
-            for j in range(alpha[i]):
-                B = numpy.dot(dmats[i], B)
-    elif derivative in ("curl", "div"):
-        raise NotImplementedError(f"Dual evaluation of {derivative} is not yet implemented.")
+        B = numpy.tensordot(dmats, B, axes=(-1, 0))
+        if derivative == "curl":
+            idx = ((i, j) for i in reversed(range(len(B))) for j in reversed(range(i+1, len(B))))
+            B = numpy.stack([((-1)**k) * (B[i, :, j, :] - B[j, :, i, :]) for k, (i, j) in enumerate(idx)])
+        elif derivative == "div":
+            B = sum(B[k, :, k, :] for k in range(len(B)))
     elif derivative is not None:
         raise ValueError(f"Invalid derivaitve type {derivative}.")
+    A = A.reshape((A.shape[0], -1))
+    B = B.reshape((-1, B.shape[-1]))
     return get_readonly_view(numpy.dot(A, B))
 
 

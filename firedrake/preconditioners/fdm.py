@@ -35,8 +35,8 @@ import finat
 import numpy
 import ctypes
 
-Citations().add("Brubeck2022a", """
-@article{Brubeck2022a,
+Citations().add("Brubeck2022", """
+@article{Brubeck2022,
   title={A scalable and robust vertex-star relaxation for high-order {FEM}},
   author={Brubeck, Pablo D. and Farrell, Patrick E.},
   journal = {SIAM J. Sci. Comput.},
@@ -47,14 +47,16 @@ Citations().add("Brubeck2022a", """
   doi = {10.1137/21M1444187}
 """)
 
-Citations().add("Brubeck2022b", """
-@misc{Brubeck2022b,
+Citations().add("Brubeck2024", """
+@article{Brubeck2024,
   title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
   author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  archiveprefix = {arXiv},
-  eprint = {2211.14284},
-  primaryclass = {math.NA},
-  year={2022}
+  journal = {SIAM J. Sci. Comput.},
+  volume = {46},
+  number = {3},
+  pages = {A1549-A1573},
+  year = {2024},
+  doi = {10.1137/22M1537370}
 """)
 
 
@@ -83,7 +85,7 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
     _variant = "fdm"
-    _citation = "Brubeck2022b"
+    _citation = "Brubeck2024"
     _cache = {}
 
     @PETSc.Log.EventDecorator("FDMInit")
@@ -450,7 +452,7 @@ class FDMPC(PCBase):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
-        See Section 3.2 of Brubeck2022b.
+        See Section 3.2 of Brubeck2024.
 
         :arg J: the Jacobian bilinear :class:`ufl.Form`,
         :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
@@ -554,7 +556,7 @@ class FDMPC(PCBase):
     def assemble_reference_tensor(self, V, transpose=False, sort_interior=False):
         """
         Return the reference tensor used in the diagonal factorisation of the
-        sparse cell matrices.  See Section 3.2 of Brubeck2022b.
+        sparse cell matrices.  See Section 3.2 of Brubeck2024.
 
         :arg V: a :class:`.FunctionSpace`
 
@@ -692,7 +694,7 @@ class FDMPC(PCBase):
             # Interpolation of basis and exterior derivative onto broken spaces
             C1 = self.assemble_reference_tensor(Vcol)
             R1 = self.assemble_reference_tensor(Vrow, transpose=True)
-            # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2022b
+            # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2024
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
             if schur_kernel is not None:
@@ -1584,37 +1586,43 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
-    c0, c1 = elements[::len(elements)-1]
-    elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
-    f0, f1 = elements[::len(elements)-1]
-    if f0.formdegree != 0:
-        f0 = None
-    if c1.formdegree != 1:
-        c1 = None
+    if Vf.mesh().ufl_cell().is_simplex():
+        c0 = ec.fiat_equivalent
+        f1 = ef.fiat_equivalent
+        derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
+        Dhat = petsc_sparse(evaluate_dual(c0, f1, derivative), comm=COMM_SELF)
+    else:
+        elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
+        c0, c1 = elements[::len(elements)-1]
+        elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
+        f0, f1 = elements[::len(elements)-1]
+        if f0.formdegree != 0:
+            f0 = None
+        if c1.formdegree != 1:
+            c1 = None
 
-    tdim = Vc.mesh().topological_dimension()
-    zero = PETSc.Mat()
-    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
-    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
-    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
-    Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
-    A00.destroy()
-    A11.destroy()
-    if Dhat != A10:
-        A10.destroy()
+        tdim = Vc.mesh().topological_dimension()
+        zero = PETSc.Mat()
+        A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
+        A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
+        A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
+        Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
+        A00.destroy()
+        A11.destroy()
+        if Dhat != A10:
+            A10.destroy()
 
-    if any(is_restricted(ec)) or any(is_restricted(ef)):
-        scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
-        fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-        cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
-        temp = Dhat
-        fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
-        cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
-        Dhat = temp.createSubMatrix(fises, cises)
-        temp.destroy()
-        fises.destroy()
-        cises.destroy()
+        if any(is_restricted(ec)) or any(is_restricted(ef)):
+            scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
+            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
+            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+            temp = Dhat
+            fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
+            cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
+            Dhat = temp.createSubMatrix(fises, cises)
+            temp.destroy()
+            fises.destroy()
+            cises.destroy()
 
     if Vf.value_size > 1:
         temp = Dhat
@@ -1799,7 +1807,7 @@ class PoissonFDMPC(FDMPC):
     """
 
     _variant = "fdm_ipdg"
-    _citation = "Brubeck2022a"
+    _citation = "Brubeck2022"
 
     def assemble_reference_tensor(self, V):
         try:
