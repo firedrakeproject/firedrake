@@ -154,6 +154,7 @@ linkcheck_ignore = [
     r'https://www.sciencedirect.com',
     r'https://.*\.baylor\.edu.*',
     r'https://www.tuomaskarna.com',
+    r'https://www.crosscountrytrains.co.uk/',
 ]
 linkcheck_timeout = 30
 
