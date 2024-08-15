@@ -80,20 +80,24 @@ class SlateKernel(TSFCKernel):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
-def compile_expression_hashkey(slate_expr, compiler_parameters=None):
-    comm = slate_expr.ufl_domains()[0].comm
+def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
     params = copy.deepcopy(parameters)
     if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
+    return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
 
-    return comm, getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+
+def _compile_expression_comm(*args, **kwargs):
+    # args[0] is a slate_expr
+    return args[0].ufl_domains()[0].comm
 
 
 # TODO: Decorate this with a disk/memory cache instead
 @memory_and_disk_cache(
-    hashkey=compile_expression_hashkey,
+    hashkey=_compile_expression_hashkey,
+    comm_fetcher=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 def compile_expression(slate_expr, compiler_parameters=None):

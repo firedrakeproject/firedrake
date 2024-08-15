@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from pyop2.caching import _disk_cache_get, _as_hexdigest
+from pyop2.caching import DictLikeDiskAccess, _as_hexdigest
 import os
 import subprocess
 import sys
@@ -54,14 +54,13 @@ def cache_key(mass):
     key = tsfc_interface.TSFCKernel_hashkey(
         mass, 'mass', parameters["form_compiler"], (), (), None
     )[1]
-    disk_key = _as_hexdigest((key, tsfc_interface.TSFCKernel.__qualname__))
+    disk_key = _as_hexdigest(key, tsfc_interface.TSFCKernel.__qualname__)
     return disk_key
 
 
 class TestTSFCCache:
-
     """TSFC code generation cache tests."""
-
+    # TODO: The first three tests no longer make sense, rewrite or delete
     def test_cache_key_persistent_across_invocations(self, tmpdir):
         code = """
 from firedrake import *
@@ -95,7 +94,8 @@ with open("{file}", "w") as f:
 
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
-        assert _disk_cache_get(tsfc_interface._cachedir, cache_key)._cache_key.value == cache_key
+        disk = DictLikeDiskAccess(tsfc_interface._cachedir)
+        assert disk[cache_key]._cache_key.value == cache_key
 
     def test_tsfc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""
