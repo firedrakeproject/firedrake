@@ -5,7 +5,7 @@ import islpy as isl
 
 import finat
 from pyop2 import op2
-from pyop2.caching import serial_cache, DEFAULT_CACHE
+from pyop2.caching import serial_cache
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element

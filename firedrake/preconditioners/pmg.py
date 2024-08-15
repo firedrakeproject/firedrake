@@ -12,7 +12,7 @@ from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
-from pyop2.caching import serial_cache, DEFAULT_CACHE
+from pyop2.caching import serial_cache
 from pyop2.utils import as_tuple
 
 import firedrake

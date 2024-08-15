@@ -8,7 +8,6 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
-import tempfile
 from hashlib import md5
 
 from firedrake_citations import Citations
@@ -35,7 +34,6 @@ import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
-import os
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
