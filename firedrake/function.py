@@ -70,7 +70,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # Internal comm
         self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -521,7 +521,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         IMulAssigner(self, expr).assign()
         return self
 
-    @FunctionMixin._ad_annotate_idiv
+    @FunctionMixin._ad_annotate_itruediv
     def __itruediv__(self, expr):
         from firedrake.assign import IDivAssigner
         IDivAssigner(self, expr).assign()

@@ -33,7 +33,7 @@ Key Dates
 
 * Early registration deadline: 20 April 2018
 * Registration deadline: 25 May 2018
-* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 20 April 2018
+* Abstract deadline: 20 April 2018
 * Workshop: 7-8 June 2018
 
 
@@ -46,8 +46,8 @@ Abstract submission is now closed.  The workshop programme is
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 7 June at `The
-Candlemaker <https://www.candlemaker.pub/>`_ in Battersea (easily
+There will be a workshop dinner in the evening of 7 June at The
+Candlemaker in Battersea (easily
 accessible from Imperial by bike, or public transport).
 
 Location

@@ -107,18 +107,15 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.8.x to 3.11.x. On MacOS Arm (M1 or M2) Python 3.9.x
-to 3.11.x is required. Many externally managed dependencies such as VTK
-have yet to create binary wheels for 3.11.x, but we have generated these
-for the major supported platforms.
-The installation script is tested on Ubuntu and MacOS X. On Ubuntu 22.04
-or later, the system installed Python 3 is supported and tested. On
-MacOS, the homebrew_ installed Python 3 is supported::
+Firedrake requires Python 3.9 to 3.12. The installation script is
+tested by CI on Ubuntu 24.04 LTS. On Ubuntu 22.04 or later, the system
+installed Python 3 is supported. On MacOS, the homebrew_ installed
+Python 3 is supported::
 
   brew install python3
 
 Installation is likely to work well on other Linux platforms, although
-the script may stop to ask you to install some dependency packages.
+the script may fail if dependency packages are not already installed.
 Installation on other Unix platforms may work but is untested. On Linux
 systems that do not use the Debian package management system, it will be
 necessary to pass the `--no-package-manager` option to the install
@@ -129,12 +126,13 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.8.x-3.11.x (3.9.x-3.11.x on MacOS Arm)
+* Python version 3.9-3.12
 * The Python headers
 * autoconf, automake, libtool
 * CMake
 * zlib
 * flex, bison
+* Ninja
 
 Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed instructions for

@@ -210,10 +210,11 @@ each supermesh cell.
 #define complex_mode %(complex_mode)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
+    #define FPrintInfo(...) do { if (PetscLogPrintInfo) fprintf(stderr, __VA_ARGS__); } while (0)
     static void print_array(PetscScalar *arr, int d)
     {
         for(int j=0; j<d; j++)
-            PrintInfo(stderr, "%%+.2f ", arr[j]);
+            FPrintInfo("%%+.2f ", arr[j]);
     }
     static void print_coordinates(PetscScalar *simplex, int d)
     {

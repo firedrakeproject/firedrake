@@ -133,7 +133,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    # TODO: When we drop Python 3.8 replace this mess with
+    # DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    DEFAULT_KSP_PARAMETERS = MappingProxyType({
+        k: v
+        if k != 'ksp_rtol' else 1e-5
+        for k, v in DEFAULT_KSP_PARAMETERS.items()
+    })
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
@@ -360,7 +366,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
-            if len(L.arguments()) != 1:
+            if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
             F = ufl_expr.action(J, u) - L
 

@@ -2,11 +2,15 @@
 Tests the different replacement routines from replacement.py
 """
 
-from firedrake import (UnitSquareMesh, FunctionSpace, Function, TestFunction,
-                       TestFunctions, TrialFunction, TrialFunctions,
-                       Argument, VectorFunctionSpace, dx, inner, split, grad,
-                       Label, subject, replace_subject, replace_test_function,
-                       replace_trial_function, drop, all_terms)
+from firedrake import (
+    UnitSquareMesh, FunctionSpace, Function, TestFunction,
+    TestFunctions, TrialFunction, TrialFunctions, Argument,
+    VectorFunctionSpace, dx, inner, split, grad
+)
+from firedrake.fml import (
+    Label, subject, replace_subject, replace_test_function,
+    replace_trial_function, drop, all_terms
+)
 import pytest
 
 from collections import namedtuple

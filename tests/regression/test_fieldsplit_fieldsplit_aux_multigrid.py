@@ -92,8 +92,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
     solver_params_guess = {"ksp_type": "preonly",
                            "mat_type": "aij",
                            "pc_type": "lu",
-                           "pc_factor_mat_solver_type": "mumps",
-                           "mat_mumps_icntl_24": 1,
+                           "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
                            "snes_monitor": None}
     nsp_guess = MixedVectorSpaceBasis(
         G,

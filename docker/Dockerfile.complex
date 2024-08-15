@@ -18,6 +18,5 @@ RUN bash -c "python3 firedrake-install \
     --mpicxx=$MPICH_DIR/mpicxx \
     --mpif90=$MPICH_DIR/mpif90 \
     --mpiexec=$MPICH_DIR/mpiexec \
-    --tinyasm \
     --slepc \
     --documentation-dependencies"
