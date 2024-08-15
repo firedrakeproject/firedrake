@@ -157,7 +157,11 @@ def _compile_form_comm(*args, **kwargs):
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-@parallel_memory_only_cache(key=compile_form_hashkey)
+@memory_and_disk_cache(
+    hashkey=_compile_form_hashkey,
+    comm_fetcher=_compile_form_comm,
+    cachedir=_cachedir
+)
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 
