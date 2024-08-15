@@ -12,7 +12,7 @@ from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
-from pyop2.caching import disk_cached
+from pyop2.caching import memory_and_disk_cache
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -1211,7 +1211,10 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
     return comm, key
 
 
-@disk_cached(None, _expr_cachedir, key=_compile_expression_key, collective=True)
+@memory_and_disk_cache(
+    hashkey=_compile_expression_key,
+    cachedir=tsfc_interface._cachedir
+)
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
 

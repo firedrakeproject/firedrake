@@ -12,7 +12,7 @@ from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
-from pyop2.caching import cached
+from pyop2.caching import serial_cache, DEFAULT_CACHE
 from pyop2.utils import as_tuple
 
 import firedrake
@@ -589,7 +589,7 @@ def get_readonly_view(arr):
     return result
 
 
-@cached({}, key=generate_key_evaluate_dual)
+@serial_cache(hashkey=generate_key_evaluate_dual)
 def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
     on the (derivative of the) basis functions of the source element.
@@ -627,7 +627,7 @@ def evaluate_dual(source, target, derivative=None):
     return get_readonly_view(numpy.dot(A, B))
 
 
-@cached({}, key=generate_key_evaluate_dual)
+@serial_cache(hashkey=generate_key_evaluate_dual)
 def compare_element(e1, e2):
     """Numerically compare two :class:`FIAT.elements`.
        Equality is satisfied if e2.dual_basis(e1.primal_basis) == identity."""
@@ -639,7 +639,7 @@ def compare_element(e1, e2):
     return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
 
 
-@cached({}, key=lambda V: V.ufl_element())
+@serial_cache(hashkey=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_line_elements(V):
     """Find DOF permutation to factor out the EnrichedElement expansion

@@ -20,7 +20,7 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import MemoryAndDiskCachedObject, parallel_memory_only_cache
+from pyop2.caching import memory_and_disk_cache
 from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
@@ -81,7 +81,7 @@ def TSFCKernel_hashkey(*args, **kwargs):
     return comm, key
 
 
-class TSFCKernel(MemoryAndDiskCachedObject, cachedir=_cachedir, key=TSFCKernel_hashkey):
+class TSFCKernel:
     def __init__(
         self,
         form,
@@ -144,18 +144,25 @@ class TSFCKernel(MemoryAndDiskCachedObject, cachedir=_cachedir, key=TSFCKernel_h
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def compile_form_hashkey(*args, **kwargs):
+def _compile_form_hashkey(*args, **kwargs):
     # form, name, parameters, split, diagonal
-    comm = args[0].ufl_domains()[0].comm
     parameters = kwargs.pop("parameters", None)
     key = cachetools.keys.hashkey(*args, utils.tuplify(parameters), **kwargs)
     kwargs.setdefault("parameters", parameters)
-    return comm, key
+    return key
+
+
+def _compile_form_comm(*args, **kwargs):
+    return args[0].ufl_domains()[0].comm
 
 
 # TODO: This should be disk cached
 @PETSc.Log.EventDecorator()
-@parallel_memory_only_cache(key=compile_form_hashkey)
+@memory_and_disk_cache(
+    hashkey=_compile_form_hashkey,
+    comm_fetcher=_compile_form_comm,
+    cachedir=_cachedir
+)
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 

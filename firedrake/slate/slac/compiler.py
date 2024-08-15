@@ -29,7 +29,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
-from pyop2.caching import parallel_memory_only_cache
+from pyop2.caching import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -69,22 +69,13 @@ else:
 cell_to_facets_dtype = np.dtype(np.int8)
 
 
-try:
-    _cachedir = os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"]
-except KeyError:
-    _cachedir = os.path.join(
-        tempfile.gettempdir(),
-        f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}"
-    )
-
-
 def _cache_key(expr, compiler_parameters):
     return expr.ufl_domains()[0].comm, md5(
         (expr.expression_hash + str(sorted(compiler_parameters.items()))).encode()
     ).hexdigest()
 
 
-class SlateKernel(TSFCKernel, cachedir=_cachedir, key=_cache_key):
+class SlateKernel(TSFCKernel):
     def __init__(self, expr, compiler_parameters):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
@@ -101,7 +92,10 @@ def compile_expression_hashkey(slate_expr, compiler_parameters=None):
 
 
 # TODO: Decorate this with a disk/memory cache instead
-@parallel_memory_only_cache(key=compile_expression_hashkey)
+@memory_and_disk_cache(
+    hashkey=compile_expression_hashkey,
+    cachedir=tsfc_interface._cachedir
+)
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     ``pyop2.op2.Kernel`` object representing the Slate expression.
