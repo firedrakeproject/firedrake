@@ -127,8 +127,8 @@ operator instead.
 :class:`.AuxiliaryOperatorPC`
    Abstract base class for preconditioners built from assembled
    auxiliary operators. One should subclass this preconditioner and
-   implement the :meth:`.AuxiliaryOperatorPC.form` method. This can be
-   used to provided bilinear forms to the solver that were not there
+   override the :meth:`.PCSNESBase.form` method. This can be
+   used to provide bilinear forms to the solver that were not there
    in the original problem, for example, the pressure mass matrix for
    block preconditioners of the Stokes equations.
 :class:`.FDMPC`
@@ -138,7 +138,7 @@ operator instead.
    implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
-   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2021`.
+   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
 :class:`~.PCDPC`
