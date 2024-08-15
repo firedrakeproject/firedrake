@@ -135,6 +135,7 @@ class FacetSplitPC(PCBase):
             for x in nsp.getVecs():
                 y = Pmat.createVecRight()
                 self.restrict(x, y)
+                y.normalize()
                 vecs.append(y)
             return PETSc.NullSpace().create(constant=nsp.hasConstant(), vectors=vecs, comm=nsp.getComm())
 
@@ -237,20 +238,14 @@ def restricted_dofs(celem, felem):
     :arg felem: the unrestricted :class:`finat.FiniteElement`
     :returns: :class:`numpy.array` with indices of felem that correspond to celem
     """
-    indices = []
-    iperm = []
+    indices = numpy.full((celem.space_dimension(),), -1, dtype=PETSc.IntType)
     cdofs = celem.entity_dofs()
     fdofs = felem.entity_dofs()
     for dim in sorted(cdofs):
         for entity in cdofs[dim]:
             ndofs = len(cdofs[dim][entity])
-            iperm.extend(cdofs[dim][entity])
-            indices.extend(fdofs[dim][entity][:ndofs])
-
-    indices = numpy.array(indices, dtype=PETSc.IntType)
-    perm = numpy.empty_like(iperm)
-    perm[iperm] = numpy.arange(len(perm))
-    return indices[perm]
+            indices[cdofs[dim][entity]] = fdofs[dim][entity][:ndofs]
+    return indices
 
 
 def reference_space_dimension(V):
