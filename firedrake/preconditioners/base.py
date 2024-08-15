@@ -2,7 +2,7 @@ import abc
 
 from firedrake_citations import Citations
 from firedrake.petsc import PETSc
-import firedrake.dmhooks as dmhooks
+from firedrake.dmhooks import get_appctx
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -59,14 +59,36 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         if hasattr(self, "pc"):
             self.pc.destroy()
 
-    def form(self, pc, *args):
+    def form(self, obj, *args):
+        """Extract the preconditioning bilinear form and boundary conditions.
+
+        Subclasses may override this function to provide an auxiliary bilinear
+        form. Use `self.get_appctx(obj)` to get the user-supplied
+        application-context, if desired.
+
+        :arg obj: a `PETSc.PC` or `PETSc.SNES` object.
+
+        :arg test: a `TestFunction` on this `FunctionSpace`.
+
+        :arg trial: a `TrialFunction` on this `FunctionSpace`.
+
+        :returns `(a, bcs)`, where `a` is a bilinear `Form`
+        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
+        """
+        if isinstance(obj, PETSc.PC):
+            pc = obj
+        elif isinstance(obj, PETSc.SNES):
+            pc = obj.ksp.pc
+        else:
+            raise ValueError("Not a PC or SNES?")
+
         _, P = pc.getOperators()
         if P.getType() == "python":
             ctx = P.getPythonContext()
             a = ctx.a
             bcs = tuple(ctx.row_bcs)
         else:
-            ctx = dmhooks.get_appctx(pc.getDM())
+            ctx = get_appctx(pc.getDM())
             a = ctx.Jp or ctx.J
             bcs = tuple(ctx._problem.bcs)
         if len(args):
@@ -75,7 +97,6 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
 
     @staticmethod
     def get_appctx(pc):
-        from firedrake.dmhooks import get_appctx
         return get_appctx(pc.getDM()).appctx
 
     @staticmethod
@@ -85,7 +106,6 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         from firedrake.variational_solver import NonlinearVariationalProblem
         from firedrake.function import Function
         from firedrake.ufl_expr import action
-        from firedrake.dmhooks import get_appctx
         from firedrake.solving_utils import _SNESContext
 
         dm = pc.getDM()
