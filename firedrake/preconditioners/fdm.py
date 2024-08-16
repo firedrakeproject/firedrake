@@ -106,15 +106,12 @@ class FDMPC(PCBase):
         self.appctx = appctx
 
         # Get original Jacobian form and bcs
+        J, bcs = self.form(pc)
+
         if Pmat.getType() == "python":
-            ctx = Pmat.getPythonContext()
-            J = ctx.a
-            bcs = tuple(ctx.bcs)
             mat_type = "matfree"
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
-            J = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
             mat_type = ctx.mat_type
 
         # TODO assemble Schur complements specified by a SLATE Tensor
