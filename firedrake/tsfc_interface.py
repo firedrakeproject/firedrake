@@ -147,7 +147,12 @@ SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 def _compile_form_hashkey(*args, **kwargs):
     # form, name, parameters, split, diagonal
     parameters = kwargs.pop("parameters", None)
-    key = cachetools.keys.hashkey(*args, utils.tuplify(parameters), **kwargs)
+    key = cachetools.keys.hashkey(
+        args[0].signature(),
+        *args[1:],
+        utils.tuplify(parameters),
+        **kwargs
+    )
     kwargs.setdefault("parameters", parameters)
     return key
 
