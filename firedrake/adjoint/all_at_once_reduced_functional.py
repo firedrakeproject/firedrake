@@ -2,8 +2,34 @@ from pyadjoint import ReducedFunctional, stop_annotating, Control, \
     overloaded_type
 from pyadjoint.enlisting import Enlist
 from firedrake import assemble, inner, dx
+from functools import wraps
 
 __all__ = ['AllAtOnceReducedFunctional']
+
+
+def sc_passthrough(func):
+    """
+    Wraps standard ReducedFunctional methods to differentiate strong or
+    weak constraint implementations.
+
+    If using strong constraint, makes sure strong_reduced_functional
+    is instantiated then passes args/kwargs through to the
+    corresponding strong_reduced_functional method.
+
+    If using weak constraint, returns the AllAtOnceReducedFunctional
+    method definition.
+    """
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if self.weak_constraint:
+            return func(self, *args, **kwargs)
+        else:
+            if not hasattr(self, "strong_reduced_functional"):
+                self.strong_reduced_functional = ReducedFunctional(
+                    self.functional, self.controls)
+            sc_func = getattr(self.strong_reduced_functional, func.__name__)
+            return sc_func(*args, **kwargs)
+    return wrapper
 
 
 def l2prod(x):
@@ -67,6 +93,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         """
         observation_iprod = observation_iprod or l2prod
         if self.weak_constraint:
+
             forward_model_iprod = forward_model_iprod or l2prod
 
             self.states.append(state.block_variable)
@@ -98,77 +125,59 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                 raise ValueError(msg)
             self.functional += observation_iprod(observation_err(state))
 
-    def setup_strong_constraint(self):
-        if not hasattr(self, "strong_reduced_functional"):
-            self.strong_reduced_functional = ReducedFunctional(
-                self.functional, self.controls)
-
+    @sc_passthrough
     def __call__(self, control_value):
         # update controls so derivative etc is evaluated at correct point
         for old, new in zip(self.controls, control_value):
             old.update(new)
 
-        if self.weak_constraint:
+        controls = self.controls
 
-            controls = self.controls
+        # Shift lists so indexing matches standard nomenclature:
+        # index 0 is initial condition. Model i propogates from i-1 to i.
 
-            # Shift lists so indexing matches standard nomenclature:
-            # index 0 is initial condition. Model i propogates from i-1 to i.
+        forward_models = [None, *self.forward_model_stages]
+        model_iprods = [None, *self.forward_model_iprods]
 
-            forward_models = [None, *self.forward_model_stages]
-            model_iprods = [None, *self.forward_model_iprods]
+        observations = (self.observations if self.initial_observations
+                        else [None, *self.observations])
+        observation_iprods = (self.observation_iprods if self.initial_observations
+                              else [None, *self.observation_iprods])
 
-            observations = (self.observations if self.initial_observations
-                            else [None, *self.observations])
-            observation_iprods = (self.observation_iprods if self.initial_observations
-                                  else [None, *self.observation_iprods])
+        # Initial condition functionals
+        J = self.background_iprod(controls[0].control - self.background)
 
-            # Initial condition functionals
-            J = self.background_iprod(controls[0].control - self.background)
+        if self.initial_observations:
+            J += observation_iprods[0](observations[0](controls[0]))
 
-            if self.initial_observations:
-                J += observation_iprods[0](observations[0](controls[0]))
+        for i in range(1, len(forward_models)):
+            # Propogate forward over previous time-chunk
+            end_state = forward_models[i](controls[i-1])
 
-            for i in range(1, len(forward_models)):
-                # Propogate forward over previous time-chunk
-                end_state = forward_models[i](controls[i-1])
+            # Cache end state here so we can reuse it in other functions
+            self.states[i-1] = end_state.block_variable
 
-                # Cache end state here so we can reuse it in other functions
-                self.states[i-1] = end_state.block_variable
+            # Model error - does propogation from last control match this control?
+            model_err = end_state - controls[i].control
+            J += model_iprods[i](model_err)
 
-                # Model error - does propogation from last control match this control?
-                model_err = end_state - controls[i].control
-                J += model_iprods[i](model_err)
+            # observation error - do we match the 'real world'?
+            obs_err = observations[i](controls[i])
+            J += observation_iprods[i](obs_err)
 
-                # observation error - do we match the 'real world'?
-                obs_err = observations[i](controls[i])
-                J += observation_iprods[i](obs_err)
+        return J
 
-            return J
-
-        else:
-
-            self.setup_strong_constraint()
-            return self.strong_reduced_functional(control_value)
-
+    @sc_passthrough
     def derivative(self, *args, **kwargs):
-        if self.weak_constraint:
-            # All the magic goes here.
-            raise NotImplementedError
-        else:
-            self.setup_strong_constraint()
-            return self.strong_reduced_functional.derivative(*args, **kwargs)
+        # All the magic goes here.
+        raise NotImplementedError
 
+    @sc_passthrough
     def hessian(self, *args, **kwargs):
-        if self.weak_constraint:
-            raise NotImplementedError
-        else:
-            self.setup_strong_constraint()
-            return self.strong_reduced_functional.hessian(*args, **kwargs)
+        raise NotImplementedError
 
     def hessian_matrix(self):
         # Other reduced functionals don't have this.
-        if self.weak_constraint:
-            raise NotImplementedError
-        else:
+        if not self.weak_constraint:
             raise AttributeError("Strong constraint 4DVar does not form a Hessian matrix")
+        raise NotImplementedError
