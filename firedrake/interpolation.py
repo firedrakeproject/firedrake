@@ -1204,9 +1204,6 @@ except KeyError:
 
 def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters, log):
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    # Since the caching is collective, this function must return a 2-tuple of
-    # the form (comm, key) where comm is the communicator the cache is collective over.
-    # FIXME FInAT elements are not safely hashable so we ignore them here
     key = hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
     return key
 
