@@ -1,9 +1,5 @@
 import pytest
 from firedrake import *
-from pyop2.caching import DictLikeDiskAccess, _as_hexdigest
-import os
-import subprocess
-import sys
 import loopy
 
 
@@ -49,94 +45,52 @@ def rhs2(fs):
     return inner(f, v) * dx + inner(g, v) * ds
 
 
-@pytest.fixture
-def cache_key(mass):
-    key = tsfc_interface.TSFCKernel_hashkey(
-        mass, 'mass', parameters["form_compiler"], (), (), None
-    )[1]
-    disk_key = _as_hexdigest(key, tsfc_interface.TSFCKernel.__qualname__)
-    return disk_key
+def test_tsfc_same_form(mass):
+    """Compiling the same form twice should load kernels from cache."""
+    k1 = tsfc_interface.compile_form(mass, 'mass')
+    k2 = tsfc_interface.compile_form(mass, 'mass')
+
+    assert k1 is k2
+    assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
 
 
-class TestTSFCCache:
-    """TSFC code generation cache tests."""
-    # TODO: The first three tests no longer make sense, rewrite or delete
-    def test_cache_key_persistent_across_invocations(self, tmpdir):
-        code = """
-from firedrake import *
-from firedrake.tsfc_interface import TSFCKernel, TSFCKernel_hashkey
-from pyop2.caching import _as_hexdigest
-mesh = UnitSquareMesh(1, 1)
-V = FunctionSpace(mesh, "CG", 1)
-u = TrialFunction(V)
-v = TestFunction(V)
-obj = tsfc_interface.TSFCKernel(inner(u,v)*dx, "mass", parameters["form_compiler"], (), (), None)
-key = tsfc_interface.TSFCKernel_hashkey(inner(u,v)*dx, "mass", parameters["form_compiler"], (), (), None)[1]
-disk_key = _as_hexdigest((key, obj.__class__.__qualname__))
-with open("{file}", "w") as f:
-    f.write(disk_key)
-        """
-        filea = tmpdir.join("a")
-        fileb = tmpdir.join("b")
-        subprocess.check_call([sys.executable, "-c", code.format(file=filea)])
-        subprocess.check_call([sys.executable, "-c", code.format(file=fileb)])
-        with filea.open("r") as f:
-            key1 = f.read()
-        with fileb.open("r") as f:
-            key2 = f.read()
-        assert key1 == key2
+def test_tsfc_same_mixed_form(mixed_mass):
+    """Compiling a mixed form twice should load kernels from cache."""
+    k1 = tsfc_interface.compile_form(mixed_mass, 'mixed_mass')
+    k2 = tsfc_interface.compile_form(mixed_mass, 'mixed_mass')
 
-    def test_tsfc_cache_persist_on_disk(self, mass, cache_key):
-        """TSFCKernel should be persisted on disk."""
-        tsfc_interface.TSFCKernel(mass, "mass", parameters["form_compiler"], (), (), None)
-        shard, key = cache_key[:2], cache_key[2:]
-        assert os.path.exists(os.path.join(tsfc_interface._cachedir, shard, key))
+    assert k1 is k2
+    assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
 
-    def test_tsfc_cache_read_from_disk(self, cache_key):
-        """Loading an TSFCKernel from disk should yield the right object."""
-        disk = DictLikeDiskAccess(tsfc_interface._cachedir)
-        assert disk[cache_key]._cache_key.value == cache_key
 
-    def test_tsfc_same_form(self, mass):
-        """Compiling the same form twice should load kernels from cache."""
-        k1 = tsfc_interface.compile_form(mass, 'mass')
-        k2 = tsfc_interface.compile_form(mass, 'mass')
+def test_tsfc_different_forms(mass, laplace):
+    """Compiling different forms should not load kernels from cache."""
+    k1, = tsfc_interface.compile_form(mass, 'mass')
+    k2, = tsfc_interface.compile_form(laplace, 'mass')
 
-        assert k1 is k2
-        assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
+    assert k1[-1] is not k2[-1]
 
-    def test_tsfc_same_mixed_form(self, mixed_mass):
-        """Compiling a mixed form twice should load kernels from cache."""
-        k1 = tsfc_interface.compile_form(mixed_mass, 'mixed_mass')
-        k2 = tsfc_interface.compile_form(mixed_mass, 'mixed_mass')
 
-        assert k1 is k2
-        assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
+def test_tsfc_different_names(mass):
+    """Compiling different forms should not load kernels from cache."""
+    k1, = tsfc_interface.compile_form(mass, 'mass')
+    k2, = tsfc_interface.compile_form(mass, 'laplace')
 
-    def test_tsfc_different_forms(self, mass, laplace):
-        """Compiling different forms should not load kernels from cache."""
-        k1, = tsfc_interface.compile_form(mass, 'mass')
-        k2, = tsfc_interface.compile_form(laplace, 'mass')
+    assert k1[-1] is not k2[-1]
 
-        assert k1[-1] is not k2[-1]
 
-    def test_tsfc_different_names(self, mass):
-        """Compiling different forms should not load kernels from cache."""
-        k1, = tsfc_interface.compile_form(mass, 'mass')
-        k2, = tsfc_interface.compile_form(mass, 'laplace')
+def test_tsfc_cell_kernel(mass):
+    k = tsfc_interface.compile_form(mass, 'mass')
+    assert len(k) == 1 and 'cell_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
-        assert k1[-1] is not k2[-1]
 
-    def test_tsfc_cell_kernel(self, mass):
-        k = tsfc_interface.compile_form(mass, 'mass')
-        assert len(k) == 1 and 'cell_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
+def test_tsfc_exterior_facet_kernel(rhs):
+    k = tsfc_interface.compile_form(rhs, 'rhs')
+    assert len(k) == 1 and 'exterior_facet_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
-    def test_tsfc_exterior_facet_kernel(self, rhs):
-        k = tsfc_interface.compile_form(rhs, 'rhs')
-        assert len(k) == 1 and 'exterior_facet_integral' in loopy.generate_code_v2(k[0][1][0].code).device_code()
 
-    def test_tsfc_cell_exterior_facet_kernel(self, rhs2):
-        k = tsfc_interface.compile_form(rhs2, 'rhs2')
-        kernel_name = sorted(k_[1][0].name for k_ in k)
-        assert len(k) == 2 and 'cell_integral' in kernel_name[0] and \
-            'exterior_facet_integral' in kernel_name[1]
+def test_tsfc_cell_exterior_facet_kernel(rhs2):
+    k = tsfc_interface.compile_form(rhs2, 'rhs2')
+    kernel_name = sorted(k_[1][0].name for k_ in k)
+    assert len(k) == 2 and 'cell_integral' in kernel_name[0] and \
+        'exterior_facet_integral' in kernel_name[1]

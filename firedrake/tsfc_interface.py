@@ -54,6 +54,7 @@ _cachedir = environ.get(
 )
 
 
+# TODO: Remove this as TSFCKernel is no longer cached to disk!
 def TSFCKernel_hashkey(*args, **kwargs):
     arg_dict = dict(kwargs)
     arg_names = [
