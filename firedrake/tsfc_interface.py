@@ -4,7 +4,6 @@ transforms the TSFC-generated code to make it suitable for
 passing to the backends.
 
 """
-from hashlib import md5
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
@@ -52,34 +51,6 @@ _cachedir = environ.get(
     'FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
     path.join(tempfile.gettempdir(), f'firedrake-tsfc-kernel-cache-uid{getuid()}')
 )
-
-
-# TODO: Remove this as TSFCKernel is no longer cached to disk!
-def TSFCKernel_hashkey(*args, **kwargs):
-    arg_dict = dict(kwargs)
-    arg_names = [
-        "form", "name", "parameters", "coefficient_numbers",
-        "constant_numbers", "interface", "diagonal"
-    ]
-    for k, v in zip(arg_names, args):
-        arg_dict[k] = v
-    arg_dict.setdefault("diagonal", False)
-    comm = arg_dict["form"].ufl_domains()[0].comm
-    if isinstance(arg_dict["form"], str):
-        signature = arg_dict["form"]
-    else:
-        signature = arg_dict["form"].signature()
-    parts = (
-        signature,
-        arg_dict["name"],
-        sorted(arg_dict["parameters"].items()),
-        arg_dict["coefficient_numbers"],
-        arg_dict["constant_numbers"],
-        type(arg_dict["interface"]),
-        arg_dict["diagonal"]
-    )
-    key = md5(" ".join(map(str, parts)).encode()).hexdigest()
-    return comm, key
 
 
 class TSFCKernel:
