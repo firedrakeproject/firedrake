@@ -92,7 +92,6 @@ def _compile_expression_comm(*args, **kwargs):
     return args[0].ufl_domains()[0].comm
 
 
-# TODO: Decorate this with a disk/memory cache instead
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
     comm_fetcher=_compile_expression_comm,

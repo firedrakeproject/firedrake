@@ -14,12 +14,12 @@ import finat.ufl
 from ufl import Form, conj
 from .ufl_expr import TestFunction
 
-from tsfc import compile_form as tsfc_compile_form
+from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache
+from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
 from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
@@ -53,6 +53,24 @@ _cachedir = environ.get(
 )
 
 
+def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal, log):
+    # Drop prefix as it's only used for naming and log
+    return default_parallel_hashkey(form.signature(), parameters, interface, diagonal)
+
+
+def tsfc_compile_form_comm_fetcher(*args, **kwargs):
+    # args[0] is a form
+    return args[0].ufl_domains()[0].comm
+
+
+# Decorate the original tsfc.compile_form with a cache
+tsfc_compile_form = memory_and_disk_cache(
+    hashkey=tsfc_compile_form_hashkey,
+    comm_fetcher=tsfc_compile_form_comm_fetcher,
+    cachedir=_cachedir
+)(original_tsfc_compile_form)
+
+
 class TSFCKernel:
     def __init__(
         self,
@@ -74,7 +92,6 @@ class TSFCKernel:
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         :arg diagonal: If assembling a matrix is it diagonal?
         """
-        # TODO: wrap tsfc_compile_form in a cache
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
                                  diagonal=diagonal, log=PETSc.Log.isActive())
@@ -133,7 +150,6 @@ def _compile_form_comm(*args, **kwargs):
     return args[0].ufl_domains()[0].comm
 
 
-# TODO: This should be disk cached
 @PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
