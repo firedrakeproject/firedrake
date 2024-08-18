@@ -55,7 +55,9 @@ _cachedir = environ.get(
 
 def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal, log):
     # Drop prefix as it's only used for naming and log
-    return default_parallel_hashkey(form.signature(), parameters, interface, diagonal)
+    # JBTODO: Can't drop prefix as tests/slate/test_optimise.py::test_partially_optimised fails, investigate
+    # it looks like the prefix is being used to create different subkernels, which conflicts with the docstring below
+    return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
 
 
 def tsfc_compile_form_comm_fetcher(*args, **kwargs):
