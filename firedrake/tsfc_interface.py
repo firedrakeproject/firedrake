@@ -92,7 +92,6 @@ class TSFCKernel:
         :arg interface: the KernelBuilder interface for TSFC (may be None)
         :arg diagonal: If assembling a matrix is it diagonal?
         """
-        # TODO: wrap tsfc_compile_form in a cache
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
                                  diagonal=diagonal, log=PETSc.Log.isActive())
