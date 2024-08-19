@@ -82,6 +82,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch tsfc pbrubeck/cleanup-variants \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
