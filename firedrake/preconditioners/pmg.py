@@ -650,7 +650,7 @@ def compare_element(e1, e2):
 
 @cached({}, key=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
-def get_permutation_to_line_elements(V):
+def get_permutation_to_nodal_elements(V):
     """Find DOF permutation to factor out the EnrichedElement expansion
     into common TensorProductElements.
 
@@ -682,6 +682,8 @@ def get_permutation_to_line_elements(V):
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
+        if not all(e.is_nodal() for e in fiat_factors):
+            raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
         line_elements.append(fiat_factors)
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
@@ -689,7 +691,7 @@ def get_permutation_to_line_elements(V):
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
-    unique_line_elements = []
+    unique_nodal_elements = []
     shifts = []
 
     visit = [False for e in line_elements]
@@ -697,7 +699,7 @@ def get_permutation_to_line_elements(V):
         base = line_elements[visit.index(False)]
         tdim = len(base)
         pshape = tuple(e.space_dimension() for e in base)
-        unique_line_elements.append(base)
+        unique_nodal_elements.append(base)
 
         axes_shifts = tuple()
         for shift in range(tdim):
@@ -723,7 +725,7 @@ def get_permutation_to_line_elements(V):
         shifts.append(axes_shifts)
 
     dof_perm = get_readonly_view(numpy.concatenate(dof_perm))
-    return dof_perm, unique_line_elements, shifts
+    return dof_perm, unique_nodal_elements, shifts
 
 
 def get_permuted_map(V):
@@ -731,7 +733,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    indices, _, _ = get_permutation_to_line_elements(V)
+    indices, _, _ = get_permutation_to_nodal_elements(V)
     if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
     return op2.PermutedMap(V.cell_node_map(), indices)
@@ -894,8 +896,8 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, celems, cshifts = get_permutation_to_line_elements(Vc)
-    _, felems, fshifts = get_permutation_to_line_elements(Vf)
+    _, celems, cshifts = get_permutation_to_nodal_elements(Vc)
+    _, felems, fshifts = get_permutation_to_nodal_elements(Vf)
 
     shifts = fshifts
     in_place = False
@@ -1127,7 +1129,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    _, _, shifts = get_permutation_to_line_elements(V)
+    _, _, shifts = get_permutation_to_nodal_elements(V)
     shift = shifts[0]
     if shift != (0,):
         ndof = numpy.prod(vshape)

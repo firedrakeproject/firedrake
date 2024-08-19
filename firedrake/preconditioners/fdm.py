@@ -6,7 +6,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
-                                           get_permutation_to_line_elements,
+                                           get_permutation_to_nodal_elements,
                                            cache_generate_code)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
@@ -1808,7 +1808,7 @@ class PoissonFDMPC(FDMPC):
 
     def assemble_reference_tensor(self, V):
         try:
-            _, line_elements, shifts = get_permutation_to_line_elements(V)
+            _, line_elements, shifts = get_permutation_to_nodal_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 

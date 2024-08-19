@@ -60,7 +60,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
             self.pc.destroy()
 
     def form(self, obj, *args):
-        """Extract the preconditioning bilinear form and boundary conditions.
+        """Return the preconditioning bilinear form and boundary conditions.
 
         Subclasses may override this function to provide an auxiliary bilinear
         form. Use `self.get_appctx(obj)` to get the user-supplied
