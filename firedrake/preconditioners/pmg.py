@@ -617,20 +617,23 @@ def evaluate_dual(source, target, derivative=None):
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
-    B = numpy.transpose(primal.get_coeffs())
+    B = primal.get_coeffs()
     if derivative in ("grad", "curl", "div"):
         dmats = primal.get_dmats()
-        B = numpy.tensordot(dmats, B, axes=(-1, 0))
+        B = numpy.tensordot(B, dmats, axes=(-1, -1))
         if derivative == "curl":
-            idx = ((i, j) for i in reversed(range(len(B))) for j in reversed(range(i+1, len(B))))
-            B = numpy.stack([((-1)**k) * (B[i, :, j, :] - B[j, :, i, :]) for k, (i, j) in enumerate(idx)])
+            d = B.shape[1]
+            idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
+            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+                             for k, (i, j) in enumerate(idx)], axis=1)
         elif derivative == "div":
-            B = sum(B[k, :, k, :] for k in range(len(B)))
+            B = numpy.trace(B, axis1=1, axis2=2)
     elif derivative is not None:
-        raise ValueError(f"Invalid derivaitve type {derivative}.")
-    A = A.reshape((A.shape[0], -1))
-    B = B.reshape((-1, B.shape[-1]))
-    return get_readonly_view(numpy.dot(A, B))
+        raise ValueError(f"Invalid derivative type {derivative}.")
+
+    B = B.reshape(-1, *A.shape[1:])
+    V = numpy.tensordot(A, B, axes=(range(1, A.ndim), range(1, B.ndim)))
+    return get_readonly_view(V)
 
 
 @cached({}, key=generate_key_evaluate_dual)
@@ -679,8 +682,6 @@ def get_permutation_to_line_elements(V):
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
-        if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
-            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
         line_elements.append(fiat_factors)
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]

@@ -489,6 +489,7 @@ def test_p_fas_nonlinear_scalar():
     relax = {
         "ksp_type": "chebyshev",
         "ksp_norm_type": "unpreconditioned",
+        "ksp_chebyshev_esteig": "0.75,0.25,0,1",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
 
