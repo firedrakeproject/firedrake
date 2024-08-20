@@ -35,17 +35,43 @@ def l2prod(x):
 
 
 class AllAtOnceReducedFunctional(ReducedFunctional):
+    """ReducedFunctional for 4DVar data assimilation.
+
+    Creates either the strong constraint or weak constraint system incrementally
+    by logging observations through the initial forward model run.
+
+    Warning: Weak constraint 4DVar not implemented yet.
+
+    Parameters
+    ----------
+    control : pyadjoint.Control
+        The initial condition :math:`x_{0}`. Starting value is used as the
+        background (prior) data :math:`x_{b}`.
+    background_iprod : Callable[pyadjoint.OverloadedType], optional
+        The inner product to calculate the background error functional from the
+        background error :math:`x_{0} - x_{b}`. Can include the error covariance matrix.
+        Defaults to L2.
+    observation_err : Callable[pyadjoint.OverloadedType], optional
+        Given a state :math:`x`, returns the observations error
+        :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the observations at
+        the initial time and :math:`\\mathcal{H}_{0}` is the observation operator for
+        the initial time.
+    observation_iprod : Callable[pyadjoint.OverloadedType], optional
+        The inner product to calculate the observation error functional from the
+        observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`. Can include the error
+        covariance matrix. Ignored if observation_err not provided.
+        Defaults to L2.
+    weak_constraint : bool
+        Whether to use the weak or strong constraint 4DVar formulation.
+
+    See Also
+    --------
+    :class:`pyadjoint.ReducedFunctional`.
+    """
 
     def __init__(self, control: Control, background_iprod=None,
                  observation_err=None, observation_iprod=None,
                  weak_constraint=True):
-        """
-        :arg control: initial guess at initial condition of timeseries (background)
-        :arg background_iprod: Inner product callable for background error (possibly including error covariance).
-        :arg observation_err: callable mapping state to the initial observation error. Optional.
-        :arg observation_iprod: Inner product callable for initial observation error (possibly including error covariance). Optional.
-        :arg weak_constraint: whether to use the weak or strong constraint 4DVar formulation.
-        """
         self.weak_constraint = weak_constraint
         self.initial_observations = observation_err is not None
 
@@ -67,7 +93,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self.observation_iprods = []              # Inner product for observation errors (possibly including error covariance)
 
             if self.initial_observations:
-                self.observations.append(ReducedFunctional(observation_err(control), control))
+                self.observations.append(
+                    ReducedFunctional(observation_err(control.control), control))
                 self.observation_iprods.append(observation_iprod)
 
         else:
@@ -86,8 +113,31 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     def set_observation(self, state: overloaded_type, observation_err,
                         observation_iprod=None, forward_model_iprod=None):
         """
-        :arg state: state at current observation time.
-        :arg observation_err: function that takes in a state and returns the observation error at the current time.
+        Record an observation at the time of `state`.
+
+        Parameters
+        ----------
+
+        state: pyadjoint.OverloadedType
+            The state at the current observation time.
+        observation_err : Callable[pyadjoint.OverloadedType], optional
+            Given a state :math:`x`, returns the observations error
+            :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are the observations
+            at the current observation time and :math:`\\mathcal{H}_{i}` is the
+            observation operator for the current observation time.
+        observation_iprod : Callable[pyadjoint.OverloadedType], optional
+            The inner product to calculate the observation error functional from the
+            observation error :math:`y_{i} - \\mathcal{H}_{i}(x)`. Can include the error
+            covariance matrix.
+            Defaults to L2.
+        forward_model_iprod : Callable[pyadjoint.OverloadedType], optional
+            The inner product to calculate the model error functional from the
+            model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})` where :math:`x_{i}`
+            is the state at the current observation time, :math:`x_{i-1}` is the state
+            at the previous observation time, and :math:`\\mathcal{M}_{i} is the forward
+            model from the previous observation time. Can include the error covariance
+            matrix.  Ignored if using the strong constraint formulation.
+            Defaults to L2.
         """
         observation_iprod = observation_iprod or l2prod
         if self.weak_constraint:
