@@ -1,6 +1,7 @@
 from pyadjoint import ReducedFunctional, stop_annotating, Control, \
     overloaded_type
 from pyadjoint.enlisting import Enlist
+from pyop2.utils import cached_property
 from firedrake import assemble, inner, dx
 from functools import wraps
 
@@ -24,9 +25,6 @@ def sc_passthrough(func):
         if self.weak_constraint:
             return func(self, *args, **kwargs)
         else:
-            if not hasattr(self, "strong_reduced_functional"):
-                self.strong_reduced_functional = ReducedFunctional(
-                    self.functional, self.controls)
             sc_func = getattr(self.strong_reduced_functional, func.__name__)
             return sc_func(*args, **kwargs)
     return wrapper
@@ -120,10 +118,19 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         else:
 
-            if hasattr(self, "strong_reduced_functional"):
+            if hasattr(self, "_strong_reduced_functional"):
                 msg = "Cannot add observations once strong constraint ReducedFunctional instantiated"
                 raise ValueError(msg)
             self.functional += observation_iprod(observation_err(state))
+
+    @cached_property
+    def strong_reduced_functional(self):
+        if self.weak_constraint:
+            msg = "Strong constraint ReducedFunctional not instantiated for weak constraint 4DVar"
+            raise AttributeError(msg)
+        self._strong_reduced_functional = ReducedFunctional(
+            self.functional, self.controls)
+        return self._strong_reduced_functional
 
     @sc_passthrough
     def __call__(self, control_value):
