@@ -134,7 +134,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             The inner product to calculate the model error functional from the
             model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})` where :math:`x_{i}`
             is the state at the current observation time, :math:`x_{i-1}` is the state
-            at the previous observation time, and :math:`\\mathcal{M}_{i} is the forward
+            at the previous observation time, and :math:`\\mathcal{M}_{i}` is the forward
             model from the previous observation time. Can include the error covariance
             matrix.  Ignored if using the strong constraint formulation.
             Defaults to L2.
