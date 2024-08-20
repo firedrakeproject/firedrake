@@ -1,5 +1,5 @@
 from pyadjoint import ReducedFunctional, stop_annotating, Control, \
-    overloaded_type
+    OverloadedType
 from pyadjoint.enlisting import Enlist
 from pyop2.utils import cached_property
 from firedrake import assemble, inner, dx
@@ -47,16 +47,16 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     control : pyadjoint.Control
         The initial condition :math:`x_{0}`. Starting value is used as the
         background (prior) data :math:`x_{b}`.
-    background_iprod : Callable[pyadjoint.OverloadedType], optional
+    background_iprod : Optional[Callable[[pyadjoint.OverloadedType], pyadjoint.AdjFloat]]
         The inner product to calculate the background error functional from the
         background error :math:`x_{0} - x_{b}`. Can include the error covariance matrix.
         Defaults to L2.
-    observation_err : Callable[pyadjoint.OverloadedType], optional
+    observation_err : Optional[Callable[[pyadjoint.OverloadedType], pyadjoint.OverloadedType]]
         Given a state :math:`x`, returns the observations error
         :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the observations at
         the initial time and :math:`\\mathcal{H}_{0}` is the observation operator for
         the initial time.
-    observation_iprod : Callable[pyadjoint.OverloadedType], optional
+    observation_iprod : Optional[Callable[[pyadjoint.OverloadedType], pyadjoint.AdjFloat]]
         The inner product to calculate the observation error functional from the
         observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`. Can include the error
         covariance matrix. Ignored if observation_err not provided.
@@ -110,7 +110,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             if self.initial_observations:
                 self.functional += observation_iprod(observation_err(control.control))
 
-    def set_observation(self, state: overloaded_type, observation_err,
+    def set_observation(self, state: OverloadedType, observation_err,
                         observation_iprod=None, forward_model_iprod=None):
         """
         Record an observation at the time of `state`.
@@ -120,23 +120,20 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         state: pyadjoint.OverloadedType
             The state at the current observation time.
-        observation_err : Callable[pyadjoint.OverloadedType], optional
+        observation_err : Callable[[pyadjoint.OverloadedType], pyadjoint.OverloadedType]
             Given a state :math:`x`, returns the observations error
             :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are the observations
             at the current observation time and :math:`\\mathcal{H}_{i}` is the
             observation operator for the current observation time.
-        observation_iprod : Callable[pyadjoint.OverloadedType], optional
+        observation_iprod : Optional[Callable[[pyadjoint.OverloadedType], pyadjoint.AdjFloat]]
             The inner product to calculate the observation error functional from the
             observation error :math:`y_{i} - \\mathcal{H}_{i}(x)`. Can include the error
             covariance matrix.
             Defaults to L2.
-        forward_model_iprod : Callable[pyadjoint.OverloadedType], optional
+        forward_model_iprod : Optional[Callable[[pyadjoint.OverloadedType], pyadjoint.AdjFloat]]
             The inner product to calculate the model error functional from the
-            model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})` where :math:`x_{i}`
-            is the state at the current observation time, :math:`x_{i-1}` is the state
-            at the previous observation time, and :math:`\\mathcal{M}_{i}` is the forward
-            model from the previous observation time. Can include the error covariance
-            matrix.  Ignored if using the strong constraint formulation.
+            model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})`. Can include the error
+            covariance matrix. Ignored if using the strong constraint formulation.
             Defaults to L2.
         """
         observation_iprod = observation_iprod or l2prod
@@ -175,6 +172,11 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
     @cached_property
     def strong_reduced_functional(self):
+        """A :class:`pyadjoint.ReducedFunctional` for the strong constraint 4DVar system.
+
+        Only instantiated if using the strong constraint formulation, and cannot be used
+        before all observations are recorded.
+        """
         if self.weak_constraint:
             msg = "Strong constraint ReducedFunctional not instantiated for weak constraint 4DVar"
             raise AttributeError(msg)
@@ -183,9 +185,25 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return self._strong_reduced_functional
 
     @sc_passthrough
-    def __call__(self, control_value):
+    def __call__(self, values):
+        """Computes the reduced functional with supplied control value.
+
+        Parameters
+        ----------
+        values : pyadjoint.OverloadedType
+            If you have multiple controls this should be a list of
+            new values for each control in the order you listed the controls to the constructor.
+            If you have a single control it can either be a list or a single object.
+            Each new value should have the same type as the corresponding control.
+
+        Returns
+        -------
+        pyadjoint.OverloadedType
+            The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
+
+        """
         # update controls so derivative etc is evaluated at correct point
-        for old, new in zip(self.controls, control_value):
+        for old, new in zip(self.controls, values):
             old.update(new)
 
         controls = self.controls
@@ -225,12 +243,50 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return J
 
     @sc_passthrough
-    def derivative(self, *args, **kwargs):
+    def derivative(self, adj_input=1.0, options={}):
+        """Returns the derivative of the functional w.r.t. the control.
+        Using the adjoint method, the derivative of the functional with
+        respect to the control, around the last supplied value of the
+        control, is computed and returned.
+
+        Parameters
+        ----------
+        adj_input : float
+            The adjoint input.
+        options : dict
+            Additional options for the derivative computation.
+
+        Returns
+        -------
+        pyadjoint.OverloadedType
+            The derivative with respect to the control.
+            Should be an instance of the same type as the control.
+        """
         # All the magic goes here.
         raise NotImplementedError
 
     @sc_passthrough
-    def hessian(self, *args, **kwargs):
+    def hessian(self, m_dot, options={}):
+        """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
+
+        Using the second-order adjoint method, the action of the Hessian of the
+        functional with respect to the control, around the last supplied value
+        of the control, is computed and returned.
+
+        Parameters
+        ----------
+        m_dot : pyadjoint.OverloadedType
+            The direction in which to compute the action of the Hessian.
+        options : dict
+            A dictionary of options. To find a list of available options
+            have a look at the specific control type.
+
+        Returns
+        -------
+        pyadjoint.OverloadedType
+            The action of the Hessian in the direction m_dot.
+            Should be an instance of the same type as the control.
+        """
         raise NotImplementedError
 
     def hessian_matrix(self):
