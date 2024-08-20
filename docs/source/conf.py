@@ -48,6 +48,11 @@ mathjax3_config = {
 # inserted into the class definition
 autoclass_content = 'both'
 
+# Document __call__ methods
+autodoc_default_options = {
+    'special-members': '__call__'
+}
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
