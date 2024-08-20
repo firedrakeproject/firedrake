@@ -188,3 +188,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         if not self.weak_constraint:
             raise AttributeError("Strong constraint 4DVar does not form a Hessian matrix")
         raise NotImplementedError
+
+    @sc_passthrough
+    def optimize_tape(self):
+        raise NotImplementedError
