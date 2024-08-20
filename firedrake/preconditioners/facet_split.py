@@ -39,7 +39,7 @@ class FacetSplitPC(PCBase):
         return self._index_cache[key]
 
     def initialize(self, pc):
-        from firedrake import FunctionSpace, TestFunctions, TrialFunctions
+        from firedrake import FunctionSpace, TestFunction, TrialFunction, split
 
         prefix = pc.getOptionsPrefix()
         options_prefix = prefix + self._prefix
@@ -56,14 +56,12 @@ class FacetSplitPC(PCBase):
 
         element = V.ufl_element()
         elements = [restrict(element, domain) for domain in domains]
-        if len(elements) == 1:
-            W = FunctionSpace(V.mesh(), elements[0])
-            assert W.dim() < V.dim(), "Subspace must be smaller than the original space"
-        else:
-            W = FunctionSpace(V.mesh(), MixedElement(elements))
-            assert W.dim() == V.dim(), "Dimensions of the original and decomposed spaces do not match"
+        W = FunctionSpace(V.mesh(), elements[0] if len(elements)==1 else MixedElement(elements))
 
-        mixed_operator = a(sum(TestFunctions(W)), sum(TrialFunctions(W)))
+        args = (TestFunction(W), TrialFunction(W))
+        if len(W) > 1:
+            args = tuple(sum(split(arg)) for arg in args)
+        mixed_operator = a(*args)
         mixed_bcs = tuple(bc.reconstruct(V=W[-1], g=0) for bc in bcs)
 
         _, P = pc.getOperators()
@@ -152,39 +150,36 @@ class FacetSplitPC(PCBase):
             self.mixed_opmat = P
         elif hasattr(self, "P"):
             self._assemble_mixed_op(tensor=self.P)
-        self.pc.setUp()
 
     def prolong(self, x, y):
-        if self.needs_zeroing:
-            y.set(0.0)
-        array_x = x.getArray(readonly=True)
-        array_y = y.getArray(readonly=False)
-        with self.subset as subset_indices:
-            array_y[subset_indices] = array_x[:]
+        if x is not y:
+            if self.needs_zeroing:
+                y.set(0.0)
+            array_x = x.getArray(readonly=True)
+            array_y = y.getArray(readonly=False)
+            with self.subset as subset_indices:
+                array_y[subset_indices] = array_x[:]
 
     def restrict(self, x, y):
-        array_x = x.getArray(readonly=True)
-        array_y = y.getArray(readonly=False)
-        with self.subset as subset_indices:
-            array_y[:] = array_x[subset_indices]
+        if x is not y:
+            array_x = x.getArray(readonly=True)
+            array_y = y.getArray(readonly=False)
+            with self.subset as subset_indices:
+                array_y[:] = array_x[subset_indices]
 
     def apply(self, pc, x, y):
         xwork, ywork = self.work_vecs or (x, y)
-        if self.subset:
-            self.restrict(x, xwork)
+        self.restrict(x, xwork)
         with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
             self.pc.apply(xwork, ywork)
-        if self.subset:
-            self.prolong(ywork, y)
+        self.prolong(ywork, y)
 
     def applyTranspose(self, pc, x, y):
         xwork, ywork = self.work_vecs or (x, y)
-        if self.subset:
-            self.restrict(x, xwork)
+        self.restrict(x, xwork)
         with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
             self.pc.applyTranspose(xwork, ywork)
-        if self.subset:
-            self.prolong(ywork, y)
+        self.prolong(ywork, y)
 
     def view(self, pc, viewer=None):
         super(FacetSplitPC, self).view(pc, viewer)
@@ -248,10 +243,6 @@ def restricted_dofs(celem, felem):
     return indices
 
 
-def reference_space_dimension(V):
-    return sum(Vsub.finat_element.space_dimension() * Vsub.value_size for Vsub in V)
-
-
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
@@ -259,13 +250,13 @@ def get_restriction_indices(V, W):
     wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
     wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)
 
-    wsize = reference_space_dimension(W)
-    vsize = reference_space_dimension(V)
+    vsize = sum(Vsub.finat_element.space_dimension() for Vsub in V)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
-    if wsize < vsize:
+    if len(eperm) < vsize:
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
+    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.value_size for Vsub in W)
     kernel_code = f"""
     void copy(PetscInt *restrict w, const PetscInt *restrict v) {{
         for (PetscInt i=0; i<{wsize}; i++) w[i] = v[i];
