@@ -273,8 +273,8 @@ We now instantiate :class:`~.EnsembleReducedFunctional`::
 
     J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
 
-which enables us to recompute :math:`J` and its gradient :math:`\nabla_{c_guess} J`,
-where the :math:`J_s` and its gradients :math:`\nabla_{c_guess} J_s` are computed in parallel 
+which enables us to recompute :math:`J` and its gradient :math:`\nabla_{c\_guess} J`,
+where the :math:`J_s` and its gradients :math:`\nabla_{c\_guess} J_s` are computed in parallel 
 based on the ``my_ensemble`` configuration.
 
 
