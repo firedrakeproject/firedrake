@@ -1,5 +1,5 @@
-from pyadjoint import ReducedFunctional, stop_annotating, Control, \
-    OverloadedType
+from pyadjoint import ReducedFunctional, OverloadedType, Control, \
+    stop_annotating, no_annotations
 from pyadjoint.enlisting import Enlist
 from pyop2.utils import cached_property
 from firedrake import assemble, inner, dx
@@ -69,6 +69,18 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     :class:`pyadjoint.ReducedFunctional`.
     """
 
+    def _accumulate_functional(self, val, annotate=True):
+        def accumulate(val):
+            if hasattr(self, '_total_functional'):
+                self._total_functional += val
+            else:
+                self._total_functional = val
+        if annotate:
+            accumulate(val)
+        else:
+            with stop_annotating():
+                accumulate(val)
+
     def __init__(self, control: Control, background_iprod=None,
                  observation_err=None, observation_iprod=None,
                  weak_constraint=True):
@@ -84,18 +96,28 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self.background = control.copy_data()
 
         if self.weak_constraint:
-            self.background_iprod = background_iprod  # Inner product for background error (possibly including error covariance)
+            background_err = background_iprod(control.control - self.background)
+            self.background_rf = ReducedFunctional(
+                background_err, control)
+            self._accumulate_functional(background_err)
+
             self.controls = [control]                 # The solution at the beginning of each time-chunk
             self.states = []                          # The model propogation at the end of each time-chunk
             self.forward_model_stages = []            # ReducedFunctional for each model propogation (returns state)
-            self.forward_model_iprods = []            # Inner product for model errors (possibly including error covariance)
+            self.forward_model_rfs = []               # Inner product for model errors (possibly including error covariance)
             self.observations = []                    # ReducedFunctional for each observation set (returns observation error)
-            self.observation_iprods = []              # Inner product for observation errors (possibly including error covariance)
+            self.observation_rfs = []                 # Inner product for observation errors (possibly including error covariance)
 
             if self.initial_observations:
+                obs_err = observation_err(control.control)
                 self.observations.append(
-                    ReducedFunctional(observation_err(control.control), control))
-                self.observation_iprods.append(observation_iprod)
+                    ReducedFunctional(obs_err, control)
+                )
+                obs_err = observation_iprod(obs_err)
+                self.observation_rfs.append(
+                    ReducedFunctional(obs_err, control)
+                )
+                self._accumulate_functional(obs_err)
 
         else:
             # initial conditions guess to be updated
@@ -141,27 +163,48 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
             forward_model_iprod = forward_model_iprod or l2prod
 
-            self.states.append(state.block_variable)
-            self.forward_model_iprods.append(forward_model_iprod)
+            # save propogated value for model error calculation after tape cut
+            self.states.append(state.block_variable.output)
 
             # Cut the tape into seperate time-chunks.
             # State is output from previous control i.e. forward model
             # propogation over previous time-chunk.
-            with stop_annotating(modifies=state):
-                self.forward_model_stages.append(
-                    ReducedFunctional(state,
-                                      controls=self.controls[-1])
-                )
+            prev_control = self.controls[-1]
+            self.forward_model_stages.append(
+                ReducedFunctional(state,
+                                  controls=prev_control)
+            )
+
             # Beginning of next time-chunk is the control for this observation
             # and the state at the end of the next time-chunk.
-            next_control = Control(state)
-            self.controls.append(next_control)
+            with stop_annotating():
+                # smuggle initial guess at this time into the control without the tape seeing
+                next_control = Control(state._ad_copy())
+                next_control.control.topological.rename(f"Control {len(self.controls)}")
+                self.controls.append(next_control)
+
+            # model error links time-chunks by depending on both the
+            # previous and current controls
+            model_err = forward_model_iprod(state - next_control.control)
+            self.forward_model_rfs.append(
+                ReducedFunctional(model_err,
+                                  self.controls[-2:])
+            )
+            self._accumulate_functional(model_err)
 
             # Observations after tape cut because this is now a control, not a state
+            obs_err = observation_err(next_control.control)
             self.observations.append(
-                ReducedFunctional(observation_err(state), next_control)
+                ReducedFunctional(obs_err, next_control)
             )
-            self.observation_iprods.append(observation_iprod)
+            obs_err = observation_iprod(obs_err)
+            self.observation_rfs.append(
+                ReducedFunctional(obs_err, next_control)
+            )
+            self._accumulate_functional(obs_err)
+
+            # Look we're starting this time-chunk from an "unrelated" value... really!
+            state.assign(next_control.control)
 
         else:
 
@@ -185,6 +228,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return self._strong_reduced_functional
 
     @sc_passthrough
+    @no_annotations
     def __call__(self, values):
         """Computes the reduced functional with supplied control value.
 
@@ -203,46 +247,42 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         """
         # update controls so derivative etc is evaluated at correct point
-        for old, new in zip(self.controls, values):
-            old.update(new)
+        for i, value in enumerate(values):
+            self.controls[i].update(value)
 
         controls = self.controls
 
         # Shift lists so indexing matches standard nomenclature:
         # index 0 is initial condition. Model i propogates from i-1 to i.
+        model_rfs = [None, *self.forward_model_rfs]
 
-        forward_models = [None, *self.forward_model_stages]
-        model_iprods = [None, *self.forward_model_iprods]
-
-        observations = (self.observations if self.initial_observations
-                        else [None, *self.observations])
-        observation_iprods = (self.observation_iprods if self.initial_observations
-                              else [None, *self.observation_iprods])
+        observation_rfs = (self.observation_rfs if self.initial_observations
+                           else [None, *self.observation_rfs])
 
         # Initial condition functionals
-        J = self.background_iprod(controls[0].control - self.background)
+        with self.marked_controls(0):
+            J = self.background_rf(controls[0].control)
 
         if self.initial_observations:
-            J += observation_iprods[0](observations[0](controls[0]))
+            with self.marked_controls(0):
+                J += observation_rfs[0](controls[0].control)
 
-        for i in range(1, len(forward_models)):
-            # Propogate forward over previous time-chunk
-            end_state = forward_models[i](controls[i-1])
-
-            # Cache end state here so we can reuse it in other functions
-            self.states[i-1] = end_state.block_variable
-
+        for i in range(1, len(model_rfs)):
             # Model error - does propogation from last control match this control?
-            model_err = end_state - controls[i].control
-            J += model_iprods[i](model_err)
+            prev_control = controls[i-1].control
+            this_control = controls[i].control
+
+            with self.marked_controls((i-1, i)):
+                J += model_rfs[i]([prev_control, this_control])
 
             # observation error - do we match the 'real world'?
-            obs_err = observations[i](controls[i])
-            J += observation_iprods[i](obs_err)
+            with self.marked_controls(i):
+                J += observation_rfs[i](this_control)
 
         return J
 
     @sc_passthrough
+    @no_annotations
     def derivative(self, adj_input=1.0, options={}):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
@@ -266,6 +306,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         raise NotImplementedError
 
     @sc_passthrough
+    @no_annotations
     def hessian(self, m_dot, options={}):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
@@ -289,6 +330,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         """
         raise NotImplementedError
 
+    @no_annotations
     def hessian_matrix(self):
         # Other reduced functionals don't have this.
         if not self.weak_constraint:
@@ -296,5 +338,24 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         raise NotImplementedError
 
     @sc_passthrough
+    @no_annotations
     def optimize_tape(self):
         raise NotImplementedError
+
+    def marked_controls(self, indices=None):
+        return indexed_marked_controls(self, indices=indices)
+
+
+class indexed_marked_controls(object):
+    def __init__(self, rf, indices=None):
+        indices = range(len(rf.controls)) if indices is None else Enlist(indices)
+        self.controls_to_mark = [
+            rf.controls[i] for i in indices]
+
+    def __enter__(self):
+        for control in self.controls_to_mark:
+            control.mark_as_control()
+
+    def __exit__(self, *args):
+        for control in self.controls_to_mark:
+            control.unmark_as_control()
