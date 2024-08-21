@@ -220,8 +220,14 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_value_to_clear_checkpoint(self):
-        return None
+    def _ad_clear_checkpoint(self, checkpoint):
+        # DelegatedFunctionCheckpoint does not hold data. Actually,
+        # it is a reference to another checkpoint function. Thus, clear
+        # can be unsafe once we will lose the reference to the original
+        # checkpoint.
+        if not isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            checkpoint = None
+        return checkpoint
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
