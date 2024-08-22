@@ -697,13 +697,19 @@ class FunctionSpace(object):
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
 
-    def entity_node_map(self, integral_type):
-        r"""Return entity node map.
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+        r"""Return entity node map rebased on ``source_mesh``.
 
         Parameters
         ----------
-        integral_type : str
-            Integral type.
+        source_mesh : MeshTopology
+            Source (base) mesh topology.
+        source_integral_type : str
+            Integral type on source_mesh.
+        source_subdomain_id : int
+            Subdomain ID on source_mesh.
+        source_all_integer_subdomain_ids : dict
+            All integer subdomain ids on source_mesh.
 
         Returns
         -------
@@ -711,25 +717,32 @@ class FunctionSpace(object):
             Entity node map.
 
         """
-        if integral_type == "cell":
+        if source_mesh is self.mesh():
+            target_integral_type = source_integral_type
+        else:
+            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+        if target_integral_type == "cell":
             self_map = self.cell_node_map()
-        elif integral_type == "exterior_facet_top":
+        elif target_integral_type == "exterior_facet_top":
             self_map = self.cell_node_map()
-        elif integral_type == "exterior_facet_bottom":
+        elif target_integral_type == "exterior_facet_bottom":
             self_map = self.cell_node_map()
-        elif integral_type == "interior_facet_horiz":
+        elif target_integral_type == "interior_facet_horiz":
             self_map = self.cell_node_map()
-        elif integral_type == "exterior_facet":
+        elif target_integral_type == "exterior_facet":
             self_map = self.exterior_facet_node_map()
-        elif integral_type == "exterior_facet_vert":
+        elif target_integral_type == "exterior_facet_vert":
             self_map = self.exterior_facet_node_map()
-        elif integral_type == "interior_facet":
+        elif target_integral_type == "interior_facet":
             self_map = self.interior_facet_node_map()
-        elif integral_type == "interior_facet_vert":
+        elif target_integral_type == "interior_facet_vert":
             self_map = self.interior_facet_node_map()
         else:
-            raise ValueError(f"Unknown integral_type: {integral_type}")
-        return self_map
+            raise ValueError(f"Unknown integral_type: {target_integral_type}")
+        if source_mesh is self.mesh():
+            return self_map
+        else:
+            return op2.ComposedMap(self_map, composed_map)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -1071,13 +1084,19 @@ class MixedFunctionSpace(object):
         composed."""
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
-    def entity_node_map(self, integral_type):
-        r"""Return entity node map.
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+        r"""Return entity node map rebased on ``source_mesh``.
 
         Parameters
         ----------
-        integral_type : str
-            Integral type.
+        source_mesh : MeshTopology
+            Source (base) mesh topology.
+        source_integral_type : str
+            Integral type on source_mesh.
+        source_subdomain_id : int
+            Subdomain ID on source_mesh.
+        source_all_integer_subdomain_ids : dict
+            All integer subdomain ids on source_mesh.
 
         Returns
         -------
@@ -1085,7 +1104,8 @@ class MixedFunctionSpace(object):
             Entity node map.
 
         """
-        return op2.MixedMap(s.entity_node_map(integral_type) for s in self._spaces)
+        return op2.MixedMap(s.entity_node_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+                            for s in self._spaces)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
@@ -1326,7 +1346,7 @@ class RealFunctionSpace(FunctionSpace):
         data for a :class:`.Function` on this space."""
         return op2.Global(self.value_size, val, valuetype, name, self._comm)
 
-    def entity_node_map(self, integral_type):
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None
 
     def cell_node_map(self, bcs=None):
