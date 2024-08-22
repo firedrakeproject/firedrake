@@ -1338,24 +1338,29 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         test, trial = self._form.arguments()
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self._allocation_integral_types)
-        elif any(local_kernel.indices == (None, None) for local_kernel, _ in self._all_local_kernels):
+        elif any(local_kernel.indices == (None, None) for assembler in self._all_assemblers for local_kernel, _ in assembler.local_kernels):
             # Handle special cases: slate or split=False
-            assert all(local_kernel.indices == (None, None) for local_kernel, _ in self._all_local_kernels)
+            assert all(local_kernel.indices == (None, None) for assembler in self._all_assemblers for local_kernel, _ in assembler.local_kernels)
             allocation_integral_types = set(local_kernel.kinfo.integral_type
-                                            for local_kernel, _ in self._all_local_kernels)
+                                            for assembler in self._all_assemblers
+                                            for local_kernel, _ in assembler.local_kernels)
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
         else:
             maps_and_regions = defaultdict(lambda: defaultdict(set))
-            for local_kernel, subdomain_id in self._all_local_kernels:
-                i, j = local_kernel.indices
-                mesh = self._form.ufl_domains()[local_kernel.kinfo.domain_number]
-                # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-                integral_type = local_kernel.kinfo.integral_type
-                all_subdomain_ids = self.all_integer_subdomain_ids
-                rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
-                cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
-                region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-                maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
+            for assembler in self._all_assemblers:
+                all_meshes = assembler._form.ufl_domains()
+                for local_kernel, subdomain_id in assembler.local_kernels:
+                    i, j = local_kernel.indices
+                    mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
+                    integral_type = local_kernel.kinfo.integral_type
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids
+                    # Make Sparsity independent of the subdomain of integration for better reusability;
+                    # subdomain_id is passed here only to determine the integration_type on the target domain
+                    # (see ``entity_node_map``).
+                    rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
+                    maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                     for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
@@ -1389,18 +1394,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
          "interior_facet_vert": op2.ALL}
 
     @cached_property
-    def _all_local_kernels(self):
-        """Collection of parloop_builders used for sparsity construction.
+    def _all_assemblers(self):
+        """Tuple of all assemblers used for sparsity construction.
 
-        When constructing sparsity, we use all parloop_builders
+        When constructing sparsity, we use all assemblers
         that are to be used in the actual assembly.
         """
-        all_local_kernels = self.local_kernels
+        all_assemblers = [self]
         for bc in self._bcs:
             if isinstance(bc, EquationBCSplit):
                 _assembler = type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False)
-                all_local_kernels += _assembler._all_local_kernels
-        return all_local_kernels
+                all_assemblers.extend(_assembler._all_assemblers)
+        return tuple(all_assemblers)
 
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
