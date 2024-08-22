@@ -2,8 +2,10 @@
 Tests FML's Label objects.
 """
 
-from firedrake import (IntervalMesh, FunctionSpace, Function, TestFunction, dx,
-                       Label, LabelledForm, Term)
+from firedrake import (
+    IntervalMesh, FunctionSpace, Function, TestFunction, dx
+)
+from firedrake.fml import Label, LabelledForm, Term
 from ufl import Form
 import pytest
 

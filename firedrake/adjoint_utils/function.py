@@ -196,11 +196,11 @@ class FunctionMixin(FloatingType):
         return wrapper
 
     @staticmethod
-    def _ad_annotate_idiv(__idiv__):
-        @wraps(__idiv__)
+    def _ad_annotate_itruediv(__itruediv__):
+        @wraps(__itruediv__)
         def wrapper(self, other, **kwargs):
             with stop_annotating():
-                func = __idiv__(self, other, **kwargs)
+                func = __itruediv__(self, other, **kwargs)
 
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             annotate = annotate_tape(kwargs)
@@ -351,9 +351,6 @@ class FunctionMixin(FloatingType):
         offset += dst.vector().size()
         return dst, offset
 
-    def _ad_assign(self, other):
-        self.assign(other)
-
     @staticmethod
     def _ad_to_list(m):
         if not hasattr(m, "gather"):
@@ -409,6 +406,18 @@ class FunctionMixin(FloatingType):
         for i in range(len(npdata)):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
+
+    def _ad_from_petsc(self, vec):
+        with self.dat.vec_wo as self_v:
+            vec.copy(result=self_v)
+
+    def _ad_to_petsc(self, vec=None):
+        with self.dat.vec_ro as self_v:
+            if vec:
+                self_v.copy(result=vec)
+            else:
+                vec = self_v.copy()
+        return vec
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)

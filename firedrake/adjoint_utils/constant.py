@@ -100,9 +100,6 @@ class ConstantMixin(OverloadedType):
         offset += l
         return dst, offset
 
-    def _ad_assign(self, other):
-        self.assign(other)
-
     @staticmethod
     def _ad_to_list(m):
         return m.dat.data_ro.reshape(-1).tolist()

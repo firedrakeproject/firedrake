@@ -1836,7 +1836,7 @@ if mode == "install":
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        run_pip_install(["--no-cache-dir", "mpi4py==3.1.6"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
@@ -1981,7 +1981,7 @@ else:
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        run_pip_install(["--no-cache-dir", "mpi4py==3.1.6"])
 
     # update dependencies.
     for p in packages:

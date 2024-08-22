@@ -333,5 +333,5 @@ matplotlib.
 .. _matplotlib: http://matplotlib.org
 .. _Arbitrary: https://www.kitware.com/modeling-arbitrary-order-lagrange-finite-elements-in-the-visualization-toolkit/
 __ Arbitrary_
-.. _Tessellate: https://kitware.github.io/paraview-docs/latest/python/paraview.simple.Tessellate.html
+.. _Tessellate: https://www.paraview.org/paraview-docs/nightly/python/paraview.simple.Tessellate.html
 .. _Tessellation: https://ieeexplore.ieee.org/document/1634311/

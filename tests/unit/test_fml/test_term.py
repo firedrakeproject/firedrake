@@ -2,8 +2,10 @@
 Tests FML's Term objects. A term contains a form and labels.
 """
 
-from firedrake import (IntervalMesh, FunctionSpace, Function, TestFunction, dx,
-                       Constant, Label, Term, LabelledForm)
+from firedrake import (
+    IntervalMesh, FunctionSpace, Function, TestFunction, dx, Constant
+)
+from firedrake.fml import Label, Term, LabelledForm
 import pytest
 
 

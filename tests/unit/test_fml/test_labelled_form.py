@@ -2,8 +2,10 @@
 Tests FML's LabelledForm objects.
 """
 
-from firedrake import (IntervalMesh, FunctionSpace, Function, TestFunction, dx,
-                       Constant, Label, Term, LabelledForm)
+from firedrake import (
+    IntervalMesh, FunctionSpace, Function, TestFunction, dx, Constant
+)
+from firedrake.fml import Label, Term, LabelledForm
 from ufl import Form
 
 
