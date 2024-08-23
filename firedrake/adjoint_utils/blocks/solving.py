@@ -8,7 +8,7 @@ from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
-
+import weakref
 
 def extract_subfunction(u, V):
     """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
@@ -48,7 +48,7 @@ class GenericSolveBlock(Block):
         # Equation RHS
         self.rhs = rhs
         # Solution function
-        self.func = func
+        self._func = weakref.ref(func)
         self.function_space = self.func.function_space()
         # Boundary conditions
         self.bcs = []
@@ -71,6 +71,10 @@ class GenericSolveBlock(Block):
         mesh = self.lhs.ufl_domain()
         self.add_dependency(mesh)
         self._init_solver_parameters(args, kwargs)
+
+    @property
+    def func(self):
+        return self._func()
 
     def _init_solver_parameters(self, args, kwargs):
         self.forward_args = kwargs.pop("forward_args", [])
@@ -638,8 +642,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         bcs = self._homogenize_bcs()
         for bc in bcs:
             bc.apply(dJdu)
-        # Update the right hand side of the adjoint equation.
-        self._ad_dJdu.assign(dJdu)
 
         # Update the left hand side coefficients of the adjoint equation.
         problem = self._ad_adj_solver._problem
@@ -655,8 +657,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                     # `problem.J` is a deep copy of `self.adj_F`.
                     # The indices of `self.adj_F` serve as a map for
                     # updating the coefficients of the adjoint solver.
-                    problem.J.coefficients()[index].assign(
+                    problem.F.coefficients()[index].assign(
                         block_variable.saved_output)
+        # Update the right hand side of the adjoint equation.
+        # problem.F._component[1] is the right hand side of the adjoint.
+        problem.F._components[1].assign(dJdu)
         bv = self.get_outputs()[0]
         if bv.output in self.adj_F.coefficients():
             index = self.adj_F.coefficients().index(bv.output)
@@ -716,8 +721,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-        # Forward form.
-        F_form = self._create_F_form()
 
         if self._ad_nlvs._problem._constant_jacobian:
             dFdu_form = self.adj_F
@@ -740,7 +743,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
-        r["form"] = F_form
         r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
@@ -750,25 +752,26 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if not self.linear and self.func == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
-        F_form = prepared["form"]
         adj_sol = prepared["adj_sol"]
-        adj_sol_bdy = prepared["adj_sol_bdy"]
         c = block_variable.output
-        c_rep = block_variable.saved_output
 
         if isinstance(c, firedrake.Function):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
+            F_form = self._create_F_form()
             mesh = F_form.ufl_domain()
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )
         elif isinstance(c, firedrake.DirichletBC):
+            adj_sol_bdy = prepared["adj_sol_bdy"]
             tmp_bc = c.reconstruct(
                 g=extract_subfunction(adj_sol_bdy, c.function_space())
             )
             return [tmp_bc]
         elif isinstance(c, firedrake.MeshGeometry):
+            c_rep = block_variable.saved_output
+            F_form = self._create_F_form()
             # Using CoordianteDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = firedrake.action(F_form, adj_sol)

@@ -48,7 +48,6 @@ class NonlinearVariationalSolverMixin:
             self._ad_nlvs = None
             self._ad_adj_cache = {}
             self._ad_adj_solver = None
-            self._ad_dJdu = None
 
         return wrapper
 
@@ -87,11 +86,6 @@ class NonlinearVariationalSolverMixin:
 
                 block._ad_nlvs = self._ad_nlvs
                 if not self._ad_problem._constant_jacobian:
-                    if not self._ad_dJdu:
-                        # Right-hand side of the adjoint equation.
-                        self._ad_dJdu = Cofunction(block.function_space.dual())
-                    block._ad_dJdu = self._ad_dJdu
-
                     # Adjoint solver.
                     if not self._ad_problem._constant_jacobian:
                         with stop_annotating():
@@ -137,13 +131,15 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_adj_lvs_problem(self, block):
         """Create the adjoint variational problem."""
-        from firedrake import Function, LinearVariationalProblem
+        from firedrake import Function, Cofunction, LinearVariationalProblem
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()
         adj_sol = Function(block.function_space)
+        right_hand_side = Cofunction(block.function_space.dual())
         tmp_problem = LinearVariationalProblem(
-            block.adj_F, block._ad_dJdu, adj_sol, bcs=bcs)
+            block.adj_F, right_hand_side,
+            adj_sol, bcs=bcs)
         # The `block.adj_F` coefficients hold the output references.
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the forward
@@ -151,7 +147,7 @@ class NonlinearVariationalSolverMixin:
         _ad_count_map, _, J_replace_map = self._build_count_map(
             tmp_problem, block._dependencies)
         lvp = LinearVariationalProblem(
-            replace(tmp_problem.J, J_replace_map), self._ad_dJdu, adj_sol,
+            replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs)
         lvp._ad_count_map_update(_ad_count_map)
         del tmp_problem
