@@ -59,7 +59,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver, Cofunction
+            from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()

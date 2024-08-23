@@ -10,6 +10,7 @@ from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 import weakref
 
+
 def extract_subfunction(u, V):
     """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
     if V.index is not None:
