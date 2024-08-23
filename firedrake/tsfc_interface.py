@@ -152,12 +152,12 @@ def _compile_form_comm(*args, **kwargs):
     return args[0].ufl_domains()[0].comm
 
 
-@PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
     comm_fetcher=_compile_form_comm,
     cachedir=_cachedir
 )
+@PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 

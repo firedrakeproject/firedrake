@@ -97,6 +97,7 @@ def _compile_expression_comm(*args, **kwargs):
     comm_fetcher=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
+@PETSc.Log.EventDecorator()
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     ``pyop2.op2.Kernel`` object representing the Slate expression.

@@ -1212,6 +1212,7 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
     hashkey=_compile_expression_key,
     cachedir=tsfc_interface._cachedir
 )
+@PETSc.Log.EventDecorator()
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
 
