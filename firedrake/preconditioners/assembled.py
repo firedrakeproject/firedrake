@@ -1,5 +1,4 @@
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
@@ -27,15 +26,11 @@ class AssembledPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        V = get_function_space(pc.getDM())
-        if len(V) == 1:
-            V = FunctionSpace(V.mesh(), V.ufl_element())
-        else:
-            V = MixedFunctionSpace([V_ for V_ in V])
+        V = get_function_space(pc.getDM()).collapse()
         test = TestFunction(V)
         trial = TrialFunction(V)
 
-        if P.type == "python":
+        if P.getType() == "python":
             context = P.getPythonContext()
             # It only makes sense to preconditioner/invert a diagonal
             # block in general.  That's all we're going to allow.
