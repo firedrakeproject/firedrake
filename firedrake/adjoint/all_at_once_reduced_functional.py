@@ -69,18 +69,6 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     :class:`pyadjoint.ReducedFunctional`.
     """
 
-    def _accumulate_functional(self, val, annotate=True):
-        def accumulate(val):
-            if hasattr(self, '_total_functional'):
-                self._total_functional += val
-            else:
-                self._total_functional = val
-        if annotate:
-            accumulate(val)
-        else:
-            with stop_annotating():
-                accumulate(val)
-
     def __init__(self, control: Control, background_iprod=None,
                  observation_err=None, observation_iprod=None,
                  weak_constraint=True):
@@ -302,8 +290,34 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             The derivative with respect to the control.
             Should be an instance of the same type as the control.
         """
-        # All the magic goes here.
-        raise NotImplementedError
+        # create a list of overloaded types to put derivative into
+        derivatives = []
+
+        kwargs = {'adj_input': adj_input, 'options': options}
+
+        # Shift lists so indexing matches standard nomenclature:
+        # index 0 is initial condition. Model i propogates from i-1 to i.
+        model_rfs = [None, *self.forward_model_rfs]
+
+        observation_rfs = (self.observation_rfs if self.initial_observations
+                           else [None, *self.observation_rfs])
+
+        # initial condition derivatives
+        derivatives.append(
+            self.background_rf.derivative(**kwargs))
+
+        if self.initial_observations:
+            derivatives[0] += observation_rfs[0].derivative(**kwargs)
+
+        for i in range(1, len(model_rfs)):
+            derivatives.append(observation_rfs[i].derivative(**kwargs))
+
+            mderivs = model_rfs[i].derivative(**kwargs)
+
+            derivatives[i-1] += mderivs[0]
+            derivatives[i] += mderivs[1]
+
+        return derivatives
 
     @sc_passthrough
     @no_annotations
@@ -344,6 +358,18 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
     def marked_controls(self, indices=None):
         return indexed_marked_controls(self, indices=indices)
+
+    def _accumulate_functional(self, val, annotate=True):
+        def accumulate(val):
+            if hasattr(self, '_total_functional'):
+                self._total_functional += val
+            else:
+                self._total_functional = val
+        if annotate:
+            accumulate(val)
+        else:
+            with stop_annotating():
+                accumulate(val)
 
 
 class indexed_marked_controls(object):
