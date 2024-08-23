@@ -1,6 +1,8 @@
 import abc
+import numpy
 
 from pyop2.utils import as_tuple
+from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
@@ -12,6 +14,7 @@ from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
+import firedrake.utils as utils
 import ufl
 import finat.ufl
 
@@ -93,9 +96,7 @@ class TwoLevelPC(PCBase):
                                           fcp,
                                           options_prefix=prefix)
 
-        with dmhooks.add_hooks(coarse_dm, self,
-                               appctx=self._ctx_ref,
-                               save=False):
+        with dmhooks.add_hooks(coarse_dm, self, appctx=self._ctx_ref, save=False):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
@@ -164,7 +165,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+        coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         if element.sobolev_space == ufl.HDiv:
             G_callback = appctx.get("get_curl", None)
@@ -184,6 +185,16 @@ class HiptmairPC(TwoLevelPC):
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial))
 
+        zero_beta = opts.getBool("zero_beta_poisson", True)
+        if zero_beta:
+            from firedrake.assemble import assemble
+            # Remove coarse nodes where beta is zero
+            coarse_diagonal = assemble(coarse_operator, diagonal=True)
+            diag = numpy.abs(coarse_diagonal.dat.data_ro)
+            atol = numpy.max(diag) * 1E-10
+            bc_nodes = numpy.flatnonzero(diag <= atol).astype(PETSc.IntType)
+            coarse_space_bcs.append(BCFromNodes(coarse_space, 0, bc_nodes))
+
         cdegree = max(as_tuple(celement.degree()))
         if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
@@ -191,6 +202,7 @@ class HiptmairPC(TwoLevelPC):
                 b = beta(test, shift * trial)
                 coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
+        coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
@@ -271,3 +283,14 @@ def div_to_curl(ele):
             if family is None:
                 raise ValueError("Unexpected family %s" % family)
         return ele.reconstruct(degree=degree, family=family)
+
+
+class BCFromNodes(DirichletBC):
+
+    def __init__(self, V, g, nodes):
+        self._nodes = nodes
+        super(BCFromNodes, self).__init__(V, g, tuple())
+
+    @utils.cached_property
+    def nodes(self):
+        return self._nodes
