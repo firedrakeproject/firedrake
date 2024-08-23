@@ -161,6 +161,7 @@ def _compile_form_comm(*args, **kwargs):
     comm_fetcher=_compile_form_comm,
     cachedir=_cachedir
 )
+@PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
     """Compile a form using TSFC.
 
