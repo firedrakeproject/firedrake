@@ -193,6 +193,8 @@ class HiptmairPC(TwoLevelPC):
             diag = numpy.abs(coarse_diagonal.dat.data_ro)
             atol = numpy.max(diag) * 1E-10
             bc_nodes = numpy.flatnonzero(diag <= atol).astype(PETSc.IntType)
+
+            coarse_space.dof_dset.lgmap.apply()
             coarse_space_bcs.append(BCFromNodes(coarse_space, 0, bc_nodes))
 
         cdegree = max(as_tuple(celement.degree()))

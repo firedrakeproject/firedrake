@@ -50,7 +50,7 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), V)))
+            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
         else:
             G = G_callback(P1, V)
 

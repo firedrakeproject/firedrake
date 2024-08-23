@@ -56,7 +56,7 @@ class FacetSplitPC(PCBase):
 
         element = V.ufl_element()
         elements = [restrict(element, domain) for domain in domains]
-        W = FunctionSpace(V.mesh(), elements[0] if len(elements)==1 else MixedElement(elements))
+        W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(elements))
 
         args = (TestFunction(W), TrialFunction(W))
         if len(W) > 1:
@@ -105,7 +105,6 @@ class FacetSplitPC(PCBase):
         # We set a DM and an appropriate SNESContext on the constructed PC so one
         # can do e.g. fieldsplit.
         mixed_dm = W.dm
-        self._dm = mixed_dm
 
         # Create new appctx
         self._ctx_ref = self.new_snes_ctx(pc,
@@ -118,16 +117,16 @@ class FacetSplitPC(PCBase):
         scpc.setDM(mixed_dm)
         scpc.setOptionsPrefix(options_prefix)
         scpc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
+        self.pc = scpc
         with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=False):
             scpc.setFromOptions()
-        self.pc = scpc
 
     def set_nullspaces(self, pc):
         _, P = pc.getOperators()
         Pmat = self.mixed_opmat
 
         def _restrict_nullspace(nsp):
-            if not (nsp.handle and self.perm):
+            if not (nsp.handle and self.subset):
                 return nsp
             vecs = []
             for x in nsp.getVecs():
@@ -168,16 +167,18 @@ class FacetSplitPC(PCBase):
                 array_y[:] = array_x[subset_indices]
 
     def apply(self, pc, x, y):
+        dm = self.pc.getDM()
         xwork, ywork = self.work_vecs or (x, y)
         self.restrict(x, xwork)
-        with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.apply(xwork, ywork)
         self.prolong(ywork, y)
 
     def applyTranspose(self, pc, x, y):
+        dm = self.pc.getDM()
         xwork, ywork = self.work_vecs or (x, y)
         self.restrict(x, xwork)
-        with dmhooks.add_hooks(self._dm, self, appctx=self._ctx_ref):
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.applyTranspose(xwork, ywork)
         self.prolong(ywork, y)
 
