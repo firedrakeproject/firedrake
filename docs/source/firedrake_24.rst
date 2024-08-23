@@ -88,10 +88,9 @@ The registration fees are as follows:
 Abstract submission
 -------------------
 
-Abstract submission is **now open**! `To submit an abstract, please follow this link
-<https://easychair.org/my/conference?conf=firedrake24>`__.
+Abstract submission is now closed. Thank you to everyone who has submitted an abstract.
 
-The deadline for abstract submission is **18th August 2024**.
+The deadline for abstract submission was **18th August 2024**.
 
 Support
 -------

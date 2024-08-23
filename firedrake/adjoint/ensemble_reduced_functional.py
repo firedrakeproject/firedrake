@@ -79,6 +79,22 @@ class EnsembleReducedFunctional(ReducedFunctional):
         return vals
 
     def __call__(self, values):
+        """Computes the reduced functional with supplied control value.
+
+        Parameters
+        ----------
+        values : pyadjoint.OverloadedType
+            If you have multiple controls this should be a list of
+            new values for each control in the order you listed the controls to the constructor.
+            If you have a single control it can either be a list or a single object.
+            Each new value should have the same type as the corresponding control.
+
+        Returns
+        -------
+        pyadjoint.OverloadedType
+            The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
+
+        """
         local_functional = super(EnsembleReducedFunctional, self).__call__(values)
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
