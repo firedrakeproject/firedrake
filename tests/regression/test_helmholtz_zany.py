@@ -13,7 +13,6 @@ and the analytical solution
 
 import numpy as np
 import pytest
-
 from firedrake import *
 
 
@@ -55,7 +54,9 @@ def helmholtz(n, el_type, degree, perturb):
 # It is, somewhat oddly, a suitable C^1 nonconforming element but
 # not a suitable C^0 nonconforming one.
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
-                         [('Hermite', 3, 3),
+                         [('PS6', 2, 2),
+                          ('PS12', 2, 2),
+                          ('Hermite', 3, 3),
                           ('HCT', 3, 3),
                           ('HCT', 4, 4),
                           ('Bell', 5, 4),

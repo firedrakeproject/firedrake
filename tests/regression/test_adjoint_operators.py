@@ -983,6 +983,28 @@ def test_lvs_constant_jacobian(constant_jacobian):
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_assign_functional():
+    """Test that cofunction assignment is correctly annotated.
+    """
+    mesh = UnitIntervalMesh(5)
+    fs = FunctionSpace(mesh, "R", 0)
+    f = Function(fs)
+    f.assign(1.0)
+    f2 = Function(fs)
+    f2.assign(1.0)
+    v = TestFunction(fs)
+
+    cof = assemble(f * v * dx)
+    cof2 = Cofunction(cof)
+    cof2.assign(cof)  # Test is checking that this is taped.
+    J = assemble(action(cof2, f2))
+    Jhat = ReducedFunctional(J, Control(f))
+    assert np.allclose(float(Jhat.derivative()), 1.0)
+    f.assign(2.0)
+    assert np.allclose(Jhat(f), 2.0)
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("constant_jacobian", [False, True])
 def test_adjoint_solver_compute_bdy(constant_jacobian):

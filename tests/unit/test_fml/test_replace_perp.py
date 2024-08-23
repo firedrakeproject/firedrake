@@ -1,9 +1,11 @@
 # The perp routine should come from UFL when it is fully implemented there
 from ufl import perp
-from firedrake import (UnitSquareMesh, FunctionSpace, MixedFunctionSpace,
-                       TestFunctions, Function, split, inner, dx, errornorm,
-                       SpatialCoordinate, as_vector, TrialFunctions, solve,
-                       subject, replace_subject, all_terms)
+from firedrake import (
+    UnitSquareMesh, FunctionSpace, MixedFunctionSpace, TestFunctions,
+    Function, split, inner, dx, errornorm, SpatialCoordinate,
+    as_vector, TrialFunctions, solve
+)
+from firedrake.fml import subject, replace_subject, all_terms
 
 
 def test_replace_perp():
