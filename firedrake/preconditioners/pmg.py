@@ -114,10 +114,14 @@ class PMGBase(PCSNESBase):
         ppc = self.configure_pmg(obj, pdm)
         self.is_snes = isinstance(obj, PETSc.SNES)
 
+        default_mat_type = ctx.mat_type
+        if default_mat_type == "submatrix":
+            default_mat_type = "matfree"
+
         # Get the coarse degree from PETSc options
         copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
-        self.coarse_mat_type = copts.getString("mat_type", default=ctx.mat_type)
+        self.coarse_mat_type = copts.getString("mat_type", default=default_mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
         self.coarse_form_compiler_mode = copts.getString("form_compiler_mode", default=mode)
 
