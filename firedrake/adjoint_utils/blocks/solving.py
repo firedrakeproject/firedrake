@@ -655,10 +655,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                         block_variable.output, (
                             firedrake.Function, firedrake.Constant,
                             firedrake.Cofunction)):
-                    # `problem.J` is a deep copy of `self.adj_F`.
+                    # `problem.J` (Jacobian operator) is a deep copy of
+                    # `self.adj_F`.
                     # The indices of `self.adj_F` serve as a map for
                     # updating the coefficients of the adjoint solver.
-                    problem.F.coefficients()[index].assign(
+                    problem.J.coefficients()[index].assign(
                         block_variable.saved_output)
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
@@ -753,26 +754,25 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if not self.linear and self.func == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
+        F_form = self._create_F_form()
         adj_sol = prepared["adj_sol"]
+        adj_sol_bdy = prepared["adj_sol_bdy"]
         c = block_variable.output
+        c_rep = block_variable.saved_output
 
         if isinstance(c, firedrake.Function):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
-            F_form = self._create_F_form()
             mesh = F_form.ufl_domain()
             trial_function = firedrake.TrialFunction(
                 c._ad_function_space(mesh)
             )
         elif isinstance(c, firedrake.DirichletBC):
-            adj_sol_bdy = prepared["adj_sol_bdy"]
             tmp_bc = c.reconstruct(
                 g=extract_subfunction(adj_sol_bdy, c.function_space())
             )
             return [tmp_bc]
         elif isinstance(c, firedrake.MeshGeometry):
-            c_rep = block_variable.saved_output
-            F_form = self._create_F_form()
             # Using CoordianteDerivative requires us to do action before
             # differentiating, might change in the future.
             F_form_tmp = firedrake.action(F_form, adj_sol)
