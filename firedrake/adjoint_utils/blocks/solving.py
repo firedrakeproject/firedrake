@@ -1,9 +1,11 @@
 import numpy
+from enum import Enum
+from abc import ABC, abstractmethod
 import ufl
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 
-from pyadjoint import Block, stop_annotating
+from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
@@ -85,18 +87,33 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        lhs = self.lhs
+        rhs = self.rhs
+        if isinstance(lhs, DelegatedBlockForm):
+            lhs = lhs.restore_form()
+        if isinstance(rhs, DelegatedBlockForm):
+            rhs = rhs.restore_form()
+        return "solve({} = {})".format(ufl2unicode(lhs),
+                                       ufl2unicode(rhs))
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
         # and gathering lhs and rhs in one single form.
         if self.linear:
             tmp_u = firedrake.Function(self.function_space)
-            F_form = firedrake.action(self.lhs, tmp_u) - self.rhs
+            lhs = self.lhs
+            if isinstance(lhs, DelegatedBlockForm):
+                lhs = lhs.restore_form()
+            rhs = self.rhs
+            if isinstance(rhs, DelegatedBlockForm):
+                rhs = self.rhs.restore_form()
+            F_form = firedrake.action(lhs, tmp_u) - rhs
         else:
             tmp_u = self.func
-            F_form = self.lhs
+            lhs = self.lhs
+            if isinstance(lhs, DelegatedBlockForm):
+                lhs = lhs.restore_form()
+            F_form = lhs
 
         replace_map = self._replace_map(F_form)
         replace_map[tmp_u] = self.get_outputs()[0].saved_output
@@ -509,10 +526,16 @@ class GenericSolveBlock(Block):
         func = self._create_initial_guess()
 
         bcs = self._recover_bcs()
-        lhs = self._replace_form(self.lhs, func=func)
+        lhs = self.lhs
+        if isinstance(lhs, DelegatedBlockForm):
+            lhs = lhs.restore_form()
+        lhs = self._replace_form(lhs, func=func)
         rhs = 0
         if self.linear:
-            rhs = self._replace_form(self.rhs)
+            rhs = self.rhs
+            if isinstance(rhs, DelegatedBlockForm):
+                rhs = rhs.restore_form()
+            rhs = self._replace_form(rhs)
 
         return lhs, rhs, func, bcs
 
@@ -616,14 +639,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.adj_F = adj_F
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
-        self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
-        if self.problem_J is not None:
-            for coeff in self.problem_J.coefficients():
+        if problem_J is not None:
+            for coeff in problem_J.coefficients():
                 self.add_dependency(coeff, no_duplicates=True)
 
     def _init_solver_parameters(self, args, kwargs):
@@ -632,9 +654,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_nlvs_replace_forms()
-        self._ad_nlvs.parameters.update(self.solver_params)
-        self._ad_nlvs.solve()
-        func.assign(self._ad_nlvs._problem.u)
+        nlvs = self._ad_nlvs
+        if isinstance(nlvs, DelegatedBlockSolver):
+            nlvs = self._ad_nlvs.restore_solver()
+        nlvs.parameters.update(self.solver_params)
+        nlvs.solve()
+        func.assign(nlvs._problem.u)
+        del nlvs
         return func
 
     def _adjoint_solve(self, dJdu, compute_bdy):
@@ -645,44 +671,53 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             bc.apply(dJdu)
 
         # Update the left hand side coefficients of the adjoint equation.
-        problem = self._ad_adj_solver._problem
+        adj_solver = self._ad_adj_solver
+        if isinstance(adj_solver, DelegatedBlockSolver):
+            adj_solver = adj_solver.restore_solver()
+        problem = adj_solver._problem
         for block_variable in self.get_dependencies():
             # The self.adj_F coefficients hold the forward output
             # references.
-            if block_variable.output in self.adj_F.coefficients():
-                index = self.adj_F.coefficients().index(block_variable.output)
+            adj_F = self.adj_F
+            if isinstance(adj_F, DelegatedBlockForm):
+                adj_F = adj_F.restore_form()
+            if block_variable.output in adj_F.coefficients():
+                index = adj_F.coefficients().index(
+                    block_variable.output)
                 if isinstance(
                         block_variable.output, (
                             firedrake.Function, firedrake.Constant,
                             firedrake.Cofunction)):
                     # `problem.J` (Jacobian operator) is a deep copy of
-                    # `self.adj_F`.
-                    # The indices of `self.adj_F` serve as a map for
-                    # updating the coefficients of the adjoint solver.
+                    # `self.adj_F`. Hence, the indices of `self.adj_F`
+                    # is serving as a map for updating the coefficients of
+                    # the adjoint solver.
                     problem.J.coefficients()[index].assign(
                         block_variable.saved_output)
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
         problem.F._components[1].assign(dJdu)
         bv = self.get_outputs()[0]
-        if bv.output in self.adj_F.coefficients():
-            index = self.adj_F.coefficients().index(bv.output)
+        if bv.output in adj_F.coefficients():
+            index = adj_F.coefficients().index(bv.output)
             problem.J.coefficients()[index].assign(
                 bv.checkpoint)
         # Solve the adjoint equation.
-        self._ad_adj_solver.solve()
+        adj_solver.solve()
 
         adj_sol = firedrake.Function(self.function_space)
-        adj_sol.assign(self._ad_adj_solver._problem.u)
+        adj_sol.assign(adj_solver._problem.u)
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self._compute_adj_bdy(
-                adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.J,
-                dJdu_copy)
+                adj_sol, adj_sol_bdy, adj_solver._problem.J, dJdu_copy)
         return adj_sol, adj_sol_bdy
 
     def _ad_assign_map(self, form):
-        count_map = self._ad_nlvs._problem._ad_count_map
+        nlvs = self._ad_nlvs
+        if isinstance(nlvs, DelegatedBlockSolver):
+            nlvs = nlvs.restore_solver()
+        count_map = nlvs._problem._ad_count_map
         assign_map = {}
         form_ad_count_map = dict((count_map[coeff], coeff)
                                  for coeff in form.coefficients())
@@ -703,7 +738,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             coeff.assign(value)
 
     def _ad_nlvs_replace_forms(self):
-        problem = self._ad_nlvs._problem
+        nlvs = self._ad_nlvs
+        if isinstance(nlvs, DelegatedBlockSolver):
+            nlvs = nlvs.restore_solver()
+        problem = nlvs._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
@@ -712,7 +750,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             dFdu = self._adj_cache["dFdu_adj"]
         else:
             dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-            if self._ad_nlvs._problem._constant_jacobian:
+            nlvs = self._ad_nlvs
+            if isinstance(nlvs, DelegatedBlockSolver):
+                nlvs = nlvs.restore_solver(SolverType.FORWARD)
+            if nlvs._constant_jacobian:
                 self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 
@@ -723,9 +764,14 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-
-        if self._ad_nlvs._problem._constant_jacobian:
-            dFdu_form = self.adj_F
+        nlvs = self._ad_nlvs
+        if isinstance(nlvs, DelegatedBlockSolver):
+            nlvs = nlvs.restore_solver()
+        if nlvs._problem._constant_jacobian:
+            adj_F = self.adj_F
+            if isinstance(adj_F, DelegatedBlockForm):
+                adj_F = adj_F.restore_form()
+            dFdu_form = adj_F
             # Replace the form coefficients with checkpointed values.
             replace_map = self._replace_map(dFdu_form)
             replace_map[self.func] = self.get_outputs()[0].saved_output
@@ -788,7 +834,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if c in self._dFdm_cache:
             dFdm = self._dFdm_cache[c]
         else:
-            dFdm = -firedrake.derivative(self.lhs, c, trial_function)
+            lhs = self.lhs
+            if isinstance(lhs, DelegatedBlockForm):
+                lhs = lhs.restore_form()
+            dFdm = -firedrake.derivative(lhs, c, trial_function)
             dFdm = firedrake.adjoint(dFdm)
             self._dFdm_cache[c] = dFdm
 
@@ -959,3 +1008,67 @@ class SupermeshProjectBlock(Block):
     def __str__(self):
         target_string = f"〈{str(self.target_space.ufl_element().shortstr())}〉"
         return f"project({self.get_dependencies()[0]}, {target_string}))"
+
+
+class SolverType(Enum):
+    FORWARD = 1
+    ADJOINT = 2
+
+
+class FormType(Enum):
+    ADJOINT = 1
+    LHS = 2
+    RHS = 3
+
+
+class Solver(dict):
+    def __init__(self, forward, adjoint):
+        super().__init__()
+        self.solvers = {SolverType.FORWARD: forward, SolverType.ADJOINT: adjoint}
+
+    def __setitem__(self, key, value):
+        if key in self.solvers:
+            self.solvers[key] = value
+        super().__setitem__(key, value)
+
+    def __getitem__(self, key):
+        if key in self.solvers:
+            return self.solvers[key]
+        return super().__getitem__(key)
+
+    def finalize(self):
+        f = weakref.finalize(self, self.solvers)
+        f.atexit = False
+
+
+class DelegatedBlockSolver:
+    def __init__(self, delegated_block, solver_type):
+        # Block number that this solver is delegated to.
+        self.delegated_block = delegated_block
+        self.solver_type = solver_type
+
+    def restore_solver(self):
+        block = get_working_tape()._blocks[self.delegated_block]
+        if self.solver_type == SolverType.FORWARD:
+            return block._ad_nlvs
+        elif self.solver_type == SolverType.ADJOINT:
+            return block._ad_adj_solver
+
+
+class DelegatedBlockForm:
+    def __init__(self, delegated_block, form_type):
+        self.delegated_block = delegated_block
+        self.form_type = form_type
+
+    def restore_form(self):
+        if self.form_type == FormType.ADJOINT:
+            return get_working_tape()._blocks[self.delegated_block].adj_F
+        elif self.form_type == FormType.LHS:
+            return get_working_tape()._blocks[self.delegated_block].lhs
+        elif self.form_type == FormType.RHS:
+            return get_working_tape()._blocks[self.delegated_block].rhs
+        else:
+            raise NotImplementedError(
+                "Only adjoint form is supported for now. If you need to "
+                "restore another form, please create a new form type."
+            )

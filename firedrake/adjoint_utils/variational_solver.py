@@ -1,7 +1,8 @@
 import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, \
+    DelegatedBlockSolver, DelegatedBlockForm, FormType, SolverType
 from ufl import replace
 
 
@@ -48,6 +49,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_nlvs = None
             self._ad_adj_cache = {}
             self._ad_adj_solver = None
+            self._ad_block_to_delegate = None
 
         return wrapper
 
@@ -83,18 +85,30 @@ class NonlinearVariationalSolverMixin:
                         self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
                         **self._ad_kwargs
                     )
+                    block._ad_nlvs = self._ad_nlvs
+                    self._ad_block_to_delegate = len(tape._blocks)
+                else:
+                    block._ad_nlvs = DelegatedBlockSolver(
+                        self._ad_block_to_delegate, SolverType.FORWARD)
+                    block.adj_F = DelegatedBlockForm(
+                        self._ad_block_to_delegate, FormType.ADJOINT)
+                    block.lhs = DelegatedBlockForm(
+                        self._ad_block_to_delegate, FormType.LHS)
+                    block.rhs = DelegatedBlockForm(
+                        self._ad_block_to_delegate, FormType.RHS)
 
-                block._ad_nlvs = self._ad_nlvs
+                # Adjoint solver.
+                self.delegated_block_ref = None
                 if not self._ad_problem._constant_jacobian:
-                    # Adjoint solver.
-                    if not self._ad_problem._constant_jacobian:
-                        with stop_annotating():
-                            if not self._ad_adj_solver:
-                                problem = self._ad_adj_lvs_problem(block)
-                                self._ad_adj_solver = LinearVariationalSolver(
-                                    problem, solver_parameters=self.parameters)
-
-                    block._ad_adj_solver = self._ad_adj_solver
+                    with stop_annotating():
+                        if not self._ad_adj_solver:
+                            problem = self._ad_adj_lvs_problem(block)
+                            self._ad_adj_solver = LinearVariationalSolver(
+                                problem, solver_parameters=self.parameters)
+                            block._ad_adj_solver = self._ad_adj_solver
+                        else:
+                            block._ad_adj_solver = DelegatedBlockSolver(
+                                self._ad_block_to_delegate, SolverType.ADJOINT)
 
                 tape.add_block(block)
 
@@ -181,3 +195,4 @@ class NonlinearVariationalSolverMixin:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
         return _ad_count_map, F_replace_map, J_replace_map
+

@@ -219,6 +219,15 @@ class FunctionMixin(FloatingType):
             return CheckpointFunction(self)
         else:
             return self.copy(deepcopy=True)
+        
+    def _ad_clear_checkpoint(self, checkpoint):
+        # DelegatedFunctionCheckpoint does not hold data. Actually,
+        # it is a reference to another checkpoint function. Thus, clear
+        # can be unsafe once we will lose the reference to the original
+        # checkpoint.
+        if not isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            checkpoint = None
+        return checkpoint
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
@@ -397,18 +406,6 @@ class FunctionMixin(FloatingType):
         for i in range(len(npdata)):
             npdata[i] = f(npdata[i], npdatay[i])
         vec.set_local(npdata)
-
-    def _ad_from_petsc(self, vec):
-        with self.dat.vec_wo as self_v:
-            vec.copy(result=self_v)
-
-    def _ad_to_petsc(self, vec=None):
-        with self.dat.vec_ro as self_v:
-            if vec:
-                self_v.copy(result=vec)
-            else:
-                vec = self_v.copy()
-        return vec
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
