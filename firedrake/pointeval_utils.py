@@ -71,6 +71,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
+                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)

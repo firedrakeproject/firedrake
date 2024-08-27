@@ -160,6 +160,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
+        integral_type="cell",
         point_indices=(),
         point_expr=point,
         scalar_type=parameters["scalar_type"]
