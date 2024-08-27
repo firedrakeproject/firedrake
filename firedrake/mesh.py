@@ -36,6 +36,7 @@ from firedrake.petsc import (
 )
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
+import gem
 
 try:
     import netgen
@@ -44,6 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
+from tsfc.finatinterface import as_fiat_cell
 
 
 __all__ = [
@@ -316,6 +318,34 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
+
+    @utils.cached_property
+    def local_facet_orientation_dat(self):
+        """Dat for the local facet orientations."""
+        dtype = gem.uint_type
+        fiat_cell = as_fiat_cell(self.mesh.ufl_cell())
+        topo = fiat_cell.topology
+        num_entities = [0]
+        for d in range(len(topo)):
+            num_entities.append(len(topo[d]))
+        offsets = np.cumsum(num_entities)
+        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
+        data.fill(np.iinfo(dtype).max)
+        local_facets = self.local_facet_dat.data_ro
+        local_facets = local_facets.reshape((-1, self._rank))
+        shape = local_facets.shape
+        data[:shape[0], :] = np.take_along_axis(
+            self.mesh.entity_orientations[:, offsets[-3]:offsets[-2]][self.facet_cell[:shape[0], :]],
+            local_facets.reshape(shape + (1, )),
+            axis=2,
+        ).reshape(shape)
+        return op2.Dat(
+            self.local_facet_dat.dataset,
+            data,
+            dtype,
+            "%s_%s_local_facet_orientation" %
+            (self.mesh.name, self.kind),
+        )
 
 
 @PETSc.Log.EventDecorator()
