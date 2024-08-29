@@ -285,10 +285,22 @@ class CofunctionAssignBlock(Block):
     """
 
     def __init__(self, lhs: firedrake.Cofunction, rhs: firedrake.Cofunction,
-                 ad_block_tag=None):
+                 ad_block_tag=None, rhs_from_assemble=False):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_output(lhs.block_variable)
         self.add_dependency(rhs)
+        if rhs_from_assemble:
+            # Checkpoint should be created at this point.
+            assert self._dependencies[0].checkpoint is not None
+            # If rhs is a output of an assemble block, we do not need to
+            # have the output we are only duplicating with the
+            # checkpoint data. `rhs_from_assemble = True` is only true when
+            # the previous block is an assemble block that is consequence
+            # of firedrake development API and not a user facing API.
+            # See how `rhs_from_assemble` is set in
+            # `firedrake.CoFunction.assign` method.
+            self._dependencies[0].output = DelegatedFunctionCheckpoint(
+                self._dependencies[0])
 
     def recompute_component(self, inputs, block_variable, idx, prepared=None):
         """Recompute the assignment.

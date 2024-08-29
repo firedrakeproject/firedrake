@@ -173,7 +173,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=None, expr_from_assemble=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
@@ -189,6 +189,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
+
+        `expr_from_assemble` is a flag to indicate if the expression is the
+        result of an assemble operation performed in the current method. This
+        flag will be required for `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
@@ -203,9 +207,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
-                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
+                    expr.block_variable)
                 get_working_tape().add_block(
-                    CofunctionAssignBlock(self, expr)
+                    CofunctionAssignBlock(
+                        self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
             expr.dat.copy(self.dat, subset=subset)
@@ -214,8 +220,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
             # If annotation is enabled, the following operation will result in an assemble block on the
             # Pyadjoint tape.
-            assembled_expr = firedrake.assemble(expr)
-            return self.assign(assembled_expr, subset=subset)
+            if annotate_tape():
+                assembled_expr = firedrake.assemble(expr)
+            else:
+                assembled_expr = firedrake.assemble(expr)
+            return self.assign(
+                assembled_expr, subset=subset,
+                expr_from_assemble=True)
 
         raise ValueError('Cannot assign %s' % expr)
 
