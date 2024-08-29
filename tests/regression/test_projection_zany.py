@@ -23,18 +23,6 @@ def jrc(a, b, n):
     return an, bn, cn
 
 
-relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
-convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
-
-
-def jrc(a, b, n):
-    """Jacobi recurrence coefficients"""
-    an = (2*n+1+a+b)*(2*n+2+a+b) / (2*(n+1)*(n+1+a+b))
-    bn = (a+b)*(a-b)*(2*n+1+a+b) / (2*(n+1)*(n+1+a+b)*(2*n+a+b))
-    cn = (n+a)*(n+b)*(2*n+2+a+b) / ((n+1)*(n+1+a+b)*(2*n+a+b))
-    return an, bn, cn
-
-
 @pytest.fixture
 def hierarchy(request):
     msh = UnitSquareMesh(2, 2)
