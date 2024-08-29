@@ -220,10 +220,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
             # If annotation is enabled, the following operation will result in an assemble block on the
             # Pyadjoint tape.
-            if annotate_tape():
-                assembled_expr = firedrake.assemble(expr)
-            else:
-                assembled_expr = firedrake.assemble(expr)
+            assembled_expr = firedrake.assemble(expr)
             return self.assign(
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
