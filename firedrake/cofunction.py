@@ -190,9 +190,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
 
-        `expr_from_assemble` is a flag to indicate if the expression is the
-        result of an assemble operation performed in the current method. This
-        flag will be required for `CofunctionAssignBlock`.
+        The `expr_from_assemble` optional argument indicates whether the
+        expression results from an assemble operation performed within the
+        current method. `expr_from_assemble` is required for the
+        `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
@@ -217,9 +218,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
-            # If annotation is enabled, the following operation will result in an assemble block on the
-            # Pyadjoint tape.
+            # Enable c.assign(B) where c is a Cofunction and B an appropriate
+            # BaseForm object. If annotation is enabled, the following
+            # operation will result in an assemble block on the Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
             return self.assign(
                 assembled_expr, subset=subset,

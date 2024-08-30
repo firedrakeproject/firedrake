@@ -221,10 +221,10 @@ class FunctionMixin(FloatingType):
             return self.copy(deepcopy=True)
 
     def _ad_clear_checkpoint(self, checkpoint):
-        # DelegatedFunctionCheckpoint does not hold data. Actually,
-        # it is a reference to another checkpoint function. Thus, clear
-        # can be unsafe once we will lose the reference to the original
-        # checkpoint.
+        # The `DelegatedFunctionCheckpoint` does not store any data itself.
+        # Rather, it serves as a reference to another checkpoint function.
+        # Therefore, clearing this checkpoint can be unsafe, as this would
+        # cause the loss of the reference to the original checkpoint.
         if not isinstance(checkpoint, DelegatedFunctionCheckpoint):
             checkpoint = None
         return checkpoint

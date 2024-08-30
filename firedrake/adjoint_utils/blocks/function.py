@@ -290,15 +290,17 @@ class CofunctionAssignBlock(Block):
         self.add_output(lhs.block_variable)
         self.add_dependency(rhs)
         if rhs_from_assemble:
+            # The `rhs_from_assemble` flag is set to `True` only when the
+            # previous block is an Assemble Block, which results from the
+            # Firedrake development API and not something implemented for
+            # the user.
+    
             # Checkpoint should be created at this point.
             assert self._dependencies[0].checkpoint is not None
-            # If rhs is a output of an assemble block, we do not need to
-            # have the output we are only duplicating with the
-            # checkpoint data. `rhs_from_assemble = True` is only true when
-            # the previous block is an assemble block that is consequence
-            # of firedrake development API and not a user facing API.
-            # See how `rhs_from_assemble` is set in
-            # `firedrake.CoFunction.assign` method.
+            # When `rhs` is a output of an Assemble Block, there is no
+            # need to duplicate the output with checkpoint data.
+            # For further clarification, see how the `rhs_from_assemble` flag
+            # is set in the `firedrake.CoFunction.assign` method.
             self._dependencies[0].output = DelegatedFunctionCheckpoint(
                 self._dependencies[0])
 
