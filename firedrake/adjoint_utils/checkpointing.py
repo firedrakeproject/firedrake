@@ -345,4 +345,8 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
         return checkpoint
 
     def _ad_restore_at_checkpoint(self, checkpoint):
+        # This method is reached when a Block output is `self`.
+        if isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            raise ValueError("We must not have output and checkpoint as "
+                             "DelegatedFunctionCheckpoint objects.")
         return checkpoint
