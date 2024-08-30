@@ -294,7 +294,7 @@ class CofunctionAssignBlock(Block):
             # previous block is an Assemble Block, which results from the
             # Firedrake development API and not something implemented for
             # the user.
-    
+
             # Checkpoint should be created at this point.
             assert self._dependencies[0].checkpoint is not None
             # When `rhs` is a output of an Assemble Block, there is no
