@@ -118,6 +118,7 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpispawn -nU 12 -nW 2 --propagate-errcodes pytest \
+            --splitting-algorithm least_duration \
             --splits \$MPISPAWN_NUM_TASKS \
             --group \$MPISPAWN_TASK_ID1 \
             --timeout=1800 \
@@ -133,6 +134,7 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpispawn -nU 12 -nW 3 --propagate-errcodes pytest \
+            --splitting-algorithm least_duration \
             --splits \$MPISPAWN_NUM_TASKS \
             --group \$MPISPAWN_TASK_ID1 \
             --timeout=1800 \
@@ -148,6 +150,7 @@ jobs:
           echo OMP_NUM_THREADS is "$OMP_NUM_THREADS"
           echo OPENBLAS_NUM_THREADS is "$OPENBLAS_NUM_THREADS"
           mpispawn -nU 12 -nW 4 --propagate-errcodes pytest \
+            --splitting-algorithm least_duration \
             --splits \$MPISPAWN_NUM_TASKS \
             --group \$MPISPAWN_TASK_ID1 \
             --timeout=1800 \
