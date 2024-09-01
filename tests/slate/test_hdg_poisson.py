@@ -27,6 +27,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     U = VectorFunctionSpace(mesh, "DG", degree)
     V = FunctionSpace(mesh, "DG", degree)
     T = FunctionSpace(mesh, "HDiv Trace", degree)
+    R = FunctionSpace(mesh, "R", 0)
 
     # Mixed space and test/trial functions
     W = U * V * T
@@ -50,7 +51,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     f = Function(Vh).interpolate(-div(grad(a_scalar)))
 
     # Stability parameter
-    tau = Constant(1)
+    tau = Function(R).assign(1)
 
     # Numerical flux
     qhat = q + tau*(u - uhat)*n
