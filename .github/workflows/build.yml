@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch FInAT JDBetteridge/robust_hash \
             --package-branch PyOP2 JDBetteridge/remove_comm_hash \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
