@@ -51,6 +51,9 @@ def run_LDG_H_problem(r, degree, quads=False):
     f = Function(Vh).interpolate(-div(grad(a_scalar)))
 
     # Stability parameter
+    # FIXME: This could just be a Constant, but something breaks in SCPC when
+    # the test suite is run out of order. Specifically different code is
+    # generated on different ranks since constants are not renumbered correctly.
     tau = Function(R).assign(1)
 
     # Numerical flux

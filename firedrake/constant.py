@@ -5,6 +5,7 @@ import finat.ufl
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -95,6 +96,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         else:
             return object.__new__(cls)
 
+    @collective
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None, name=None, count=None):
         """"""
