@@ -22,7 +22,7 @@ will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
 The conference will begin around lunchtime on 16 September and end on the
-evening of 18 September.
+evening of 18 September. The program can be found `here <https://easychair.org/smart-program/Firedrake'24/>`__.
 
 Conference venue
 ----------------
@@ -88,6 +88,7 @@ Abstract submission
 Abstract submission is now closed. Thank you to everyone who has submitted an abstract.
 
 The deadline for abstract submission was **18th August 2024**.
+
 
 Support
 -------
