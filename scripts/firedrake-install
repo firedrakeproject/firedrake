@@ -797,7 +797,7 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
         if Version(clt["version"]) >= Version("15"):
             # CLT >= 15 requires legacy linking behaviour
-            petsc_options.add("--LDFLAGS=-Wl,-ld_classic -Wl,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
         else:
             petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
