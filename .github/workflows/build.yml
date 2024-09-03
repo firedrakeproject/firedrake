@@ -73,6 +73,8 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
           pip install --verbose --no-binary h5py './firedrake-repo[ci]'
+          pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map
+          pip install git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map
           firedrake-clean
           : # Extra test dependencies
           pip install --extra-index-url https://download.pytorch.org/whl/cpu \
