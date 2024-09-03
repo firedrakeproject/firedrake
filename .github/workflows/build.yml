@@ -83,6 +83,9 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch tsfc ksagiyam/hex_interior_facet \
+            --package-branch finat ksagiyam/hex_interior_facet \
+            --package-branch fiat ksagiyam/hex_interior_facet \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
