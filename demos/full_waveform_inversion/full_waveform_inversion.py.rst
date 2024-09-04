@@ -42,8 +42,7 @@ is modelled by an acoustic wave equation:
 
 where :math:`m = 1/c^2`, :math:`c = c(\mathbf{x})` is the pressure wave velocity, which is
 assumed here a piecewise-constant and positive. The function :math:`f_s(\mathbf{x},t)`
-models a point source function, were the time-dependency is given by the 
-`Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__.
+models a point source function, were the time-dependency is given by the Ricker wavelet :cite:`Ricker:1953`.
 
 The acoustic wave equation should satisfy the initial conditions 
 :math:`u(\mathbf{x}, 0) = 0 = u_t(\mathbf{x}, 0) = 0`. We employ a no-reflective absorbing
@@ -144,8 +143,7 @@ as:
 
 .. math:: \int_{\Omega} f_s(\mathbf{x},t) v \, dx = r(t) q_s(\mathbf{x}),  \quad q_s(\mathbf{x}) \in V^{\ast} \quad \quad (6)
 
-where :math:`r(t)` is the `Ricker wavelet <https://wiki.seg.org/wiki/Dictionary:Ricker_wavelet>`__  coded
-as follows::
+where :math:`r(t)` is the Ricker wavelet coded as follows::
 
     def ricker_wavelet(t, fs, amp=1.0):
         ts = 1.5
