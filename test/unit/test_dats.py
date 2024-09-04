@@ -55,6 +55,16 @@ def mdat(d1):
     return op2.MixedDat([d1, d1])
 
 
+@pytest.fixture(scope='module')
+def s2(s):
+    return op2.DataSet(s, 2)
+
+
+@pytest.fixture
+def vdat(s2):
+    return op2.Dat(s2, np.zeros(2 * nelems), dtype=np.float64)
+
+
 class TestDat:
 
     """
@@ -252,6 +262,60 @@ static void write(unsigned int* v) {
         assert d1.dat_version == 0
         d1.data_with_halos
         assert d1.dat_version == 1
+
+
+class TestDatView():
+
+    def test_dat_view_assign(self, vdat):
+        vdat.data[:, 0] = 3
+        vdat.data[:, 1] = 4
+        comp = op2.DatView(vdat, 1)
+        comp.data[:] = 7
+        assert not vdat.halo_valid
+        assert not comp.halo_valid
+
+        expected = np.zeros_like(vdat.data)
+        expected[:, 0] = 3
+        expected[:, 1] = 7
+        assert all(comp.data == expected[:, 1])
+        assert all(vdat.data[:, 0] == expected[:, 0])
+        assert all(vdat.data[:, 1] == expected[:, 1])
+
+    def test_dat_view_zero(self, vdat):
+        vdat.data[:, 0] = 3
+        vdat.data[:, 1] = 4
+        comp = op2.DatView(vdat, 1)
+        comp.zero()
+        assert vdat.halo_valid
+        assert comp.halo_valid
+
+        expected = np.zeros_like(vdat.data)
+        expected[:, 0] = 3
+        expected[:, 1] = 0
+        assert all(comp.data == expected[:, 1])
+        assert all(vdat.data[:, 0] == expected[:, 0])
+        assert all(vdat.data[:, 1] == expected[:, 1])
+
+    def test_dat_view_halo_valid(self, vdat):
+        """Check halo validity for DatView"""
+        comp = op2.DatView(vdat, 1)
+        assert vdat.halo_valid
+        assert comp.halo_valid
+        assert vdat.dat_version == 0
+        assert comp.dat_version == 0
+
+        comp.data_ro_with_halos
+        assert vdat.halo_valid
+        assert comp.halo_valid
+        assert vdat.dat_version == 0
+        assert comp.dat_version == 0
+
+        # accessing comp.data_with_halos should mark the parent halo as dirty
+        comp.data_with_halos
+        assert not vdat.halo_valid
+        assert not comp.halo_valid
+        assert vdat.dat_version == 1
+        assert comp.dat_version == 1
 
 
 if __name__ == '__main__':

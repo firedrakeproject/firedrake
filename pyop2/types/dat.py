@@ -681,6 +681,7 @@ class DatView(AbstractDat):
             if not (0 <= i < d):
                 raise ex.IndexValueError("Can't create DatView with index %s for Dat with shape %s" % (index, dat.dim))
         self.index = index
+        self._idx = (slice(None), *index)
         self._parent = dat
         # Point at underlying data
         super(DatView, self).__init__(dat.dataset,
@@ -721,40 +722,36 @@ class DatView(AbstractDat):
         self._parent.halo_valid = value
 
     @property
+    def dat_version(self):
+        return self._parent.dat_version
+
+    @property
+    def _data(self):
+        return self._parent._data[self._idx]
+
+    @property
     def data(self):
-        full = self._parent.data
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data[self._idx]
 
     @property
     def data_ro(self):
-        full = self._parent.data_ro
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data_ro[self._idx]
 
     @property
     def data_wo(self):
-        full = self._parent.data_wo
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data_wo[self._idx]
 
     @property
     def data_with_halos(self):
-        full = self._parent.data_with_halos
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data_with_halos[self._idx]
 
     @property
     def data_ro_with_halos(self):
-        full = self._parent.data_ro_with_halos
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data_ro_with_halos[self._idx]
 
     @property
     def data_wo_with_halos(self):
-        full = self._parent.data_wo_with_halos
-        idx = (slice(None), *self.index)
-        return full[idx]
+        return self._parent.data_wo_with_halos[self._idx]
 
 
 class Dat(AbstractDat, VecAccessMixin):
