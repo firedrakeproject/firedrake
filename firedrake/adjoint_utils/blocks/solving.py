@@ -8,6 +8,7 @@ from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
+import weakref
 
 
 def extract_subfunction(u, V):
@@ -48,7 +49,7 @@ class GenericSolveBlock(Block):
         # Equation RHS
         self.rhs = rhs
         # Solution function
-        self.func = func
+        self._func = weakref.ref(func)
         self.function_space = self.func.function_space()
         # Boundary conditions
         self.bcs = []
@@ -71,6 +72,10 @@ class GenericSolveBlock(Block):
         mesh = self.lhs.ufl_domain()
         self.add_dependency(mesh)
         self._init_solver_parameters(args, kwargs)
+
+    @property
+    def func(self):
+        return self._func()
 
     def _init_solver_parameters(self, args, kwargs):
         self.forward_args = kwargs.pop("forward_args", [])
@@ -203,14 +208,16 @@ class GenericSolveBlock(Block):
 
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = firedrake.Function(
-                self.function_space.dual(),
-                dJdu_copy.dat - firedrake.assemble(
-                    firedrake.action(dFdu_adj_form, adj_sol)
-                ).dat
-            )
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
 
         return adj_sol, adj_sol_bdy
+
+    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
+        adj_sol_bdy = firedrake.Function(
+            self.function_space.dual(), dJdu.dat - firedrake.assemble(
+                firedrake.action(dFdu_adj_form, adj_sol)).dat)
+        return adj_sol_bdy
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
@@ -630,6 +637,53 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         func.assign(self._ad_nlvs._problem.u)
         return func
 
+    def _adjoint_solve(self, dJdu, compute_bdy):
+        dJdu_copy = dJdu.copy()
+        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        bcs = self._homogenize_bcs()
+        for bc in bcs:
+            bc.apply(dJdu)
+
+        # Update the left hand side coefficients of the adjoint equation.
+        problem = self._ad_adj_solver._problem
+        for block_variable in self.get_dependencies():
+            # The self.adj_F coefficients hold the forward output
+            # references.
+            if block_variable.output in self.adj_F.coefficients():
+                index = self.adj_F.coefficients().index(block_variable.output)
+                if isinstance(
+                        block_variable.output, (
+                            firedrake.Function, firedrake.Constant,
+                            firedrake.Cofunction)):
+                    # `problem.J` (Jacobian operator) is a deep copy of
+                    # `self.adj_F`.
+                    # The indices of `self.adj_F` serve as a map for
+                    # updating the coefficients of the adjoint solver.
+                    problem.J.coefficients()[index].assign(
+                        block_variable.saved_output)
+
+        bv = self.get_outputs()[0]
+        if bv.output in self.adj_F.coefficients():
+            index = self.adj_F.coefficients().index(bv.output)
+            problem.J.coefficients()[index].assign(
+                bv.checkpoint)
+
+        # Update the right hand side of the adjoint equation.
+        # problem.F._component[1] is the right hand side of the adjoint.
+        problem.F._components[1].assign(dJdu)
+
+        # Solve the adjoint equation.
+        self._ad_adj_solver.solve()
+
+        adj_sol = firedrake.Function(self.function_space)
+        adj_sol.assign(self._ad_adj_solver._problem.u)
+        adj_sol_bdy = None
+        if compute_bdy:
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, self._ad_adj_solver._problem.J,
+                dJdu_copy)
+        return adj_sol, adj_sol_bdy
+
     def _ad_assign_map(self, form):
         count_map = self._ad_nlvs._problem._ad_count_map
         assign_map = {}
@@ -667,23 +721,26 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
-
-        F_form = self._create_F_form()
-
-        dFdu_form = self.adj_F
         dJdu = dJdu.copy()
-
-        # Replace the form coefficients with checkpointed values.
-        replace_map = self._replace_map(dFdu_form)
-        replace_map[self.func] = self.get_outputs()[0].saved_output
-        dFdu_form = replace(dFdu_form, replace_map)
 
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-            dFdu_form, dJdu, compute_bdy
-        )
+
+        if self._ad_nlvs._problem._constant_jacobian:
+            dFdu_form = self.adj_F
+            # Replace the form coefficients with checkpointed values.
+            replace_map = self._replace_map(dFdu_form)
+            replace_map[self.func] = self.get_outputs()[0].saved_output
+            dFdu_form = replace(dFdu_form, replace_map)
+
+            adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
+                dFdu_form, dJdu, compute_bdy
+            )
+        else:
+            # Adjoint solver using linear variational solver.
+            adj_sol, adj_sol_bdy = self._adjoint_solve(dJdu, compute_bdy)
+
         self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
@@ -691,7 +748,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
-        r["form"] = F_form
         r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
@@ -701,7 +757,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if not self.linear and self.func == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
-        F_form = prepared["form"]
+        F_form = self._create_F_form()
         adj_sol = prepared["adj_sol"]
         adj_sol_bdy = prepared["adj_sol_bdy"]
         c = block_variable.output
