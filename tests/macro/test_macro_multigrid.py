@@ -186,3 +186,54 @@ def test_macro_multigrid_biharmonic(square_hierarchy, family):
         solver.solve()
     expected = 16
     assert solver.snes.ksp.getIterationNumber() <= expected
+
+
+@pytest.fixture
+def non_nested_hierarchy():
+    N_base = 4
+    refine = 2
+    base = UnitSquareMesh(N_base, N_base)
+    mh = MeshHierarchy(base, refine)
+
+    # Let's perturb the finest mesh
+    mesh = mh[-1]
+    V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
+    eps = Constant(1.5 / (N_base * 2 ** refine))
+
+    x, y = SpatialCoordinate(mesh)
+    new = Function(V).interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
+                                             y - eps*sin(2*pi*x)*sin(2*pi*y)]))
+
+    # And inject to refined meshes
+    coords = {mesh: new}
+    for mesh in mh[-2::-1]:
+        coarse = Function(mesh.coordinates.function_space())
+        inject(new, coarse)
+        coords[mesh] = coarse
+        new = coarse
+
+    for mesh, coord in coords.items():
+        mesh.coordinates.assign(coord)
+    return mh
+
+
+@pytest.mark.parametrize("family,degree,variant", [("CG", 1, "alfeld"), ("DG", 1, "alfeld")])
+def test_macro_non_nested_hierarchy(non_nested_hierarchy, family, degree, variant):
+
+    def u_exact(mesh, degree):
+        x = SpatialCoordinate(mesh)
+        return sum(x) ** degree
+
+    mesh = non_nested_hierarchy[0]
+    V = FunctionSpace(mesh, family, degree, variant=variant)
+    uf = Function(V)
+    uf.interpolate(u_exact(mesh, degree))
+    assert not numpy.any(numpy.isnan(uf.dat.data))
+    assert numpy.isclose(errornorm(u_exact(mesh, degree), uf), 0)
+
+    for mesh in non_nested_hierarchy[1:]:
+        uc = uf
+        uf = Function(V.reconstruct(mesh))
+        prolong(uc, uf)
+        assert not numpy.any(numpy.isnan(uf.dat.data))
+        assert numpy.isclose(errornorm(u_exact(mesh, degree), uf), 0)
