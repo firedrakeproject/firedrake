@@ -35,7 +35,7 @@ class GenericSolveBlock(Block):
         self.adj_bdy_cb = kwargs.pop("adj_bdy_cb", None)
         self.adj2_cb = kwargs.pop("adj2_cb", None)
         self.adj2_bdy_cb = kwargs.pop("adj2_bdy_cb", None)
-        self.adj_sol = None
+        self.adj_state = None
 
         self.forward_args = []
         self.forward_kwargs = {}
@@ -170,7 +170,7 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_sol = adj_sol
+        self.adj_state = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -393,7 +393,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_sol
+        adj_sol = self.adj_state
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -607,8 +607,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         rhs = equation.rhs
 
         self.adj_F = adj_F
-        self._adj_cache = adj_cache
-        self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
+        # self._adj_cache = adj_cache
+        # self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
@@ -657,12 +657,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.J)
 
     def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        if "dFdu_adj" in self._adj_cache:
-            dFdu = self._adj_cache["dFdu_adj"]
-        else:
-            dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-            if self._ad_nlvs._problem._constant_jacobian:
-                self._adj_cache["dFdu_adj"] = dFdu
+        # if "dFdu_adj" in self._adj_cache:
+        #     dFdu = self._adj_cache["dFdu_adj"]
+        # else:
+        dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
+            # if self._ad_nlvs._problem._constant_jacobian:
+            #     self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
@@ -684,7 +684,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_sol = adj_sol
+        self.adj_state = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -732,12 +732,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             return dFdm
 
         # dFdm_cache works with original variables, not block saved outputs.
-        if c in self._dFdm_cache:
-            dFdm = self._dFdm_cache[c]
-        else:
-            dFdm = -firedrake.derivative(self.lhs, c, trial_function)
-            dFdm = firedrake.adjoint(dFdm)
-            self._dFdm_cache[c] = dFdm
+        # if c in self._dFdm_cache:
+        #     dFdm = self._dFdm_cache[c]
+        # else:
+        dFdm = -firedrake.derivative(self.lhs, c, trial_function)
+        dFdm = firedrake.adjoint(dFdm)
+            # self._dFdm_cache[c] = dFdm
 
         # Replace the form coefficients with checkpointed values.
         replace_map = self._replace_map(dFdm)

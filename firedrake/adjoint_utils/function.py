@@ -220,14 +220,29 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_clear_checkpoint(self, checkpoint):
-        # The `DelegatedFunctionCheckpoint` does not store any data itself.
-        # Rather, it serves as a reference to another checkpoint function.
-        # Therefore, clearing this checkpoint can be unsafe, as this would
-        # cause the loss of the reference to the original checkpoint.
-        if not isinstance(checkpoint, DelegatedFunctionCheckpoint):
-            checkpoint = None
-        return checkpoint
+    def _ad_clear_checkpoint(self, checkpoint, options={}):
+        if isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            return checkpoint
+        if options:
+            to_keep = options["to_keep"]
+            for bv in to_keep:
+                chk = bv.checkpoint
+                if isinstance(chk, DelegatedFunctionCheckpoint):
+                    chk = chk.other.checkpoint
+                    while isinstance(chk, DelegatedFunctionCheckpoint):
+                        chk = chk.other.checkpoint
+                    if chk == checkpoint:
+                        break
+                    else:
+                        chk = None
+                else:
+                    chk = None
+            if chk is not None and chk != checkpoint:
+                print("chk", chk)
+                raise ValueError("Wrong checkpoint to clear")
+            return chk
+
+        return None
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
