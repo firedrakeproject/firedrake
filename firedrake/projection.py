@@ -52,7 +52,7 @@ def check_meshes(source, target):
 @annotate_project
 def project(
     v: ufl.core.expr.Expr,
-    V: Union[firedrake.functionspaceimpl.FunctionSpace, firedrake.Function],
+    V: Union[firedrake.functionspaceimpl.WithGeometry, firedrake.Function],
     bcs: Optional[BCBase] = None,
     solver_parameters: Optional[dict] = None,
     form_compiler_parameters: Optional[dict] = None,
