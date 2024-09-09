@@ -71,6 +71,7 @@ jobs:
             --disable-ssh \
             --documentation-dependencies \
             --torch \
+            --jax \
             --netgen \
             --slepc \
             --install thetis \

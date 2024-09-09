@@ -79,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "torch",
+                           "opencascade", "torch", "jax",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -264,6 +264,8 @@ honoured.""",
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -402,6 +404,8 @@ else:
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("jax", False),
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -1307,6 +1311,13 @@ def build_and_install_torch():
     run_pip_install(["torch"] + extra_index_url)
 
 
+def build_and_install_jax():
+    """Install JAX for a CPU or CUDA backend."""
+    log.info("Installing JAX (backend: %s)" % args.jax)
+    version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
+    run_pip_install(version_name)
+
+
 def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
     slepc_dir, slepc_arch = get_slepc_dir()
@@ -2069,6 +2080,10 @@ with pipargs("--no-deps"):
 with pipargs("--no-deps"):
     if options["torch"]:
         build_and_install_torch()
+
+with pipargs("--no-deps"):
+    if options["jax"]:
+        build_and_install_jax()
 
 if args.documentation_dependencies:
     install_documentation_dependencies()
