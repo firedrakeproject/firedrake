@@ -20,6 +20,14 @@ def create_netgen_mesh_circle():
     ngmesh = geo.GenerateMesh(maxh=0.75)
     return ngmesh
 
+def create_netgen_mesh_sphere():
+    from netgen.occ import Sphere, OCCGeometry
+    from netgen.meshing import MeshingParameters
+    geo = OCCGeometry(Sphere((0, 0, 0), 1))
+    mp = MeshingParameters(minh=0.3, maxh=0.5)
+    ngmesh = geo.GenerateMesh(mp)
+    return ngmesh
+
 
 @pytest.mark.skipcomplex
 def test_netgen_mg_circle():
@@ -48,6 +56,32 @@ def test_netgen_mg_circle():
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
 
+@pytest.mark.skipcomplex
+def test_netgen_mg_sphere():
+    ngmesh = create_netgen_mesh_sphere()
+    mesh = Mesh(ngmesh)
+    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 2})
+    mesh = nh[-1]
+
+    V = FunctionSpace(mesh, "CG", 2)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(grad(u), grad(v))*dx
+    labels = [1]
+    x, y, z = SpatialCoordinate(mesh)
+
+    exact = exp(1-sqrt(x**2+y**2+z**2))
+    bcs = DirichletBC(V, Constant(1), labels)
+    f = -div(grad(exact))
+    L = f*v*dx
+
+    u = Function(V)
+    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
+                                                 "pc_type": "mg"})
+    expect = Function(V).interpolate(exact)
+    assert (norm(assemble(u - expect)) <= 1e-2)
 
 @pytest.mark.skipcomplex
 def test_netgen_mg_circle_non_uniform_degree():
@@ -75,7 +109,6 @@ def test_netgen_mg_circle_non_uniform_degree():
                                                  "pc_type": "mg"})
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
-
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
