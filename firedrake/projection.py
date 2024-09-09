@@ -57,7 +57,7 @@ def project(
     solver_parameters: Optional[dict] = None,
     form_compiler_parameters: Optional[dict] = None,
     use_slate_for_inverse: Optional[bool] = True,
-    quadrature_degree: Optional[int|tuple[int]] = None,
+    quadrature_degree: Optional[int | tuple[int]] = None,
     name: Optional[str] = None,
     ad_block_tag: Optional[str] = None
 ) -> firedrake.Function:
@@ -78,6 +78,8 @@ def project(
     use_slate_for_inverse
         Compute mass inverse cell-wise using SLATE (ignored for non-DG
         function spaces).
+    quadrature_degree
+        Quadrature degree to use when approximating integrands.
     name
         The name of the resulting :class:`.Function`.
     ad_block_tag
@@ -287,9 +289,14 @@ class SupermeshProjector(ProjectorBase):
 
 @PETSc.Log.EventDecorator()
 def Projector(
-    v, v_out, bcs=None, solver_parameters=None,
-    form_compiler_parameters=None, constant_jacobian=True,
-    use_slate_for_inverse=False, quadrature_degree=None
+    v: ufl.core.expr.Expr,
+    v_out: Union[firedrake.functionspaceimpl.FunctionSpace, firedrake.Function],
+    bcs: Optional[BCBase] = None,
+    solver_parameters: Optional[dict] = None,
+    form_compiler_parameters: Optional[dict] = None,
+    constant_jacobian: Optional[bool] = True,
+    use_slate_for_inverse: Optional[bool] = False,
+    quadrature_degree: Optional[int | tuple[int]] = None
 ):
     """ Projection class.
 
@@ -305,7 +312,7 @@ def Projector(
     ----------
     v
         The :class:`ufl.core.expr.Expr` to project.
-    V
+    v_out
         The :class:`.FunctionSpace` or :class:`.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
@@ -319,10 +326,8 @@ def Projector(
     use_slate_for_inverse
         Compute mass inverse cell-wise using SLATE (ignored for non-DG
         function spaces)(only valid for DG function spaces).
-    name
-        The name of the resulting :class:`.Function`.
-    ad_block_tag
-        String for tagging the resulting block on the Pyadjoint tape.
+    quadrature_degree
+        Quadrature degree to use when approximating integrands.
     """
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
