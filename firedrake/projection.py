@@ -57,7 +57,7 @@ def project(
     solver_parameters: Optional[dict] = None,
     form_compiler_parameters: Optional[dict] = None,
     use_slate_for_inverse: Optional[bool] = True,
-    quadrature_degree: Optional[int] = None,
+    quadrature_degree: Optional[int|tuple[int]] = None,
     name: Optional[str] = None,
     ad_block_tag: Optional[str] = None
 ) -> firedrake.Function:
@@ -100,9 +100,15 @@ def project(
     :class:`.Function` is returned.
 
     """
-    val = Projector(v, V, bcs=bcs, solver_parameters=solver_parameters,
-                    form_compiler_parameters=form_compiler_parameters,
-                    use_slate_for_inverse=use_slate_for_inverse).project()
+    val = Projector(
+        v,
+        V,
+        bcs=bcs,
+        solver_parameters=solver_parameters,
+        form_compiler_parameters=form_compiler_parameters,
+        use_slate_for_inverse=use_slate_for_inverse,
+        quadrature_degree=quadrature_degree
+    ).project()
     val.rename(name)
     return val
 
@@ -285,7 +291,8 @@ def Projector(
     form_compiler_parameters=None, constant_jacobian=True,
     use_slate_for_inverse=False, quadrature_degree=None
 ):
-    """
+    """ Projection class.
+
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
     allowing the solver to be reused. Projection reverts to an assign
@@ -294,17 +301,28 @@ def Projector(
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    :arg v: the :class:`ufl.core.expr.Expr` or
-         :class:`.Function` to project
-    :arg V: :class:`.Function` (or :class:`~.FunctionSpace`) to put the result in.
-    :arg bcs: an optional set of :class:`.DirichletBC` objects to apply
-              on the target function space.
-    :arg solver_parameters: parameters to pass to the solver used when
-         projecting.
-    :arg constant_jacobian: Is the projection matrix constant between calls?
-        Say False if you have moving meshes.
-    :arg use_slate_for_inverse: compute mass inverse cell-wise using
-         SLATE (only valid for DG function spaces).
+    Parameters
+    ----------
+    v
+        The :class:`ufl.core.expr.Expr` to project.
+    V
+        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+    bcs
+        Boundary conditions to apply in the projection.
+    solver_parameters
+        Parameters to pass to the solver used when projecting.
+    form_compiler_parameters
+        Parameters to the form compiler.
+    constant_jacobian
+        Whether the projection matrix constant between calls. Set to ``False``
+        if using moving meshes.
+    use_slate_for_inverse
+        Compute mass inverse cell-wise using SLATE (ignored for non-DG
+        function spaces)(only valid for DG function spaces).
+    name
+        The name of the resulting :class:`.Function`.
+    ad_block_tag
+        String for tagging the resulting block on the Pyadjoint tape.
     """
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
