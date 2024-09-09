@@ -290,7 +290,7 @@ class SupermeshProjector(ProjectorBase):
 @PETSc.Log.EventDecorator()
 def Projector(
     v: ufl.core.expr.Expr,
-    v_out: Union[firedrake.functionspaceimpl.FunctionSpace, firedrake.Function],
+    v_out: Union[firedrake.functionspaceimpl.WithGeometry, firedrake.Function],
     bcs: Optional[BCBase] = None,
     solver_parameters: Optional[dict] = None,
     form_compiler_parameters: Optional[dict] = None,
