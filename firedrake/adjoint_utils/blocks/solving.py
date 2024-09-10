@@ -35,7 +35,6 @@ class GenericSolveBlock(Block):
         self.adj_bdy_cb = kwargs.pop("adj_bdy_cb", None)
         self.adj2_cb = kwargs.pop("adj2_cb", None)
         self.adj2_bdy_cb = kwargs.pop("adj2_bdy_cb", None)
-        self.adj_state = None
 
         self.forward_args = []
         self.forward_kwargs = {}

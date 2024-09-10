@@ -335,15 +335,6 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
                                       saved_output.dat,
                                       count=self.count)
 
-    def _ad_clear_checkpoint(self, checkpoint):
-        # The `DelegatedFunctionCheckpoint` does not store any data itself.
-        # Rather, it serves as a reference to another checkpoint function.
-        # Therefore, clearing this checkpoint can be unsafe, as this would
-        # cause the loss of the reference to the original checkpoint.
-        if not isinstance(checkpoint, DelegatedFunctionCheckpoint):
-            checkpoint = None
-        return checkpoint
-
     def _ad_restore_at_checkpoint(self, checkpoint):
         # This method is reached when a Block output is `self`.
         if isinstance(checkpoint, DelegatedFunctionCheckpoint):
