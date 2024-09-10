@@ -22,7 +22,14 @@ will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
 The conference will begin around lunchtime on 16 September and end on the
-evening of 18 September. The program can be found `here <https://easychair.org/smart-program/Firedrake'24/>`__.
+evening of 18 September. The `program can be found here <https://easychair.org/smart-program/Firedrake'24/>`__.
+
+Programme
+---------
+
+`The programme is now available
+<https://easychair.org/smart-program/Firedrake'24/>`__.
+
 
 Conference venue
 ----------------
@@ -50,7 +57,7 @@ Conference dinner
 Registration includes a drinks reception and three-course dinner at `Corpus
 Christi college, Oxford <https://www.ccc.ox.ac.uk>`__, founded in 1517. The dinner will take place on the
 evening of 17 September. Corpus Christi college is right next to Oriel, about
-fifteen minutes walk from the Andrew Wiles building.
+fifteen minutes walk from the Andrew Wiles building. There is no dress code for the dinner, come as you are.
 
 It is possible during registration to purchase additional tickets for the
 dinner, to bring non-registered companions.
@@ -99,13 +106,6 @@ The conference has been kindly supported by `EPSRC grant EP/W026163/1
 <https://gow.epsrc.ukri.org/NGBOViewGrant.aspx?GrantRef=EP/W026066/1>`__.
 
 ..
-    Programme
-    ---------
-
-    Click here for `the programme
-    <https://easychair.org/smart-program/Firedrake'23/>`__
-
-
     Talk videos
     -----------
 
