@@ -145,6 +145,10 @@ class GenericSolveBlock(Block):
                 break
         return bdy
 
+    @property
+    def adj_sol(self):
+        return self.adj_state
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
