@@ -1216,7 +1216,6 @@ class MeshTopology(AbstractMeshTopology):
 
         # TODO: this needs to be updated for mixed-cell meshes.
         nfacets = self._comm.allreduce(nfacets, op=MPI.MAX)
-
         # Note that the geometric dimension of the cell is not set here
         # despite it being a property of a UFL cell. It will default to
         # equal the topological dimension.
@@ -1224,7 +1223,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        return ufl.Cell(_cells[tdim][nfacets])
+        return constructCellComplex(_cells[tdim][nfacets])
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -1955,7 +1954,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return ufl.Cell(_cells[0][0])
+        return constructCellComplex(_cells[0][0])
 
     @utils.cached_property
     def _ufl_mesh(self):
