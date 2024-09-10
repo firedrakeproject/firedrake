@@ -405,6 +405,7 @@ intersphinx_mapping = {
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
     'torch': ('https://pytorch.org/docs/stable/', None),
+    'jax': ('https://jax.readthedocs.io/en/latest/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
