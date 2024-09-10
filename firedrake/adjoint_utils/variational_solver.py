@@ -59,7 +59,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
+            from firedrake import LinearVariationalSolver, assemble, LinearSolver
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -87,10 +87,14 @@ class NonlinearVariationalSolverMixin:
                 block._ad_nlvs = self._ad_nlvs
 
                 # Adjoint solver.
-                if not self._ad_problem._constant_jacobian:
+                if not self._ad_adj_solver:
                     with stop_annotating():
-                        if not self._ad_adj_solver:
-                            problem = self._ad_adj_lvs_problem(block)
+                        problem = self._ad_adj_lvs_problem(block)
+                        if self._ad_problem._constant_jacobian:
+                            self._ad_adj_solver = LinearSolver(
+                                assemble(problem.J),
+                                solver_parameters=self.parameters)
+                        else:
                             self._ad_adj_solver = LinearVariationalSolver(
                                 problem, solver_parameters=self.parameters)
 
