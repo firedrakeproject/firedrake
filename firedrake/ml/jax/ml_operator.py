@@ -1,8 +1,20 @@
+import os
 try:
     import jax
     import jax.numpy as jnp
 except ImportError:
-    raise ImportError("JAX is not installed and is required to use the JaxOperator.")
+    if "FIREDRAKE_BUILDING_DOCS" in os.environ:
+        # If building docs and jax is not installed, produce a mock `jax.custom_vjp` function.
+        # This is sufficient for the intersphinx reference to resolve.
+        from types import SimpleNamespace
+        jax = SimpleNamespace()
+
+        def custom_vjp(_, **kwargs):
+            pass
+
+        jax.custom_vjp = custom_vjp
+    else:
+        raise ImportError("JAX is not installed and is required to use the FiredrakeJaxOperator.")
 
 
 import warnings
