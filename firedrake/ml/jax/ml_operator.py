@@ -60,8 +60,8 @@ class JaxOperator(MLOperator):
                             argument_slots=argument_slots, operator_data=operator_data)
 
         # Check that JAX double precision is enabled if Firedrake operates in double precision.
-        if utils.ScalarType == jnp.float64 and not jax.config.jax_enable_x64:
-            warnings.warn("JAX is not configured to use 64-bit precision. Consider setting `jax_enable_x64=True`, e.g. `jax.config.update('jax_enable_x64', True)`.", RuntimeWarning)
+        if utils.ScalarType in (jnp.float64, jnp.complex128) and not jax.config.jax_enable_x64:
+            warnings.warn("JAX is not configured to use double precision. Consider setting `jax_enable_x64=True`, e.g. `jax.config.update('jax_enable_x64', True)`.", RuntimeWarning)
 
     # --- Callbacks --- #
 

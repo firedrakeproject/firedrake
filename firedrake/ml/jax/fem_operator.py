@@ -17,7 +17,6 @@ except ImportError:
         raise ImportError("JAX is not installed and is required to use the FiredrakeJaxOperator.")
 
 import collections
-import warnings
 import numpy as np
 from functools import partial
 
@@ -118,6 +117,8 @@ def fem_operator(F):
         raise ValueError("F must be a ReducedFunctional")
 
     jax_op = FiredrakeJaxOperator(F)
+    # `jax_op.forward` currently does not work and causes issues related to the function
+    #  signature during JAX compilation. As a workaround, we use `functools.partial` instead.
     return partial(FiredrakeJaxOperator.forward, jax_op)
 
 
@@ -208,10 +209,8 @@ def from_jax(x, V=None):
 
     if isinstance(x, jax.core.ShapedArray):
         if not isinstance(x, jax.core.ConcreteArray):
-            warnings.warn("Cannot convert a JAX abstract array to a Firedrake object. Returning a zero function.")
-            x = np.zeros(x.shape)
-        else:
-            x = x.val
+            raise TypeError("Cannot convert a JAX abstract array to a Firedrake object.")
+        x = x.val
 
     if not isinstance(x, np.ndarray) and x.device.platform != "cpu":
         raise NotImplementedError("Firedrake does not support GPU/TPU tensors")
