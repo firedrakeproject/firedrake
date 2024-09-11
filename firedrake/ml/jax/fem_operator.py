@@ -39,15 +39,8 @@ class FiredrakeJaxOperator:
 
     Parameters
     ----------
-    metadata : dict
-               Dictionary used to stash Firedrake objects.
-    *x_P : jax.Array
-          JAX tensors representing the inputs to the Firedrake operator `F`.
-
-    Returns
-    -------
-    jax.Array
-          JAX tensor representing the output of the Firedrake operator `F`.
+    F : pyadjoint.ReducedFunctional
+        The reduced functional to wrap.
     """
 
     def __init__(self, F):
@@ -61,6 +54,16 @@ class FiredrakeJaxOperator:
     @partial(jax.custom_vjp, nondiff_argnums=(0,))
     def forward(self, *x_P):
         """Forward pass of the JAX custom operator.
+
+        Parameters
+        ----------
+        *x_P : jax.Array
+            JAX tensors representing the inputs to the Firedrake operator `F`.
+
+        Returns
+        -------
+        jax.Array
+            JAX tensor representing the output of the Firedrake operator `F`.
         """
         # Convert JAX input (i.e. controls) to Firedrake
         x_F = [from_jax(xi, Vi) for xi, Vi in zip(x_P, self.V_controls)]

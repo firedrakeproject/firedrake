@@ -160,7 +160,7 @@ def ml_operator(model, function_space, inputs_format=0):
 
     Parameters
     ----------
-    model: collections.abc.Callable
+    model: typing.Callable
            The JAX model to embed in Firedrake.
     function_space: firedrake.functionspaceimpl.WithGeometryBase
                     The function space into which the machine learning model is mapping.
@@ -170,7 +170,7 @@ def ml_operator(model, function_space, inputs_format=0):
 
     Returns
     -------
-    collections.abc.Callable
+    typing.Callable
         The partially initialised :class:`~.JaxOperator` class.
     """
     from firedrake_citations import Citations
