@@ -347,3 +347,15 @@ Citations().add("Bouziani2023", """
  doi = {10.48550/arXiv.2303.06871}
 }
 """)
+
+
+Citations().add("Bouziani2024", """
+@article{Bouziani2024,
+  title = {Differentiable programming across the {PDE} and {Machine} {Learning} barrier},
+  author = {Bouziani, Nacime and Ham, David A. and Farsi, Ado},
+  journal = {arXiv preprint arXiv:2409.06085},
+  eprint = {2409.06085},
+  url = {https://arxiv.org/abs/2409.06085},
+  year = {2024}
+}
+""")

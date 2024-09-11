@@ -25,7 +25,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
 from firedrake.constant import Constant
-# from firedrake_citations import Citations
+from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -111,8 +111,7 @@ def fem_operator(F):
     firedrake.ml.jax.fem_operator.FiredrakeJaxOperator
         A JAX custom operator that wraps the reduced functional `F`.
     """
-    # TODO: Add citation
-    # Citations().register(TODO)
+    Citations().register("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")

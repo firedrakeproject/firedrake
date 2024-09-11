@@ -140,7 +140,7 @@ class JaxOperator(MLOperator):
         return y_F
 
 
-# Helper functions #
+# Helper function #
 def ml_operator(model, function_space, inputs_format=0):
     """Helper function for instantiating the :class:`~.JaxOperator` class.
 
@@ -173,8 +173,8 @@ def ml_operator(model, function_space, inputs_format=0):
     collections.abc.Callable
         The partially initialised :class:`~.JaxOperator` class.
     """
-    # from firedrake_citations import Citations
-    # Citations().register(TODO)
+    from firedrake_citations import Citations
+    Citations().register("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

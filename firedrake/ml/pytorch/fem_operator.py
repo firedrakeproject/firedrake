@@ -108,6 +108,7 @@ def fem_operator(F):
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
     Citations().register("Bouziani2023")
+    Citations().register("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
