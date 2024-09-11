@@ -1,7 +1,6 @@
 import numpy
 import ufl
 from ufl import replace
-from numbers import Number
 from ufl.formatting.ufl2unicode import ufl2unicode
 
 from pyadjoint import Block, stop_annotating
@@ -9,6 +8,7 @@ from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
+import weakref
 
 
 def extract_subfunction(u, V):
@@ -719,14 +719,23 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         dJdu = adj_inputs[0]
         dJdu = dJdu.copy()
 
-        F_form = self._create_F_form()
-
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
 
-        # Adjoint solver using linear variational solver.
-        adj_sol, adj_sol_bdy = self._adjoint_solve(dJdu, compute_bdy)
+        if self._ad_nlvs._problem._constant_jacobian:
+            dFdu_form = self.adj_F
+            # Replace the form coefficients with checkpointed values.
+            replace_map = self._replace_map(dFdu_form)
+            replace_map[self.func] = self.get_outputs()[0].saved_output
+            dFdu_form = replace(dFdu_form, replace_map)
+
+            adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
+                dFdu_form, dJdu, compute_bdy
+            )
+        else:
+            # Adjoint solver using linear variational solver.
+            adj_sol, adj_sol_bdy = self._adjoint_solve(dJdu, compute_bdy)
 
         self.adj_sol = adj_sol
         if self.adj_cb is not None:
@@ -735,7 +744,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
-        r["form"] = F_form
         r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
@@ -745,7 +753,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if not self.linear and self.func == block_variable.output:
             # We are not able to calculate derivatives wrt initial guess.
             return None
-        F_form = prepared["form"]
+        F_form = self._create_F_form()
         adj_sol = prepared["adj_sol"]
         adj_sol_bdy = prepared["adj_sol_bdy"]
         c = block_variable.output
