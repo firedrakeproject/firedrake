@@ -111,7 +111,7 @@ jobs:
         with:
           report_paths: '/__w/firedrake/firedrake/firedrake.xml'
           comment: true
-          check_name: 'Firedrake' ${{ matrix.scalar-type }}
+          check_name: "Firedrake ${{ matrix.scalar-type }}"
           updateComment: true
           flaky_summary: true
       - name: Test pyadjoint
