@@ -44,7 +44,7 @@ def test_facet_area(cell, mesh):
               "triangle": 4.0,
               "quadrilateral": 4.0,
               "tetrahedron": 1.5}[cell]
-    assert np.allclose(assemble(FacetArea(mesh)*ds), 2*expect)
+    assert np.allclose(assemble(FacetArea(mesh)*ds), expect)
 
 
 def test_miscellaneous():
