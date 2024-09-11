@@ -104,7 +104,3 @@ def test_disk_checkpointing_successive_writes():
     assert np.allclose(J, Jhat(1))
     pause_disk_checkpointing()
     tape.clear_tape()
-
-
-if __name__ == "__main__":
-    test_disk_checkpointing()
