@@ -76,7 +76,7 @@ def test_netgen_mg_sphere():
     u = Function(V)
 
     solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
-                                                 "pc_type": "lu",
+                                                 "pc_type": "mg",
                                                  "ksp_monitor": None})
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
@@ -135,4 +135,3 @@ def test_netgen_mg_circle_parallel():
                                                  "pc_type": "mg"})
     expect = Function(V).interpolate(exact)
     assert norm(assemble(u - expect)) <= 1e-6
-    
