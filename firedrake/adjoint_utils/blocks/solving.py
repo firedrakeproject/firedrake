@@ -8,7 +8,6 @@ from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
-import weakref
 
 
 def extract_subfunction(u, V):
