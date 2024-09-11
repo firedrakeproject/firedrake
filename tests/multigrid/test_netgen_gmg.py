@@ -79,7 +79,8 @@ def test_netgen_mg_sphere():
 
     u = Function(V)
     solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
-                                                 "pc_type": "mg"})
+                                                 "pc_type": "mg",
+                                                 "ksp_max_it": 10})
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-2)
 
