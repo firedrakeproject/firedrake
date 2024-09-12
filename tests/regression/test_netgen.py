@@ -450,3 +450,26 @@ def test_netgen_dg_labels_3D():
     u = Function(R).assign(1)
     assert(abs(assemble(u*dx(mesh.labels[(3, "inner")]))-1) < 1e-10)
     assert(abs(assemble(u*dx(mesh.labels[(3, "outer")]))-7) < 1e-10)
+
+def test_netgen_dg_labels_facets():
+    from netgen.occ import Rectangle, OCCGeometry, Glue
+    outer = Rectangle(1, 1).Face()
+    outer.edges.name="outer"
+    outer.edges.Max(X).name = "r"
+    outer.edges.Min(X).name = "l"
+    outer.edges.Min(Y).name = "b"
+    outer.edges.Max(Y).name = "t"
+    Inner = MoveTo(0.1, 0.1).Rectangle(0.3, 0.5).Face()
+    Inner.edges.name="interface"
+    outer = outer - Inner
+    Inner.faces.name="inner"
+    Inner.faces.col = (1, 0, 0)
+    outer.faces.name="outer"
+    geo = Glue([Inner, outer])
+    ngmesh = OCCGeometry(geo, dim=2).GenerateMesh(maxh=0.2)
+    mesh = Mesh(ngmesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    bc = DirichletBC(V, Constant(1.0), mesh.labels[(1, "inner")])
+    w = Function(V)
+    bc.apply(w)
+    assert(abs(assemble(w*dx)-0.18)<1e-2)
