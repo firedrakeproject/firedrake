@@ -378,7 +378,7 @@ class WithGeometryBase(object):
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             if isinstance(mesh, MeshGeometry):
-                mesh = MixedMeshGeometry(*[mesh for _ in element.sub_elements])
+                mesh = MixedMeshGeometry([mesh for _ in element.sub_elements])
                 topology = mesh.topology
             else:
                 if not isinstance(mesh, MixedMeshGeometry):
