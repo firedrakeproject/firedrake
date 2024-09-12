@@ -297,7 +297,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    mixed_mesh_geometry = MixedMeshGeometry(*meshes)
+    mixed_mesh_geometry = MixedMeshGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
     return cls.create(new, mixed_mesh_geometry)
 
