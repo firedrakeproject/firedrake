@@ -225,6 +225,8 @@ class FunctionMixin(FloatingType):
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
+        if value.ufl_element().family() == "Real":
+            riesz_representation = "l2"
         solver_options = options.get("solver_options", {})
         V = options.get("function_space", self.function_space())
         if value == 0.:
@@ -322,6 +324,9 @@ class FunctionMixin(FloatingType):
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
+        if self.ufl_element().family() == "Real":
+            riesz_representation = "l2"
+
         if riesz_representation == "l2":
             return self.dat.inner(other.dat)
         elif riesz_representation == "L2":

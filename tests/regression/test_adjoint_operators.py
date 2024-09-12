@@ -50,15 +50,18 @@ def vector(request):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_constant():
-    mesh = UnitSquareMesh(10, 10)
+    mesh = SquareMesh(10, 10, 1.5)
     V1 = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
     c = Function(R, val=1.0)
     u = assemble(interpolate(c, V1))
-
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(c))
-
+    with stop_annotating():
+        u0 = c
+        # assemble(derivative(exact_sol * exact_sol, a) * dx)
+        g = assemble(derivative(u0 * u0, c) * dx)
+    assert np.allclose(g.dat.data_ro, rf.derivative().dat.data_ro)
     assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
 
 
@@ -770,7 +773,7 @@ def test_consecutive_nonlinear_solves():
 
 @pytest.mark.skipcomplex
 def test_assign_function():
-    mesh = UnitSquareMesh(1, 1)
+    mesh = SquareMesh(2, 2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     uic = Function(V, name="uic").assign(1.0)
     u0 = Function(V, name="u0")
@@ -1003,3 +1006,41 @@ def test_cofunction_assign_functional():
     assert np.allclose(float(Jhat.derivative()), 1.0)
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
+
+
+@pytest.mark.skipcomplex
+def test_adjoint_solver_compute_bdy():
+    # Testing the case where is required to compute the adjoint
+    # boundary condition.
+    L = 2
+    mesh = IntervalMesh(10, 0, L)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+    trial = TrialFunction(space)
+    sol = Function(space, name="sol")
+    # Dirichlet boundary conditions
+    R = FunctionSpace(mesh, "R", 0)
+    a = Function(R, val=1.0)
+    b = Function(R, val=2.0)
+    bc_left = DirichletBC(space, a, 1)
+    bc_right = DirichletBC(space, b, 2)
+    bc = [bc_left, bc_right]
+    F = dot(grad(trial), grad(test)) * dx
+    problem = LinearVariationalProblem(lhs(F), rhs(F), sol, bcs=bc)
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+    J = assemble(sol * sol * dx)
+    with stop_annotating():
+        # Solution for 1D Laplace equation.
+        exact_sol = a + (b - a) * SpatialCoordinate(mesh)[0]/L
+        g0 = assemble(derivative(exact_sol * exact_sol, a) * dx)
+        g1 = assemble(derivative(exact_sol * exact_sol, b) * dx)
+    J_hat = ReducedFunctional(J, [Control(a), Control(b)])
+    g_adj = J_hat.derivative()
+    assert np.allclose(g_adj[0].dat.data_ro, g0.dat.data_ro)
+    assert np.allclose(g_adj[1].dat.data_ro, g1.dat.data_ro)
+    assert taylor_test(J_hat, [a, b], [Function(R, val=0.1), Function(R, val=0.1)]) > 1.9
+
+if __name__ == "__main__":
+    continue_annotation()
+    test_assign_function()
