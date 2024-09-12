@@ -33,7 +33,6 @@ def test_netgen_mg_circle():
     mesh = Mesh(ngmesh)
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
-    File("circle.pvd").write(mesh)
     V = FunctionSpace(mesh, "CG", 3)
 
     u = TrialFunction(V)
@@ -57,27 +56,22 @@ def test_netgen_mg_circle():
 def test_netgen_mg_sphere():
     ngmesh = create_netgen_mesh_sphere()
     mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
+    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3, "nested": True})
     mesh = nh[-1]
     V = FunctionSpace(mesh, "CG", 3)
-
     u = TrialFunction(V)
     v = TestFunction(V)
-
     a = inner(grad(u), grad(v))*dx
     labels = [1]
     x, y, z = SpatialCoordinate(mesh)
-
     exact = 1-x**2+y**2+z**2
     bcs = DirichletBC(V, exact, labels)
     f = -div(grad(exact))
     L = f*v*dx
-
     u = Function(V)
-
-    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
                                                  "pc_type": "mg",
-                                                 "ksp_monitor": None})
+                                                 "ksp_max_it": 10})
     expect = Function(V).interpolate(exact)
     assert (norm(assemble(u - expect)) <= 1e-6)
 
@@ -135,3 +129,32 @@ def test_netgen_mg_circle_parallel():
                                                  "pc_type": "mg"})
     expect = Function(V).interpolate(exact)
     assert norm(assemble(u - expect)) <= 1e-6
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel
+def test_netgen_mg_sphere_parallel():
+    ngmesh = create_netgen_mesh_sphere()
+    mesh = Mesh(ngmesh)
+    nh = MeshHierarchy(mesh, 1, netgen_flags={"degree": 3, "nested": True})
+    mesh = nh[-1]
+    V = FunctionSpace(mesh, "CG", 3)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(grad(u), grad(v))*dx
+    labels = [1]
+    x, y, z = SpatialCoordinate(mesh)
+
+    exact = 1-x**2+y**2+z**2
+    bcs = DirichletBC(V, exact, labels)
+    f = -div(grad(exact))
+    L = f*v*dx
+
+    u = Function(V)
+
+    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
+                                                 "pc_type": "mg",
+                                                 "ksp_max_it": 10})
+    expect = Function(V).interpolate(exact)
+    assert norm(assemble(u - expect)) <= 1e-4
