@@ -19,10 +19,12 @@ except ImportError:
 import collections
 import numpy as np
 from functools import partial
+from typing import Union, Optional
 
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.constant import Constant
 from firedrake_citations import Citations
 
@@ -39,11 +41,11 @@ class FiredrakeJaxOperator:
 
     Parameters
     ----------
-    F : pyadjoint.ReducedFunctional
+    F
         The reduced functional to wrap.
     """
 
-    def __init__(self, F):
+    def __init__(self, F: ReducedFunctional):
         super(FiredrakeJaxOperator, self).__init__()
         self.F = F
         self.V_controls = [c.control.function_space() for c in F.controls]
@@ -52,12 +54,12 @@ class FiredrakeJaxOperator:
         self.forward.defvjp(type(self).fwd, type(self).bwd)
 
     @partial(jax.custom_vjp, nondiff_argnums=(0,))
-    def forward(self, *x_P):
+    def forward(self, *x_P: "jax.Array") -> "jax.Array":
         """Forward pass of the JAX custom operator.
 
         Parameters
         ----------
-        *x_P : jax.Array
+        *x_P
             JAX tensors representing the inputs to the Firedrake operator `F`.
 
         Returns
@@ -73,12 +75,12 @@ class FiredrakeJaxOperator:
         y_P = to_jax(y_F)
         return y_P
 
-    def fwd(self, *x_P):
+    def fwd(self, *x_P: "jax.Array") -> "jax.Array":
         """Forward pass of the JAX custom operator.
         """
         return type(self).forward(self, *x_P), ()
 
-    def bwd(self, _, grad_output):
+    def bwd(self, _, grad_output: "jax.Array") -> "jax.Array":
         """Backward pass of the JAX custom operator.
         """
         V = self.V_output
@@ -98,14 +100,14 @@ class FiredrakeJaxOperator:
         return tuple(to_jax(di) for di in adj_output)
 
 
-def fem_operator(F):
+def fem_operator(F: ReducedFunctional) -> FiredrakeJaxOperator:
     """Cast a Firedrake reduced functional to a JAX operator.
 
     The resulting :class:`~FiredrakeJaxOperator` will take JAX tensors as inputs and return JAX tensors as outputs.
 
     Parameters
     ----------
-    F : pyadjoint.ReducedFunctional
+    F
         The reduced functional to wrap.
 
     Returns
@@ -124,12 +126,12 @@ def fem_operator(F):
     return partial(FiredrakeJaxOperator.forward, jax_op)
 
 
-def _extract_function_space(x):
+def _extract_function_space(x: Union[float, Function, Vector]) -> Union[WithGeometry, None]:
     """Extract the function space from a Firedrake object `x`.
 
     Parameters
     ----------
-    x : float, firedrake.function.Function or firedrake.vector.Vector
+    x
         Firedrake object from which to extract the function space.
 
     Returns
@@ -147,18 +149,18 @@ def _extract_function_space(x):
         raise ValueError("Cannot infer the function space of %s" % x)
 
 
-def to_jax(x, gather=False, batched=False, **kwargs):
+def to_jax(x: Union[Function, Vector, Constant], gather: Optional[bool] = False, batched: Optional[bool] = False, **kwargs) -> "jax.Array":
     """Convert a Firedrake object `x` into a JAX tensor.
 
     Parameters
     ----------
-    x : firedrake.function.Function, firedrake.vector.Vector or firedrake.constant.Constant
+    x
         Firedrake object to convert.
-    gather : bool
+    gather
              If True, gather data from all processes
-    batched : bool
+    batched
               If True, add a batch dimension to the tensor
-    kwargs : dict
+    kwargs
              Additional arguments to be passed to the :class:`jax.Array` constructor such as:
                 - device: device on which the tensor is allocated
                 - dtype: the desired data type of returned tensor (default: type of `x.dat.data`)
@@ -190,14 +192,14 @@ def to_jax(x, gather=False, batched=False, **kwargs):
         raise ValueError("Cannot convert %s to a JAX tensor" % str(type(x)))
 
 
-def from_jax(x, V=None):
+def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function, Constant]:
     """Convert a JAX tensor `x` into a Firedrake object.
 
     Parameters
     ----------
-    x : jax.Array
+    x
         JAX tensor to convert.
-    V : firedrake.functionspaceimpl.WithGeometry or None
+    V
         Function space of the corresponding :class:`.Function` or None when `x` is to be mapped to a :class:`.Constant`.
 
     Returns

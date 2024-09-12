@@ -19,16 +19,29 @@ except ImportError:
 
 import warnings
 from functools import partial
+from typing import Union, Optional, Callable
 
+import ufl
 from firedrake.external_operators import MLOperator
 from firedrake import utils
+from firedrake.functionspaceimpl import WithGeometryBase
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from firedrake.matrix import MatrixBase
 from firedrake.ml.jax import to_jax, from_jax
 from firedrake.petsc import PETSc
 
 
 class JaxOperator(MLOperator):
 
-    def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data):
+    def __init__(
+            self,
+            *operands: Union[ufl.core.expr.Expr, ufl.form.BaseForm],
+            function_space: WithGeometryBase,
+            derivatives: Optional[tuple] = None,
+            argument_slots: Optional[tuple[Union[ufl.coefficient.BaseCoefficient, ufl.argument.BaseArgument]]],
+            operator_data: Optional[dict] = {}
+    ):
         """External operator class representing machine learning models implemented in JAX.
 
         The :class:`.JaxOperator` allows users to embed machine learning models implemented in JAX
@@ -38,18 +51,18 @@ class JaxOperator(MLOperator):
 
         Parameters
         ----------
-        *operands : ufl.core.expr.Expr or ufl.form.BaseForm
+        *operands
                     Operands of the :class:`.JaxOperator`.
-        function_space : firedrake.functionspaceimpl.WithGeometryBase
+        function_space
                          The function space the ML operator is mapping to.
-        derivatives : tuple
+        derivatives
                       Tuple specifiying the derivative multiindex.
-        *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
+        *argument_slots
                           Tuple containing the arguments of the linear form associated with the ML operator,
                           i.e. the arguments with respect to which the ML operator is linear. Those arguments
                           can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
                           as a result of taking the action on a given function.
-        operator_data : dict
+        operator_data
                         Dictionary to stash external data specific to the ML operator. This dictionary must
                         at least contain the following:
                         (i) 'model': The machine learning model implemented in JaX
@@ -65,7 +78,7 @@ class JaxOperator(MLOperator):
 
     # --- Callbacks --- #
 
-    def _pre_forward_callback(self, *operands, unsqueeze=False):
+    def _pre_forward_callback(self, *operands: Union[Function, Cofunction], unsqueeze: Optional[bool] = False) -> "jax.Array":
         """Callback function to convert the Firedrake operand(s) to form the JAX input of the ML model."""
         # Default: concatenate the operands to form the model inputs
         # -> For more complex cases, the user needs to overwrite this function
@@ -75,14 +88,14 @@ class JaxOperator(MLOperator):
             return jnp.expand_dims(inputs, self.inputs_format)
         return inputs
 
-    def _post_forward_callback(self, y_P):
+    def _post_forward_callback(self, y_P: "jax.Array") -> Union[Function, Cofunction]:
         """Callback function to convert the JAX output of the ML model to a Firedrake function."""
         space = self.ufl_function_space()
         return from_jax(y_P, space)
 
     # -- JAX routines for computing AD-based quantities -- #
 
-    def _vjp(self, y):
+    def _vjp(self, y: Union[Function, Cofunction]) -> Union[Function, Cofunction]:
         """Implement the vector-Jacobian product (VJP) for a given vector `y`."""
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
@@ -92,7 +105,7 @@ class JaxOperator(MLOperator):
         vjp_F = self._post_forward_callback(vjp)
         return vjp_F
 
-    def _jvp(self, z):
+    def _jvp(self, z: Union[Function, Cofunction]) -> Union[Function, Cofunction]:
         """Implement the Jacobian-vector product (JVP) for a given vector `z`."""
         model = self.model
         x = self._pre_forward_callback(*self.ufl_operands)
@@ -101,7 +114,7 @@ class JaxOperator(MLOperator):
         jvp_F = self._post_forward_callback(jvp)
         return jvp_F
 
-    def _jac(self):
+    def _jac(self) -> MatrixBase:
         """Compute the Jacobian of the JAX model."""
         # Get the model
         model = self.model
@@ -121,7 +134,7 @@ class JaxOperator(MLOperator):
         J.assemble()
         return J
 
-    def _forward(self):
+    def _forward(self) -> Union[Function, Cofunction]:
         """Perform the forward pass through the JAX model."""
         model = self.model
 
@@ -141,7 +154,7 @@ class JaxOperator(MLOperator):
 
 
 # Helper function #
-def ml_operator(model, function_space, inputs_format=0):
+def ml_operator(model: Callable, function_space: WithGeometryBase, inputs_format: Optional[int] = 0) -> Callable:
     """Helper function for instantiating the :class:`~.JaxOperator` class.
 
     This function facilitates having a two-stage instantiation which dissociates between class arguments
@@ -160,11 +173,11 @@ def ml_operator(model, function_space, inputs_format=0):
 
     Parameters
     ----------
-    model: typing.Callable
+    model
            The JAX model to embed in Firedrake.
-    function_space: firedrake.functionspaceimpl.WithGeometryBase
+    function_space
                     The function space into which the machine learning model is mapping.
-    inputs_format: int
+    inputs_format
                    The format of the input data of the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
                    Other strategies can also be considered by subclassing the :class:`.JaxOperator` class.
 
