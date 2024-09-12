@@ -158,3 +158,23 @@ def test_netgen_mg_sphere_parallel():
                                                  "ksp_max_it": 10})
     expect = Function(V).interpolate(exact)
     assert norm(assemble(u - expect)) <= 1e-4
+
+def test_netgen_dg_labels_2D():
+    from netgen.occ import WorkPlane, OCCGeometry, Glue
+    wp = WorkPlane()
+    inner = wp.Rectangle(1,1).Face()
+    inner.name = "inner"
+    inner.col = (1,0,0)
+    outer = wp.Rectangle(2,2).Face()
+    outer.name = "outer"
+    outer.col = (0,1,0)
+    outer = outer - inner
+    shape = Glue([inner, outer])
+    shape.edges.name = "rect"
+    geo = OCCGeometry(shape, dim=2)
+    ngmesh = geo.GenerateMesh(maxh=0.1)
+    mesh = Mesh(ngmesh)
+    R = FunctionSpace(mesh, "R", 0)
+    u = Function(R).assign(1)
+    assert(abs(assemble(u*dx(mesh.labels[(2, "inner")]))-1) < 1e-10)
+    assert(abs(assemble(u*dx(mesh.labels[(2, "outer")]))-3) < 1e-10)
