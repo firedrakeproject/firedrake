@@ -409,3 +409,44 @@ def test_alfeld_stokes_netgen():
     solve(a == l, w, bcs=bc)
     u = w.split()[0]
     assert assemble(div(u)*div(u)*dx) < 1e-16
+
+def test_netgen_dg_labels_2D():
+    from netgen.occ import WorkPlane, OCCGeometry, Glue
+    wp = WorkPlane()
+    inner = wp.Rectangle(1,1).Face()
+    inner.name = "inner"
+    inner.col = (1,0,0)
+    outer = wp.Rectangle(2,2).Face()
+    outer.name = "outer"
+    outer.col = (0,1,0)
+    outer = outer - inner
+    shape = Glue([inner, outer])
+    shape.edges.name = "rect"
+    geo = OCCGeometry(shape, dim=2)
+    ngmesh = geo.GenerateMesh(maxh=0.1)
+    mesh = Mesh(ngmesh)
+    R = FunctionSpace(mesh, "R", 0)
+    u = Function(R).assign(1)
+    assert(abs(assemble(u*dx(mesh.labels[(2, "inner")]))-1) < 1e-10)
+    assert(abs(assemble(u*dx(mesh.labels[(2, "outer")]))-3) < 1e-10)
+
+def test_netgen_dg_labels_3D():
+    from netgen.occ import Box, OCCGeometry, Glue
+    inner = Box((0,0,0), (1,1,1))
+    inner.name = "inner"
+    inner.col = (1,0,0)
+    outer = Box((0,0,0), (2,2,2))
+    outer.name = "outer"
+    outer.col = (0,1,0)
+    outer = outer - inner
+    shape = Glue([inner, outer])
+    shape.edges.name = "rect"
+    geo = OCCGeometry(shape)
+
+    ngmesh = geo.GenerateMesh(maxh=0.1)
+    mesh = Mesh(ngmesh)
+
+    R = FunctionSpace(mesh, "R", 0)
+    u = Function(R).assign(1)
+    assert(abs(assemble(u*dx(mesh.labels[(3, "inner")]))-1) < 1e-10)
+    assert(abs(assemble(u*dx(mesh.labels[(3, "outer")]))-7) < 1e-10)
