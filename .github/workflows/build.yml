@@ -108,7 +108,7 @@ jobs:
         timeout-minutes: 120
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
-        if: ${{ always() }}
+        if: ${{ github.ref != 'refs/heads/master' }}
         with:
           report_paths: '/__w/firedrake/firedrake/firedrake.xml'
           comment: true
