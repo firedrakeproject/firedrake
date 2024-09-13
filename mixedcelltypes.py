@@ -86,9 +86,35 @@ def make_mesh_netgen(h, nref, name):
     #geo.Add(fluid - fluid * circ1)
     #geo.Add(struct * circ1)
     #geo.Add(struct - struct * circ1)
-    rect = Rectangle(pmin=(0, 0), pmax=(1, 1), left="l", right="r", bottom="b", top="t")
+    rect = Rectangle(pmin=(0, 0), pmax=(1, 1), left="line", right="line", bottom="line", top="line")
     geo.Add(rect)
     ngmesh = geo.GenerateMesh(maxh=.1, quad_dominated=True)
+
+    geo = SplineGeometry()
+    pnts = [(0, 0), (1, 0), (1, 1),
+            (0, 1)]
+    p1, p2, p3, p4 = [geo.AppendPoint(*pnt) for pnt in pnts]
+    curves = [[["line", p1, p2], "line"],
+              [["line", p2, p3], "line"],
+              [["line", p3, p4], "line"],
+              [["line", p4, p1], "line"]]
+    [geo.Append(c, bc=bc) for c, bc in curves]
+    ngmsh = geo.GenerateMesh(maxh=0.4)
+
+    geo = SplineGeometry()
+    pnts = [(0, 0), (1, 0), (1, 1),
+            (0, 1)]
+    p1, p2, p3, p4 = [geo.AppendPoint(*pnt) for pnt in pnts]
+    curves = [[["line", p1, p2], "line"],
+              [["line", p2, p3], "line"],
+              [["line", p3, p4], "line"],
+              [["line", p4, p1], "line"]]
+    [geo.Append(c, bc=bc) for c, bc in curves]
+    ngmsh = geo.GenerateMesh(maxh=0.4)
+
+
+
+
 
     #ngmesh.Export("mixed_cell_unit_square.msh","Gmsh2 Format")
     #raise RuntimeError
