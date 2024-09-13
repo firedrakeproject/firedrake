@@ -1,6 +1,7 @@
 """Global test configuration."""
 
 import pytest
+from firedrake.petsc import get_external_packages
 
 
 def pytest_configure(config):
@@ -13,10 +14,17 @@ def pytest_configure(config):
         "skipreal: mark as skipped unless in complex mode")
     config.addinivalue_line(
         "markers",
+        "skipmumps: mark as skipped unless MUMPS is installed"
+    )
+    config.addinivalue_line(
+        "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
     config.addinivalue_line(
         "markers",
         "skiptorch: mark as skipped if PyTorch is not installed")
+    config.addinivalue_line(
+        "markers",
+        "skipjax: mark as skipped if JAX is not installed")
     config.addinivalue_line(
         "markers",
         "skipplot: mark as skipped if matplotlib is not installed")
@@ -39,11 +47,18 @@ def pytest_collection_modifyitems(session, config, items):
         matplotlib_installed = False
 
     try:
-        import firedrake.ml.pytorch as fd_ml
-        del fd_ml
-        ml_backend = True
+        import firedrake.ml.pytorch as fd_torch
+        del fd_torch
+        torch_backend = True
     except ImportError:
-        ml_backend = False
+        torch_backend = False
+
+    try:
+        import firedrake.ml.jax as fd_jax
+        del fd_jax
+        jax_backend = True
+    except ImportError:
+        jax_backend = False
 
     try:
         import netgen
@@ -71,9 +86,17 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if not ml_backend:
+        if "mumps" not in get_external_packages():
+            if item.get_closest_marker("skipmumps") is not None:
+                item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
+
+        if not torch_backend:
             if item.get_closest_marker("skiptorch") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
+
+        if not jax_backend:
+            if item.get_closest_marker("skipjax") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test makes no sense if JAX is not installed"))
 
         if not matplotlib_installed:
             if item.get_closest_marker("skipplot") is not None:

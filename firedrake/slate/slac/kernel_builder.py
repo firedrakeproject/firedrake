@@ -480,11 +480,19 @@ class IndexCreator:
     def __call__(self, extents):
         """Create new indices with specified extents.
 
-        :arg extents. :class:`tuple` containting :class:`tuple` for extents of mixed tensors
-            and :class:`int` for extents non-mixed tensor
-        :returns: tuple of pymbolic Variable objects representing indices, contains tuples
-            of Variables for mixed tensors
-            and Variables for non-mixed tensors, where each Variable represents one extent."""
+        Parameters
+        ----------
+        extents : tuple
+            :class:`tuple` containing :class:`tuple` for extents of mixed tensors
+            and :class:`int` for extents non-mixed tensor.
+
+        Returns
+        -------
+        tuple
+            :class:`tuple` of pymbolic Variable objects representing indices, contains tuples
+            of Variables for mixed tensors and Variables for non-mixed tensors,
+            where each Variable represents one extent.
+        """
 
         # Indices for scalar tensors
         extents += (1, ) if len(extents) == 0 else ()

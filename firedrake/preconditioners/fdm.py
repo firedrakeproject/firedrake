@@ -20,6 +20,7 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
+from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2 import op2
@@ -226,9 +227,9 @@ class FDMPC(PCBase):
         self.embedding_element = ebig
 
         if Vbig.value_size == 1:
-            self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+            self.fises = PETSc.IS().createGeneral(fdofs, comm=COMM_SELF)
         else:
-            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
+            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -626,7 +627,7 @@ class FDMPC(PCBase):
                 q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
 
             # Interpolate V * d(V) -> space(beta) * space(alpha)
-            comm = PETSc.COMM_SELF
+            comm = COMM_SELF
             zero = PETSc.Mat()
             A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
             A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
@@ -661,7 +662,7 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=COMM_SELF)
 
     @PETSc.Log.EventDecorator("FDMSetValues")
     def set_values(self, A, Vrow, Vcol, addv, mat_type="aij"):
@@ -1594,9 +1595,9 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
 
     tdim = Vc.mesh().topological_dimension()
     zero = PETSc.Mat()
-    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
-    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
-    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=PETSc.COMM_SELF)
+    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
+    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
+    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
     Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
     A00.destroy()
     A11.destroy()
@@ -1742,8 +1743,9 @@ class SparseAssembler:
                                   InsertMode addv)
             {{
                 PetscInt m, ncols, irow, icol;
-                PetscInt *cols, *indices;
-                PetscScalar *vals;
+                PetscInt *indices;
+                const PetscInt *cols;
+                const PetscScalar *vals;
                 PetscFunctionBeginUser;
                 PetscCall(MatGetSize(B, &m, NULL));
                 PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
@@ -1822,7 +1824,7 @@ class PoissonFDMPC(FDMPC):
             try:
                 rtensor = cache[key]
             except KeyError:
-                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=PETSc.COMM_SELF))
+                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=COMM_SELF))
             Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(rtensor))
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
@@ -1849,7 +1851,7 @@ class PoissonFDMPC(FDMPC):
             to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
         triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
-        set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
+        set_submat = SparseAssembler.setSubMatCSR(COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
 
@@ -1907,7 +1909,7 @@ class PoissonFDMPC(FDMPC):
             for e in range(nel):
                 # Ae = Be kron Bq[e]
                 adata = numpy.sum(Bq.dat.data_ro[index_coef(e)], axis=0)
-                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=COMM_SELF)
                 Ae = Be.kron(Ae)
                 rindices = get_rindices(e, result=rindices)
                 update_A(A, Ae, rindices)
@@ -2244,7 +2246,7 @@ def fdm_setup_ipdg(fdm_element, eta, comm=None):
 
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
-    :arg comm: a :class:`PETSc.Comm`
+    :arg comm: an mpi4py communicator
 
     :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices

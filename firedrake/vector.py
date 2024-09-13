@@ -105,6 +105,14 @@ class Vector(object):
         """Reverse scalar multiplication by other."""
         return self.__mul__(other)
 
+    def __truediv__(self, other):
+        """Scalar division by other."""
+        return self.copy()._scale(1.0 / other)
+
+    def __itruediv__(self, other):
+        """In place scalar division by other."""
+        return self._scale(1.0 / other)
+
     def __add__(self, other):
         """Add other to self"""
         sum = self.copy()

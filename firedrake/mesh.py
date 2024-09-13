@@ -21,17 +21,19 @@ from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
-from pyop2.utils import as_tuple, tuplify
+from pyop2.utils import as_tuple
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
-from firedrake.utils import IntType, RealType
+from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import (
+    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
+)
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 
@@ -49,7 +51,9 @@ __all__ = [
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
-    'VertexOnlyMeshMissingPointsError']
+    'VertexOnlyMeshMissingPointsError',
+    'Submesh'
+]
 
 
 _cells = {
@@ -71,6 +75,23 @@ unmarked = -1
 
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
 """The default name of the mesh."""
+
+
+def _generate_default_submesh_name(name):
+    """Generate the default submesh name from the mesh name.
+
+    Parameters
+    ----------
+    name : str
+        Name of the parent mesh.
+
+    Returns
+    -------
+    str
+        Default submesh name.
+
+    """
+    return "_".join([name, "submesh"])
 
 
 def _generate_default_mesh_coordinates_name(name):
@@ -593,6 +614,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
+        # submesh
+        self.submesh_parent = None
 
     layers = None
     """No layers on unstructured mesh"""
@@ -927,6 +950,123 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
 
+    # submesh
+
+    @utils.cached_property
+    def submesh_ancesters(self):
+        """Tuple of submesh ancesters."""
+        if self.submesh_parent:
+            return (self, ) + self.submesh_parent.submesh_ancesters
+        else:
+            return (self, )
+
+    def submesh_youngest_common_ancester(self, other):
+        """Return the youngest common ancester of self and other.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            The other mesh.
+
+        Returns
+        -------
+        AbstractMeshTopology or None
+            Youngest common ancester or None if not found.
+
+        """
+        # self --- ... --- m --- common --- common --- common
+        #                          /
+        #       other --- ... --- m
+        self_ancesters = list(self.submesh_ancesters)
+        other_ancesters = list(other.submesh_ancesters)
+        c = None
+        while self_ancesters and other_ancesters:
+            a = self_ancesters.pop()
+            b = other_ancesters.pop()
+            if a is b:
+                c = a
+            else:
+                break
+        return c
+
+    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
+        """Return the map from submesh child entities to submesh parent entities or its reverse.
+
+        Parameters
+        ----------
+        source_integral_type : str
+            Integral type on the source mesh.
+        source_subset_points : numpy.ndarray
+            Subset points on the source mesh.
+        reverse : bool
+            If True, return the map from parent entities to child entities.
+
+        Returns
+        -------
+        tuple
+           (map from source to target, integral type on the target mesh, subset points on the target mesh).
+
+        """
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
+    def submesh_map_composed(self, other, other_integral_type, other_subset_points):
+        """Create entity-entity map from ``other`` to `self`.
+
+        Parameters
+        ----------
+        other : AbstractMeshTopology
+            Base mesh topology.
+        other_integral_type : str
+            Integral type on ``other``.
+        other_subset_points : numpy.ndarray
+            Subset points on ``other``; only used to identify (facet) integral_type on ``self``.
+
+        Returns
+        -------
+        tuple
+            Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
+
+        """
+        common = self.submesh_youngest_common_ancester(other)
+        if common is None:
+            raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
+        maps = []
+        integral_type = other_integral_type
+        subset_points = other_subset_points
+        aa = other.submesh_ancesters
+        for a in aa[:aa.index(common)]:
+            m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
+            maps.append(m)
+        bb = self.submesh_ancesters
+        for b in reversed(bb[:bb.index(common)]):
+            m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
+            maps.append(m)
+        return op2.ComposedMap(*reversed(maps)), integral_type, subset_points
+
+    # trans mesh
+
+    def trans_mesh_entity_map(self, base_mesh, base_integral_type, base_subdomain_id, base_all_integer_subdomain_ids):
+        """Create entity-entity (composed) map from base_mesh to `self`.
+
+        Parameters
+        ----------
+        base_mesh : AbstractMeshTopology
+            Base mesh topology.
+        base_integral_type : str
+            Integral type on ``base_mesh``.
+        base_subdomain_id : int
+            Subdomain ID on ``base_mesh``.
+        base_all_integer_subdomain_ids : tuple
+            ``all_integer_subdomain_ids`` corresponding to ``base_mesh`` and ``base_integral_type``.
+
+        Returns
+        -------
+        tuple
+            `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
+
+        """
+        raise NotImplementedError(f"Not implemented for {type(self)}")
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -1082,7 +1222,13 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        if cell.is_simplex():
+        if self.submesh_parent is not None:
+            return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
+                                                                     self.submesh_parent.topology_dm,
+                                                                     cell_numbering,
+                                                                     self.submesh_parent._cell_numbering,
+                                                                     self.submesh_parent.cell_closure)
+        elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1228,38 +1374,35 @@ class MeshTopology(AbstractMeshTopology):
             "shell", or `None` (unspecified). Ignored if the distribute parameter
             specifies the distribution.
         """
-        from firedrake_configuration import get_config
         if plex.comm.size == 1 or distribute is False:
             return
         partitioner = plex.getPartitioner()
         if distribute is True:
             if partitioner_type:
-                if partitioner_type not in ["chaco", "ptscotch", "parmetis"]:
-                    raise ValueError("Unexpected partitioner_type %s" % partitioner_type)
-                if partitioner_type == "chaco":
-                    if IntType.itemsize == 8:
-                        raise ValueError("Unable to use 'chaco': 'chaco' is 32 bit only, "
-                                         "but your Integer is %d bit." % IntType.itemsize * 8)
-                    if plex.isDistributed():
-                        raise ValueError("Unable to use 'chaco': 'chaco' is a serial "
-                                         "patitioner, but the mesh is distributed.")
-                if partitioner_type == "parmetis":
-                    if not get_config().get("options", {}).get("with_parmetis", False):
-                        raise ValueError("Unable to use 'parmetis': Firedrake is not "
-                                         "installed with 'parmetis'.")
+                if partitioner_type not in ["chaco", "ptscotch", "parmetis", "simple", "shell"]:
+                    raise ValueError(
+                        f"Unexpected partitioner_type: {partitioner_type}")
+                if partitioner_type in ["chaco", "ptscotch", "parmetis"] and \
+                        partitioner_type not in get_external_packages():
+                    raise ValueError(
+                        f"Unable to use {partitioner_type} as PETSc is not "
+                        f"installed with {partitioner_type}."
+                    )
+                if partitioner_type == "chaco" and plex.isDistributed():
+                    raise ValueError(
+                        "Unable to use 'chaco' mesh partitioner, 'chaco' is a "
+                        "serial partitioner, but the mesh is distributed."
+                    )
             else:
-                if IntType.itemsize == 8 or plex.isDistributed():
-                    # Default to PTSCOTCH on 64bit ints (Chaco is 32 bit int only).
-                    # Chaco does not work on distributed meshes.
-                    if get_config().get("options", {}).get("with_parmetis", False):
-                        partitioner_type = "parmetis"
-                    else:
-                        partitioner_type = "ptscotch"
-                else:
-                    partitioner_type = "chaco"
-            partitioner.setType({"chaco": partitioner.Type.CHACO,
-                                 "ptscotch": partitioner.Type.PTSCOTCH,
-                                 "parmetis": partitioner.Type.PARMETIS}[partitioner_type])
+                partitioner_type = DEFAULT_PARTITIONER
+
+            partitioner.setType({
+                "chaco": partitioner.Type.CHACO,
+                "ptscotch": partitioner.Type.PTSCOTCH,
+                "parmetis": partitioner.Type.PARMETIS,
+                "shell": partitioner.Type.SHELL,
+                "simple": partitioner.Type.SIMPLE
+            }[partitioner_type])
         else:
             sizes, points = distribute
             partitioner.setType(partitioner.Type.SHELL)
@@ -1316,6 +1459,174 @@ class MeshTopology(AbstractMeshTopology):
         section = tV.dm.getSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
+
+    # submesh
+
+    def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, child_parent_map):
+        assert from_set.total_size == len(from_points)
+        assert to_set.total_size == len(to_points)
+        with self.topology_dm.getSubpointIS() as subpoints:
+            if child_parent_map:
+                _, from_indices, to_indices = np.intersect1d(subpoints[from_points], to_points, return_indices=True)
+            else:
+                _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
+        values = np.full(from_set.total_size, -1, dtype=IntType)
+        values[from_indices] = to_indices
+        return op2.Map(from_set, to_set, 1, values.reshape((-1, 1)), f"{self}_submesh_map_{from_set}_{to_set}")
+
+    @utils.cached_property
+    def submesh_child_cell_parent_cell_map(self):
+        return self._submesh_make_entity_entity_map(self.cell_set, self.submesh_parent.cell_set, self.cell_closure[:, -1], self.submesh_parent.cell_closure[:, -1], True)
+
+    @utils.cached_property
+    def submesh_child_exterior_facet_parent_exterior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.exterior_facets.set, self.submesh_parent.exterior_facets.set, self.exterior_facets.facets, self.submesh_parent.exterior_facets.facets, True)
+
+    @utils.cached_property
+    def submesh_child_exterior_facet_parent_interior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.exterior_facets.set, self.submesh_parent.interior_facets.set, self.exterior_facets.facets, self.submesh_parent.interior_facets.facets, True)
+
+    @utils.cached_property
+    def submesh_child_interior_facet_parent_exterior_facet_map(self):
+        raise RuntimeError("Should never happen")
+
+    @utils.cached_property
+    def submesh_child_interior_facet_parent_interior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.interior_facets.set, self.submesh_parent.interior_facets.set, self.interior_facets.facets, self.submesh_parent.interior_facets.facets, True)
+
+    @utils.cached_property
+    def submesh_parent_cell_child_cell_map(self):
+        return self._submesh_make_entity_entity_map(self.submesh_parent.cell_set, self.cell_set, self.submesh_parent.cell_closure[:, -1], self.cell_closure[:, -1], False)
+
+    @utils.cached_property
+    def submesh_parent_exterior_facet_child_exterior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.submesh_parent.exterior_facets.set, self.exterior_facets.set, self.submesh_parent.exterior_facets.facets, self.exterior_facets.facets, False)
+
+    @utils.cached_property
+    def submesh_parent_exterior_facet_child_interior_facet_map(self):
+        raise RuntimeError("Should never happen")
+
+    @utils.cached_property
+    def submesh_parent_interior_facet_child_exterior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets.set, self.exterior_facets.set, self.submesh_parent.interior_facets.facets, self.exterior_facets.facets, False)
+
+    @utils.cached_property
+    def submesh_parent_interior_facet_child_interior_facet_map(self):
+        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets.set, self.interior_facets.set, self.submesh_parent.interior_facets.facets, self.interior_facets.facets, False)
+
+    def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
+        """Return the map from submesh child entities to submesh parent entities or its reverse.
+
+        Parameters
+        ----------
+        source_integral_type : str
+            Integral type on the source mesh.
+        source_subset_points : numpy.ndarray
+            Subset points on the source mesh.
+        reverse : bool
+            If True, return the map from parent entities to child entities.
+
+        Returns
+        -------
+        tuple
+           (map from source to target, integral type on the target mesh, subset points on the target mesh).
+
+        """
+        if self.submesh_parent is None:
+            raise RuntimeError("Must only be called on submesh")
+        if reverse:
+            source = self.submesh_parent
+            target = self
+        else:
+            source = self
+            target = self.submesh_parent
+        target_dim = target.topology_dm.getDimension()
+        source_dim = source.topology_dm.getDimension()
+        if source_dim != target_dim:
+            raise NotImplementedError(f"Not implemented for (source_dim, target_dim) == ({source_dim}, {target_dim})")
+        if source_integral_type == "cell":
+            target_integral_type = "cell"
+            target_subset_points = None
+        elif source_integral_type in ["interior_facet", "exterior_facet"]:
+            with self.topology_dm.getSubpointIS() as subpoints:
+                if reverse:
+                    _, target_indices_int, source_indices_int = np.intersect1d(subpoints[target.interior_facets.facets], source_subset_points, return_indices=True)
+                    _, target_indices_ext, source_indices_ext = np.intersect1d(subpoints[target.exterior_facets.facets], source_subset_points, return_indices=True)
+                else:
+                    target_subset_points = subpoints[source_subset_points]
+                    _, target_indices_int, source_indices_int = np.intersect1d(target.interior_facets.facets, target_subset_points, return_indices=True)
+                    _, target_indices_ext, source_indices_ext = np.intersect1d(target.exterior_facets.facets, target_subset_points, return_indices=True)
+            n_int = len(source_indices_int)
+            n_ext = len(source_indices_ext)
+            n_int_max = self._comm.allreduce(n_int, op=MPI.MAX)
+            n_ext_max = self._comm.allreduce(n_ext, op=MPI.MAX)
+            if n_int_max > 0:
+                if n_ext_max != 0:
+                    raise RuntimeError(f"integral_type on the target mesh is interior facet, but {n_ext_max} exterior facet entities are also included")
+                if n_int > len(source_subset_points):
+                    raise RuntimeError("Found inconsistent data")
+                target_integral_type = "interior_facet"
+            elif n_ext_max > 0:
+                if n_int_max != 0:
+                    raise RuntimeError(f"integral_type on the target mesh is exterior facet, but {n_int_max} interior facet entities are also included")
+                if n_ext > len(source_subset_points):
+                    raise RuntimeError("Found inconsistent data")
+                target_integral_type = "exterior_facet"
+            else:
+                raise RuntimeError("Can not find a map from source to target.")
+            if reverse:
+                if target_integral_type == "interior_facet":
+                    target_subset_points = target.interior_facets.facets[target_indices_int]
+                elif target_integral_type == "exterior_facet":
+                    target_subset_points = target.exterior_facets.facets[target_indices_ext]
+        else:
+            raise NotImplementedError(f"Not implemented for (source_dim, target_dim, source_integral_type) == ({source_dim}, {target_dim}, {source_integral_type})")
+        if reverse:
+            map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
+        else:
+            map_ = getattr(self, f"submesh_child_{source_integral_type}_parent_{target_integral_type}_map")
+        return map_, target_integral_type, target_subset_points
+
+    # trans mesh
+
+    def trans_mesh_entity_map(self, base_mesh, base_integral_type, base_subdomain_id, base_all_integer_subdomain_ids):
+        """Create entity-entity (composed) map from base_mesh to `self`.
+
+        Parameters
+        ----------
+        base_mesh : AbstractMeshTopology
+            Base mesh topology.
+        base_integral_type : str
+            Integral type on ``base_mesh``.
+        base_subdomain_id : int
+            Subdomain ID on ``base_mesh``.
+        base_all_integer_subdomain_ids : tuple
+            ``all_integer_subdomain_ids`` corresponding to ``base_mesh`` and ``base_integral_type``.
+
+        Returns
+        -------
+        tuple
+            `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
+
+        """
+        common = self.submesh_youngest_common_ancester(base_mesh)
+        if common is None:
+            raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
+        elif base_mesh is self:
+            raise NotImplementedError("Currenlty can not return identity map")
+        else:
+            if base_integral_type == "cell":
+                base_subset_points = None
+            elif base_integral_type in ["interior_facet", "exterior_facet"]:
+                base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
+                if base_integral_type == "interior_facet":
+                    base_subset_points = base_mesh.interior_facets.facets[base_subset.indices]
+                elif base_integral_type == "exterior_facet":
+                    base_subset_points = base_mesh.exterior_facets.facets[base_subset.indices]
+            else:
+                raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
+            composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
+            return composed_map, integral_type
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -1381,6 +1692,8 @@ class ExtrudedMeshTopology(MeshTopology):
         else:
             self.variable_layers = False
         self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
+        # submesh
+        self.submesh_parent = None
 
     @utils.cached_property
     def _ufl_cell(self):
@@ -1446,7 +1759,14 @@ class ExtrudedMeshTopology(MeshTopology):
         dofs_per_entity = np.zeros((1 + self._base_mesh.cell_dimension(), 2), dtype=IntType)
         for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b, v] += len(entities[0])
-        return tuplify(dofs_per_entity)
+
+        # Convert to a tuple of tuples with int (not numpy.intXX) values. This is
+        # to give us a string representation like ((0, 1), (2, 3)) instead of
+        # ((numpy.int32(0), numpy.int32(1)), (numpy.int32(2), numpy.int32(3))).
+        return tuple(
+            tuple(int(d_) for d_ in d)
+            for d in dofs_per_entity
+        )
 
     @PETSc.Log.EventDecorator()
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
@@ -1873,11 +2193,11 @@ class MeshGeometryCargo:
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, element):
+    def __new__(cls, element, comm):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid()
+        uid = utils._new_uid(internal_comm(comm, mesh))
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
@@ -1905,6 +2225,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
+
+        # submesh
+        self.submesh_parent = None
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -2270,12 +2593,13 @@ values from f.)"""
         try:
             return cache[tolerance]
         except KeyError:
+            IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, int *cells, size_t npoints)
+                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints)
                 {{
-                    size_t j = 0;  /* index into x and X */
-                    for(size_t i=0; i<npoints; i++) {{
+                    {IntTypeC} j = 0;  /* index into x and X */
+                    for({IntTypeC} i=0; i<npoints; i++) {{
                         /* i is the index into cells and ref_cell_dists_l1 */
 
                         /* The type definitions and arguments used here are defined as
@@ -2447,6 +2771,8 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The name of the mesh.
     tolerance : numbers.Number
         The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
 
     Returns
     -------
@@ -2468,7 +2794,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     cell = element.cell.reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
@@ -2505,7 +2831,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, variant="equispaced")
     # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
     mesh.name = name
     mesh._tolerance = tolerance
@@ -2538,7 +2864,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     tcell = topology.ufl_cell()
     cell = tcell.reconstruct(geometric_dimension=gdim)
     element = finat.ufl.VectorElement("DG", cell, 0)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
@@ -2710,7 +3036,7 @@ def Mesh(meshfile, **kwargs):
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName())
+        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     mesh._tolerance = tolerance
     return mesh
@@ -4152,3 +4478,81 @@ def SubDomainData(geometric_expr):
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
     return op2.Subset(m.cell_set, indices)
+
+
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
+    """Construct a submesh from a given mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        Parent mesh (`MeshGeometry`).
+    subdim : int
+        Topological dimension of the submesh.
+    subdomain_id : int
+        Subdomain ID representing the submesh.
+    label_name : str
+        Name of the label to search ``subdomain_id`` in.
+    name : str
+        Name of the submesh.
+
+    Returns
+    -------
+    MeshGeometry
+        Submesh.
+
+    Notes
+    -----
+    Currently, one can only make submeshes that have the same
+    topological dimension as the parent mesh.
+
+    Examples
+    --------
+
+    .. code-block:: python3
+
+        dim = 2
+        mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
+        x, y = SpatialCoordinate(mesh)
+        DQ0 = FunctionSpace(mesh, "DQ", 0)
+        indicator_function = Function(DQ0).interpolate(conditional(x > 1., 1, 0))
+        mesh.mark_entities(indicator_function, 999)
+        mesh = RelabeledMesh(mesh, [indicator_function], [999])
+        subm = Submesh(mesh, dim, 999)
+        V0 = FunctionSpace(mesh, "CG", 1)
+        V1 = FunctionSpace(subm, "CG", 1)
+        V = V0 * V1
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        u0, u1 = split(u)
+        v0, v1 = split(v)
+        dx0 = Measure("dx", domain=mesh)
+        dx1 = Measure("dx", domain=subm)
+        a = inner(u1, v0) * dx0(999) + inner(u0, v1) * dx1
+        A = assemble(a)
+
+    """
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("Parent mesh must be a `MeshGeometry`")
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
+    elif isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+    mesh.topology.init()
+    plex = mesh.topology_dm
+    dim = plex.getDimension()
+    if subdim != dim:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) != parent dim ({dim})")
+    if label_name is None:
+        label_name = dmcommon.CELL_SETS_LABEL
+    name = name or _generate_default_submesh_name(mesh.name)
+    subplex = dmcommon.submesh_create(plex, label_name, subdomain_id)
+    subplex.setName(_generate_default_mesh_topology_name(name))
+    if subplex.getDimension() != subdim:
+        raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
+    submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
+                                                                "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
+    submesh.topology.submesh_parent = mesh.topology
+    submesh.submesh_parent = mesh
+    submesh.init()
+    return submesh

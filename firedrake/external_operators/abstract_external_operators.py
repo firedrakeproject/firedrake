@@ -65,6 +65,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         """
         from firedrake_citations import Citations
         Citations().register("Bouziani2021")
+        Citations().register("Bouziani2024")
 
         # Check function space
         if not isinstance(function_space, functionspaceimpl.WithGeometry):

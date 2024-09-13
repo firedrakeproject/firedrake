@@ -48,6 +48,11 @@ mathjax3_config = {
 # inserted into the class definition
 autoclass_content = 'both'
 
+# Document __call__ methods
+autodoc_default_options = {
+    'special-members': '__call__'
+}
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -151,6 +156,11 @@ linkcheck_ignore = [
     r'https://asmedigitalcollection\.asme\.org/',
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
+    r'https://www.sciencedirect.com',
+    r'https://.*\.baylor\.edu.*',
+    r'https://www.tuomaskarna.com',
+    r'https://www.crosscountrytrains.co.uk/',
+    r'https://www.siam.org/',
 ]
 linkcheck_timeout = 30
 
@@ -395,6 +405,7 @@ intersphinx_mapping = {
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
     'torch': ('https://pytorch.org/docs/stable/', None),
+    'jax': ('https://jax.readthedocs.io/en/latest/', None),
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------

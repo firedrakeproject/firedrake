@@ -236,12 +236,9 @@ def test_numbering_two_d_P2BxP1():
 
     assert V.dof_dset.size == 42
     assert numpy.equal(V.cell_node_map().values,
-                       [[12, 13, 15, 16, 18, 19,
-                         6, 7, 9, 10, 3, 4, 0, 1],
-                        [16, 17, 19, 20, 27, 28,
-                         23, 24, 25, 26, 7, 8, 21, 22],
-                        [28, 29, 38, 39, 40, 41,
-                         34, 35, 36, 37, 32, 33, 30, 31]]).all()
+                       [[12, 13, 3, 4, 9, 10, 15, 16, 6, 7, 18, 19, 0, 1],
+                        [16, 17, 7, 8, 25, 26, 19, 20, 23, 24, 27, 28, 21, 22],
+                        [28, 29, 32, 33, 36, 37, 38, 39, 34, 35, 40, 41, 30, 31]]).all()
 
     bc_bottom = DirichletBC(V, 0, "bottom")
     bc_top = DirichletBC(V, 0, "top")
@@ -466,21 +463,16 @@ def test_layer_extents_parallel():
     mesh = UnitSquareMesh(2, 1, reorder=False, distribution_parameters={"partition":
                                                                         (sizes, points)})
     V = FunctionSpace(mesh, "DG", 0)
-
     x, _ = SpatialCoordinate(mesh)
     selector = assemble(interpolate(x - 0.5, V))
-
     layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
-
     data = selector.dat.data_ro_with_halos.real
     for cell in V.cell_node_map().values_with_halo:
         if data[cell] < 0.25:
             layers[cell, :] = [0, 1]
         else:
             layers[cell, :] = [0, 2]
-
     extmesh = ExtrudedMesh(mesh, layers=layers, layer_height=1)
-
     if mesh.comm.rank == 0:
         #  Top view, plex points
         #  4--8--6
@@ -585,7 +577,6 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 3, 0, 3],
             [0, 3, 0, 3]], dtype=IntType)
-
     assert numpy.equal(extmesh.layer_extents, expected).all()
 
     V = FunctionSpace(extmesh, "CG", 1)

@@ -83,7 +83,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
             adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
-        adj_output = F.derivative(adj_input=adj_input)
+        adj_output = F.derivative(adj_input=adj_input, options={"riesz_representation": "l2"})
 
         # Tuplify adjoint output
         adj_output = (adj_output,) if not isinstance(adj_output, collections.abc.Sequence) else adj_output
@@ -108,6 +108,7 @@ def fem_operator(F):
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
     Citations().register("Bouziani2023")
+    Citations().register("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
@@ -211,7 +212,7 @@ def from_torch(x, V=None):
         Firedrake object representing the PyTorch tensor `x`.
     """
     if x.device.type != "cpu":
-        raise NotImplementedError("Firedrake does not support GPU tensors")
+        raise NotImplementedError("Firedrake does not support GPU/TPU tensors")
 
     if V is None:
         val = x.detach().numpy()
@@ -220,6 +221,6 @@ def from_torch(x, V=None):
         return Constant(val)
     else:
         x = x.detach().numpy()
-        x_F = Function(V, dtype=x.dtype)
+        x_F = Function(V)
         x_F.vector().set_local(x)
         return x_F

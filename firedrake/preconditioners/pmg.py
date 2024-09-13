@@ -1166,11 +1166,17 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     return decl, prolong, restrict
 
 
+def reference_value_space(V):
+    element = finat.ufl.WithMapping(V.ufl_element(), mapping="identity")
+    return firedrake.FunctionSpace(V.mesh(), element)
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
 
+    _cache_kernels = {}
     _cache_work = {}
 
     def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
@@ -1180,6 +1186,17 @@ class StandaloneInterpolationMatrix(object):
         self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
         self.Vf_bcs = Vf_bcs
+
+        fmapping = self.Vf.ufl_element().mapping()
+        cmapping = self.Vc.ufl_element().mapping()
+        if type(self.Vf.ufl_element()) is not finat.ufl.MixedElement and fmapping != "identity" and fmapping == cmapping:
+            # Ignore Piola mapping if it is the same for both source and target, and simply transfer reference values.
+            self.Vc = reference_value_space(self.Vc)
+            self.Vf = reference_value_space(self.Vf)
+            self.uc = firedrake.Function(self.Vc, val=self.uc.dat)
+            self.uf = firedrake.Function(self.Vf, val=self.uf.dat)
+            self.Vc_bcs = [bc.reconstruct(V=self.Vc) for bc in self.Vc_bcs]
+            self.Vf_bcs = [bc.reconstruct(V=self.Vf) for bc in self.Vf_bcs]
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1274,8 +1291,7 @@ class StandaloneInterpolationMatrix(object):
         else:
             raise ValueError("Unknown info type %s" % info)
 
-    @staticmethod
-    def make_blas_kernels(Vf, Vc):
+    def make_blas_kernels(self, Vf, Vc):
         """
         Interpolation and restriction kernels between CG / DG
         tensor product spaces on quads and hexes.
@@ -1285,6 +1301,12 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
@@ -1412,7 +1434,7 @@ class StandaloneInterpolationMatrix(object):
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel, coefficients
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def make_kernels(self, Vf, Vc):
         """
@@ -1420,12 +1442,18 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
         matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
-        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = cache_generate_code(matrix_kernel, Vf._comm)
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
         coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
@@ -1449,7 +1477,7 @@ class StandaloneInterpolationMatrix(object):
             requires_zeroed_output_arguments=True,
             events=matrix_kernel.events,
         )
-        return prolong_kernel, restrict_kernel, coefficients
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):
         """
