@@ -124,7 +124,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake2.xml \
+            --junit-xml=firedrake2_\$MPISPAWN_TASK_ID1.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 30
@@ -140,7 +140,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake3.xml \
+            --junit-xml=firedrake3_\$MPISPAWN_TASK_ID1.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 60
@@ -156,7 +156,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake4.xml \
+            --junit-xml=firedrake4_\$MPISPAWN_TASK_ID1.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 30
