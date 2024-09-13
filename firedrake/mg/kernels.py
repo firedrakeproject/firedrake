@@ -144,7 +144,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  integral_type="cell",
+                  domain_integral_type_map={domain: "cell"},
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -540,7 +540,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     integral_type="cell",
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
@@ -580,7 +579,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      integral_type="cell",
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,

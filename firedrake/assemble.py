@@ -1582,6 +1582,8 @@ class _GlobalKernelBuilder:
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
         self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
         self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_exterior_facet_orientations = _FormHandler.iter_active_exterior_facet_orientations(form, local_knl.kinfo)
+        self._active_interior_facet_orientations = _FormHandler.iter_active_interior_facet_orientations(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -1602,6 +1604,8 @@ class _GlobalKernelBuilder:
         assert_empty(self._constants)
         assert_empty(self._active_exterior_facets)
         assert_empty(self._active_interior_facets)
+        assert_empty(self._active_exterior_facet_orientations)
+        assert_empty(self._active_interior_facet_orientations)
 
         iteration_regions = {"exterior_facet_top": op2.ON_TOP,
                              "exterior_facet_bottom": op2.ON_BOTTOM,
@@ -1799,12 +1803,24 @@ def _as_global_kernel_arg_interior_facet(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
 def _as_global_kernel_arg_exterior_facet_orientation(_, self):
-    return op2.DatKernelArg((1,))
+    mesh = next(self._active_exterior_facet_orientations)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((1,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+        return op2.DatKernelArg((1,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
 def _as_global_kernel_arg_interior_facet_orientation(_, self):
-    return op2.DatKernelArg((2,))
+    mesh = next(self._active_interior_facet_orientations)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((2,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+        return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(CellFacetKernelArg)
@@ -1856,6 +1872,8 @@ class ParloopBuilder:
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
         self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
         self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_exterior_facet_orientations = _FormHandler.iter_active_exterior_facet_orientations(form, local_knl.kinfo)
+        self._active_interior_facet_orientations = _FormHandler.iter_active_interior_facet_orientations(form, local_knl.kinfo)
 
     def build(self, tensor):
         """Construct the parloop.
@@ -2115,12 +2133,24 @@ def _as_parloop_arg_interior_facet(_, self):
 
 @_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
 def _as_parloop_arg_exterior_facet_orientation(_, self):
-    return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
+    mesh = next(self._active_exterior_facet_orientations)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+    return op2.DatParloopArg(mesh.exterior_facets.local_facet_orientation_dat, m)
 
 
 @_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
 def _as_parloop_arg_interior_facet_orientation(_, self):
-    return op2.DatParloopArg(self._mesh.interior_facets.local_facet_orientation_dat)
+    mesh = next(self._active_interior_facet_orientations)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+    return op2.DatParloopArg(mesh.interior_facets.local_facet_orientation_dat, m)
 
 
 @_as_parloop_arg.register(CellFacetKernelArg)
@@ -2195,6 +2225,22 @@ class _FormHandler:
         """Yield the form interior facets referenced in ``kinfo``."""
         all_meshes = extract_domains(form)
         for i in kinfo.active_domain_numbers.interior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_exterior_facet_orientations(form, kinfo):
+        """Yield the form exterior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.exterior_facet_orientations:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_interior_facet_orientations(form, kinfo):
+        """Yield the form interior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.interior_facet_orientations:
             mesh = all_meshes[i]
             yield mesh
 
