@@ -113,32 +113,32 @@ dim = 2
 #mesh = Mesh(os.path.join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/hybrid_triquad.msh"))
 mesh = make_mesh_netgen(0.1, 0, "a")
 mesh = Submesh(mesh, dim, 2)
-mesh.topology_dm.viewFromOptions("-dm_view")
+#mesh.topology_dm.viewFromOptions("-dm_view")
 mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
 x_t, y_t = SpatialCoordinate(mesh_t)
 n_t = FacetNormal(mesh_t)
 mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
 x_q, y_q = SpatialCoordinate(mesh_q)
-plot_mesh(mesh_t)
-plot_mesh(mesh_q)
-raise RuntimeError
 n_q = FacetNormal(mesh_q)
-V_t = FunctionSpace(mesh_t, "P", 4)
+if mesh.comm.size == 1:
+    plot_mesh(mesh_t)
+    plot_mesh(mesh_q)
 V_q = FunctionSpace(mesh_q, "Q", 3)
-v_t = TestFunction(V_t)
-u_t = TrialFunction(V_t)
-v_q = TestFunction(V_q)
-u_q = TrialFunction(V_q)
+V_t = FunctionSpace(mesh_t, "P", 4)
+V = V_q * V_t
+u_q, u_t = TrialFunction(V)
+v_q, v_t = TestFunction(V)
 
 dx_t = Measure("dx", mesh_t)
 dx_q = Measure("dx", mesh_q)
 ds_t = Measure("ds", mesh_t)
 ds_q = Measure("ds", mesh_q)
 
-g_t = Function(V_t).interpolate(sin(y_t))
-#g_q = Constant(1)
-v1 = assemble(Constant(1) * ds_q(subdomain_id="otherwise"))
-print(v1)
+a = inner(grad(u_t), grad(v_t)) * dx_t + \
+    inner(grad(u_q), grad(v_q)) * dx_q
+
+assemble(a)
+
 raise RuntimeError
 
 
@@ -146,8 +146,6 @@ raise RuntimeError
 
 
 
-a = inner(grad(u_t), grad(v_t)) * dx_t + \
-    inner(grad(u_q), grad(v_q)) * dx_q
 
 f = Function(V)
 f.assign(0)
