@@ -109,7 +109,7 @@ jobs:
             -o faulthandler_timeout=1860 \
             -m "not parallel" \
             -n 12 --dist worksteal \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake1.xml \
             -sv tests
         timeout-minutes: 60
       - name: Test Firedrake 2 ranks
@@ -124,7 +124,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake2.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 30
@@ -140,7 +140,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake3.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 60
@@ -156,7 +156,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake4.xml \
             -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
             -v tests
         timeout-minutes: 30
@@ -169,7 +169,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake6.xml \
             -m "parallel[6] and not broken" \
             -sv tests
         timeout-minutes: 30
@@ -182,7 +182,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake7.xml \
             -m "parallel[7] and not broken" \
             -sv tests
         timeout-minutes: 30
@@ -195,7 +195,7 @@ jobs:
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake.xml \
+            --junit-xml=firedrake8.xml \
             -m "parallel[8] and not broken" \
             -sv tests
         timeout-minutes: 30
@@ -203,7 +203,7 @@ jobs:
         uses: mikepenz/action-junit-report@v5.0.0-a02
         if: ${{ always() && ( github.ref != 'refs/heads/master') }}
         with:
-          report_paths: '/__w/firedrake/firedrake/firedrake.xml'
+          report_paths: '/__w/firedrake/firedrake/firedrake*.xml'
           comment: true
           check_name: "Firedrake ${{ matrix.scalar-type }}"
           updateComment: true
