@@ -75,47 +75,34 @@ def make_mesh_netgen(h, nref, name):
     import netgen
     from netgen.geom2d import CSG2d, Rectangle, Circle,SplineGeometry
     geo = CSG2d()
-    #rect0 = Rectangle(pmin=(0, 0), pmax=(L, H))
+    rect0 = Rectangle(pmin=(0, 0), pmax=(1, 1))
+    rect1 = Rectangle(pmin=(-1, -1), pmax=(2, 2))
     #circ0 = Rectangle(pmin=(x2, y2), pmax=(x3, y3))
     #circ1 = Rectangle(pmin=(x1, y1), pmax=(x4, y4))
-    #rect1 = Rectangle(pmin=(Cx, 0.19), pmax=(x5, 0.21))
     #fluid_struct = rect0 - circ0
     #fluid = fluid_struct - rect1
     #struct = fluid_struct * rect1
-    #geo.Add(fluid * circ1)
+    geo.Add(rect1 - rect0)
     #geo.Add(fluid - fluid * circ1)
-    #geo.Add(struct * circ1)
+    geo.Add(rect0)
     #geo.Add(struct - struct * circ1)
+
+    """
     rect = Rectangle(pmin=(0, 0), pmax=(1, 1), left="line", right="line", bottom="line", top="line")
     geo.Add(rect)
+    """
+    """
+    geo = SplineGeometry()
+    pnts = [(0, 0), (1, 0), (1, 1),
+            (0, 1)]
+    p1, p2, p3, p4 = [geo.AppendPoint(*pnt) for pnt in pnts]
+    curves = [[["line", p1, p2], "line"],
+              [["line", p2, p3], "line"],
+              [["line", p3, p4], "line"],
+              [["line", p4, p1], "line"]]
+    [geo.Append(c, bc=bc) for c, bc in curves]
+    """
     ngmesh = geo.GenerateMesh(maxh=.1, quad_dominated=True)
-
-    geo = SplineGeometry()
-    pnts = [(0, 0), (1, 0), (1, 1),
-            (0, 1)]
-    p1, p2, p3, p4 = [geo.AppendPoint(*pnt) for pnt in pnts]
-    curves = [[["line", p1, p2], "line"],
-              [["line", p2, p3], "line"],
-              [["line", p3, p4], "line"],
-              [["line", p4, p1], "line"]]
-    [geo.Append(c, bc=bc) for c, bc in curves]
-    ngmsh = geo.GenerateMesh(maxh=0.4)
-
-    geo = SplineGeometry()
-    pnts = [(0, 0), (1, 0), (1, 1),
-            (0, 1)]
-    p1, p2, p3, p4 = [geo.AppendPoint(*pnt) for pnt in pnts]
-    curves = [[["line", p1, p2], "line"],
-              [["line", p2, p3], "line"],
-              [["line", p3, p4], "line"],
-              [["line", p4, p1], "line"]]
-    [geo.Append(c, bc=bc) for c, bc in curves]
-    ngmsh = geo.GenerateMesh(maxh=0.4)
-
-
-
-
-
     #ngmesh.Export("mixed_cell_unit_square.msh","Gmsh2 Format")
     #raise RuntimeError
     return Mesh("mixed_cell_unit_square.msh")
@@ -125,7 +112,8 @@ def make_mesh_netgen(h, nref, name):
 dim = 2
 #mesh = Mesh(os.path.join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/hybrid_triquad.msh"))
 mesh = make_mesh_netgen(0.1, 0, "a")
-#mesh.topology_dm.viewFromOptions("-dm_view")
+mesh = Submesh(mesh, dim, 2)
+mesh.topology_dm.viewFromOptions("-dm_view")
 mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
 x_t, y_t = SpatialCoordinate(mesh_t)
 n_t = FacetNormal(mesh_t)
@@ -141,6 +129,22 @@ v_t = TestFunction(V_t)
 u_t = TrialFunction(V_t)
 v_q = TestFunction(V_q)
 u_q = TrialFunction(V_q)
+
+dx_t = Measure("dx", mesh_t)
+dx_q = Measure("dx", mesh_q)
+ds_t = Measure("ds", mesh_t)
+ds_q = Measure("ds", mesh_q)
+
+g_t = Function(V_t).interpolate(sin(y_t))
+#g_q = Constant(1)
+v1 = assemble(Constant(1) * ds_q(subdomain_id="otherwise"))
+print(v1)
+raise RuntimeError
+
+
+
+
+
 
 a = inner(grad(u_t), grad(v_t)) * dx_t + \
     inner(grad(u_q), grad(v_q)) * dx_q
