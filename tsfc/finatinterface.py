@@ -57,6 +57,7 @@ supported_elements = {
     "QuadraticPowellSabin12": finat.QuadraticPowellSabin12,
     "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
+    "Alfeld-Sorokina": finat.AlfeldSorokina,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
