@@ -960,6 +960,7 @@ def test_lvs_constant_jacobian(constant_jacobian):
     u = Function(space, name="u").interpolate(X[0] - 0.5)
     with stop_annotating():
         u_ref = u.copy(deepcopy=True)
+
     def J(u):
         v = Function(space, name="v")
         problem = LinearVariationalProblem(
@@ -968,7 +969,7 @@ def test_lvs_constant_jacobian(constant_jacobian):
         solver = LinearVariationalSolver(problem)
         solver.solve()
         return assemble(v * v * dx), solver
-   
+
     J_val, solver = J(u)
     assert ("dFdu_adj" in solver._ad_adj_cache) == constant_jacobian
     J_hat = ReducedFunctional(J_val, Control(u))
@@ -978,7 +979,7 @@ def test_lvs_constant_jacobian(constant_jacobian):
         u0 = Function(space).interpolate(X[0] - 0.6)
         u_ref0 = u0.copy(deepcopy=True)
         J_val0, _ = J(u0)
-    
+
     assert np.allclose(J_hat(u0), J_val0)
     dJ = J_hat.derivative(options={"riesz_representation": "l2"})
 
