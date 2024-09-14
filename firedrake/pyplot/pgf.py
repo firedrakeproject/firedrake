@@ -217,7 +217,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:
         raise NotImplementedError("Not yet implemented for functions on extruded meshes")
-    if elem.value_shape():
+    if elem.value_shape:
         raise NotImplementedError("Currently only implemeted for scalar functions")
     coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="equispaced")
     coordV = FunctionSpace(mesh, coordelem)
