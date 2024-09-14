@@ -59,7 +59,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
+            from firedrake import LinearVariationalSolver, LinearSolver, assemble
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -87,14 +87,22 @@ class NonlinearVariationalSolverMixin:
                 block._ad_nlvs = self._ad_nlvs
 
                 # Adjoint solver.
-                if not self._ad_problem._constant_jacobian:
-                    if not self._ad_adj_solver:
-                        with stop_annotating():
-                            self._ad_adj_solver = LinearVariationalSolver(
-                                self._ad_adj_lvs_problem(block),
+                # How many times the block has been recomputed.
+                self._ad_adj_cache.update({"recomputed_block": 0})
+                if not self._ad_adj_solver:
+                    with stop_annotating():
+                        problem = self._ad_adj_lvs_problem(block)
+                        if self._ad_problem._constant_jacobian:
+                            assembled_J = assemble(problem.J)
+                            self._ad_adj_cache.update({"dFdu_adj": assembled_J})
+                            self._ad_adj_cache.update({"dFdu_adj_form": problem.J})
+                            self._ad_adj_solver = LinearSolver(
+                                self._ad_adj_cache["dFdu_adj"],
                                 solver_parameters=self.parameters)
-
-                    block._ad_adj_solver = self._ad_adj_solver
+                        else:
+                            self._ad_adj_solver = LinearVariationalSolver(
+                                problem, solver_parameters=self.parameters)
+                block._ad_adj_solver = self._ad_adj_solver
 
                 tape.add_block(block)
 
