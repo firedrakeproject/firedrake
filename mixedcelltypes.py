@@ -124,7 +124,7 @@ Vplot=FunctionSpace(mesh_t,"P",1)
 fplot=Function(Vplot).assign(Constant(0))
 pgfplot(fplot, "mixed_cell_mesh_tri.dat", degree=1)
 Vplot=FunctionSpace(mesh_q,"Q",1)
-fplot=Function(Vplot).assign(Constant(0))
+fplot=Function(Vplot).assign(Constant(1))
 pgfplot(fplot, "mixed_cell_mesh_quad.dat", degree=1)
 raise RuntimeError("just plotted")
 if mesh.comm.size == 1:
