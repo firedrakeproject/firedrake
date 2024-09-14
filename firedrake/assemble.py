@@ -1338,22 +1338,29 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         test, trial = self._form.arguments()
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, self._allocation_integral_types)
-        elif any(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels):
+        elif any(local_kernel.indices == (None, None) for assembler in self._all_assemblers for local_kernel, _ in assembler.local_kernels):
             # Handle special cases: slate or split=False
-            assert all(local_kernel.indices == (None, None) for local_kernel in self._all_local_kernels)
+            assert all(local_kernel.indices == (None, None) for assembler in self._all_assemblers for local_kernel, _ in assembler.local_kernels)
             allocation_integral_types = set(local_kernel.kinfo.integral_type
-                                            for local_kernel in self._all_local_kernels)
+                                            for assembler in self._all_assemblers
+                                            for local_kernel, _ in assembler.local_kernels)
             return ExplicitMatrixAssembler._make_maps_and_regions_default(test, trial, allocation_integral_types)
         else:
             maps_and_regions = defaultdict(lambda: defaultdict(set))
-            for local_kernel in self._all_local_kernels:
-                i, j = local_kernel.indices
-                # Make Sparsity independent of _iterset, which can be a Subset, for better reusability.
-                integral_type = local_kernel.kinfo.integral_type
-                rmap_ = test.function_space().topological[i].entity_node_map(integral_type)
-                cmap_ = trial.function_space().topological[j].entity_node_map(integral_type)
-                region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-                maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
+            for assembler in self._all_assemblers:
+                all_meshes = assembler._form.ufl_domains()
+                for local_kernel, subdomain_id in assembler.local_kernels:
+                    i, j = local_kernel.indices
+                    mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
+                    integral_type = local_kernel.kinfo.integral_type
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids
+                    # Make Sparsity independent of the subdomain of integration for better reusability;
+                    # subdomain_id is passed here only to determine the integration_type on the target domain
+                    # (see ``entity_node_map``).
+                    rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
+                    maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                     for block_indices, map_pair_to_region_set in maps_and_regions.items()}
 
@@ -1367,8 +1374,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         # Use outer product of component maps.
         for integral_type in allocation_integral_types:
             region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-            for i, rmap_ in enumerate(test.function_space().topological.entity_node_map(integral_type)):
-                for j, cmap_ in enumerate(trial.function_space().topological.entity_node_map(integral_type)):
+            for i, Vrow in enumerate(test.function_space()):
+                for j, Vcol in enumerate(trial.function_space()):
+                    mesh = Vrow.mesh()
+                    rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1384,18 +1394,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
          "interior_facet_vert": op2.ALL}
 
     @cached_property
-    def _all_local_kernels(self):
-        """Collection of parloop_builders used for sparsity construction.
+    def _all_assemblers(self):
+        """Tuple of all assemblers used for sparsity construction.
 
-        When constructing sparsity, we use all parloop_builders
+        When constructing sparsity, we use all assemblers
         that are to be used in the actual assembly.
         """
-        all_local_kernels = tuple(local_kernel for local_kernel, _ in self.local_kernels)
+        all_assemblers = [self]
         for bc in self._bcs:
             if isinstance(bc, EquationBCSplit):
                 _assembler = type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False)
-                all_local_kernels += _assembler._all_local_kernels
-        return all_local_kernels
+                all_assemblers.extend(_assembler._all_assemblers)
+        return tuple(all_assemblers)
 
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
@@ -1555,7 +1565,7 @@ class _GlobalKernelBuilder:
         self._form = form
         self._indices, self._kinfo = local_knl
         self._subdomain_id = subdomain_id
-        self._all_integer_subdomain_ids = all_integer_subdomain_ids.get(self._kinfo.integral_type, None)
+        self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._diagonal = diagonal
         self._unroll = unroll
 
@@ -1611,7 +1621,7 @@ class _GlobalKernelBuilder:
         if self._subdomain_id == "everywhere":
             return False
         elif self._subdomain_id == "otherwise":
-            return self._all_integer_subdomain_ids is not None
+            return self._all_integer_subdomain_ids.get(self._kinfo.integral_type, None) is not None
         else:
             return True
 
@@ -1631,7 +1641,7 @@ class _GlobalKernelBuilder:
 
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_arg = V.topological.entity_node_map(self._integral_type)._global_kernel_arg
+        map_arg = V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1649,7 +1659,7 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._integral_type)._global_kernel_arg for V in [Vrow, Vcol])
+            rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1952,7 +1962,7 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return V.entity_node_map(self._integral_type)
+        return V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
