@@ -1,7 +1,7 @@
 from firedrake import *
 from firedrake.trefftz import TrefftzEmbedding, AggregationEmbedding, dumb_aggregation
 
-
+@pytest.mark.skipcomplex
 def test_trefftz_laplace():
     order = 6
     mesh = UnitSquareMesh(2, 2)
@@ -38,7 +38,7 @@ def test_trefftz_laplace():
     assert (assemble(inner(uDG-f, uDG-f)*dx) < 1e-6)
     assert (embd.dimT < V.dim()/2)
 
-
+@pytest.mark.skipcomplex
 def test_trefftz_aggregation():
     from netgen.occ import WorkPlane, OCCGeometry
 
