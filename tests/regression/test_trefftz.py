@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.trefftz import TrefftzEmbedding, AggregationEmbedding, dumb_aggregation
 
+
 @pytest.mark.skipcomplex
 def test_trefftz_laplace():
     order = 6
@@ -37,6 +38,7 @@ def test_trefftz_laplace():
           appctx=appctx)
     assert (assemble(inner(uDG-f, uDG-f)*dx) < 1e-6)
     assert (embd.dimT < V.dim()/2)
+
 
 @pytest.mark.skipcomplex
 def test_trefftz_aggregation():
