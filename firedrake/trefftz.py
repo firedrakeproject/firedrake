@@ -13,6 +13,7 @@ from firedrake.constant import Constant
 from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal
 import scipy.sparse as sp
 
+
 class TrefftzEmbedding(object):
     """
     This class computes the Trefftz embedding of a given function space
@@ -38,13 +39,14 @@ class TrefftzEmbedding(object):
             indptr, indices, data = self.B.getValuesCSR()
             Bsp = sp.csr_matrix((data, indices, indptr), shape=self.B.getSize())
             _, sig, VT = sp.linalg.svds(Bsp, k=self.dim-1, which="SM")
-            QT = sp.csr_matrix(VT[0:sum(sig<self.tol), :])
+            QT = sp.csr_matrix(VT[0:sum(sig < self.tol), :])
             QTpsc = PETSc.Mat().createAIJ(size=QT.shape, csr=(QT.indptr, QT.indices, QT.data))
             self.dimT = QT.shape[0]
             self.sig = sig
         else:
             raise NotImplementedError("Only scipy backend is supported")
         return QTpsc, sig
+
 
 class trefftz_ksp(object):
     """
@@ -77,7 +79,7 @@ class trefftz_ksp(object):
         self.Q = PETSc.Mat().createTranspose(self.QT)
         ATF = self.QT @ A @ self.Q
         PTF = self.QT @ P @ self.Q
-        bTF =  self.QT.createVecLeft()
+        bTF = self.QT.createVecLeft()
         self.QT.mult(b, bTF)
 
         tiny_ksp = PETSc.KSP().create()
@@ -101,20 +103,20 @@ class AggregationEmbedding(TrefftzEmbedding):
     """
     def __init__(self, V, mesh, polyMesh, dim=None, tol=1e-12):
         # Relabel facets that are inside an aggregated region
-        offset = 1+mesh.topology_dm.getLabelSize(FACE_SETS_LABEL)
+        offset = 1 + mesh.topology_dm.getLabelSize(FACE_SETS_LABEL)
         offset += mesh.topology_dm.getLabelSize(CELL_SETS_LABEL)
-        nPoly = int(max(polyMesh.dat.data[:])) # Number of aggregates
+        nPoly = int(max(polyMesh.dat.data[:]))  # Number of aggregates
         getIdx = mesh._cell_numbering.getOffset
         plex = mesh.topology_dm
-        pStart,pEnd = plex.getDepthStratum(2)
+        pStart, pEnd = plex.getDepthStratum(2)
         self.facet_index = []
         for poly in range(nPoly+1):
             facets = []
-            for i in range(pStart,pEnd):
+            for i in range(pStart, pEnd):
                 if polyMesh.dat.data[getIdx(i)] == poly:
                     for f in plex.getCone(i):
                         if f in facets:
-                            plex.setLabelValue(FACE_SETS_LABEL,f,offset+poly)
+                            plex.setLabelValue(FACE_SETS_LABEL, f, offset+poly)
                             if offset+poly not in self.facet_index:
                                 self.facet_index = self.facet_index + [offset+poly]
                     facets = facets + list(plex.getCone(i))
@@ -124,16 +126,17 @@ class AggregationEmbedding(TrefftzEmbedding):
         W = FunctionSpace(self.mesh, V.ufl_element())
         u = TrialFunction(W)
         v = TestFunction(W)
-        self.b = Constant(0)*inner(u,v)*dx
+        self.b = Constant(0)*inner(u, v)*dx
         for i in self.facet_index:
-            self.b += inner(jump(u),jump(v))*dS(i)
-        for k in range(1,V.ufl_element().degree()+1):
+            self.b += inner(jump(u), jump(v))*dS(i)
+        for k in range(1, V.ufl_element().degree()+1):
             for i in self.facet_index:
-                self.b += ((0.5*h("+")+0.5*h("-"))**(2*k))*\
-                inner(jump_normal(u,n("+"),k),jump_normal(v, n("+"),k))*dS(i)
+                self.b += ((0.5 * h("+") + 0.5 * h("-"))**(2*k)) *\
+                    inner(jump_normal(u, n("+"), k), jump_normal(v, n("+"), k))*dS(i)
         super().__init__(W, self.b, dim, tol)
 
-def jump_normal(u,n,k):
+
+def jump_normal(u, n, k):
     """
     Compute the jump of the normal derivative of a function u
     :arg u: the function
@@ -141,9 +144,10 @@ def jump_normal(u,n,k):
     :arg k: the degree of the normal derivative
     """
     j = 0.5*dot(n, (grad(u)("+")-grad(u)("-")))
-    for _ in range(1,k):
+    for _ in range(1, k):
         j = 0.5*dot(n, (grad(j)-grad(j)))
     return j
+
 
 def dumb_aggregation(mesh):
     """
@@ -153,24 +157,24 @@ def dumb_aggregation(mesh):
     if mesh.comm.size > 1:
         raise NotImplementedError("Parallel mesh aggregation not supported")
     plex = mesh.topology_dm
-    pStart,pEnd = plex.getDepthStratum(2)
-    _,eEnd = plex.getDepthStratum(1)
+    pStart, pEnd = plex.getDepthStratum(2)
+    _, eEnd = plex.getDepthStratum(1)
     adjacency = []
-    for i in range(pStart,pEnd):
+    for i in range(pStart, pEnd):
         ad = plex.getAdjacency(i)
         local = []
         for a in ad:
             supp = plex.getSupport(a)
-            supp = supp[supp<eEnd]
+            supp = supp[supp < eEnd]
             for s in supp:
                 if s < pEnd and s != ad[0]:
                     local = local + [s]
         adjacency = adjacency + [(i, local)]
     adjacency = sorted(adjacency, key=lambda x: len(x[1]))[::-1]
-    u = Function(FunctionSpace(mesh,"DG",0))
+    u = Function(FunctionSpace(mesh, "DG", 0))
 
     getIdx = mesh._cell_numbering.getOffset
-    av = list(range(pStart,pEnd))
+    av = list(range(pStart, pEnd))
     col = 0
     for a in adjacency:
         if a[0] in av:
