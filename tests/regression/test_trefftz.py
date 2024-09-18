@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.trefftz import TrefftzEmbedding, AggregationEmbedding, dumb_aggregation
 
 def test_trefftz_laplace():
     order = 6

@@ -11,8 +11,7 @@ from firedrake.function import Function
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.constant import Constant
 from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal
-
-__all__ = ("TrefftzEmbedding", "trefftz_ksp", "AggregationEmbedding", "dumb_aggregation")
+import scipy.sparse as sp
 
 class TrefftzEmbedding(object):
     """
@@ -36,7 +35,6 @@ class TrefftzEmbedding(object):
         """
         self.B = assemble(self.b).M.handle
         if self.backend == "scipy":
-            import scipy.sparse as sp
             indptr, indices, data = self.B.getValuesCSR()
             Bsp = sp.csr_matrix((data, indices, indptr), shape=self.B.getSize())
             _, sig, VT = sp.linalg.svds(Bsp, k=self.dim-1, which="SM")
@@ -47,101 +45,6 @@ class TrefftzEmbedding(object):
         else:
             raise NotImplementedError("Only scipy backend is supported")
         return QTpsc, sig
-
-    def embeddedMatrix(self, a):
-        """
-        Compute the Trefftz embedding of the bilinear form a
-        :arg a: the bilinear form
-        """
-        self.A = assemble(a).M.handle
-        self.QT, _ = self.assemble()
-        self.Q = PETSc.Mat().createTranspose(self.QT)
-        pscQTAQ = self.QT @ self.A @ self.Q
-        return pscQTAQ
-
-    def embeddedMatrixAction(self, a):
-        """
-        Compute the Trefftz embedding of the bilinear form a,
-        and wrap it as a PETSc Python matrix.
-        :arg a: the bilinear form
-        """
-        self.A = assemble(a).M.handle
-        self.QT, _ = self.assemble()
-        pythonQTAQ = self.embeddedMatrixWrap(self.QT, self.A)
-        pscQTAQ = PETSc.Mat().create(comm=PETSc.COMM_WORLD)
-        pscQTAQ.setSizes(self.dimT, self.dimT)
-        pscQTAQ.setType("python")
-        pscQTAQ.setPythonContext(pythonQTAQ)
-        pscQTAQ.setUp()
-        return pscQTAQ
-
-    def embeddedLoad(self, L):
-        """
-        Compute the Trefftz embedding of the load vector L
-        :arg L: the load vector
-        """
-        self.L = assemble(L)
-        with self.L.dat.vec as w:
-            y =  self.QT.createVecLeft()
-            self.QT.mult(w, y)
-        return y
-    def embed(self, y):
-        """
-        Compute the Trefftz embedding of the firedrake function y
-        :arg y: the firedrake function
-        """
-        u = Function(self.V)
-        with u.dat.vec as w:
-            self.QT.multTranspose(y, w)
-        return u
-    def embedVec(self, y):
-        """
-        Compute the Trefftz embedding of the PETSc vector y
-        :arg y: the PETSc vector
-        """
-        w = self.QT.createVecRight()
-        self.QT.multTranspose(y, w)
-        return w
-
-    class embeddedMatrixWrap(object):
-        """
-        This class wraps a PETSc Preconditioner as PETSc Python matrix
-        """
-        def __init__(self, QT, A):
-            self.QT = QT
-            self.A = A
-
-        def mult(self, mat, X, Y): #pylint: disable=W0613
-            """
-            PETSc matrix-vector product
-            """
-            Z = self.QT.createVecRight()
-            W = self.A.createVecRight()
-            self.QT.multTranspose(X, Z)
-            self.A.mult(Z, W)
-            self.QT.mult(W, Y)
-
-    class embeddedPreconditioner(object):
-        """
-        This class wraps a PETSc Preconditioner as PETSc Python matrix
-        """
-        def __init__(self, E, a):
-            self.E = E
-            self.QTAQ = self.E.embeddedMatrix(a)
-            self.ksp = PETSc.KSP().create()
-            self.ksp.setOperators(self.QTAQ)
-            self.ksp.getPC().setType("lu")
-            self.ksp.setUp()
-
-        def mult(self, mat, X, Y): #pylint: disable=W0613
-            """
-            PETSc matrix-vector product
-            """
-            eX = self.QTAQ.createVecLeft()
-            eY = self.QTAQ.createVecRight()
-            self.E.QT.mult(X,eX)
-            self.ksp.solve(eX, eY)
-            self.E.embedVec(eY).copy(Y)
 
 class trefftz_ksp(object):
     """
@@ -227,10 +130,10 @@ class AggregationEmbedding(TrefftzEmbedding):
         for k in range(1,V.ufl_element().degree()+1):
             for i in self.facet_index:
                 self.b += ((0.5*h("+")+0.5*h("-"))**(2*k))*\
-                inner(jumpNormal(u,n("+"),k),jumpNormal(v, n("+"),k))*dS(i)
+                inner(jump_normal(u,n("+"),k),jump_normal(v, n("+"),k))*dS(i)
         super().__init__(W, self.b, dim, tol)
 
-def jumpNormal(u,n,k):
+def jump_normal(u,n,k):
     """
     Compute the jump of the normal derivative of a function u
     :arg u: the function
