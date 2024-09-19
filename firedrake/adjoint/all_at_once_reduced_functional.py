@@ -1,9 +1,8 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, \
     stop_annotating, no_annotations, get_working_tape
 from pyadjoint.enlisting import Enlist
-from pyop2.utils import cached_property
 from firedrake import assemble, inner, dx
-from functools import wraps
+from functools import wraps, cached_property
 
 __all__ = ['AllAtOnceReducedFunctional']
 
