@@ -3,8 +3,8 @@
 .. title:: Firedrake '24
 
 .. image:: images/maths_oxford.jpg
-   :width: 100%
    :alt: Mathematical Institute, University of Oxford
+   :width: 100%
    :align: center
 
 Firedrake '24
@@ -140,7 +140,18 @@ Organising committee
 * `India Marsden <https://www.maths.ox.ac.uk/people/india.marsden>`__, University of Oxford
 * `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez>`__, University of Oxford
 
-Further details
----------------
+Conference photos
+-----------------
 
-For any queries, please contact `Patrick Farrell <mailto:patrick.farrell@maths.ox.ac.uk>`_.
+.. image:: images/firedrake24_grouphoto.jpg
+   :width: 100%
+   :align: center
+   :alt: Firedrake '24 group photo
+
+|
+
+.. image:: images/firedrake24_dinner.jpg
+   :width: 100%
+   :align: center
+   :alt: Firedrake '24 conference dinner at Corpus Christi college, Oxford
+
