@@ -1,5 +1,5 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, \
-    stop_annotating, no_annotations
+    stop_annotating, no_annotations, get_working_tape
 from pyadjoint.enlisting import Enlist
 from pyop2.utils import cached_property
 from firedrake import assemble, inner, dx
@@ -63,6 +63,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         Defaults to L2.
     weak_constraint : bool
         Whether to use the weak or strong constraint 4DVar formulation.
+    tape : pyadjoint.Tape
+        The tape to record on.
 
     See Also
     --------
@@ -71,7 +73,12 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
     def __init__(self, control: Control, background_iprod=None,
                  observation_err=None, observation_iprod=None,
-                 weak_constraint=True):
+                 weak_constraint=True, tape=None,
+                 _annotate_accumulation=False):
+
+        self._annotate_accumulation = _annotate_accumulation
+        self.tape = get_working_tape() if tape is None else tape
+
         self.weak_constraint = weak_constraint
         self.initial_observations = observation_err is not None
 
@@ -86,24 +93,24 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         if self.weak_constraint:
             background_err = background_iprod(control.control - self.background)
             self.background_rf = ReducedFunctional(
-                background_err, control)
+                background_err, control, tape=self.tape)
             self._accumulate_functional(background_err)
 
-            self.controls = [control]                 # The solution at the beginning of each time-chunk
-            self.states = []                          # The model propogation at the end of each time-chunk
-            self.forward_model_stages = []            # ReducedFunctional for each model propogation (returns state)
-            self.forward_model_rfs = []               # Inner product for model errors (possibly including error covariance)
-            self.observations = []                    # ReducedFunctional for each observation set (returns observation error)
-            self.observation_rfs = []                 # Inner product for observation errors (possibly including error covariance)
+            self.controls = [control]       # The solution at the beginning of each time-chunk
+            self.states = []                # The model propogation at the end of each time-chunk
+            self.forward_model_stages = []  # ReducedFunctional for each model propogation (returns state)
+            self.forward_model_rfs = []     # Inner product for model errors (possibly including error covariance)
+            self.observations = []          # ReducedFunctional for each observation set (returns observation error)
+            self.observation_rfs = []       # Inner product for observation errors (possibly including error covariance)
 
             if self.initial_observations:
                 obs_err = observation_err(control.control)
                 self.observations.append(
-                    ReducedFunctional(obs_err, control)
+                    ReducedFunctional(obs_err, control, tape=self.tape)
                 )
                 obs_err = observation_iprod(obs_err)
                 self.observation_rfs.append(
-                    ReducedFunctional(obs_err, control)
+                    ReducedFunctional(obs_err, control, tape=self.tape)
                 )
                 self._accumulate_functional(obs_err)
 
@@ -159,8 +166,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             # propogation over previous time-chunk.
             prev_control = self.controls[-1]
             self.forward_model_stages.append(
-                ReducedFunctional(state,
-                                  controls=prev_control)
+                ReducedFunctional(state, controls=prev_control, tape=self.tape)
             )
 
             # Beginning of next time-chunk is the control for this observation
@@ -175,19 +181,18 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             # previous and current controls
             model_err = forward_model_iprod(state - next_control.control)
             self.forward_model_rfs.append(
-                ReducedFunctional(model_err,
-                                  self.controls[-2:])
+                ReducedFunctional(model_err, self.controls[-2:], tape=self.tape)
             )
             self._accumulate_functional(model_err)
 
             # Observations after tape cut because this is now a control, not a state
             obs_err = observation_err(next_control.control)
             self.observations.append(
-                ReducedFunctional(obs_err, next_control)
+                ReducedFunctional(obs_err, next_control, tape=self.tape)
             )
             obs_err = observation_iprod(obs_err)
             self.observation_rfs.append(
-                ReducedFunctional(obs_err, next_control)
+                ReducedFunctional(obs_err, next_control, tape=self.tape)
             )
             self._accumulate_functional(obs_err)
 
@@ -212,7 +217,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             msg = "Strong constraint ReducedFunctional not instantiated for weak constraint 4DVar"
             raise AttributeError(msg)
         self._strong_reduced_functional = ReducedFunctional(
-            self.functional, self.controls)
+            self.functional, self.controls, tape=self.tape)
         return self._strong_reduced_functional
 
     @sc_passthrough
@@ -234,38 +239,34 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
 
         """
-        # update controls so derivative etc is evaluated at correct point
-        for i, value in enumerate(values):
-            self.controls[i].update(value)
-
-        controls = self.controls
+        # controls are updated by the sub ReducedFunctionals
+        # so we don't need to do it ourselves
 
         # Shift lists so indexing matches standard nomenclature:
-        # index 0 is initial condition. Model i propogates from i-1 to i.
+        # index 0 is initial condition.
+        # Model i propogates from i-1 to i.
+        # Observation i is at i.
+
         model_rfs = [None, *self.forward_model_rfs]
 
         observation_rfs = (self.observation_rfs if self.initial_observations
                            else [None, *self.observation_rfs])
 
         # Initial condition functionals
-        with self.marked_controls(0):
-            J = self.background_rf(controls[0].control)
+        J = self.background_rf(values[0])
 
         if self.initial_observations:
-            with self.marked_controls(0):
-                J += observation_rfs[0](controls[0].control)
+            J += observation_rfs[0](values[0])
 
         for i in range(1, len(model_rfs)):
             # Model error - does propogation from last control match this control?
-            prev_control = controls[i-1].control
-            this_control = controls[i].control
+            prev_control = values[i-1]
+            this_control = values[i]
 
-            with self.marked_controls((i-1, i)):
-                J += model_rfs[i]([prev_control, this_control])
+            J += model_rfs[i]([prev_control, this_control])
 
             # observation error - do we match the 'real world'?
-            with self.marked_controls(i):
-                J += observation_rfs[i](this_control)
+            J += observation_rfs[i](this_control)
 
         return J
 
@@ -354,34 +355,24 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     @sc_passthrough
     @no_annotations
     def optimize_tape(self):
-        raise NotImplementedError
+        all_rfs = [
+            self.background_rf,
+            *self.forward_model_rfs,
+            *self.observation_rfs
+        ]
+        all_functionals = [rf.functional for rf in all_rfs]
+        self.tape.optimize(
+            controls=self.controls,
+            functionals=all_functionals)
 
-    def marked_controls(self, indices=None):
-        return indexed_marked_controls(self, indices=indices)
-
-    def _accumulate_functional(self, val, annotate=True):
+    def _accumulate_functional(self, val):
         def accumulate(val):
             if hasattr(self, '_total_functional'):
                 self._total_functional += val
             else:
                 self._total_functional = val
-        if annotate:
+        if self._annotate_accumulation:
             accumulate(val)
         else:
             with stop_annotating():
                 accumulate(val)
-
-
-class indexed_marked_controls(object):
-    def __init__(self, rf, indices=None):
-        indices = range(len(rf.controls)) if indices is None else Enlist(indices)
-        self.controls_to_mark = [
-            rf.controls[i] for i in indices]
-
-    def __enter__(self):
-        for control in self.controls_to_mark:
-            control.mark_as_control()
-
-    def __exit__(self, *args):
-        for control in self.controls_to_mark:
-            control.unmark_as_control()
