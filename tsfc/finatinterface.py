@@ -58,6 +58,8 @@ supported_elements = {
     "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
     "Alfeld-Sorokina": finat.AlfeldSorokina,
+    "Arnold-Qin": finat.ArnoldQin,
+    "Reduced-Arnold-Qin": finat.ReducedArnoldQin,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
