@@ -1,5 +1,5 @@
 """
-This module provides a class to compute the Trefftz embedding of a given function space.
+Provides a class to compute the Trefftz embedding of a given function space.
 It is also used to compute aggregation embedding of a given function space.
 """
 from firedrake.petsc import PETSc
@@ -13,10 +13,9 @@ from firedrake.constant import Constant
 from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal
 import scipy.sparse as sp
 
-
 class TrefftzEmbedding(object):
     """
-    This class computes the Trefftz embedding of a given function space
+    Computes the Trefftz embedding of a given function space
     Parameters
     ----------
     V : :class:`.FunctionSpace`
