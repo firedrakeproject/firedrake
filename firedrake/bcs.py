@@ -134,9 +134,15 @@ class BCBase(object):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
+            fe = self._function_space.finat_element
+            tdim = self._function_space.mesh().topological_dimension()
+            if isinstance(fe, finat.Hermite) and tdim == 1:
+                return bcnodes[::tdim+1]  # every second dof is the vertex value
+            elif isinstance(fe, (finat.Hermite, finat.AlfeldSorokina)):
+                # Skip derivative nodes
+                deriv_nodes = [k for k, node in enumerate(fe.fiat_equivalent.dual) if len(node.deriv_dict) != 0]
+                deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                return np.setdiff1d(bcnodes, deriv_ids)
             else:
                 return bcnodes
 
