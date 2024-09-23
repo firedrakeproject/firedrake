@@ -12,8 +12,6 @@ RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/
 RUN bash -c "python3 firedrake-install \
     --no-package-manager \
     --disable-ssh \
-    --torch \
-    --jax \
     --honour-petsc-dir \
     --mpicc=$MPICH_DIR/mpicc \
     --mpicxx=$MPICH_DIR/mpicxx \
