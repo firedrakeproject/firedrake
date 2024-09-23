@@ -84,10 +84,11 @@ jobs:
             --install gadopt \
             --install asQ \
             --package-branch petsc JDBetteridge/merge_upstream \
-            --package-branch slepc JDBetteridge/merge-upstream \
+            --package-branch slepc JDBetteridge/merge_upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
