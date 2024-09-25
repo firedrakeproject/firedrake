@@ -83,7 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch petsc JDBetteridge/fix_mpi4_build \
+            --package-branch petsc JDBetteridge/merge_upstream \
             --package-branch slepc JDBetteridge/merge-upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
