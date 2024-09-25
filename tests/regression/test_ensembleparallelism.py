@@ -36,7 +36,7 @@ def parallel_assert(assertion, subset=None, msg=""):
     else:
         evaluation = assertion()
     all_results = MPI.COMM_WORLD.allgather(evaluation)
-    if not min(all_results):
+    if not all(all_results):
         raise AssertionError(
             "Parallel assertion failed on ranks: "
             f"{[ii for ii, b in enumerate(all_results) if not b]}\n" + msg
@@ -340,7 +340,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     else:
         error = 0
 
-    # Test send/recv etween first two spatial comms
+    # Test send/recv between first two spatial comms
     # ie: ensemble.ensemble_comm.rank == 0 and 1
     root_ranks = {ii + rank0*ensemble.comm.size for ii in range(ensemble.comm.size)}
     root_ranks |= {ii + rank1*ensemble.comm.size for ii in range(ensemble.comm.size)}
