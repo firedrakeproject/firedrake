@@ -34,6 +34,7 @@ __all__ = ("as_fiat_cell", "create_base_element",
 supported_elements = {
     # These all map directly to FInAT elements
     "Bernstein": finat.Bernstein,
+    "Bernardi-Raugel": finat.BernardiRaugel,
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
