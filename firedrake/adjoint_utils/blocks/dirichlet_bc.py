@@ -121,6 +121,14 @@ class DirichletBCBlock(Block):
             m = bc.reconstruct(g=tlm_input)
         return m
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        dep = x.output._function_arg
+        if isinstance(dep, OverloadedType):
+            x.tlm_value = x.output.reconstruct(g=dep.block_variable.tlm_value)
+        else:
+            x.tlm_value = None
+
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx, relevant_dependencies,
                                    prepared=None):
