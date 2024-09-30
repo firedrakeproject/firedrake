@@ -2,6 +2,7 @@
 Provides a class to compute the Trefftz embedding of a given function space.
 It is also used to compute aggregation embedding of a given function space.
 """
+from typing import Optional
 from firedrake.petsc import PETSc
 from firedrake.cython.dmcommon import FACE_SETS_LABEL, CELL_SETS_LABEL
 from firedrake.assemble import assemble
@@ -10,18 +11,19 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.function import Function
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.constant import Constant
-from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal
+from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal, Form
 import scipy.sparse as sp
+import numpy as np
 
-class TrefftzEmbedding(object):
+__all__ = ["TrefftzEmbedding", "trefftz_ksp", "AggregationEmbedding", "dumb_aggregation"]
+
+class TrefftzEmbedding:
     """
     Computes the Trefftz embedding of a given function space
     Parameters
     ----------
-    V : :class:`.FunctionSpace`
-        Ambient function space.
-    b : :class:`.ufl.form.Form`
-        Bilinear form defining the Trefftz operator.
+    V : Ambient function space.
+    b : Bilinear form defining the Trefftz operator.
     dim : int, optional
         Dimension of the embedding.
         Default is the dimension of the function space.
@@ -32,19 +34,20 @@ class TrefftzEmbedding(object):
         Backend to use for the computation of the SVD.
         Default is "scipy".
     """
-    def __init__(self, V, b, dim=None, tol=1e-12, backend="scipy"):
+    def __init__(self, V: FunctionSpace, b: Form, dim: Optional[int] = None,
+                 tol: Optional[float]=1e-12):
         self.V = V
         self.b = b
         self.dim = V.dim() if not dim else dim + 1
         self.tol = tol
-        self.backend = backend
+        self.svdsolver = "scipy"
 
-    def assemble(self):
+    def assemble(self) -> tuple[PETSc.Mat, np.array]:
         """
         Assemble the embedding, compute the SVD and return the embedding matrix
         """
         self.B = assemble(self.b).M.handle
-        if self.backend == "scipy":
+        if self.svdsolver == "scipy":
             indptr, indices, data = self.B.getValuesCSR()
             Bsp = sp.csr_matrix((data, indices, indptr), shape=self.B.getSize())
             _, sig, VT = sp.linalg.svds(Bsp, k=self.dim-1, which="SM")
@@ -61,6 +64,8 @@ class trefftz_ksp(object):
     """
     This class wraps a PETSc KSP object to solve the reduced
     system obtained by the Trefftz embedding.
+    
+    There will bne no type hinting following petsc4py's style.
     """
     def __init__(self):
         pass
