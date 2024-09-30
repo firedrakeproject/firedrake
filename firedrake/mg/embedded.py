@@ -12,15 +12,18 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced Hsieh-Clough-Tocher", "Johnson-Mercier"])
-non_native_variants = frozenset(["integral", "fdm"])
+native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
+alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
+                             "Arnold-Qin", "Reduced-Arnold-Qin", "Alfeld-Sorokina"])
+non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
 def get_embedding_element(element):
     dg_element = get_embedding_dg_element(element)
-    if element.family() in alfeld_families:
-        dg_element = dg_element.reconstruct(variant="alfeld")
+    variant = element.variant() or "default"
+    family = element.family()
+    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
+        dg_element = dg_element.reconstruct(variant="powell-sabin")
     return dg_element
 
 

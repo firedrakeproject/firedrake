@@ -7,7 +7,7 @@ from firedrake.mesh import plex_from_cell_list
 def alfeld_split(msh):
     dim = msh.geometric_dimension()
     coords = msh.coordinates.dat.data.reshape((-1, dim))
-    coords = numpy.row_stack((coords, numpy.average(coords, 0)))
+    coords = numpy.vstack((coords, numpy.average(coords, 0)))
     cells = [list(map(lambda i: dim+1 if i == j else i, range(dim+1))) for j in range(dim+1)]
     plex = plex_from_cell_list(dim, cells, coords, msh.comm)
     return Mesh(plex)
@@ -68,8 +68,8 @@ def test_macro_quadrature_piecewise(degree, variant, meshes):
             c = Constant(numpy.arange(1, gdim+1))
             expr = abs(dot(c, x - x0)) ** degree
         elif variant == "iso":
-            vecs = list(map(Constant, numpy.row_stack([numpy.eye(gdim),
-                                                       numpy.ones((max(degree-gdim, 0), gdim))])))
+            vecs = list(map(Constant, numpy.vstack([numpy.eye(gdim),
+                                                    numpy.ones((max(degree-gdim, 0), gdim))])))
             expr = numpy.prod([abs(dot(c, x)) for c in vecs[:degree]])
         else:
             raise ValueError("Unexpected variant")
