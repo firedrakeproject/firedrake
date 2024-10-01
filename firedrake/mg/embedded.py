@@ -14,7 +14,7 @@ __all__ = ("TransferManager", )
 
 native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
 alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Arnold-Qin", "Reduced-Arnold-Qin", "Alfeld-Sorokina"])
+                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu"])
 non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
@@ -23,6 +23,8 @@ def get_embedding_element(element):
     dg_element = get_embedding_dg_element(element, broken_cg=broken_cg)
     variant = element.variant() or "default"
     family = element.family()
+    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
+    # This yields supermesh projection
     if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
         dg_element = dg_element.reconstruct(variant="powell-sabin")
     return dg_element
@@ -71,7 +73,7 @@ class TransferManager(object):
             return True
         if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
             return reduce(and_, map(self.is_native, element.sub_elements))
-        return element.family() in native_families and not element.variant() in non_native_variants
+        return (element.family() in native_families) and not (element.variant() in non_native_variants)
 
     def _native_transfer(self, element, op):
         try:
