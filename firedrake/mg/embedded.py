@@ -19,7 +19,8 @@ non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
 def get_embedding_element(element):
-    dg_element = get_embedding_dg_element(element)
+    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
+    dg_element = get_embedding_dg_element(element, broken_cg=broken_cg)
     variant = element.variant() or "default"
     family = element.family()
     if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):

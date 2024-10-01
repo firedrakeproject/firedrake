@@ -4,7 +4,7 @@ import finat.ufl
 import ufl
 
 
-def get_embedding_dg_element(element):
+def get_embedding_dg_element(element, broken_cg=False):
     cell = element.cell
     degree = element.degree()
     family = lambda c: "DG" if c.is_simplex() else "DQ"
@@ -16,7 +16,7 @@ def get_embedding_dg_element(element):
                                                               for (c, d) in zip(cell.sub_cells(), degree)))
     else:
         scalar_element = finat.ufl.FiniteElement(family(cell), cell=cell, degree=degree)
-    if element.sobolev_space in {ufl.H1, ufl.H2}:
+    if broken_cg:
         scalar_element = finat.ufl.BrokenElement(scalar_element.reconstruct(family="Lagrange"))
     shape = element.value_shape
     if len(shape) == 0:
