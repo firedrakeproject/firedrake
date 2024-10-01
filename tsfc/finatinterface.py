@@ -61,6 +61,7 @@ supported_elements = {
     "Alfeld-Sorokina": finat.AlfeldSorokina,
     "Arnold-Qin": finat.ArnoldQin,
     "Reduced-Arnold-Qin": finat.ReducedArnoldQin,
+    "Christiansen-Hu": finat.ChristiansenHu,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
