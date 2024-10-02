@@ -1759,6 +1759,16 @@ def _as_global_kernel_arg_interior_facet(_, self):
     return op2.DatKernelArg((2,))
 
 
+@_as_global_kernel_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
+def _as_global_kernel_arg_exterior_facet_orientation(_, self):
+    return op2.DatKernelArg((1,))
+
+
+@_as_global_kernel_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
+def _as_global_kernel_arg_interior_facet_orientation(_, self):
+    return op2.DatKernelArg((2,))
+
+
 @_as_global_kernel_arg.register(CellFacetKernelArg)
 def _as_global_kernel_arg_cell_facet(_, self):
     if self._mesh.extruded:
@@ -2051,6 +2061,16 @@ def _as_parloop_arg_exterior_facet(_, self):
 @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
 def _as_parloop_arg_interior_facet(_, self):
     return op2.DatParloopArg(self._mesh.interior_facets.local_facet_dat)
+
+
+@_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
+def _as_parloop_arg_exterior_facet_orientation(_, self):
+    return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
+
+
+@_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
+def _as_parloop_arg_interior_facet_orientation(_, self):
+    return op2.DatParloopArg(self._mesh.interior_facets.local_facet_orientation_dat)
 
 
 @_as_parloop_arg.register(CellFacetKernelArg)
