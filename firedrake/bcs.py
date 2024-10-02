@@ -137,8 +137,8 @@ class BCBase(object):
             fe = self._function_space.finat_element
             tdim = self._function_space.mesh().topological_dimension()
             if isinstance(fe, finat.Hermite) and tdim == 1:
-                return bcnodes[::tdim+1]  # every second dof is the vertex value
-            elif isinstance(fe, (finat.Hermite, finat.AlfeldSorokina)):
+                return bcnodes[::2]  # every second dof is the vertex value
+            elif isinstance(fe, finat.AlfeldSorokina):
                 # Skip derivative nodes
                 deriv_nodes = [k for k, node in enumerate(fe.fiat_equivalent.dual) if len(node.deriv_dict) != 0]
                 deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
