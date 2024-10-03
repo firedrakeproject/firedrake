@@ -1,5 +1,7 @@
+.PHONY: all
 all: modules
 
+.PHONY: modules
 modules:
 	@echo "    Building extension modules"
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
@@ -12,6 +14,7 @@ else
 	FLAKE8_FORMAT=
 endif
 
+.PHONY: lint
 lint:
 	@echo "    Linting firedrake codebase"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
@@ -20,11 +23,13 @@ lint:
 	@echo "    Linting firedrake scripts"
 	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 
+.PHONY: actionlint
 actionlint:
 	@echo "    Pull latest actionlint image"
 	@docker pull rhysd/actionlint:latest
 	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
+.PHONY: dockerlint
 dockerlint:
 	@echo "    Pull latest hadolint image"
 	@docker pull hadolint/hadolint:latest
@@ -38,6 +43,7 @@ dockerlint:
 			|| exit 1; \
 	done
 
+.PHONY: clean
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
@@ -65,33 +71,84 @@ clean:
 	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/mg/impl.c"
 	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
+	@echo "    RM tinyasm/*.so"
+	-@rm -f tinyasm/*.so
 
+# This is the minimum required to run the test suite
+NPROCS=8
+# On CI we add additional `pytest` args to spit out more information
+PYTEST_ARGS=
+# specifically --durations=200 --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 -s
+# and --cov firedreake once the performance regression is fixed!
 
-THREADS=1
-ifeq ($(THREADS), 1)
-	PYTEST_ARGS=
-else
-	PYTEST_ARGS=-n $(THREADS)
-endif
+# Requires pytest and pytest-mpi only
+.PHONY: test_serial
+test_serial:
+	@echo "    Running all tests in serial"
+	@python -m pytest -v tests
 
-test_regression: modules
-	@echo "    Running non-extruded regression tests"
-	@python -m pytest tests/regression $(PYTEST_ARGS)
+# Requires pytest and pytest-mpi only
+.PHONY: test_smoke
+test_smoke:
+	@echo "    Running the bare minimum smoke tests"
+	@python -m pytest -k "poisson_strong or stokes_mini or dg_advection" -v tests/regression/
 
-test_extrusion: modules
-	@echo "    Running extruded regression tests"
-	@python -m pytest tests/extrusion $(PYTEST_ARGS)
+.PHONY: _test_serial_tests
+_test_serial_tests:
+	@echo "    Running serial tests over $(NPROCS) threads"
+	@python -m pytest \
+		-n $(NPROCS) --dist worksteal \
+		$(PYTEST_ARGS) \
+		-m "not parallel" \
+		-v tests
 
-test_demos: modules
-	@echo "    Running test of demos"
-	@python -m pytest tests/demos $(PYTEST_ARGS)
+.PHONY: _test_small_world_tests
+_test_small_world_tests:
+	@echo "    Running parallel tests over $(NPROCS) ranks"
+	@for N in 2 3 4 ; do \
+		echo "    COMM_WORLD=$$N ranks"; \
+		mpispawn -nU $(NPROCS) -nW $$N --propagate-errcodes python -m pytest \
+			--splitting-algorithm least_duration \
+			--splits \$$MPISPAWN_NUM_TASKS \
+			--group \$$MPISPAWN_TASK_ID1 \
+			$(PYTEST_ARGS) \
+			-m "parallel[\$$MPISPAWN_WORLD_SIZE] and not broken" \
+			-v tests; \
+	done
 
-test: modules
-	@echo "    Running all regression tests"
-	@python -m pytest tests $(PYTEST_ARGS)
+.PHONY: _test_large_world_test
+_test_large_world_tests:
+	@echo "    Running parallel tests over $(NPROCS) ranks"
+	@for N in 6 7 8 ; do \
+		echo "    COMM_WORLD=$$N ranks"; \
+		mpiexec -n $$N python -m pytest \
+			$(PYTEST_ARGS) \
+			-m "parallel[$$N] and not broken" \
+            -v tests; \
+	done
 
-alltest: modules lint test
+.PHONY: test_adjoint
+test_adjoint:
+	@echo "    Running adjoint tests over $(NPROCS) threads"
+	@python -m pytest \
+		$(PYTEST_ARGS) \
+		-v $(VIRTUAL_ENV)/src/pyadjoint/tests/firedrake-adjoint
 
-shorttest: modules lint
-	@echo "    Running short regression tests"
-	@python -m pytest --short tests $(PYTEST_ARGS)
+# Additionally requires pytest-xdist, mpispawn and pytest-split
+.PHONY: test
+test: _test_serial_tests _test_small_world_tests _test_large_world_tests
+
+.PHONY: test_ci
+test_ci: test test_adjoint
+
+.PHONY: test_generate_timings
+test_generate_timings:
+	@echo "    Generate timings to optimise pytest-split"
+	for N in 2 3 4 ; do \
+		@mpiexec \
+			-n 1 pytest --store-durations -m "parallel[$$N] and not broken" -v tests : \
+			-n $$(( $$N - 1 )) pytest -m "parallel[$$N] and not broken" -q tests; \
+	done
+
+.PHONY: alltest
+alltest: modules lint test_serial
