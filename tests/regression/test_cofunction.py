@@ -60,3 +60,43 @@ def test_scalar_cofunction_zero_with_subset(V):
     assert f is g
     assert np.allclose(f.dat.data_ro[:2], 0.0)
     assert np.allclose(f.dat.data_ro[2:], 1.0)
+
+
+def test_diriclet_bc_rhs(V):
+    # Issue https://github.com/firedrakeproject/firedrake/issues/3498
+    # Apply DirichletBC to RHS (Cofunction) in LinearVariationalSolver
+    mesh = UnitIntervalMesh(2)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test, trial = TestFunction(space), TrialFunction(space)
+
+    # Form RHS
+    u = Function(space, name="u")
+    problem = LinearVariationalProblem(
+        inner(trial, test) * dx, inner(Constant(1.0), test) * dx, u,
+        DirichletBC(space, 0.0, "on_boundary"))
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+
+    assert np.allclose(assemble(inner(u, u) * ds), 0.0)
+
+    # Cofunction RHS
+    b = assemble(inner(Constant(1.0), test) * dx)
+    u = Function(space, name="u")
+    problem = LinearVariationalProblem(
+        inner(trial, test) * dx, b, u,
+        DirichletBC(space, 0.0, "on_boundary"))
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+
+    assert np.allclose(assemble(inner(u, u) * ds), 0.0)
+
+    # FormSum RHS
+    b = assemble(inner(Constant(0.5), test) * dx) + inner(Constant(0.5), test) * dx
+    u = Function(space, name="u")
+    problem = LinearVariationalProblem(
+        inner(trial, test) * dx, b, u,
+        DirichletBC(space, 0.0, "on_boundary"))
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+
+    assert np.allclose(assemble(inner(u, u) * ds), 0.0)
