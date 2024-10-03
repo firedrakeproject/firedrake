@@ -24,7 +24,7 @@ jobs:
   build:
     name: "Build Firedrake"
     # Run on our self-hosted machines
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
