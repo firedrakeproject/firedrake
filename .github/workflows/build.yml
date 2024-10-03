@@ -136,7 +136,7 @@ jobs:
           rm -rf firedrake_venv
   docker_tag:
     name: "Set the Docker release tag"
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     if: ${{ github.ref == 'refs/heads/master' }}
     steps:
       - name: Set release tag
