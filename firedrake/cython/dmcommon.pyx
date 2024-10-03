@@ -575,9 +575,12 @@ def closure_ordering(mesh, closure_data):
         PETSc.DM dm
         PetscInt tdim, cell, v_start, v_end
         PetscInt nverts_per_cell, nedges_per_cell, nfacets_per_cell
-        PetscInt *verts=NULL, *edges=NULL, *facets=NULL, *global_verts=NULL
-        PetscInt *edge_verts=NULL, *edge_incident_verts=NULL
-        PetscInt nfacet_closure, *facet_closure=NULL, *facet_verts=NULL
+        PetscInt *verts=NULL,*facets=NULL
+        const PetscInt *edge_verts=NULL
+        PetscInt *edge_incident_verts=NULL, *edges=NULL, *global_verts=NULL
+        PetscInt *facet_closure=NULL
+        PetscInt nfacet_closure
+        PetscInt *facet_verts=NULL
         const PetscInt *edge_cone=NULL
 
     dm = mesh.topology_dm
