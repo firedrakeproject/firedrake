@@ -63,6 +63,7 @@ supported_elements = {
     "Reduced-Arnold-Qin": finat.ReducedArnoldQin,
     "Christiansen-Hu": finat.ChristiansenHu,
     "Guzman-Neilan": finat.GuzmanNeilan,
+    "Guzman-Neilan Bubble": finat.GuzmanNeilanBubble,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
