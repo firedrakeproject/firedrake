@@ -114,14 +114,24 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        nspaces = len(self.function_space())
-        if nspaces > 1:
-            return tuple(
-                CoordinatelessFunction(V, self.dat[i], name=f"{self.name()}[{i}]")
-                for i, V in enumerate(self.function_space())
-            )
+        if len(self.function_space()) > 1:
+            subfuncs = []
+            for subspace in self.function_space():
+                subdat = self.dat[subspace.index]
+                # relabel the axes (remove suffix)
+                subaxes = subdat.axes.relabel({
+                    label: label.removesuffix(f"_{subspace.index}")
+                    for label in subdat.axes.node_labels
+                    if label.startswith("dof")
+                })
+                # .with_axes
+                subdat = op3.HierarchicalArray(subaxes, data=subdat.buffer, name=subdat.name)
+                subfunc = CoordinatelessFunction(
+                    subspace, subdat, name=f"{self.name()}[{subspace.index}]"
+                )
+                subfuncs.append(subfunc)
+            return tuple(subfuncs)
         else:
-            assert nspaces == 1
             return (self,)
 
     @PETSc.Log.EventDecorator()

@@ -523,8 +523,8 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
 
     indices = op3.IndexTree.from_nest({
         plex._fiat_closure(cell): [
-            op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            for _ in range(plex.dimension+1)
+            op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
+            for d in range(plex.dimension+1)
         ]
     })
     return _with_shape_indices(V, indices)

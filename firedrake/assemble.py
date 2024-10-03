@@ -1173,7 +1173,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
         # TODO this is more convoluted than strictly needed, add a factory method?
         sf = op3.sf.single_star(comm)
-        axis = op3.Axis(1, sf=sf)
+        axis = op3.Axis([op3.AxisComponent(1, sf=sf)])
         return op3.HierarchicalArray(
             axis,
             data=numpy.asarray([0.0], dtype=utils.ScalarType),
@@ -1492,7 +1492,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     Vcol = Vcol[cindex]
 
                 if integral_type == "cell":
-                    iterset = plex.owned_cells
+                    iterset = plex.cells.owned
                     index = iterset.index()
                     rmap = _cell_integral_pack_indices(Vrow, index)
                     cmap = _cell_integral_pack_indices(Vcol, index)
@@ -1534,7 +1534,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         loops = []
         for integral_type in allocation_integral_types:
             if integral_type == "cell":
-                iterset = plex.owned_cells
+                iterset = plex.cells.owned
                 index = iterset.index()
                 rmap = _cell_integral_pack_indices(Vrow, index)
                 cmap = _cell_integral_pack_indices(Vcol, index)
@@ -2057,7 +2057,7 @@ class _FormHandler:
     @staticmethod
     def index_tensor(tensor, form, indices, diagonal):
         """Return the (indexed) pyop3 data structure tied to ``tensor``."""
-        indices = tuple(i if i is not None else Ellipsis for i in indices)
+        # indices = tuple(i if i is not None else Ellipsis for i in indices)
 
         rank = len(form.arguments())
         if rank == 0:
@@ -2065,7 +2065,10 @@ class _FormHandler:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             index, = indices
-            return tensor.dat[index]
+            if index is None:
+                return tensor.dat
+            else:
+                return tensor.subfunctions[index].dat
         elif rank == 2:
             return tensor.M[indices]
         else:

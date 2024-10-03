@@ -27,7 +27,7 @@ from pyop2.mpi import (
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one
+from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one, single_valued
 from tsfc.finatinterface import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
@@ -684,32 +684,34 @@ class AbstractMeshTopology(abc.ABC):
             # there are lots of parameters that can change distributions.
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
-            # Mark OP2 entities and derive the resulting Plex renumbering
+
             if perm_is:
                 self._dm_renumbering = perm_is
             elif reorder:
                 # NOTE: This should surely be the default?!
-                with PETSc.Log.Event("MeshTopology renumber"):
+                # NOTE: This is not actually a terribly good renumbering as the
+                # numberings for the different entity types are not interleaved.
+                # We should go back to using the PyOP2 cell local renumbering
+                # from the paper.
+                with PETSc.Log.Event("Renumber mesh topology"):
                     self._dm_renumbering = self.topology_dm.getOrdering(
                         PETSc.Mat.OrderingType.RCM
                     )
             else:
-                # TODO better to make this None
-                self._dm_renumbering = PETSc.IS().createGeneral(
-                    np.arange(self.num_points(), dtype=IntType), comm=self._comm
-                )
+                self._dm_renumbering = None
 
-            points = op3.Axis(
-                [
-                    op3.AxisComponent(self.num_entities(d), label=str(d))
-                    for d in self.depth_strata_order
-                ],
-                numbering=self._dm_renumbering.indices,
-                label=self.name,
-            )
+            p_start, p_end = topology_dm.getChart()
+            n_points = p_end - p_start
+            flat_points = op3.Axis({"mylabel": n_points}, label=f"{self.name}_flat")
+
             if self.comm.size > 1:
+                raise NotImplementedError
                 points = op3.Axis.from_serial(points, self.topology_dm.getPointSF())
-            self.points = points
+
+            # TODO: AxisForest?
+            self.flat_points = flat_points
+
+            self.points = flat_points[self._strata_slice]  # or strata_axis?
 
         self._callback = callback
         # Set/Generate names to be used when checkpointing.
@@ -759,30 +761,30 @@ class AbstractMeshTopology(abc.ABC):
     @utils.cached_property
     def _vertex_numbering(self):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
-        return self._entity_numbering(self.vertex_label)
+        return self._entity_numbering(0)
 
     @utils.cached_property
     def _cell_numbering(self):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
-        return self._entity_numbering(self.cell_label)
+        return self._entity_numbering(self.dimension)
 
     @utils.cached_property
     def _facet_numbering(self):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
-        return self._entity_numbering(self.facet_label)
+        return self._entity_numbering(self.dimension-1)
 
-    def _entity_numbering(self, label):
-        component_index = tuple(c.label for c in self.points.components).index(label)
-
+    # TODO: Cache this?
+    def _entity_numbering(self, dim):
         section = PETSc.Section().create(self._comm)
         section.setChart(*self.topology_dm.getChart())
 
-        renumbering = self.points._default_to_applied_numbering[component_index]
-        for old_component_num, new_component_num in enumerate(renumbering):
-            old_pt = old_component_num + self.points._component_offsets[component_index]
-            section.setOffset(old_pt, new_component_num)
-            section.setDof(old_pt, 1)
+        if self._dm_renumbering is not None:
+            section.setPermutation(self._dm_renumbering)
 
+        for pt in range(*self.topology_dm.getDepthStratum(dim)):
+            section.setDof(pt, 1)
+
+        section.setUp()
         return section
 
     @property
@@ -893,6 +895,55 @@ class AbstractMeshTopology(abc.ABC):
         """
         pass
 
+    @cached_property
+    def _entity_indices(self):
+        # TODO: Explain why, at this point, we only care about interleaving and the ordering
+        # does not really matter
+        indices = []
+        perm = self._dm_renumbering.indices
+        for dim in range(self.dimension+1):
+            p_start, p_end = self._topology_dm.getDepthStratum(dim)
+            ixs = np.argwhere((p_start <= perm) & (perm < p_end))
+            ixs.flags.writeable = False
+            indices.append(ixs)
+        return tuple(indices)
+
+    @cached_property
+    def _strata_slice(self):
+        subsets = []
+        if self._dm_renumbering is None:
+            for dim in self._plex_strata_ordering:
+                start, end = self.topology_dm.getDepthStratum(dim)
+                slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
+                subsets.append(slice_component)
+        else:
+            for dim in self._plex_strata_ordering:
+                indices = self._entity_indices[dim]
+                subset_axes = op3.Axis(indices.size)
+                subset_array = op3.HierarchicalArray(subset_axes, data=indices)
+                subset = op3.Subset("mylabel", subset_array, label=str(dim))
+                subsets.append(subset)
+
+        return op3.Slice(f"{self.name}_flat", subsets, label=self.name)
+
+    @property
+    def _plex_strata_ordering(self):
+        """Map from entity dimension to ordering in the DMPlex numbering.
+
+        For example, 3D meshes begin by numbering cells from 0, then vertices,
+        then faces and lastly edges.
+
+        """
+        if self.dimension == 0:
+            return (0,)
+        elif self.dimension == 1:
+            return (1, 0)
+        elif self.dimension == 2:
+            return (2, 0, 1)
+        else:
+            assert self.dimension == 3
+            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
+
     def closure(self, index, ordering=ClosureOrdering.PLEX):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)
@@ -906,6 +957,25 @@ class AbstractMeshTopology(abc.ABC):
             return self._fiat_closure(index)
         else:
             raise ValueError(f"{ordering} is not a recognised closure ordering option")
+
+    @cached_property
+    def _closure_sizes(self):
+        # Determine the closure size for the given dimension. For triangles
+        # this would be:
+        #
+        #     (1, 0, 0) if dim == 0 (vertex)
+        #     (2, 1, 0) if dim == 1 (edge)
+        #     (3, 3, 1) if dim == 2 (cell)
+        sizes = [[] for _ in range(self.dimension+1)]
+        for dim in range(self.dimension+1):
+            cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
+            for d in range(dim+1):
+                # This tells us the points with dimension d that lie in the closure
+                # of the different points with dimension dim. We just want to know
+                # how many there are (e.g. each edge is connected to 2 vertices).
+                closures = cell_connectivity[dim, d]
+                sizes[dim].append(single_valued(map(len, closures)))
+        return tuplify(sizes)
 
     @cached_property
     def _plex_closure(self):
@@ -923,60 +993,64 @@ class AbstractMeshTopology(abc.ABC):
             # FIAT ordering is only valid for cell closures
             dims = (self.dimension,)
 
-        closures = {}
+        closures = []
         for dim in dims:
-            _closure_data, _closure_sizes = self._plex_closures_renum
-            closure_data = _closure_data[dim]
-            closure_sizes = _closure_sizes[dim]
-            # closures are, for now, always a constant size
-            assert all(isinstance(s, numbers.Integral) for s in closure_sizes)
+            closure_data = self._plex_closures_default[dim]
 
-            numbering = None  # TODO delete
             if ordering == ClosureOrdering.FIAT:
                 # TODO If the plex is oriented at instantiation, these methods
                 # can be avoided and the default below used.
                 # See https://github.com/firedrakeproject/firedrake/pull/3332.
                 if self.ufl_cell().is_simplex():
-                    closure_data = self._reorder_closure_fiat_simplex(
-                        closure_data, closure_sizes
-                    )
+                    closure_data = self._reorder_closure_fiat_simplex(closure_data)
                 elif self.ufl_cell() == ufl.quadrilateral:
-                    closure_data = self._reorder_closure_fiat_quad(
-                        closure_data, closure_sizes
-                    )
-
-                    numbering = None
+                    closure_data = self._reorder_closure_fiat_quad(closure_data)
                 else:
                     assert self.ufl_cell() == ufl.hexahedron
                     closure_data = self._reorder_closure_fiat_hex(closure_data)
 
+            # Break apart the closure data per dimension and renumber it.
+            # NOTE: We could also just pass the closure through as-is (without renumbering).
+            # This would be less efficient as the loop extents would be runtime arrays.
+            closure_data_split = []
+            offset = 0
+            for map_dim, size in reversed(list(enumerate(self._closure_sizes[dim]))):
+                closure_data_XXX = closure_data[:, offset:offset+size]
+                closure_data_split.append(self._renumber_map(dim, map_dim, closure_data_XXX))
+                offset += size
+
+            # TODO: Cleanup. This is here because we have a tricksy way of slicing out
+            # the right bits of the closure maps above.
+            closure_data_split = list(reversed(closure_data_split))
+
             map_components = []
-            for map_dim, (size, data) in enumerate(
-                checked_zip(closure_sizes, closure_data)
-            ):
+            for map_dim, map_data in enumerate(closure_data_split):
+                _, size = map_data.shape
                 if size == 0:
                     continue
 
                 target_axis = self.name
                 target_dim = str(map_dim)
 
-                outer_axis = self.points[str(dim)].root
-                inner_axis = op3.Axis(size)
+                # Discard any parallel information, the maps are purely local
+                outer_axis_component = just_one(c for c in self.points.root.components if c.label == str(dim))
+                outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
                 map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: inner_axis}
+                    {outer_axis: op3.Axis(size)}
                 )
                 map_dat = op3.HierarchicalArray(
-                    map_axes, data=data.flatten(), prefix="closure"
+                    map_axes, data=map_data.flatten(), prefix="closure"
                 )
                 map_components.append(
                     op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
                 )
-            closures[freeze({self.name: str(dim)})] = map_components
+            closure_map = freeze({pmap({self.name: str(dim)}): map_components})
+            closures.append(closure_map)
 
-        return op3.Map(closures, numbering=numbering, name="closure")
+        return op3.Map(closures, name="closure")
 
-    def _reorder_closure_fiat_simplex(self, closure_data, closure_sizes):
-        return dmcommon.closure_ordering(self, closure_data, closure_sizes)
+    def _reorder_closure_fiat_simplex(self, closure_data):
+        return dmcommon.closure_ordering(self, closure_data)
 
     def _reorder_closure_fiat_quad(self, closure_data, closure_sizes):
         from firedrake_citations import Citations
@@ -1084,6 +1158,25 @@ class AbstractMeshTopology(abc.ABC):
 
     def star(self, index, *, k=None):
         return self._star(k=k)(index)
+
+    # TODO: Cythonize
+    def _renumber_map(self, src_dim, dest_dim, map_data):
+        src_renumbering = self._entity_numbering(src_dim)
+        dest_renumbering = self._entity_numbering(dest_dim)
+
+        # TODO: We should distinguish between different numberings
+        # (from plex point or "component-wise" point)
+        src_offset, _ = self.topology_dm.getDepthStratum(src_dim)
+
+        map_data_renum = np.empty_like(map_data)
+        for src_pt, map_data_per_pt in enumerate(map_data):
+            src_pt_renum = src_renumbering.getOffset(src_pt) - src_offset
+            for i, dest_pt in enumerate(map_data_per_pt):
+                dest_pt_renum = dest_renumbering.getOffset(dest_pt)
+                map_data_renum[src_pt_renum, i] = dest_pt_renum
+
+        map_data_renum.flags.writeable = False
+        return map_data_renum
 
     # TODO: restore caching here
     # @cached_property
@@ -1324,20 +1417,6 @@ class AbstractMeshTopology(abc.ABC):
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
 
-    @property
-    @abc.abstractmethod
-    def depth_strata_order(self):
-        """Return depth strata in default numbering order.
-
-        This is useful because DMPlex numbers entities starting with cells,
-        then vertices, then everything in between. This means that the strata
-        ordering looks something like:
-
-            self.dimension ->   0   -> ...
-                (cells)       verts
-
-        """
-
     @abc.abstractmethod
     def num_points(self) -> int:
         pass
@@ -1554,6 +1633,9 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def _global_vertex_numbering(self):
+        if self.comm.size > 1:
+            raise NotImplementedError
+        return self._vertex_numbering
         return self._global_numbering[0]
 
 
@@ -1705,21 +1787,17 @@ class MeshTopology(AbstractMeshTopology):
         return tuple(np.unique(pts) for pts in points)
 
     @cached_property
-    def _plex_closures_default(self):
+    def _plex_closures_default(self) -> tuple:
         # TODO: Provide more detail about the return type
         """Memoized DMPlex point closures with default numbering.
 
         Returns
         -------
-        A tuple of closures per dimension.
+        tuple :
+            Closure data per dimension.
 
         """
-        closures, sizes = [], []
-        for dim in range(self.dimension+1):
-            closures_, sizes_ = self._memoize_closures(dim)
-            closures.append(closures_)
-            sizes.append(sizes_)
-        return tuple(closures), tuple(sizes)
+        return tuple(self._memoize_closures(dim) for dim in range(self.dimension+1))
 
     @cached_property
     def _plex_closures_renum(self):
@@ -1736,6 +1814,7 @@ class MeshTopology(AbstractMeshTopology):
         See `_plex_closures_default` for more information.
 
         """
+        raise NotImplementedError
         closures_renum = []
         closures_default, sizes = self._plex_closures_default
         for src_dim in range(self.dimension+1):
@@ -1745,28 +1824,19 @@ class MeshTopology(AbstractMeshTopology):
         return tuple(closures_renum), sizes
 
     def _memoize_closures(self, dim):
-        def closure_func(pt):
-            return self.topology_dm.getTransitiveClosure(pt)[0]
+        def closure_func(_pt):
+            return self.topology_dm.getTransitiveClosure(_pt)[0]
 
-        # Determine the closure size for the given dimension. For triangles
-        # this would be:
-        #
-        #     (1, 0, 0) if dim == 0 (vertex)
-        #     (2, 1, 0) if dim == 1 (edge)
-        #     (3, 3, 1) if dim == 2 (cell)
-        #
-        # NOTE: Here we assume that the mesh has only one cell type.
-        sizes = np.zeros(self.dimension+1, dtype=IntType)
-        cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
-        for d in range(dim+1):
-            # This tells us the points with dimension d that lie in the closure
-            # of the different points with dimension dim. We just want to know
-            # how many there are (e.g. each edge is connected to 2 vertices).
-            closures = cell_connectivity[dim, d]
-            size = op3.utils.single_valued(map(len, closures))
-            sizes[d] = size
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        npoints = p_end - p_start
+        closure_size = sum(self._closure_sizes[dim])
+        closure_data = np.empty((npoints, closure_size), dtype=IntType)
 
-        return self._memoize_map(closure_func, dim, sizes)
+        for i, pt in enumerate(range(p_start, p_end)):
+            closure_data[i] = closure_func(pt)
+
+        closure_data.flags.writeable = False
+        return closure_data
 
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
@@ -1784,7 +1854,8 @@ class MeshTopology(AbstractMeshTopology):
         )
 
         src_label = str(dim)
-        src_strata_offset = self.points.component_offset(src_label)
+        # src_strata_offset = self.points.component_offset(src_label)
+        src_strata_offset = pstart
 
         for pt in range(pstart, pend):
             # stratum, stratum_pt = self.points.axis_to_component_number(pt)
@@ -1836,29 +1907,32 @@ class MeshTopology(AbstractMeshTopology):
         # assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
         return map_data, sizes
 
-    def _renumber_map(self, map_data, src_dim):
-        # TODO: Rename vars here to be non-closure specific
-        closures_default = map_data
-        closures_renum = tuple(np.empty_like(cl) for cl in closures_default)
-        src_label = str(src_dim)
-        src_renumbering = self.points.component_numbering(src_label)
-
-        for dest_dim in range(self.dimension+1):
-            dest_label = str(dest_dim)
-            dest_renumbering = self.points.component_numbering(dest_label)
-            dest_strata_offset = self.points.component_offset(dest_label)
-
-            # This is the hot loop
-            closure_renum = closures_renum[dest_dim]
-            closure_default = closures_default[dest_dim]
-            for src_strata_pt, dest_pts in enumerate(closure_default):
-                dest_strata_pts = dest_pts - dest_strata_offset
-
-                src_pt_renum = src_renumbering[src_strata_pt]
-                dest_pts_renum = dest_renumbering[dest_strata_pts]
-                closure_renum[src_pt_renum] = dest_pts_renum
-
-        return closures_renum
+    # def _renumber_map(self, map_data, src_dim):
+    #     # FIXME: do later
+    #     return map_data
+    #
+    #     # TODO: Rename vars here to be non-closure specific
+    #     closures_default = map_data
+    #     closures_renum = tuple(np.empty_like(cl) for cl in closures_default)
+    #     src_label = str(src_dim)
+    #     src_renumbering = self.points.component_numbering(src_label)
+    #
+    #     for dest_dim in range(self.dimension+1):
+    #         dest_label = str(dest_dim)
+    #         dest_renumbering = self.points.component_numbering(dest_label)
+    #         dest_strata_offset = self.points.component_offset(dest_label)
+    #
+    #         # This is the hot loop
+    #         closure_renum = closures_renum[dest_dim]
+    #         closure_default = closures_default[dest_dim]
+    #         for src_strata_pt, dest_pts in enumerate(closure_default):
+    #             dest_strata_pts = dest_pts - dest_strata_offset
+    #
+    #             src_pt_renum = src_renumbering[src_strata_pt]
+    #             dest_pts_renum = dest_renumbering[dest_strata_pts]
+    #             closure_renum[src_pt_renum] = dest_pts_renum
+    #
+    #     return closures_renum
 
     @utils.cached_property
     def entity_orientations(self):
@@ -1999,15 +2073,6 @@ class MeshTopology(AbstractMeshTopology):
         eStart, eEnd = self.topology_dm.getDepthStratum(depth)
         return eEnd - eStart
 
-    @property
-    def depth_strata_order(self):
-        return tuple(
-            sorted(
-                range(self.dimension+1),
-                key=lambda i: self.topology_dm.getDepthStratum(i)
-            )
-        )
-
     def npoints_per_dim(self, dim):
         start, stop = self.topology_dm.getDepthStratum(dim)
         return stop - start
@@ -2031,7 +2096,7 @@ class MeshTopology(AbstractMeshTopology):
 
     # TODO I prefer "vertex_label"
     @property
-    def vert_label(self):
+    def vertex_label(self):
         return "0"
 
     # Think this should be put in AbstractMeshTopology class
@@ -2040,17 +2105,13 @@ class MeshTopology(AbstractMeshTopology):
         return self.points[self.cell_label]
 
     @cached_property
-    def owned_cells(self):
-        return self.cells.owned
-
-    @cached_property
     def vertices(self):
-        return self.points[self.vert_label]
+        return self.points[self.vertex_label]
 
     @property
-    @op3.utils.deprecated("owned_cells")
+    @op3.utils.deprecated("cells.owned")
     def cell_set(self):
-        return self.owned_cells
+        return self.cells.owned
 
     @PETSc.Log.EventDecorator()
     def _set_partitioner(self, plex, distribute, partitioner_type=None):
@@ -2419,10 +2480,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @property
     def dimension(self):
         return 0
-
-    @property
-    def depth_strata_order(self):
-        return (0,)
 
     def _distribute(self):
         pass
@@ -2810,25 +2867,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # Finish the initialisation of mesh topology
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            # permute the DMPlex coordinates according the permutation of the base mesh
-            # pure PETSc routines are not sufficient because PETSc does not account for
-            # only permuting a base mesh.
-            gdim = self.ufl_coordinate_element().cell.geometric_dimension()
-            plex_coords = self.topology.topology_dm.getCoordinatesLocal().array
-            new_coords = np.empty_like(plex_coords)
-
-            # build the section (badly)
-            for i, v in enumerate(range(self.topology.num_vertices())):
-                i_renum = coordinates_fs.axes.root.default_to_applied_component_number(self.topology.vert_label, i)
-                offset = coordinates_fs.axes.offset({self.topology.name: i_renum}, {self.topology.name: self.topology.vert_label})
-                for j in range(gdim):
-                    new_coords[offset+j] = plex_coords[i*gdim+j]
-
-            coordinates = function.CoordinatelessFunction(
-                coordinates_fs,
-                val=new_coords,
-                name=_generate_default_mesh_coordinates_name(self.name)
-            )
+            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                                                         (self.num_vertices(), self.ufl_coordinate_element().cell.geometric_dimension()))
+            coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                          val=coordinates_data,
+                                                          name=_generate_default_mesh_coordinates_name(self.name))
             self.__init__(coordinates)
         self._callback = callback
 

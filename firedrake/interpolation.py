@@ -946,7 +946,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # Pretend that we are assembling the operator to populate the sparsity.
             target_plex = target_mesh.topology
             op3.do_loop(
-                c := target_plex.owned_cells.index(),
+                c := target_plex.cells.owned.index(),
                 sparsity[target_plex.closure(c), target_plex.closure(c)].assign(666, eager=False),
             )
             tensor = op3.Mat.from_sparsity(sparsity)
@@ -1065,7 +1065,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         rt_var_name = 'rt_X'
         to_element = rebuild(to_element, expr, rt_var_name)
 
-    cell_set = target_mesh.topology.owned_cells
+    cell_set = target_mesh.topology.cells.owned
     if not (subset is None or subset is Ellipsis):
         raise NotImplementedError
         assert subset.superset == cell_set
