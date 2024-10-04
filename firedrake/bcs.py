@@ -137,14 +137,16 @@ class BCBase(object):
             fe = self._function_space.finat_element
             tdim = self._function_space.mesh().topological_dimension()
             if isinstance(fe, finat.Hermite) and tdim == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
-            elif isinstance(fe, finat.AlfeldSorokina):
-                # Skip derivative nodes
-                deriv_nodes = [k for k, node in enumerate(fe.fiat_equivalent.dual) if len(node.deriv_dict) != 0]
-                deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
-                return np.setdiff1d(bcnodes, deriv_ids)
-            else:
-                return bcnodes
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
+            elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
+                # Skip derivative nodes for supersmooth H1 functions
+                nodes = fe.fiat_equivalent.dual_basis()
+                deriv_nodes = [i for i, node in enumerate(nodes)
+                               if len(node.deriv_dict) != 0]
+                if len(deriv_nodes) > 0:
+                    deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                    bcnodes = np.setdiff1d(bcnodes, deriv_ids)
+            return bcnodes
 
         sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]

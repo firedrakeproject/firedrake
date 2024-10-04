@@ -14,7 +14,8 @@ __all__ = ("TransferManager", )
 
 native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
 alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu"])
+                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
+                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
 non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
