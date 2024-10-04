@@ -306,6 +306,7 @@ honoured.""",
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--show-dependencies", action="store_true",
@@ -442,6 +443,7 @@ else:
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
 
     args = parser.parse_args()
 
@@ -1856,7 +1858,10 @@ if mode == "install":
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
@@ -2001,7 +2006,10 @@ else:
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # update dependencies.
     for p in packages:
