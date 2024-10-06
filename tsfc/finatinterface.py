@@ -35,6 +35,7 @@ supported_elements = {
     # These all map directly to FInAT elements
     "Bernstein": finat.Bernstein,
     "Bernardi-Raugel": finat.BernardiRaugel,
+    "Bernardi-Raugel Bubble": finat.BernardiRaugelBubble,
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
