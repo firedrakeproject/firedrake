@@ -1705,12 +1705,7 @@ if mode == "install":
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
 run_pip(["install", "-U", "setuptools"])
-try:
-    run_pip(["install", "-U", "hatch"])
-except:
-    pass  # We know this will fail
-run_pip(["install", "cffi==1.17.0rc1"])
-run_pip(["install", "git+ssh://github.com/indygreg/python-zstandard.git@main#egg=zstandard"])
+run_pip(["install", "cffi"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
