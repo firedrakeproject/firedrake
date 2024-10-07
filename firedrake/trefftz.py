@@ -15,7 +15,7 @@ from ufl import dx, dS, inner, jump, grad, dot, CellDiameter, FacetNormal, Form
 import scipy.sparse as sp
 import numpy as np
 
-__all__ = ["TrefftzEmbedding", "trefftz_ksp", "AggregationEmbedding", "dumb_aggregation"]
+__all__ = ["TrefftzEmbedding", "TrefftzKSP", "AggregationEmbedding", "dumb_aggregation"]
 
 class TrefftzEmbedding:
     """
@@ -24,14 +24,11 @@ class TrefftzEmbedding:
     ----------
     V : Ambient function space.
     b : Bilinear form defining the Trefftz operator.
-    dim : int, optional
-        Dimension of the embedding.
+    dim : Dimension of the embedding.
         Default is the dimension of the function space.
-    tol : float, optional
-        Tolerance for the singular values cutoff.
+    tol : Tolerance for the singular values cutoff.
         Default is 1e-12.
-    backend : str, optional
-        Backend to use for the computation of the SVD.
+    backend : Backend to use for the computation of the SVD.
         Default is "scipy".
     """
     def __init__(self, V: FunctionSpace, b: Form, dim: Optional[int] = None,
@@ -60,9 +57,9 @@ class TrefftzEmbedding:
         return QTpsc, sig
 
 
-class trefftz_ksp(object):
+class TrefftzKSP:
     """
-    This class wraps a PETSc KSP object to solve the reduced
+    Wraps a PETSc KSP object to solve the reduced
     system obtained by the Trefftz embedding.
     
     There will bne no type hinting following petsc4py's style.
@@ -71,39 +68,34 @@ class trefftz_ksp(object):
         pass
 
     @staticmethod
-    def get_appctx(ksp):
+    def get_appctx(ksp: PETSc.KSP):
         """
         Get the application context from the KSP
         Parameters
         ----------
-        ksp : :class:`PETSc.KSP`
-            The KSP object
+        ksp : The KSP object
         """
         from firedrake.dmhooks import get_appctx
         return get_appctx(ksp.getDM()).appctx
 
-    def setUp(self, ksp):
+    def setUp(self, ksp: PETSc.KSP):
         """
         Set up the Trefftz KSP
         Parameters
         ----------
-        ksp : :class:`PETSc.KSP`
-            The KSP object
+        ksp : The KSP object
         """
         appctx = self.get_appctx(ksp)
         self.QT, _ = appctx["trefftz_embedding"].assemble()
 
-    def solve(self, ksp, b, x):
+    def solve(self, ksp: PETSc.KSP, b: PETSc.Vec, x:PETSc.Vec):
         """
         Solve the Trefftz KSP
         Parameters
         ----------
-        ksp : :class:`PETSc.KSP`
-            The KSP object
-        b : :class:`PETSc.Vec`
-            The right-hand side
-        x : :class:`PETSc.Vec`
-            The solution
+        ksp : The KSP object
+        b : The right-hand side
+        x : The solution
         """
         A, P = ksp.getOperators()
         self.Q = PETSc.Mat().createTranspose(self.QT)
@@ -127,20 +119,16 @@ class AggregationEmbedding(TrefftzEmbedding):
     This class computes the aggregation embedding of a given function space.
     Parameters
     ----------
-    V : :class:`.FunctionSpace`
-        Ambient function space.
-    mesh : :class:`.Mesh`
-        The mesh on which the aggregation is defined.
-    polyMesh : :class:`.Function`
-        The function defining the aggregation.
-    dim : int
-        Dimension of the embedding.
+    V : Ambient function space.
+    mesh : The mesh on which the aggregation is defined.
+    polyMesh : The function defining the aggregation.
+    dim : Dimension of the embedding.
         Default is the dimension of the function space.
-    tol : float
-        Tolerance for the singular values cutoff.
+    tol : Tolerance for the singular values cutoff.
         Default is 1e-12.
     """
-    def __init__(self, V, mesh, polyMesh, dim=None, tol=1e-12):
+    def __init__(self, V: FunctionSpace, mesh: Mesh, polyMesh: Function,
+                 dim: Optional[int] = None, tol: Optional[float]=1e-12):
         # Relabel facets that are inside an aggregated region
         offset = 1 + mesh.topology_dm.getLabelSize(FACE_SETS_LABEL)
         offset += mesh.topology_dm.getLabelSize(CELL_SETS_LABEL)
@@ -175,17 +163,14 @@ class AggregationEmbedding(TrefftzEmbedding):
         super().__init__(W, self.b, dim, tol)
 
 
-def jump_normal(u, n, k):
+def jump_normal(u: Function, n: FacetNormal, k: int):
     """
     Compute the jump of the normal derivative of a function u
     Parameters
     ----------
-    u : :class:`.Function`
-        The function.
-    n : :class:`.ufc.Normal`
-        The normal vector.
-    k : int
-        The order of the normal derivative we aim to compute.
+    u : The function.
+    n : The normal vector.
+    k : The order of the normal derivative we aim to compute.
     """
     j = 0.5*dot(n, (grad(u)("+")-grad(u)("-")))
     for _ in range(1, k):
@@ -193,13 +178,12 @@ def jump_normal(u, n, k):
     return j
 
 
-def dumb_aggregation(mesh):
+def dumb_aggregation(mesh: Mesh) -> Function:
     """
     Compute a dumb aggregation of the mesh
     Parameters
     ----------
-    mesh : :class:`.Mesh`
-        The mesh we aim to aggregate.
+    mesh : The mesh we aim to aggregate.
     """
     if mesh.comm.size > 1:
         raise NotImplementedError("Parallel mesh aggregation not supported")
