@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.trefftz import TrefftzEmbedding, AggregationEmbedding, dumb_aggregation
+import pytest
 
 
 @pytest.mark.skipcomplex
