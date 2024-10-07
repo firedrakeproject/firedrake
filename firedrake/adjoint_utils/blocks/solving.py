@@ -3,7 +3,7 @@ import ufl
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
 
-from pyadjoint import Block, stop_annotating
+from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
@@ -617,6 +617,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
+        # The number of times the block has been recomputed.
+        self._recomputed_block = 0
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
@@ -628,11 +630,22 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
 
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        tape = get_working_tape()
+        if self._ad_solvers["recompute"] == tape.recompute - 1:
+            # Update how many times the block has been recomputed.
+            self._ad_solvers["recompute"] = tape.recompute
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+                self._ad_solvers["forward_nlvs"].invalidate_jacobian()
+                self._ad_solvers["adjoint_lvs"].invalidate_jacobian()
+
+        return super().recompute_component(inputs, block_variable, idx, prepared)
+
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_nlvs_replace_forms()
-        self._ad_nlvs.parameters.update(self.solver_params)
-        self._ad_nlvs.solve()
-        func.assign(self._ad_nlvs._problem.u)
+        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
+        self._ad_solvers["forward_nlvs"].solve()
+        func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
 
     def _adjoint_solve(self, dJdu, compute_bdy):
@@ -642,36 +655,43 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for bc in bcs:
             bc.apply(dJdu)
 
-        if self._ad_nlvs._problem._constant_jacobian:
-            if self._adj_cache["recomputed_block"] == self._recomputed_block - 1:
-                self._adj_cache["recomputed_block"] = self._recomputed_block
-                self._adj_cache["dFdu_adj"] = firedrake.assemble(
-                    self._ad_update_jacobian_adj(self._adj_cache["dFdu_adj_form"]))
+        # Update the left hand side coefficients of the adjoint equation.
+        problem = self._ad_solvers["adjoint_lvs"]._problem
+        if (
+            (not problem._constant_jacobian) or
+            (problem._constant_jacobian and
+             not self._ad_solvers["adjoint_lvs"]._ctx._jacobian_assembled)
+        ):
+            for block_variable in self.get_dependencies():
+                # The self.adj_F coefficients hold the forward output
+                # references.
+                if block_variable.output in self.adj_F.coefficients():
+                    index = self.adj_F.coefficients().index(block_variable.output)
+                    if isinstance(
+                            block_variable.output, (
+                                firedrake.Function, firedrake.Constant,
+                                firedrake.Cofunction)):
+                        # jproblem.J is a deep copy of `self.adj_F`. Thus, the
+                        # indices of `self.adj_F` serve as a map for updating
+                        # the coefficients of the adjoint solver.
+                        problem.J.coefficients()[index].assign(
+                            block_variable.saved_output)
 
-            # Update the solver matrix, which the assembled Jacobian.
-            # self._ad_adj_solver.A = self._adj_cache["dFdu_adj"]
-            # self._ad_adj_solver.solve(adj_sol, dJdu)
-            adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-                self._adj_cache["dFdu_adj_form"], dJdu, compute_bdy)
-            # print(self._ad_adj_solver.A.M.values.max(), self._recomputed_block, adj_sol.dat.data_ro.max())
-            if compute_bdy:
-                jac_adj = self._adj_cache["dFdu_adj"]
-        else:
-            # Update the left hand side coefficients of the adjoint equation.
-            problem = self._ad_adj_solver._problem
-            self._ad_update_jacobian_adj(problem.J)
-            # Update the right hand side of the adjoint equation.
-            # problem.F._component[1] is the right hand side of the adjoint.
-            problem.F._components[1].assign(dJdu)
+            bv = self.get_outputs()[0]
+            if bv.output in self.adj_F.coefficients():
+                index = self.adj_F.coefficients().index(bv.output)
+                problem.J.coefficients()[index].assign(bv.checkpoint)
 
-            # Solve the adjoint equation.
-            self._ad_adj_solver.solve()
-            # M = firedrake.assemble(problem.J)
-            adj_sol = firedrake.Function(self.function_space)
-            adj_sol.assign(self._ad_adj_solver._problem.u)
-            # print(M.M.values.max(), self._recomputed_block, adj_sol.dat.data_ro.max())
-            if compute_bdy:
-                jac_adj = self._ad_adj_solver._problem.J
+        # Update the right hand side of the adjoint equation.
+        # problem.F._component[1] is the right hand side of the adjoint.
+        problem.F._components[1].assign(dJdu)
+
+        # Solve the adjoint equation.
+        self._ad_solvers["adjoint_lvs"].solve()
+        adj_sol = firedrake.Function(self.function_space)
+        adj_sol.assign(self._ad_solvers["adjoint_lvs"]._problem.u)
+        if compute_bdy:
+            jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
 
         adj_sol_bdy = None
         if compute_bdy:
@@ -680,7 +700,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return adj_sol, adj_sol_bdy
 
     def _ad_assign_map(self, form):
-        count_map = self._ad_nlvs._problem._ad_count_map
+        count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
         assign_map = {}
         form_ad_count_map = dict((count_map[coeff], coeff)
                                  for coeff in form.coefficients())
@@ -700,30 +720,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
-    def _ad_update_jacobian_adj(self, jac_adj):
-        for block_variable in self.get_dependencies():
-            # The self.adj_F coefficients hold the forward output
-            # references.
-            if block_variable.output in self.adj_F.coefficients():
-                index = self.adj_F.coefficients().index(block_variable.output)
-                if isinstance(
-                        block_variable.output, (
-                            firedrake.Function, firedrake.Constant,
-                            firedrake.Cofunction)):
-                    # jac_adj is a deep copy of `self.adj_F`. Thus, the indices
-                    # of `self.adj_F` serve as a map for updating the
-                    # coefficients of the adjoint solver.
-                    jac_adj.coefficients()[index].assign(
-                        block_variable.saved_output)
-
-        bv = self.get_outputs()[0]
-        if bv.output in self.adj_F.coefficients():
-            index = self.adj_F.coefficients().index(bv.output)
-            jac_adj.coefficients()[index].assign(bv.checkpoint)
-        return jac_adj
-
     def _ad_nlvs_replace_forms(self):
-        problem = self._ad_nlvs._problem
+        problem = self._ad_solvers["forward_nlvs"]._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
 
@@ -732,7 +730,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             dFdu = self._adj_cache["dFdu_adj"]
         else:
             dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-            if self._ad_nlvs._problem._constant_jacobian:
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
                 self._adj_cache["dFdu_adj"] = dFdu
         return dFdu
 

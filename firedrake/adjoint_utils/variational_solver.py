@@ -45,9 +45,9 @@ class NonlinearVariationalSolverMixin:
             self._ad_problem = problem
             self._ad_args = args
             self._ad_kwargs = kwargs
-            self._ad_nlvs = None
+            self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
+                                "recompute": 0}
             self._ad_adj_cache = {}
-            self._ad_adj_solver = None
 
         return wrapper
 
@@ -77,32 +77,23 @@ class NonlinearVariationalSolverMixin:
                                                        solver_kwargs=self._ad_kwargs,
                                                        ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
+
                 # Forward variational solver.
-                if not self._ad_nlvs:
-                    self._ad_nlvs = type(self)(
+                if not self._ad_solvers["forward_nlvs"]:
+                    self._ad_solvers["forward_nlvs"] = type(self)(
                         self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
                         **self._ad_kwargs
                     )
 
-                block._ad_nlvs = self._ad_nlvs
-
                 # Adjoint solver.
-                # How many times the block has been recomputed.
-                self._ad_adj_cache.update({"recomputed_block": 0})
-                if not self._ad_adj_solver:
+                if not self._ad_solvers["adjoint_lvs"]:
                     with stop_annotating():
-                        problem = self._ad_adj_lvs_problem(block)
-                        if self._ad_problem._constant_jacobian:
-                            assembled_J = assemble(problem.J)
-                            self._ad_adj_cache.update({"dFdu_adj": assembled_J})
-                            self._ad_adj_cache.update({"dFdu_adj_form": problem.J})
-                            self._ad_adj_solver = LinearSolver(
-                                self._ad_adj_cache["dFdu_adj"],
-                                solver_parameters=self.parameters)
-                        else:
-                            self._ad_adj_solver = LinearVariationalSolver(
-                                problem, solver_parameters=self.parameters)
-                block._ad_adj_solver = self._ad_adj_solver
+                        self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
+                            self._ad_adj_lvs_problem(
+                                block, self._ad_problem._constant_jacobian),
+                            solver_parameters=self.parameters)
+
+                block._ad_solvers = self._ad_solvers
 
                 tape.add_block(block)
 
@@ -137,7 +128,7 @@ class NonlinearVariationalSolverMixin:
         return nlvp
 
     @no_annotations
-    def _ad_adj_lvs_problem(self, block):
+    def _ad_adj_lvs_problem(self, block, constant_jacobian):
         """Create the adjoint variational problem."""
         from firedrake import Function, Cofunction, LinearVariationalProblem
         # Homogeneous boundary conditions for the adjoint problem
@@ -147,7 +138,7 @@ class NonlinearVariationalSolverMixin:
         right_hand_side = Cofunction(block.function_space.dual())
         tmp_problem = LinearVariationalProblem(
             block.adj_F, right_hand_side,
-            adj_sol, bcs=bcs)
+            adj_sol, bcs=bcs, constant_jacobian=constant_jacobian)
         # The `block.adj_F` coefficients hold the output references.
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the forward
@@ -156,7 +147,7 @@ class NonlinearVariationalSolverMixin:
             tmp_problem, block._dependencies)
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
-            bcs=tmp_problem.bcs)
+            bcs=tmp_problem.bcs, constant_jacobian=constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)
         del tmp_problem
         return lvp
