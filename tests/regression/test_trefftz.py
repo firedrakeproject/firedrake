@@ -35,7 +35,7 @@ def test_trefftz_laplace():
     appctx = {"trefftz_embedding": embd}
     uDG = Function(V)
     solve(aDG == L, uDG, solver_parameters={"ksp_type": "python",
-          "ksp_python_type": "firedrake.trefftz.trefftz_ksp"},
+          "ksp_python_type": "firedrake.TrefftzKSP"},
           appctx=appctx)
     assert (assemble(inner(uDG-f, uDG-f)*dx) < 1e-6)
     assert (embd.dimT < V.dim()/2)
@@ -79,7 +79,7 @@ def test_trefftz_aggregation():
 
     uDG = Function(V)
     solve(aDG == L, uDG, solver_parameters={"ksp_type": "python",
-          "ksp_python_type": "firedrake.trefftz.trefftz_ksp"},
+          "ksp_python_type": "firedrake.TrefftzKSP"},
           appctx=appctx)
 
     assert (assemble(inner(uDG-f, uDG-f)*dx) < 1e-9)
