@@ -6,6 +6,7 @@ from os.path import isfile, join
 from firedrake import *
 
 try:
+    import vtkmodules.vtkCommonDataModel
     from firedrake.output import VTKFile
 except ImportError:
     # VTK is not installed
