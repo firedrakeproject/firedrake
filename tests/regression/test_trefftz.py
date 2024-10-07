@@ -43,7 +43,11 @@ def test_trefftz_laplace():
 
 @pytest.mark.skipcomplex
 def test_trefftz_aggregation():
-    from netgen.occ import WorkPlane, OCCGeometry
+    try:
+        from netgen.occ import WorkPlane, OCCGeometry
+    except ImportError:
+        # Netgen is not installed
+        pytest.skip("Netgen/ngsPETSc not installed", allow_module_level=True)
 
     Rectangle = WorkPlane().Rectangle(1, 1).Face()
     geo = OCCGeometry(Rectangle, dim=2)
