@@ -14,6 +14,7 @@ cwd = abspath(dirname(__file__))
 mesh_name = "m"
 extruded_mesh_name = "m_extruded"
 func_name = "f"
+affine_quadrature_degree = 4
 
 
 def _initialise_function(f, _f, method):
@@ -127,10 +128,14 @@ def _get_expr(V):
     raise ValueError(f"Invalid shape {shape}")
 
 
-def _load_check_save_functions(filename, func_name, comm, method, mesh_name, variable_layers=False):
+def _load_check_save_functions(filename, func_name, comm, method, mesh_name, variable_layers=False, high_order_mesh=False):
     # Load
     with CheckpointFile(filename, "r", comm=comm) as afile:
-        meshB = afile.load_mesh(mesh_name)
+        if high_order_mesh:
+            meshB = afile.load_mesh(mesh_name + "_ho")
+            flat = afile.load_mesh(mesh_name, topology=meshB.topology)
+        else:
+            meshB = afile.load_mesh(mesh_name)
         fB = afile.load_function(meshB, func_name)
     # Check
     if variable_layers:
@@ -144,7 +149,11 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     assert assemble(inner(fB - fBe, fB - fBe) * dx) < 5.e-12
     # Save
     with CheckpointFile(filename, 'w', comm=comm) as afile:
-        afile.save_function(fB)
+        if high_order_mesh:
+            afile.save_function(fB, affine_coordinates=flat, affine_quadrature_degree=affine_quadrature_degree)
+            afile.save_mesh(flat)
+        else:
+            afile.save_function(fB)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -595,6 +604,71 @@ def test_io_function_extrusion_periodic(tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize('quadrilateral_family_degree', [(False, "RTF", 2),
+                                                         (False, "RTE", 2),
+                                                         (True, "RTCF", 2),
+                                                         (True, "RTCE", 2),])
+def test_io_function_high_order_coordinates_2d(quadrilateral_family_degree, tmpdir):
+    quadrilateral, family, degree = quadrilateral_family_degree
+    filename = join(str(tmpdir), "test_io_function_high_order_coordinates_dump.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    flat = UnitSquareMesh(4, 4, quadrilateral=quadrilateral, comm=COMM_WORLD, name=mesh_name)
+    x, y = SpatialCoordinate(flat)
+    R = sqrt(2.0)
+    r = sqrt(x**2 + y**2)
+    coordV = VectorFunctionSpace(flat, "CG", 2)
+    bc = DirichletBC(coordV, R * as_vector([x / r, y / r]), (2, 4))
+    coords = Function(coordV, name=mesh_name + "_ho_coordinates").interpolate(flat.coordinates)
+    bc.apply(coords)
+    mesh = Mesh(coords, name=mesh_name + "_ho")
+    V = FunctionSpace(mesh, family, degree)
+    f = Function(V, name=func_name)
+    method = get_embedding_method_for_checkpointing(V.ufl_element())
+    _initialise_function(f, _get_expr(V), method)
+    with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
+        afile.save_function(f, affine_coordinates=flat, affine_quadrature_degree=affine_quadrature_degree)
+        afile.save_mesh(flat)
+    ntimes = COMM_WORLD.size
+    for i in range(ntimes):
+        mycolor = (COMM_WORLD.rank > ntimes - 1 - i)
+        comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
+        if mycolor == 0:
+            _load_check_save_functions(filename, func_name, comm, method, mesh_name, high_order_mesh=True)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize('family_degree', [("RTCE", 1),
+                                           ("RTCF", 1),])
+def test_io_function_high_order_coordinates_extrusion_periodic(family_degree, tmpdir):
+    family, degree = family_degree
+    filename = join(str(tmpdir), "test_io_function_high_order_coordinates_extrusion_periodic_dump.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    m = 1  # num. element in radial direction
+    n = 4  # num. element in circumferential direction
+    mesh = IntervalMesh(m, 1.0, 2.0, name=mesh_name)
+    flat = ExtrudedMesh(mesh, layers=n, layer_height=2 * pi / n, extrusion_type="uniform", periodic=True, name=extruded_mesh_name)
+    elem = flat.coordinates.ufl_element().reconstruct(degree=2)
+    coordV = FunctionSpace(flat, elem)
+    x, y = SpatialCoordinate(flat)
+    coord = Function(coordV, name=extruded_mesh_name + "_ho_coordinates").interpolate(as_vector([x * cos(y), x * sin(y)]))
+    extm = make_mesh_from_coordinates(coord.topological, name=extruded_mesh_name + "_ho")
+    extm._base_mesh = mesh
+    V = FunctionSpace(extm, family, degree)
+    method = get_embedding_method_for_checkpointing(V.ufl_element())
+    f = Function(V, name=func_name)
+    _initialise_function(f, _get_expr(V), method)
+    with CheckpointFile(filename, 'w', comm=COMM_WORLD) as afile:
+        afile.save_function(f, affine_coordinates=flat, affine_quadrature_degree=affine_quadrature_degree)
+        afile.save_mesh(flat)
+    ntimes = COMM_WORLD.size
+    for i in range(ntimes):
+        mycolor = (COMM_WORLD.rank > ntimes - 1 - i)
+        comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
+        if mycolor == 0:
+            _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name, high_order_mesh=True)
 
 
 @pytest.mark.parallel(nprocs=2)
