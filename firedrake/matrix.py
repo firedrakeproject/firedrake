@@ -188,6 +188,11 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
+        if len(a) != 2:
+            raise ValueError("Expected a 2-tuple of arguments")
+        if a[0].number() != 0 or a[1].number() != 1:
+            raise ValueError("Expected a test function followed by a trial function")
+
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
@@ -205,6 +210,5 @@ class AssembledMatrix(MatrixBase):
             raise TypeError("Unable to add %s to AssembledMatrix"
                             % (type(other)))
 
-    # FIXME: should inspect both arguments
-    def ufl_domains():
-        return self.a[0].ufl_domains()
+    def ufl_domains(self):
+        return ufl.domain.join_domains(self.a[0].ufl_domains() + self.a[1].ufl_domains())
