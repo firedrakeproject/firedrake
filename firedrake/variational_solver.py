@@ -332,6 +332,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         comm = self._problem.u_restrict.function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
+    @property
+    def jacobian_assembled(self):
+        r"""Whether the Jacobian has been assembled."""
+        return self._ctx._jacobian_assembled
+
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""

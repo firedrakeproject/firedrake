@@ -660,7 +660,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         if (
             (not problem._constant_jacobian) or
             (problem._constant_jacobian and
-             not self._ad_solvers["adjoint_lvs"]._ctx._jacobian_assembled)
+             not self._ad_solvers["adjoint_lvs"].jacobian_assembled)
         ):
             for block_variable in self.get_dependencies():
                 # The self.adj_F coefficients hold the forward output
@@ -724,15 +724,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         problem = self._ad_solvers["forward_nlvs"]._problem
         self._ad_assign_coefficients(problem.F)
         self._ad_assign_coefficients(problem.J)
-
-    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        if "dFdu_adj" in self._adj_cache:
-            dFdu = self._adj_cache["dFdu_adj"]
-        else:
-            dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
-                self._adj_cache["dFdu_adj"] = dFdu
-        return dFdu
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         dJdu = adj_inputs[0]
