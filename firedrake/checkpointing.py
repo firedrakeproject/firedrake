@@ -689,20 +689,29 @@ class CheckpointFile(object):
                 raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the topological dimension is inconsistent: {cell_dim1} ({self.filename}) != {cell_dim} ({tmesh_name})")
             order_array_size, ornt_array_size = dmcommon.compute_point_cone_global_sizes(topology_dm)
             if version_major < 3:
+                compressed_order = False
+                compressed_ornt = False
                 path = os.path.join(self._path_to_topology(tmesh_name), "topology")
                 order_array_size1 = self.h5pyfile[path]["order"].size
                 ornt_array_size1 = self.h5pyfile[path]["orientation"].size
             else:
                 order_array_size1 = 0
                 ornt_array_size1 = 0
+                compressed_order = False
+                compressed_ornt = False
                 for d in range(cell_dim + 1):
                     path = os.path.join(self._path_to_topology(tmesh_name), "topology", "strata", str(d))
+                    compressed_order = compressed_order or self.has_attr(os.path.join(path, "cone_sizes"), "compressed")
                     order_array_size1 += self.h5pyfile[path]["cone_sizes"].size
+                    compressed_ornt = compressed_ornt or self.has_attr(os.path.join(path, "cones"), "compressed")
                     ornt_array_size1 += self.h5pyfile[path]["cones"].size
-            if order_array_size1 != order_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
-            if ornt_array_size1 != ornt_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
+            # Check sizes if IS has not been compressed.
+            if not compressed_order:
+                if order_array_size1 != order_array_size:
+                    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
+            if not compressed_ornt:
+                if ornt_array_size1 != ornt_array_size:
+                    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
             # We assume that each (conceptually the same) mesh topology (plex)
             # is uniquely named (this is users' responsibility).
             # With the current setup, "distributions" folder will always contain
