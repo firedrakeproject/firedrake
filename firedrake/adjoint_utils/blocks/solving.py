@@ -617,8 +617,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.problem_J = problem_J
         self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
-        # The number of times the block has been recomputed.
-        self._recomputed_block = 0
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
@@ -658,9 +656,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         # Update the left hand side coefficients of the adjoint equation.
         problem = self._ad_solvers["adjoint_lvs"]._problem
         if (
-            (not problem._constant_jacobian) or
-            (problem._constant_jacobian and
-             not self._ad_solvers["adjoint_lvs"].jacobian_assembled)
+            (not problem._constant_jacobian)
+            or (problem._constant_jacobian
+                and not self._ad_solvers["adjoint_lvs"].jacobian_assembled)
         ):
             for block_variable in self.get_dependencies():
                 # The self.adj_F coefficients hold the forward output

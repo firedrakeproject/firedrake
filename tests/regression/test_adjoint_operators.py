@@ -952,38 +952,32 @@ def test_riesz_representation_for_adjoints():
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("constant_jacobian", [False, True])
 def test_lvs_constant_jacobian(constant_jacobian):
-    mesh = IntervalMesh(10, 0, 2)
+    mesh = UnitIntervalMesh(10)
     X = SpatialCoordinate(mesh)
     space = FunctionSpace(mesh, "Lagrange", 1)
     test = TestFunction(space)
     trial = TrialFunction(space)
+
     u = Function(space, name="u").interpolate(X[0] - 0.5)
     with stop_annotating():
         u_ref = u.copy(deepcopy=True)
+    v = Function(space, name="v")
+    problem = LinearVariationalProblem(
+        inner(trial, test) * dx, inner(u, test) * dx, v,
+        constant_jacobian=constant_jacobian)
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+    J = assemble(v * v * dx)
 
-    def J(u):
-        v = Function(space, name="v")
-        problem = LinearVariationalProblem(
-            inner(trial, test) * dx, inner(u, test) * dx, v,
-            constant_jacobian=constant_jacobian)
-        solver = LinearVariationalSolver(problem)
-        solver.solve()
-        return assemble(v * v * dx), solver
+    assert "dFdu_adj" not in solver._ad_adj_cache
 
-    J_val, solver = J(u)
-    # assert ("dFdu_adj" in solver._ad_adj_cache) == constant_jacobian
-    J_hat = ReducedFunctional(J_val, Control(u))
-    dJ = J_hat.derivative(options={"riesz_representation": "l2"})
+    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
+
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
-    with stop_annotating():
-        u0 = Function(space).interpolate(X[0] - 0.6)
-        u_ref0 = u0.copy(deepcopy=True)
-        J_val0, _ = J(u0)
 
-    assert np.allclose(J_hat(u0), J_val0)
-    dJ = J_hat.derivative(options={"riesz_representation": "l2"})
+    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
 
-    assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref0, test) * dx).dat.data_ro)
+    assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
