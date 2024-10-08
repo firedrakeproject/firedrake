@@ -34,14 +34,14 @@ class MatrixBase(ufl.Matrix):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
-        ufl.Matrix.__init__(self, test.function_space(), trial.function_space())
+        ufl.Matrix.__init__(self, test.ufl_function_space(), trial.ufl_function_space())
         # Define arguments after `Matrix.__init__` since BaseForm sets `self._arguments` to None
         self._arguments = arguments
         self.bcs = bcs
-        self.comm = test.function_space().comm
+        self.comm = test.ufl_function_space().comm
         self._comm = internal_comm(self.comm, self)
-        self.block_shape = (len(test.function_space()),
-                            len(trial.function_space()))
+        self.block_shape = (len(test.ufl_function_space()),
+                            len(trial.ufl_function_space()))
         self.mat_type = mat_type
         """Matrix type.
 
@@ -204,3 +204,7 @@ class AssembledMatrix(MatrixBase):
         else:
             raise TypeError("Unable to add %s to AssembledMatrix"
                             % (type(other)))
+
+    # FIXME: should inspect both arguments
+    def ufl_domains():
+        return self.a[0].ufl_domains()

@@ -69,7 +69,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             that exclude Dirichlet boundary condition nodes,  internally for
             the test and trial spaces.
         """
-        V = u.function_space()
+        V = u.ufl_function_space()
         self.output_space = V
         self.u = u
 
@@ -124,7 +124,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
     @utils.cached_property
     def dm(self):
-        return self.u_restrict.function_space().dm
+        return self.u_restrict.ufl_function_space().dm
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
@@ -244,11 +244,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].ufl_function_space()._ises,
                           transpose=False, near=False)
-        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
+        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].ufl_function_space()._ises,
                           transpose=True, near=False)
-        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].ufl_function_space()._ises,
                           transpose=False, near=True)
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
@@ -300,7 +300,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         # Make sure the solution dm is visited last
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
+        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.ufl_function_space() for c in coefficients)) if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
@@ -329,7 +329,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u_restrict.function_space().mesh()._comm
+        comm = self._problem.u_restrict.ufl_function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
 

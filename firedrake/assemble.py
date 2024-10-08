@@ -237,7 +237,7 @@ class ExprAssembler(object):
                 expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
             try:
                 coefficients = ufl.algorithms.extract_coefficients(expr)
-                V, = set(c.function_space() for c in coefficients) - {None}
+                V, = set(c.ufl_function_space() for c in coefficients) - {None}
             except ValueError:
                 raise ValueError("Cannot deduce correct target space from pointwise expression")
             return firedrake.Function(V).assign(expr)
@@ -346,7 +346,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         if self._allocation_integral_types is None:
             # Use the most conservative integration types.
             test, _ = self._form.arguments()
-            if test.function_space().mesh().extruded:
+            if test.ufl_function_space().mesh().extruded:
                 return ("interior_facet_vert", "interior_facet_horiz")
             else:
                 return ("interior_facet", )
@@ -435,7 +435,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
-                    res = firedrake.Function(row.function_space().dual())
+                    res = firedrake.Function(row.ufl_function_space().dual())
                     with rhs.dat.vec_ro as v_vec:
                         with res.dat.vec as res_vec:
                             petsc_mat.mult(v_vec, res_vec)
@@ -467,7 +467,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if all(isinstance(op, numbers.Complex) for op in args):
                 return sum(weight * arg for weight, arg in zip(expr.weights(), args))
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
-                V, = set(a.function_space() for a in args)
+                V, = set(a.ufl_function_space() for a in args)
                 res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
                 return firedrake.Cofunction(V, res)
             elif all(isinstance(op, ufl.Matrix) for op in args):
@@ -530,16 +530,16 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank != 1:
                 _, v1 = expr.arguments()
-                expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
+                expression = ufl.replace(expression, {v1: firedrake.Argument(v1.ufl_function_space(), number=0, part=v1.part())})
             # Get the interpolator
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
+            interpolator = firedrake.Interpolator(expression, expr.ufl_function_space(), **interp_data)
             # Assembly
             if rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
-                    output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
+                    output = tensor or firedrake.Cofunction(arg_expression[0].ufl_function_space().dual())
                     return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 if interpolator.nargs:
@@ -778,7 +778,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 replace_map = {arg: left}
                 # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
                 other_args = [a for a in right.arguments() if a is not arg]
-                new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
+                new_args = [firedrake.Argument(a.ufl_function_space(), number=a.number()-1, part=a.part()) for a in other_args]
                 replace_map.update(dict(zip(other_args, new_args)))
                 # Replace arguments
                 return ufl.replace(right, replace_map)
@@ -789,8 +789,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             u, v = B.arguments()
             # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
             # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
-                                   firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
+            reordered_arguments = (firedrake.Argument(u.ufl_function_space(), number=v.number(), part=v.part()),
+                                   firedrake.Argument(v.ufl_function_space(), number=u.number(), part=u.part()))
             # Replace arguments in argument slots
             return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
 
@@ -800,7 +800,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # B(f, u*) be a BaseFormOperator with u* a Cofunction and f a Coefficient, then:
             #    B(f, u*) <=> Action(B(f, v*), f) where v* is a Coargument
             ustar, *_ = expr.argument_slots()
-            vstar = firedrake.Argument(ustar.function_space(), 0)
+            vstar = firedrake.Argument(ustar.ufl_function_space(), 0)
             expr = ufl.replace(expr, {ustar: vstar})
             return ufl.action(expr, ustar)
 
@@ -1161,17 +1161,17 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 2 and self._diagonal:
             test, trial = self._form.arguments()
-            if test.function_space() != trial.function_space():
+            if test.ufl_function_space() != trial.ufl_function_space():
                 raise ValueError("Can only assemble the diagonal of 2-form if the function spaces match")
 
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            return firedrake.Cofunction(test.function_space().dual())
+            return firedrake.Cofunction(test.ufl_function_space().dual())
         elif rank == 2 and self._diagonal:
             test, _ = self._form.arguments()
-            return firedrake.Cofunction(test.function_space().dual())
+            return firedrake.Cofunction(test.ufl_function_space().dual())
         else:
             raise RuntimeError(f"Not expected: found rank = {rank} and diagonal = {self._diagonal}")
 
@@ -1201,7 +1201,7 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            if tensor is not None and test.function_space() != tensor.function_space():
+            if tensor is not None and test.ufl_function_space() != tensor.ufl_function_space():
                 raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
@@ -1260,7 +1260,7 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         mat_type = parameters.parameters["default_matrix_type"]
         if any(V.ufl_element().family() == "Real"
                for arg in arguments
-               for V in arg.function_space()):
+               for V in arg.ufl_function_space()):
             mat_type = "nest"
     if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
@@ -1321,11 +1321,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             baij = sub_mat_type == "baij"
         else:
             baij = mat_type == "baij"
-        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
+        if any(len(a.ufl_function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
         try:
-            sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                     trial.function_space().dof_dset),
+            sparsity = op2.Sparsity((test.ufl_function_space().dof_dset,
+                                     trial.ufl_function_space().dof_dset),
                                     maps_and_regions,
                                     nest=nest,
                                     block_sparse=baij)
@@ -1357,8 +1357,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    rmap_ = test.function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
-                    cmap_ = trial.function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    rmap_ = test.ufl_function_space().topological[i].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
+                    cmap_ = trial.ufl_function_space().topological[j].entity_node_map(mesh.topology, integral_type, subdomain_id, all_subdomain_ids)
                     region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
@@ -1374,8 +1374,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         # Use outer product of component maps.
         for integral_type in allocation_integral_types:
             region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
-            for i, Vrow in enumerate(test.function_space()):
-                for j, Vcol in enumerate(trial.function_space()):
+            for i, Vrow in enumerate(test.ufl_function_space()):
+                for j, Vcol in enumerate(trial.ufl_function_space()):
                     mesh = Vrow.mesh()
                     rmap_ = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
                     cmap_ = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
@@ -1409,7 +1409,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     def _apply_bc(self, tensor, bc):
         op2tensor = tensor.M
-        spaces = tuple(a.function_space() for a in tensor.a.arguments())
+        spaces = tuple(a.ufl_function_space() for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
         if component is not None:
