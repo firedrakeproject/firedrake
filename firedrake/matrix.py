@@ -34,6 +34,7 @@ class MatrixBase(ufl.Matrix):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
+        breakpoint()
         ufl.Matrix.__init__(self, test.ufl_function_space(), trial.ufl_function_space())
         # Define arguments after `Matrix.__init__` since BaseForm sets `self._arguments` to None
         self._arguments = arguments
