@@ -728,9 +728,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
         if not self.adj_state:
-            self.adj_state = adj_sol
-        else:
-            self.adj_state.assign(adj_sol)
+            self.adj_state = firedrake.Function(adj_sol.function_space())
+        self.adj_state.assign(adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -738,7 +737,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         r = {}
         r["form"] = self._create_F_form()
-        r["adj_sol"] = self.adj_state
+        r["adj_sol"] = adj_sol
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
