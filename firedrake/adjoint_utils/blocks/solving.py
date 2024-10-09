@@ -686,16 +686,15 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         # Solve the adjoint equation.
         self._ad_solvers["adjoint_lvs"].solve()
-        adj_sol = firedrake.Function(self.function_space)
-        adj_sol.assign(self._ad_solvers["adjoint_lvs"]._problem.u)
         if compute_bdy:
             jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
 
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self._compute_adj_bdy(
-                adj_sol, adj_sol_bdy, jac_adj, dJdu_copy)
-        return adj_sol, adj_sol_bdy
+                self._ad_solvers["adjoint_lvs"]._problem.u, adj_sol_bdy,
+                jac_adj, dJdu_copy)
+        return self._ad_solvers["adjoint_lvs"]._problem.u, adj_sol_bdy
 
     def _ad_assign_map(self, form):
         count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
@@ -724,26 +723,22 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self._ad_assign_coefficients(problem.J)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        dJdu = adj_inputs[0]
-
-        F_form = self._create_F_form()
-
-        dJdu = dJdu.copy()
-
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-
-        adj_sol, adj_sol_bdy = self._adjoint_solve(dJdu, compute_bdy)
-        self.adj_state = adj_sol
+        adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
+        if not self.adj_state:
+            self.adj_state = adj_sol
+        else:
+            self.adj_state.assign(adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
             self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
-        r["form"] = F_form
-        r["adj_sol"] = adj_sol
+        r["form"] = self._create_F_form()
+        r["adj_sol"] = self.adj_state
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
