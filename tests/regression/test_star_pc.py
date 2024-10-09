@@ -364,3 +364,117 @@ def test_vanka_equivalence(problem_type):
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
+
+
+def test_point_equivalence(problem_type):
+    distribution_parameters = {"partition": True,
+                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+
+    if problem_type == "scalar":
+        base = UnitSquareMesh(10, 10, distribution_parameters=distribution_parameters)
+        mh = MeshHierarchy(base, 2, distribution_parameters=distribution_parameters)
+        mesh = mh[-1]
+        V = FunctionSpace(mesh, "CG", 1)
+
+        u = Function(V)
+        v = TestFunction(V)
+
+        a = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+        bcs = DirichletBC(V, 0, "on_boundary")
+        nsp = None
+
+        point_params = {"mat_type": "aij",
+                        "snes_type": "ksponly",
+                        "ksp_type": "richardson",
+                        "pc_type": "mg",
+                        "pc_mg_type": "multiplicative",
+                        "pc_mg_cycles": "v",
+                        "mg_levels_ksp_type": "richardson",
+                        "mg_levels_ksp_richardson_scale": 1/10,
+                        "mg_levels_ksp_max_it": 1,
+                        "mg_levels_pc_type": "python",
+                        "mg_levels_pc_python_type": "firedrake.ASMPointPC",
+                        "mg_levels_pc_point_construct_dim": 0,
+                        "mg_coarse_pc_type": "python",
+                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                        "mg_coarse_assembled_pc_type": "lu",
+                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+
+        comp_params = {"mat_type": "aij",
+                       "snes_type": "ksponly",
+                       "ksp_type": "richardson",
+                       "pc_type": "mg",
+                       "pc_mg_type": "multiplicative",
+                       "pc_mg_cycles": "v",
+                       "mg_levels_ksp_type": "richardson",
+                       "mg_levels_ksp_richardson_scale": 1/10,
+                       "mg_levels_ksp_max_it": 1,
+                       "mg_levels_pc_type": "jacobi",
+                       "mg_coarse_pc_type": "python",
+                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                       "mg_coarse_assembled_pc_type": "lu",
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+
+    elif problem_type == "vector":
+        base = UnitSquareMesh(2, 2, distribution_parameters=distribution_parameters)
+        mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
+        mesh = mh[-1]
+        V = VectorFunctionSpace(mesh, "CG", 2)
+
+        u = Function(V)
+        v = TestFunction(V)
+
+        (x, y) = SpatialCoordinate(mesh)
+        f = as_vector([x*(1-x), y*(1-y)])
+        a = inner(grad(u), grad(v))*dx + inner(u, v)*dx - inner(f, v)*dx
+        bcs = DirichletBC(V, 0, "on_boundary")
+        nsp = None
+
+        point_params = {"mat_type": "aij",
+                        "snes_type": "ksponly",
+                        "ksp_type": "cg",
+                        "pc_type": "mg",
+                        "pc_mg_type": "full",
+                        "mg_levels_ksp_type": "richardson",
+                        "mg_levels_ksp_richardson_scale": 3/10,
+                        "mg_levels_ksp_max_it": 1,
+                        "mg_levels_pc_type": "composite",
+                        "mg_levels_pc_composite_type": "additive",
+                        "mg_levels_pc_composite_pcs": "python,python",
+                        "mg_levels_sub_0_pc_python_type": "firedrake.ASMPointPC",
+                        "mg_levels_sub_0_pc_point_construct_dim": 0,
+                        "mg_levels_sub_1_pc_python_type": "firedrake.ASMPointPC",
+                        "mg_levels_sub_1_pc_point_construct_dim": 1,
+                        "mg_coarse_pc_type": "python",
+                        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                        "mg_coarse_assembled_pc_type": "lu",
+                        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+
+        comp_params = {"mat_type": "aij",
+                       "snes_type": "ksponly",
+                       "ksp_type": "cg",
+                       "pc_type": "mg",
+                       "pc_mg_type": "full",
+                       "mg_levels_ksp_type": "richardson",
+                       "mg_levels_ksp_richardson_scale": 3/10,
+                       "mg_levels_ksp_max_it": 1,
+                       "mg_levels_pc_type": "pbjacobi",
+                       "mg_coarse_pc_type": "python",
+                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+                       "mg_coarse_assembled_pc_type": "lu",
+                       "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"}
+
+    elif problem_type == "mixed":
+        return
+
+    nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
+    star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=point_params, nullspace=nsp)
+    star_solver.solve()
+    star_its = star_solver.snes.getLinearSolveIterations()
+
+    u.assign(0)
+    comp_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=comp_params, nullspace=nsp)
+    comp_solver.solve()
+    comp_its = comp_solver.snes.getLinearSolveIterations()
+
+    assert star_its == comp_its
