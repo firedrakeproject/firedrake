@@ -1,17 +1,17 @@
 import collections.abc
 import ctypes
 from dataclasses import dataclass
-import itertools
 import os
 from typing import Optional, Tuple
+import itertools
 
 import loopy as lp
 import numpy as np
 import pytools
 from petsc4py import PETSc
 
-from pyop2 import compilation, mpi
-from pyop2.caching import Cached
+from pyop2 import mpi
+from pyop2.compilation import load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
 from pyop2.types import IterationRegion, Constant, READ
@@ -247,7 +247,7 @@ class MixedMatKernelArg:
         return MatPack
 
 
-class GlobalKernel(Cached):
+class GlobalKernel:
     """Class representing the generated code for the global computation.
 
     :param local_kernel: :class:`pyop2.LocalKernel` instance representing the
@@ -271,22 +271,6 @@ class GlobalKernel(Cached):
     :param pass_layer_arg: Should the wrapper pass the current layer into the
         kernel (as an `int`). Only makes sense for indirect extruded iteration.
     """
-
-    _cache = {}
-
-    @classmethod
-    def _cache_key(cls, local_knl, arguments, **kwargs):
-        key = [cls, local_knl.cache_key,
-               *kwargs.items(), configuration["simd_width"]]
-
-        key.extend([a.cache_key for a in arguments])
-
-        counter = itertools.count()
-        seen_maps = collections.defaultdict(lambda: next(counter))
-        key.extend([seen_maps[m] for a in arguments for m in a.maps])
-
-        return tuple(key)
-
     def __init__(self, local_kernel, arguments, *,
                  extruded=False,
                  extruded_periodic=False,
@@ -294,9 +278,6 @@ class GlobalKernel(Cached):
                  subset=False,
                  iteration_region=None,
                  pass_layer_arg=False):
-        if self._initialized:
-            return
-
         if not len(local_kernel.accesses) == len(arguments):
             raise ValueError(
                 "Number of arguments passed to the local and global kernels"
@@ -320,6 +301,15 @@ class GlobalKernel(Cached):
                 "Cannot request constant_layers argument for non-extruded iteration"
             )
 
+        counter = itertools.count()
+        seen_maps = collections.defaultdict(lambda: next(counter))
+        self.cache_key = (
+            local_kernel.cache_key,
+            *[a.cache_key for a in arguments],
+            *[seen_maps[m] for a in arguments for m in a.maps],
+            extruded, extruded_periodic, constant_layers, subset,
+            iteration_region, pass_layer_arg, configuration["simd_width"]
+        )
         self.local_kernel = local_kernel
         self.arguments = arguments
         self._extruded = extruded
@@ -329,11 +319,6 @@ class GlobalKernel(Cached):
         self._iteration_region = iteration_region
         self._pass_layer_arg = pass_layer_arg
 
-        # Cache for stashing the compiled code
-        self._func_cache = {}
-
-        self._initialized = True
-
     @mpi.collective
     def __call__(self, comm, *args):
         """Execute the compiled kernel.
@@ -341,15 +326,8 @@ class GlobalKernel(Cached):
         :arg comm: Communicator the execution is collective over.
         :*args: Arguments to pass to the compiled kernel.
         """
-        # If the communicator changes then we cannot safely use the in-memory
-        # function cache. Note here that we are not using dup_comm to get a
-        # stable communicator id because we will already be using the internal one.
-        key = id(comm)
-        try:
-            func = self._func_cache[key]
-        except KeyError:
-            func = self.compile(comm)
-            self._func_cache[key] = func
+        # It is unnecessary to cache this call as it is cached in pyop2/compilation.py
+        func = self.compile(comm)
         func(*args)
 
     @property
@@ -419,11 +397,15 @@ class GlobalKernel(Cached):
             + tuple(self.local_kernel.ldargs)
         )
 
-        return compilation.load(self, extension, self.name,
-                                cppargs=cppargs,
-                                ldargs=ldargs,
-                                restype=ctypes.c_int,
-                                comm=comm)
+        return load(
+            self,
+            extension,
+            self.name,
+            cppargs=cppargs,
+            ldargs=ldargs,
+            restype=ctypes.c_int,
+            comm=comm
+        )
 
     @cached_property
     def argtypes(self):

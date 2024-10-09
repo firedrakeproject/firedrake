@@ -146,3 +146,13 @@ class CompilationError(RuntimeError):
 class SparsityFormatError(ValueError):
 
     """Unable to produce a sparsity for this matrix format."""
+
+
+class CachingError(ValueError):
+
+    """A caching error."""
+
+
+class HashError(CachingError):
+
+    """Something is wrong with the hash."""

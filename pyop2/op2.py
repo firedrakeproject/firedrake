@@ -112,11 +112,10 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    if configuration['print_cache_size'] and COMM_WORLD.rank == 0:
-        from caching import report_cache, Cached, ObjectCached
-        print('**** PyOP2 cache sizes at exit ****')
-        report_cache(typ=ObjectCached)
-        report_cache(typ=Cached)
+    if configuration['print_cache_info'] and COMM_WORLD.rank == 0:
+        from pyop2.caching import print_cache_stats
+        print(f"{' PyOP2 cache sizes on rank 0 at exit ':*^120}")
+        print_cache_stats(alive=False)
     configuration.reset()
     global _initialised
     _initialised = False

@@ -42,12 +42,20 @@ import ctypes
 import shlex
 from hashlib import md5
 from packaging.version import Version, InvalidVersion
+from textwrap import dedent
+from functools import partial
+from pathlib import Path
+from contextlib import contextmanager
+from tempfile import gettempdir, mkstemp
+from random import randint
 
 
 from pyop2 import mpi
+from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, _as_hexdigest, DictLikeDiskAccess
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
+import pyop2.global_kernel
 from petsc4py import PETSc
 
 
@@ -60,6 +68,10 @@ def _check_hashes(x, y, datatype):
 
 _check_op = mpi.MPI.Op.Create(_check_hashes, commute=True)
 _compiler = None
+# Directory must be unique per VENV for multiple installs
+# _and_ per user for shared machines
+_EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
+MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
 
 def set_default_compiler(compiler):
@@ -83,6 +95,36 @@ def set_default_compiler(compiler):
             "compiler must be a path to a compiler (a string) or a subclass"
             " of the pyop2.compilation.Compiler class"
         )
+
+
+def sniff_compiler_version(compiler, cpp=False):
+    """Attempt to determine the compiler version number.
+
+    :arg compiler: Instance of compiler to sniff the version of
+    :arg cpp: If set to True will use the C++ compiler rather than
+        the C compiler to determine the version number.
+    """
+    # Note:
+    # Sniffing the compiler version for very large numbers of
+    # MPI ranks is expensive, ensure this is only run on rank 0
+    exe = compiler.cxx if cpp else compiler.cc
+    version = None
+    # `-dumpversion` is not sufficient to get the whole version string (for some compilers),
+    # but other compilers do not implement `-dumpfullversion`!
+    for dumpstring in ["-dumpfullversion", "-dumpversion"]:
+        try:
+            output = subprocess.run(
+                [exe, dumpstring],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                encoding="utf-8"
+            ).stdout
+            version = Version(output)
+            break
+        except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
+            continue
+    return version
 
 
 def sniff_compiler(exe, comm=mpi.COMM_WORLD):
@@ -151,7 +193,12 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
         else:
             compiler = AnonymousCompiler
 
-    return comm.bcast(compiler, 0)
+        # Now try and get a version number
+        temp = Compiler()
+        version = sniff_compiler_version(temp)
+        compiler = partial(compiler, version=version)
+
+    return comm.bcast(compiler, root=0)
 
 
 class Compiler(ABC):
@@ -166,10 +213,8 @@ class Compiler(ABC):
     (optional, prepended to any flags specified as the ldflags configuration option).
         The environment variable ``PYOP2_LDFLAGS`` can also be used to
         extend these options.
-    :arg cpp: Should we try and use the C++ compiler instead of the C
-        compiler?.
-    :kwarg comm: Optional communicator to compile the code on
-        (defaults to pyop2.mpi.COMM_WORLD).
+    :arg version: (Optional) usually sniffed by loader.
+    :arg debug: Whether to use debugging compiler flags.
     """
     _name = "unknown"
 
@@ -184,23 +229,22 @@ class Compiler(ABC):
     _optflags = ()
     _debugflags = ()
 
-    def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), cpp=False, comm=None):
-        # Set compiler version ASAP since it is used in __repr__
-        self.version = None
-
+    def __init__(self, extra_compiler_flags=(), extra_linker_flags=(), version=None, debug=False):
         self._extra_compiler_flags = tuple(extra_compiler_flags)
         self._extra_linker_flags = tuple(extra_linker_flags)
-
-        self._cpp = cpp
-        self._debug = configuration["debug"]
-
-        # Compilation communicators are reference counted on the PyOP2 comm
-        self.pcomm = mpi.internal_comm(comm, self)
-        self.comm = mpi.compilation_comm(self.pcomm, self)
-        self.sniff_compiler_version()
+        self._version = version
+        self._debug = debug
 
     def __repr__(self):
-        return f"<{self._name} compiler, version {self.version or 'unknown'}>"
+        string = f"{self.__class__.__name__}("
+        string += f"extra_compiler_flags={self._extra_compiler_flags}, "
+        string += f"extra_linker_flags={self._extra_linker_flags}, "
+        string += f"version={self._version!r}, "
+        string += f"debug={self._debug})"
+        return string
+
+    def __str__(self):
+        return f"<{self._name} compiler, version {self._version or 'unknown'}>"
 
     @property
     def cc(self):
@@ -240,186 +284,9 @@ class Compiler(ABC):
         ldflags += tuple(shlex.split(configuration["ldflags"]))
         return ldflags
 
-    def sniff_compiler_version(self, cpp=False):
-        """Attempt to determine the compiler version number.
-
-        :arg cpp: If set to True will use the C++ compiler rather than
-            the C compiler to determine the version number.
-        """
-        # Note:
-        # Sniffing the compiler version for very large numbers of
-        # MPI ranks is expensive
-        exe = self.cxx if cpp else self.cc
-        version = None
-        if self.comm.rank == 0:
-            # `-dumpversion` is not sufficient to get the whole version string (for some compilers),
-            # but other compilers do not implement `-dumpfullversion`!
-            for dumpstring in ["-dumpfullversion", "-dumpversion"]:
-                try:
-                    output = subprocess.run(
-                        [exe, dumpstring],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        check=True,
-                        encoding="utf-8"
-                    ).stdout
-                    version = Version(output)
-                    break
-                except (subprocess.CalledProcessError, UnicodeDecodeError, InvalidVersion):
-                    continue
-        self.version = self.comm.bcast(version, 0)
-
     @property
     def bugfix_cflags(self):
         return ()
-
-    @staticmethod
-    def expandWl(ldflags):
-        """Generator to expand the `-Wl` compiler flags for use as linker flags
-        :arg ldflags: linker flags for a compiler command
-        """
-        for flag in ldflags:
-            if flag.startswith('-Wl'):
-                for f in flag.lstrip('-Wl')[1:].split(','):
-                    yield f
-            else:
-                yield flag
-
-    @mpi.collective
-    def get_so(self, jitmodule, extension):
-        """Build a shared library and load it
-
-        :arg jitmodule: The JIT Module which can generate the code to compile.
-        :arg extension: extension of the source file (c, cpp).
-        Returns a :class:`ctypes.CDLL` object of the resulting shared
-        library."""
-
-        # C or C++
-        if self._cpp:
-            compiler = self.cxx
-            compiler_flags = self.cxxflags
-        else:
-            compiler = self.cc
-            compiler_flags = self.cflags
-
-        # Determine cache key
-        hsh = md5(str(jitmodule.cache_key).encode())
-        hsh.update(compiler.encode())
-        if self.ld:
-            hsh.update(self.ld.encode())
-        hsh.update("".join(compiler_flags).encode())
-        hsh.update("".join(self.ldflags).encode())
-
-        basename = hsh.hexdigest()
-
-        cachedir = configuration['cache_dir']
-
-        dirpart, basename = basename[:2], basename[2:]
-        cachedir = os.path.join(cachedir, dirpart)
-        pid = os.getpid()
-        cname = os.path.join(cachedir, "%s_p%d.%s" % (basename, pid, extension))
-        oname = os.path.join(cachedir, "%s_p%d.o" % (basename, pid))
-        soname = os.path.join(cachedir, "%s.so" % basename)
-        # Link into temporary file, then rename to shared library
-        # atomically (avoiding races).
-        tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
-
-        if configuration['check_src_hashes'] or configuration['debug']:
-            matching = self.comm.allreduce(basename, op=_check_op)
-            if matching != basename:
-                # Dump all src code to disk for debugging
-                output = os.path.join(configuration["cache_dir"], "mismatching-kernels")
-                srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
-                if self.comm.rank == 0:
-                    os.makedirs(output, exist_ok=True)
-                self.comm.barrier()
-                with open(srcfile, "w") as f:
-                    f.write(jitmodule.code_to_compile)
-                self.comm.barrier()
-                raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
-        try:
-            # Are we in the cache?
-            return ctypes.CDLL(soname)
-        except OSError:
-            # No, let's go ahead and build
-            if self.comm.rank == 0:
-                # No need to do this on all ranks
-                os.makedirs(cachedir, exist_ok=True)
-                logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
-                errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
-                with progress(INFO, 'Compiling wrapper'):
-                    with open(cname, "w") as f:
-                        f.write(jitmodule.code_to_compile)
-                    # Compiler also links
-                    if not self.ld:
-                        cc = (compiler,) \
-                            + compiler_flags \
-                            + ('-o', tmpname, cname) \
-                            + self.ldflags
-                        debug('Compilation command: %s', ' '.join(cc))
-                        with open(logfile, "w") as log, open(errfile, "w") as err:
-                            log.write("Compilation command:\n")
-                            log.write(" ".join(cc))
-                            log.write("\n\n")
-                            try:
-                                if configuration['no_fork_available']:
-                                    cc += ["2>", errfile, ">", logfile]
-                                    cmd = " ".join(cc)
-                                    status = os.system(cmd)
-                                    if status != 0:
-                                        raise subprocess.CalledProcessError(status, cmd)
-                                else:
-                                    subprocess.check_call(cc, stderr=err, stdout=log)
-                            except subprocess.CalledProcessError as e:
-                                raise CompilationError(
-                                    """Command "%s" return error status %d.
-Unable to compile code
-Compile log in %s
-Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
-                    else:
-                        cc = (compiler,) \
-                            + compiler_flags \
-                            + ('-c', '-o', oname, cname)
-                        # Extract linker specific "cflags" from ldflags
-                        ld = tuple(shlex.split(self.ld)) \
-                            + ('-o', tmpname, oname) \
-                            + tuple(self.expandWl(self.ldflags))
-                        debug('Compilation command: %s', ' '.join(cc))
-                        debug('Link command: %s', ' '.join(ld))
-                        with open(logfile, "a") as log, open(errfile, "a") as err:
-                            log.write("Compilation command:\n")
-                            log.write(" ".join(cc))
-                            log.write("\n\n")
-                            log.write("Link command:\n")
-                            log.write(" ".join(ld))
-                            log.write("\n\n")
-                            try:
-                                if configuration['no_fork_available']:
-                                    cc += ["2>", errfile, ">", logfile]
-                                    ld += ["2>>", errfile, ">>", logfile]
-                                    cccmd = " ".join(cc)
-                                    ldcmd = " ".join(ld)
-                                    status = os.system(cccmd)
-                                    if status != 0:
-                                        raise subprocess.CalledProcessError(status, cccmd)
-                                    status = os.system(ldcmd)
-                                    if status != 0:
-                                        raise subprocess.CalledProcessError(status, ldcmd)
-                                else:
-                                    subprocess.check_call(cc, stderr=err, stdout=log)
-                                    subprocess.check_call(ld, stderr=err, stdout=log)
-                            except subprocess.CalledProcessError as e:
-                                raise CompilationError(
-                                    """Command "%s" return error status %d.
-Unable to compile code
-Compile log in %s
-Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
-                    # Atomically ensure soname exists
-                    os.rename(tmpname, soname)
-            # Wait for compilation to complete
-            self.comm.barrier()
-            # Load resulting library
-            return ctypes.CDLL(soname)
 
 
 class MacClangCompiler(Compiler):
@@ -464,7 +331,7 @@ class LinuxGnuCompiler(Compiler):
     @property
     def bugfix_cflags(self):
         """Flags to work around bugs in compilers."""
-        ver = self.version
+        ver = self._version
         cflags = ()
         if Version("4.8.0") <= ver < Version("4.9.0"):
             # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
@@ -546,7 +413,20 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
+def load_hashkey(*args, **kwargs):
+    from pyop2.global_kernel import GlobalKernel
+    if isinstance(args[0], str):
+        code_hash = md5(args[0].encode()).hexdigest()
+    elif isinstance(args[0], GlobalKernel):
+        code_hash = md5(str(args[0].cache_key).encode()).hexdigest()
+    else:
+        pass  # This will raise an error in load
+    return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
+
+
 @mpi.collective
+@memory_cache(hashkey=load_hashkey)
+@PETSc.Log.EventDecorator()
 def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
          argtypes=None, restype=None, comm=None):
     """Build a shared library and return a function pointer from it.
@@ -565,8 +445,6 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    from pyop2.global_kernel import GlobalKernel
-
     if isinstance(jitmodule, str):
         class StrCode(object):
             def __init__(self, code, argtypes):
@@ -576,26 +454,33 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
                 # cache key
                 self.argtypes = argtypes
         code = StrCode(jitmodule, argtypes)
-    elif isinstance(jitmodule, GlobalKernel):
+    elif isinstance(jitmodule, pyop2.global_kernel.GlobalKernel):
         code = jitmodule
     else:
         raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
 
-    cpp = (extension == "cpp")
     global _compiler
     if _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
     else:
         # Sniff compiler from executable
-        if cpp:
+        if extension == "cpp":
             exe = configuration["cxx"] or "mpicxx"
         else:
             exe = configuration["cc"] or "mpicc"
         compiler = sniff_compiler(exe, comm)
-    dll = compiler(cppargs, ldargs, cpp=cpp, comm=comm).get_so(code, extension)
 
-    if isinstance(jitmodule, GlobalKernel):
+    debug = configuration["debug"]
+    compiler_instance = compiler(cppargs, ldargs, debug=debug)
+    if configuration['check_src_hashes'] or configuration['debug']:
+        check_source_hashes(compiler_instance, code, extension, comm)
+    # This call is cached on disk
+    so_name = make_so(compiler_instance, code, extension, comm)
+    # This call might be cached in memory by the OS (system dependent)
+    dll = ctypes.CDLL(so_name)
+
+    if isinstance(jitmodule, pyop2.global_kernel.GlobalKernel):
         _add_profiling_events(dll, code.local_kernel.events)
 
     fn = getattr(dll, fn_name)
@@ -604,12 +489,176 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
     return fn
 
 
+def expandWl(ldflags):
+    """Generator to expand the `-Wl` compiler flags for use as linker flags
+    :arg ldflags: linker flags for a compiler command
+    """
+    for flag in ldflags:
+        if flag.startswith('-Wl'):
+            for f in flag.lstrip('-Wl')[1:].split(','):
+                yield f
+        else:
+            yield flag
+
+
+class CompilerDiskAccess(DictLikeDiskAccess):
+    @contextmanager
+    def open(self, filename, *args, **kwargs):
+        yield filename
+
+    def write(self, filename, value):
+        shutil.copy(value, filename)
+
+    def read(self, filename):
+        if not filename.exists():
+            raise FileNotFoundError("File not on disk, cache miss")
+        return filename
+
+    def setdefault(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            self[key] = default
+        return self[key]
+
+
+def _make_so_hashkey(compiler, jitmodule, extension, comm):
+    if extension == "cpp":
+        exe = compiler.cxx
+        compiler_flags = compiler.cxxflags
+    else:
+        exe = compiler.cc
+        compiler_flags = compiler.cflags
+    return (compiler, exe, compiler_flags, compiler.ld, compiler.ldflags, jitmodule.cache_key)
+
+
+def check_source_hashes(compiler, jitmodule, extension, comm):
+    """A check to see whether code generated on all ranks is identical.
+
+    :arg compiler: The compiler to use to create the shared library.
+    :arg jitmodule: The JIT Module which can generate the code to compile.
+    :arg filename: The filename of the library to create.
+    :arg extension: extension of the source file (c, cpp).
+    :arg comm: Communicator over which to perform compilation.
+    """
+    # Reconstruct hash from filename
+    hashval = _as_hexdigest(_make_so_hashkey(compiler, jitmodule, extension, comm))
+    with mpi.temp_internal_comm(comm) as icomm:
+        matching = icomm.allreduce(hashval, op=_check_op)
+        if matching != hashval:
+            # Dump all src code to disk for debugging
+            output = Path(configuration["cache_dir"]).joinpath("mismatching-kernels")
+            srcfile = output.joinpath(f"src-rank{icomm.rank}.{extension}")
+            if icomm.rank == 0:
+                output.mkdir(exist_ok=True)
+            icomm.barrier()
+            with open(srcfile, "w") as fh:
+                fh.write(jitmodule.code_to_compile)
+            icomm.barrier()
+            raise CompilationError(f"Generated code differs across ranks (see output in {output})")
+
+
+@mpi.collective
+@parallel_cache(
+    hashkey=_make_so_hashkey,
+    cache_factory=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
+)
+@PETSc.Log.EventDecorator()
+def make_so(compiler, jitmodule, extension, comm, filename=None):
+    """Build a shared library and load it
+
+    :arg compiler: The compiler to use to create the shared library.
+    :arg jitmodule: The JIT Module which can generate the code to compile.
+    :arg filename: The filename of the library to create.
+    :arg extension: extension of the source file (c, cpp).
+    :arg comm: Communicator over which to perform compilation.
+    :arg filename: Optional
+    Returns a :class:`ctypes.CDLL` object of the resulting shared
+    library."""
+    # Compilation communicators are reference counted on the PyOP2 comm
+    icomm = mpi.internal_comm(comm, compiler)
+    ccomm = mpi.compilation_comm(icomm, compiler)
+
+    # C or C++
+    if extension == "cpp":
+        exe = compiler.cxx
+        compiler_flags = compiler.cxxflags
+    else:
+        exe = compiler.cc
+        compiler_flags = compiler.cflags
+
+    # Compile on compilation communicator (ccomm) rank 0
+    soname = None
+    if ccomm.rank == 0:
+        if filename is None:
+            # Adding random 2-digit hexnum avoids using excessive filesystem inodes
+            tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
+            tempdir.mkdir(parents=True, exist_ok=True)
+            # This path + filename should be unique
+            descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
+            filename = Path(filename)
+        else:
+            filename.parent.mkdir(exist_ok=True)
+
+        cname = filename
+        oname = filename.with_suffix(".o")
+        soname = filename.with_suffix(".so")
+        logfile = filename.with_suffix(".log")
+        errfile = filename.with_suffix(".err")
+        with progress(INFO, 'Compiling wrapper'):
+            # Write source code to disk
+            with open(cname, "w") as fh:
+                fh.write(jitmodule.code_to_compile)
+            os.close(descriptor)
+
+            if not compiler.ld:
+                # Compile and link
+                cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
+                _run(cc, logfile, errfile)
+            else:
+                # Compile
+                cc = (exe,) + compiler_flags + ('-c', '-o', oname, cname)
+                _run(cc, logfile, errfile)
+                # Extract linker specific "cflags" from ldflags and link
+                ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
+                _run(ld, logfile, errfile, step="Linker", filemode="a")
+
+    return ccomm.bcast(soname, root=0)
+
+
+def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
+    """ Run a compilation command and handle logging + errors.
+    """
+    debug(f"{step} command: {' '.join(cc)}")
+    try:
+        if configuration['no_fork_available']:
+            redirect = ">" if filemode == "w" else ">>"
+            cc += (f"2{redirect}", str(errfile), redirect, str(logfile))
+            cmd = " ".join(cc)
+            status = os.system(cmd)
+            if status != 0:
+                raise subprocess.CalledProcessError(status, cmd)
+        else:
+            with open(logfile, filemode) as log, open(errfile, filemode) as err:
+                log.write(f"{step} command:\n")
+                log.write(" ".join(cc))
+                log.write("\n\n")
+                subprocess.check_call(cc, stderr=err, stdout=log)
+    except subprocess.CalledProcessError as e:
+        raise CompilationError(dedent(f"""
+            Command "{e.cmd}" return error status {e.returncode}.
+            Unable to compile code
+            Compile log in {logfile!s}
+            Compile errors in {errfile!s}
+            """))
+
+
 def _add_profiling_events(dll, events):
     """
-        If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
-        The event is generated here in python and then set in the shared library,
-        so that memory is not allocated over and over again in the C kernel. The naming
-        convention is that the event ids are named by the event name prefixed by "ID_".
+    If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
+    The event is generated here in python and then set in the shared library,
+    so that memory is not allocated over and over again in the C kernel. The naming
+    convention is that the event ids are named by the event name prefixed by "ID_".
     """
     if PETSc.Log.isActive():
         # also link the events from the linear algebra callables
@@ -622,33 +671,34 @@ def _add_profiling_events(dll, events):
             ctypes.c_int.in_dll(dll, 'ID_'+e).value = PETSc.Log.Event(e).id
 
 
-def clear_cache(prompt=False):
-    """Clear the PyOP2 compiler cache.
+def clear_compiler_disk_cache(prompt=False):
+    """Clear the PyOP2 compiler disk cache.
 
     :arg prompt: if ``True`` prompt before removing any files
     """
-    cachedir = configuration['cache_dir']
+    cachedirs = [configuration['cache_dir'], MEM_TMP_DIR]
 
-    if not os.path.exists(cachedir):
-        print("Cache directory could not be found")
-        return
-    if len(os.listdir(cachedir)) == 0:
-        print("No cached libraries to remove")
-        return
+    for directory in cachedirs:
+        if not os.path.exists(directory):
+            print("Cache directory could not be found")
+            continue
+        if len(os.listdir(directory)) == 0:
+            print("No cached libraries to remove")
+            continue
 
-    remove = True
-    if prompt:
-        user = input(f"Remove cached libraries from {cachedir}? [Y/n]: ")
+        remove = True
+        if prompt:
+            user = input(f"Remove cached libraries from {directory}? [Y/n]: ")
 
-        while user.lower() not in ['', 'y', 'n']:
-            print("Please answer y or n.")
-            user = input(f"Remove cached libraries from {cachedir}? [Y/n]: ")
+            while user.lower() not in ['', 'y', 'n']:
+                print("Please answer y or n.")
+                user = input(f"Remove cached libraries from {directory}? [Y/n]: ")
 
-        if user.lower() == 'n':
-            remove = False
+            if user.lower() == 'n':
+                remove = False
 
-    if remove:
-        print(f"Removing cached libraries from {cachedir}")
-        shutil.rmtree(cachedir, ignore_errors=True)
-    else:
-        print("Not removing cached libraries")
+        if remove:
+            print(f"Removing cached libraries from {directory}")
+            shutil.rmtree(directory, ignore_errors=True)
+        else:
+            print("Not removing cached libraries")

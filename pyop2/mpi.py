@@ -37,6 +37,7 @@
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 from itertools import count
+from functools import wraps
 import atexit
 import gc
 import glob
@@ -160,13 +161,64 @@ class PyOP2CommError(ValueError):
 # PYOP2_FINALISED flag.
 
 
-def collective(fn):
-    extra = trim("""
-    This function is logically collective over MPI ranks, it is an
-    error to call it on fewer than all the ranks in MPI communicator.
-    """)
-    fn.__doc__ = "%s\n\n%s" % (trim(fn.__doc__), extra) if fn.__doc__ else extra
-    return fn
+if configuration["spmd_strict"]:
+    def collective(fn):
+        extra = trim("""
+        This function is logically collective over MPI ranks, it is an
+        error to call it on fewer than all the ranks in MPI communicator.
+        PYOP2_SPMD_STRICT=1 is in your environment and function calls will be
+        guarded by a barrier where possible.
+        """)
+
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            comms = filter(
+                lambda arg: isinstance(arg, MPI.Comm),
+                args + tuple(kwargs.values())
+            )
+            try:
+                comm = next(comms)
+            except StopIteration:
+                if args and hasattr(args[0], "comm"):
+                    comm = args[0].comm
+                else:
+                    comm = None
+
+            if comm is None:
+                debug(
+                    "`@collective` wrapper found no communicators in args or kwargs, "
+                    "this means that the call is implicitly collective over an "
+                    "unknown communicator. "
+                    f"The following call to {fn.__module__}.{fn.__qualname__} is "
+                    "not protected by an MPI barrier."
+                )
+                subcomm = ", UNKNOWN Comm"
+            else:
+                subcomm = f", {comm.name} R{comm.rank}"
+
+            debug_string_pt1 = f"{COMM_WORLD.name} R{COMM_WORLD.rank}{subcomm}: "
+            debug_string_pt2 = f" {fn.__module__}.{fn.__qualname__}"
+            debug(debug_string_pt1 + "Entering" + debug_string_pt2)
+            if comm is not None:
+                comm.Barrier()
+            value = fn(*args, **kwargs)
+            debug(debug_string_pt1 + "Leaving" + debug_string_pt2)
+            if comm is not None:
+                comm.Barrier()
+            return value
+
+        wrapper.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        return wrapper
+else:
+    def collective(fn):
+        extra = trim("""
+        This function is logically collective over MPI ranks, it is an
+        error to call it on fewer than all the ranks in MPI communicator.
+        You can set PYOP2_SPMD_STRICT=1 in your environment to try and catch
+        non-collective calls.
+        """)
+        fn.__doc__ = f"{trim(fn.__doc__)}\n\n{extra}" if fn.__doc__ else extra
+        return fn
 
 
 def delcomm_outer(comm, keyval, icomm):
@@ -227,6 +279,7 @@ cidx_keyval = MPI.Comm.Create_keyval()
 innercomm_keyval = MPI.Comm.Create_keyval(delete_fn=delcomm_outer)
 outercomm_keyval = MPI.Comm.Create_keyval()
 compilationcomm_keyval = MPI.Comm.Create_keyval(delete_fn=delcomm_outer)
+comm_cache_keyval = MPI.Comm.Create_keyval()
 
 
 def is_pyop2_comm(comm):
@@ -539,20 +592,14 @@ def _free_comms():
             debug(f"Freeing {comm.name}, with index {key}, which has refcount {refcount[0]}")
             comm.Free()
         del _DUPED_COMM_DICT[key]
-    for kv in [refcount_keyval,
-               innercomm_keyval,
-               outercomm_keyval,
-               compilationcomm_keyval]:
+    for kv in [
+        refcount_keyval,
+        innercomm_keyval,
+        outercomm_keyval,
+        compilationcomm_keyval,
+        comm_cache_keyval
+    ]:
         MPI.Comm.Free_keyval(kv)
-
-
-def hash_comm(comm):
-    """Return a hashable identifier for a communicator."""
-    if not is_pyop2_comm(comm):
-        raise PyOP2CommError("`comm` passed to `hash_comm()` must be a PyOP2 communicator")
-    # `comm` must be a PyOP2 communicator so we can use its id()
-    # as the hash and this is stable between invocations.
-    return id(comm)
 
 
 # Install an exception hook to MPI Abort if an exception isn't caught

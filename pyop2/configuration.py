@@ -67,13 +67,16 @@ class Configuration(dict):
          to a node-local filesystem too.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    :param print_cache_size: Should PyOP2 print the size of caches at
+    :param print_cache_size: Should PyOP2 print the cache information at
         program exit?
     :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
     :param block_sparsity: Should sparsity patterns on datasets with
         cdim > 1 be built as block sparsities, or dof sparsities.  The
         former saves memory but changes which preconditioners are
         available for the resulting matrices.  (Default yes)
+    :param spmd_strict: Enable barriers for calls marked with @collective and
+        for cache access. This adds considerable overhead, but is useful for
+        tracking down deadlocks. (Default no)
     """
     # name, env variable, type, default, write once
     cache_dir = os.path.join(gettempdir(), "pyop2-cache-uid%s" % os.getuid())
@@ -108,12 +111,14 @@ class Configuration(dict):
             ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
         "no_fork_available":
             ("PYOP2_NO_FORK_AVAILABLE", bool, False),
-        "print_cache_size":
-            ("PYOP2_PRINT_CACHE_SIZE", bool, False),
+        "print_cache_info":
+            ("PYOP2_CACHE_INFO", bool, False),
         "matnest":
             ("PYOP2_MATNEST", bool, True),
         "block_sparsity":
-            ("PYOP2_BLOCK_SPARSITY", bool, True)
+            ("PYOP2_BLOCK_SPARSITY", bool, True),
+        "spmd_strict":
+            ("PYOP2_SPMD_STRICT", bool, False),
     }
     """Default values for PyOP2 configuration parameters"""
 
