@@ -52,7 +52,8 @@ class FacetSplitPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
         V = a.arguments()[-1].function_space()
-        assert len(V) == 1, "Decomposition of mixed elements is not supported"
+        if len(V) != 1:
+            raise ValueError("Decomposition of mixed elements is not supported")
 
         element = V.ufl_element()
         elements = [restrict(element, domain) for domain in domains]
@@ -88,7 +89,7 @@ class FacetSplitPC(PCBase):
             self.work_vecs = self.mixed_opmat.createVecs()
         elif self.subset:
             global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
-            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=P.getComm())
+            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             self.mixed_opmat = self._permute_op()
             self.set_nullspaces(pc)
