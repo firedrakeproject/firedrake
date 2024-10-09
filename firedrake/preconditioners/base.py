@@ -62,18 +62,27 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
     def form(self, obj, *args):
         """Return the preconditioning bilinear form and boundary conditions.
 
+        Parameters
+        ----------
+        obj : PETSc.PC or PETSc.SNES
+            The PETSc solver object.
+        test : ufl.TestFunction
+            The test function.
+        trial : ufl.TrialFunction
+            The trial function.
+
+        Returns
+        -------
+        a : ufl.Form
+            The preconditioning bilinear form.
+        bcs : DirichletBC[] or None
+            The boundary conditions.
+
+        Notes
+        -----
         Subclasses may override this function to provide an auxiliary bilinear
         form. Use `self.get_appctx(obj)` to get the user-supplied
         application-context, if desired.
-
-        :arg obj: a `PETSc.PC` or `PETSc.SNES` object.
-
-        :arg test: a `TestFunction` on this `FunctionSpace`.
-
-        :arg trial: a `TrialFunction` on this `FunctionSpace`.
-
-        :returns `(a, bcs)`, where `a` is a bilinear `Form`
-        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
         """
         if isinstance(obj, PETSc.PC):
             pc = obj

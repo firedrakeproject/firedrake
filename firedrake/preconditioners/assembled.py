@@ -20,7 +20,7 @@ class AssembledPC(PCBase):
         from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
 
-        if pc.getType() != "python":
+        if pc.type != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
         appctx = self.get_appctx(pc)
@@ -30,7 +30,7 @@ class AssembledPC(PCBase):
         test = TestFunction(V)
         trial = TrialFunction(V)
 
-        if P.getType() == "python":
+        if P.type == "python":
             context = P.getPythonContext()
             # It only makes sense to preconditioner/invert a diagonal
             # block in general.  That's all we're going to allow.

@@ -681,16 +681,16 @@ def get_permutation_to_nodal_elements(V):
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
 
-    line_elements = []
+    nodal_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
         if not all(e.is_nodal() for e in fiat_factors):
             raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
-        line_elements.append(fiat_factors)
+        nodal_elements.append(fiat_factors)
 
-    shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
+    shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]
     sizes = list(map(numpy.prod, shapes))
     dof_ranges = numpy.cumsum([0] + sizes)
 
@@ -698,9 +698,9 @@ def get_permutation_to_nodal_elements(V):
     unique_nodal_elements = []
     shifts = []
 
-    visit = [False for e in line_elements]
+    visit = [False for e in nodal_elements]
     while False in visit:
-        base = line_elements[visit.index(False)]
+        base = nodal_elements[visit.index(False)]
         tdim = len(base)
         pshape = tuple(e.space_dimension() for e in base)
         unique_nodal_elements.append(base)
@@ -711,7 +711,7 @@ def get_permutation_to_nodal_elements(V):
                 shift = (tdim - shift) % tdim
 
             perm = base[shift:] + base[:shift]
-            for i, term in enumerate(line_elements):
+            for i, term in enumerate(nodal_elements):
                 if not visit[i]:
                     is_perm = all(e1.space_dimension() == e2.space_dimension()
                                   for e1, e2 in zip(perm, term))
