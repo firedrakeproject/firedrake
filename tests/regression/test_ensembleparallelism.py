@@ -67,7 +67,7 @@ def ensemble():
 def mesh(ensemble):
     if COMM_WORLD.size == 1:
         return
-    return UnitSquareMesh(10, 10, comm=ensemble.comm)
+    return UnitSquareMesh(10, 10, comm=ensemble.comm, distribution_parameters={"partitioner_type": "simple"})
 
 
 # mixed function space
