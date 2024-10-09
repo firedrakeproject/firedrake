@@ -3,11 +3,11 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake_citations import Citations
 from firedrake import SpatialCoordinate
+from firedrake.__future__ import interpolate
 from ufl import grad
 from pyop2.utils import as_tuple
 
@@ -50,7 +50,7 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(Interpolator(grad(TestFunction(P1)), V).callable().handle)
+            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
         else:
             G = G_callback(P1, V)
 

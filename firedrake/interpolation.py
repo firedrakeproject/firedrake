@@ -12,7 +12,7 @@ from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
-from pyop2.caching import disk_cached
+from pyop2.caching import memory_and_disk_cache
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -1204,14 +1204,15 @@ except KeyError:
 
 def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters, log):
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    # Since the caching is collective, this function must return a 2-tuple of
-    # the form (comm, key) where comm is the communicator the cache is collective over.
-    # FIXME FInAT elements are not safely hashable so we ignore them here
     key = hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
-    return comm, key
+    return key
 
 
-@disk_cached({}, _expr_cachedir, key=_compile_expression_key, collective=True)
+@memory_and_disk_cache(
+    hashkey=_compile_expression_key,
+    cachedir=tsfc_interface._cachedir
+)
+@PETSc.Log.EventDecorator()
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
 

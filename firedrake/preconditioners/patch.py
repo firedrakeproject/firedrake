@@ -3,7 +3,6 @@ from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType
-from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
 from firedrake.interpolation import Interpolate
@@ -756,33 +755,13 @@ class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
 
-        if isinstance(obj, PETSc.PC):
-            A, P = obj.getOperators()
-        elif isinstance(obj, PETSc.SNES):
-            A, P = obj.ksp.pc.getOperators()
-        else:
-            raise ValueError("Not a PC or SNES?")
-
         ctx = get_appctx(obj.getDM())
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r" % ctx)
 
-        if P.getType() == "python":
-            ictx = P.getPythonContext()
-            if ictx is None:
-                raise ValueError("No context found on matrix")
-            if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r" % ictx)
-            J = ictx.a
-            bcs = ictx.row_bcs
-            if bcs != ictx.col_bcs:
-                raise NotImplementedError("Row and column bcs must match")
-        else:
-            J = ctx.Jp or ctx.J
-            bcs = ctx._problem.bcs
-
+        J, bcs = self.form(obj)
         V = J.arguments()[0].function_space()
         mesh = V.mesh()
         self.plex = mesh.topology_dm
