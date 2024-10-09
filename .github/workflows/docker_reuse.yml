@@ -26,7 +26,7 @@ on:
 jobs:
   docker_workflow:
     name: "Build the ${{ inputs.target }} container"
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
