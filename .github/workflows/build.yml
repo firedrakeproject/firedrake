@@ -56,7 +56,6 @@ jobs:
           rm -rf firedrake_venv
       - name: Build Firedrake
         run: |
-          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
