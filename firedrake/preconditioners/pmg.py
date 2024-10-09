@@ -114,10 +114,14 @@ class PMGBase(PCSNESBase):
         ppc = self.configure_pmg(obj, pdm)
         self.is_snes = isinstance(obj, PETSc.SNES)
 
+        default_mat_type = ctx.mat_type
+        if default_mat_type == "submatrix":
+            default_mat_type = "matfree"
+
         # Get the coarse degree from PETSc options
         copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
-        self.coarse_mat_type = copts.getString("mat_type", default=ctx.mat_type)
+        self.coarse_mat_type = copts.getString("mat_type", default=default_mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
         self.coarse_form_compiler_mode = copts.getString("form_compiler_mode", default=mode)
 
@@ -454,9 +458,11 @@ class PMGPC(PCBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(pc.getOptionsPrefix() + self._prefix)
-        opts["mg_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-
+        max_levels = odm.getRefineLevel() + 1
+        if max_levels > 1:
+            opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+            if opts.getString("mg_coarse_pc_type") == "mg":
+                opts["mg_coarse_pc_mg_levels"] = min(opts.getInt("mg_coarse_pc_mg_levels", max_levels), max_levels)
         return ppc
 
     def apply(self, pc, x, y):
@@ -497,10 +503,13 @@ class PMGSNES(SNESBase, PMGBase):
         # the p-MG's coarse problem. So we need to set an option
         # for the user, if they haven't already; I don't know any
         # other way to get PETSc to know this at the right time.
-        opts = PETSc.Options(snes.getOptionsPrefix() + self._prefix)
-        opts["fas_coarse_pc_mg_levels"] = odm.getRefineLevel() + 1
-        opts["fas_coarse_snes_fas_levels"] = odm.getRefineLevel() + 1
-
+        max_levels = odm.getRefineLevel() + 1
+        if max_levels > 1:
+            opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+            if opts.getString("fas_coarse_pc_type") == "mg":
+                opts["fas_coarse_pc_mg_levels"] = min(opts.getInt("fas_coarse_pc_mg_levels", max_levels), max_levels)
+            if opts.getString("fas_coarse_snes_type") == "fas":
+                opts["fas_coarse_snes_fas_levels"] = min(opts.getInt("fas_coarse_snes_fas_levels", max_levels), max_levels)
         return psnes
 
     def step(self, snes, x, f, y):
@@ -602,7 +611,7 @@ def evaluate_dual(source, target, derivative=None):
         A :class:`FIAT.CiarletElement` defining the interpolation space.
     derivative : ``str`` or ``None``
         An optional differential operator to apply on the source expression,
-        (currently only "grad" is supported).
+        either "grad", "curl", or "div".
 
     Returns
     -------
@@ -612,19 +621,23 @@ def evaluate_dual(source, target, derivative=None):
     primal = source.get_nodal_basis()
     dual = target.get_dual_set()
     A = dual.to_riesz(primal)
-    B = numpy.transpose(primal.get_coeffs())
-    if derivative == "grad":
+    B = primal.get_coeffs()
+    if derivative in ("grad", "curl", "div"):
         dmats = primal.get_dmats()
-        assert len(dmats) == 1
-        alpha = (1,)
-        for i in range(len(alpha)):
-            for j in range(alpha[i]):
-                B = numpy.dot(dmats[i], B)
-    elif derivative in ("curl", "div"):
-        raise NotImplementedError(f"Dual evaluation of {derivative} is not yet implemented.")
+        B = numpy.tensordot(B, dmats, axes=(-1, -1))
+        if derivative == "curl":
+            d = B.shape[1]
+            idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
+            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+                             for k, (i, j) in enumerate(idx)], axis=1)
+        elif derivative == "div":
+            B = numpy.trace(B, axis1=1, axis2=2)
     elif derivative is not None:
-        raise ValueError(f"Invalid derivaitve type {derivative}.")
-    return get_readonly_view(numpy.dot(A, B))
+        raise ValueError(f"Invalid derivative type {derivative}.")
+
+    B = B.reshape(-1, *A.shape[1:])
+    V = numpy.tensordot(A, B, axes=(range(1, A.ndim), range(1, B.ndim)))
+    return get_readonly_view(V)
 
 
 @serial_cache(hashkey=generate_key_evaluate_dual)
@@ -641,7 +654,7 @@ def compare_element(e1, e2):
 
 @serial_cache(hashkey=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
-def get_permutation_to_line_elements(V):
+def get_permutation_to_nodal_elements(V):
     """Find DOF permutation to factor out the EnrichedElement expansion
     into common TensorProductElements.
 
@@ -668,29 +681,29 @@ def get_permutation_to_line_elements(V):
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
 
-    line_elements = []
+    nodal_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
-        if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
-            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
-        line_elements.append(fiat_factors)
+        if not all(e.is_nodal() for e in fiat_factors):
+            raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
+        nodal_elements.append(fiat_factors)
 
-    shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
+    shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]
     sizes = list(map(numpy.prod, shapes))
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
-    unique_line_elements = []
+    unique_nodal_elements = []
     shifts = []
 
-    visit = [False for e in line_elements]
+    visit = [False for e in nodal_elements]
     while False in visit:
-        base = line_elements[visit.index(False)]
+        base = nodal_elements[visit.index(False)]
         tdim = len(base)
         pshape = tuple(e.space_dimension() for e in base)
-        unique_line_elements.append(base)
+        unique_nodal_elements.append(base)
 
         axes_shifts = tuple()
         for shift in range(tdim):
@@ -698,7 +711,7 @@ def get_permutation_to_line_elements(V):
                 shift = (tdim - shift) % tdim
 
             perm = base[shift:] + base[:shift]
-            for i, term in enumerate(line_elements):
+            for i, term in enumerate(nodal_elements):
                 if not visit[i]:
                     is_perm = all(e1.space_dimension() == e2.space_dimension()
                                   for e1, e2 in zip(perm, term))
@@ -716,7 +729,7 @@ def get_permutation_to_line_elements(V):
         shifts.append(axes_shifts)
 
     dof_perm = get_readonly_view(numpy.concatenate(dof_perm))
-    return dof_perm, unique_line_elements, shifts
+    return dof_perm, unique_nodal_elements, shifts
 
 
 def get_permuted_map(V):
@@ -724,7 +737,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    indices, _, _ = get_permutation_to_line_elements(V)
+    indices, _, _ = get_permutation_to_nodal_elements(V)
     if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
     return op2.PermutedMap(V.cell_node_map(), indices)
@@ -887,8 +900,8 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, celems, cshifts = get_permutation_to_line_elements(Vc)
-    _, felems, fshifts = get_permutation_to_line_elements(Vf)
+    _, celems, cshifts = get_permutation_to_nodal_elements(Vc)
+    _, felems, fshifts = get_permutation_to_nodal_elements(Vf)
 
     shifts = fshifts
     in_place = False
@@ -1120,7 +1133,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    _, _, shifts = get_permutation_to_line_elements(V)
+    _, _, shifts = get_permutation_to_nodal_elements(V)
     shift = shifts[0]
     if shift != (0,):
         ndof = numpy.prod(vshape)
