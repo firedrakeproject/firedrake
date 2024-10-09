@@ -152,7 +152,12 @@ def test_macro_multigrid_poisson(hierarchy, degree, variant):
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=mg_params)
-    solver.solve()
+    if complex_mode and variant == "alfeld":
+        with pytest.raises(NotImplementedError):
+            solver.solve()
+    else:
+        solver.solve()
+
     expected = 10
     if mesh.geometric_dimension() == 3 and variant == "alfeld":
         expected = 14
