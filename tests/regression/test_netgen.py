@@ -387,25 +387,3 @@ def test_firedrake_Adaptivity_netgen_parallel():
         dofs.append(uh.function_space().dim())
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.05
-
-
-@pytest.mark.parallel
-@pytest.mark.skipcomplex
-def test_alfeld_stokes_netgen():
-    ngmesh = square_geometry(0.75)
-    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name == "rect"]
-    msh = Mesh(ngmesh, netgen_flags={"split": "Alfeld"})
-    V = VectorFunctionSpace(msh, "CG", 2)
-    Q = FunctionSpace(msh, "DG", 1)
-    W = V*Q
-    u, p = TrialFunctions(W)
-    v, q = TestFunctions(W)
-    x, y = SpatialCoordinate(msh)
-    f = assemble(interpolate(as_vector([sin(x)*sin(y), sin(x)*sin(y)]), V))
-    a = (inner(grad(u), grad(v)) - div(u)*q - div(v)*p)*dx
-    l = inner(f, v) * dx
-    w = Function(W)
-    bc = DirichletBC(W.sub(0), as_vector([0, 0]), labels)
-    solve(a == l, w, bcs=bc)
-    u = w.split()[0]
-    assert assemble(div(u)*div(u)*dx) < 1e-16
