@@ -1,5 +1,5 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, \
-    stop_annotating, no_annotations, get_working_tape, Tape
+    stop_annotating, no_annotations, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake import assemble, inner, dx
 from functools import wraps, cached_property
@@ -91,28 +91,37 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         if self.weak_constraint:
             self._annotate_accumulation = _annotate_accumulation
 
-            background_err = background_iprod(control.control - self.background)
-            self.background_rf = ReducedFunctional(
-                background_err, control, tape=self.tape)
+            # new tape for background error
+            with set_working_tape() as tape:
+                background_err = background_iprod(control.control - self.background)
+                self.background_rf = ReducedFunctional(
+                    background_err, control, tape=tape)
+
             self._accumulate_functional(background_err)
 
             self.controls = [control]       # The solution at the beginning of each time-chunk
             self.states = []                # The model propogation at the end of each time-chunk
-            self.forward_model_stages = []  # ReducedFunctional for each model propogation (returns state)
+            # self.forward_model_stages = []  # ReducedFunctional for each model propogation (returns state)
             self.forward_model_rfs = []     # Inner product for model errors (possibly including error covariance)
-            self.observations = []          # ReducedFunctional for each observation set (returns observation error)
+            # self.observations = []          # ReducedFunctional for each observation set (returns observation error)
             self.observation_rfs = []       # Inner product for observation errors (possibly including error covariance)
 
             if self.initial_observations:
-                obs_err = observation_err(control.control)
-                self.observations.append(
-                    ReducedFunctional(obs_err, control, tape=self.tape)
-                )
-                obs_err = observation_iprod(obs_err)
-                self.observation_rfs.append(
-                    ReducedFunctional(obs_err, control, tape=self.tape)
-                )
+                # new tape for observation error
+                with set_working_tape() as tape:
+                    obs_err = observation_err(control.control)
+                    # self.observations.append(
+                    #     ReducedFunctional(obs_err, control, tape=tape)
+                    # )
+                    obs_err = observation_iprod(obs_err)
+                    self.observation_rfs.append(
+                        ReducedFunctional(obs_err, control, tape=tape)
+                    )
+
                 self._accumulate_functional(obs_err)
+
+                # new tape for the next stage
+                set_working_tape()
 
         else:
             self._annotate_accumulation = True
@@ -169,9 +178,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             # State is output from previous control i.e. forward model
             # propogation over previous time-chunk.
             prev_control = self.controls[-1]
-            self.forward_model_stages.append(
-                ReducedFunctional(state, controls=prev_control, tape=self.tape)
-            )
+            # self.forward_model_stages.append(
+            #     ReducedFunctional(state, controls=prev_control, tape=self.tape)
+            # )
 
             # Beginning of next time-chunk is the control for this observation
             # and the state at the end of the next time-chunk.
@@ -183,22 +192,32 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
             # model error links time-chunks by depending on both the
             # previous and current controls
+
+            # get the tape used for this stage
+            prev_stage_tape = get_working_tape()
             model_err = forward_model_iprod(state - next_control.control)
             self.forward_model_rfs.append(
-                ReducedFunctional(model_err, self.controls[-2:], tape=self.tape)
+                ReducedFunctional(model_err, self.controls[-2:], tape=prev_stage_tape)
             )
             self._accumulate_functional(model_err)
 
             # Observations after tape cut because this is now a control, not a state
-            obs_err = observation_err(next_control.control)
-            self.observations.append(
-                ReducedFunctional(obs_err, next_control, tape=self.tape)
-            )
-            obs_err = observation_iprod(obs_err)
-            self.observation_rfs.append(
-                ReducedFunctional(obs_err, next_control, tape=self.tape)
-            )
+
+            # new tape for observation error
+            with set_working_tape() as tape:
+                obs_err = observation_err(next_control.control)
+                # self.observations.append(
+                #     ReducedFunctional(obs_err, next_control, tape=tape)
+                # )
+                obs_err = observation_iprod(obs_err)
+                self.observation_rfs.append(
+                    ReducedFunctional(obs_err, next_control, tape=tape)
+                )
+
             self._accumulate_functional(obs_err)
+
+            # start new tape for the next stage
+            set_working_tape()
 
             # Look we're starting this time-chunk from an "unrelated" value... really!
             state.assign(next_control.control)
@@ -230,7 +249,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         If using strong constraint then grab attributes from self.strong_reduced_functional.
         """
         if self.weak_constraint:
-            raise AttributeError
+            raise AttributeError(f"'{type(self)}' object has no attribute '{attr}'")
         else:
             return getattr(self.strong_reduced_functional, attr)
 
@@ -396,13 +415,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     @sc_passthrough
     @no_annotations
     def optimize_tape(self):
-        all_rfs = [
-            self.background_rf,
-            *self.forward_model_rfs,
-            *self.observation_rfs
-        ]
-        for rf in all_rfs:
-            rf.tape = Tape(rf.tape._blocks, rf.tape._package_data)
+        for rf in (self.background_rf,
+                   *self.forward_model_rfs,
+                   *self.observation_rfs):
             rf.optimize_tape()
 
     def _accumulate_functional(self, val):
