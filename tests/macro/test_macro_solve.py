@@ -33,23 +33,35 @@ def mixed_element(mh, variant):
     return Vel, Pel
 
 
-def conv_rates(x):
+def mesh_sizes(mh):
+    mesh_size = []
+    for msh in mh:
+        DG0 = FunctionSpace(msh, "DG", 0)
+        h = Function(DG0).interpolate(CellDiameter(msh))
+        with h.dat.vec as hvec:
+            _, maxh = hvec.max()
+        mesh_size.append(maxh)
+    return mesh_size
+
+
+def conv_rates(x, h):
     x = np.asarray(x)
-    return np.log2(x[:-1] / x[1:])
+    h = np.asarray(h)
+    return np.log2(x[:-1] / x[1:]) / np.log2(h[:-1] / h[1:])
 
 
 @pytest.fixture
 def convergence_test(variant):
     if variant == "iso":
-        def check(uerr, perr):
-            return (conv_rates(uerr)[-1] >= 1.9
+        def check(uerr, perr, h):
+            return (conv_rates(uerr, h)[-1] >= 1.9
                     and np.allclose(perr, 0, atol=1.e-8))
     elif variant == "alfeld":
-        def check(uerr, perr):
+        def check(uerr, perr, h):
             return (np.allclose(uerr, 0, atol=5.e-9)
                     and np.allclose(perr, 0, atol=5.e-7))
     elif variant == "th":
-        def check(uerr, perr):
+        def check(uerr, perr, h):
             return (np.allclose(uerr, 0, atol=1.e-10)
                     and np.allclose(perr, 0, atol=1.e-8))
     return check
@@ -100,7 +112,7 @@ def test_riesz(mh, variant, mixed_element, convergence_test):
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornorm(zexact[-1], ph))
 
-    assert convergence_test(u_err, p_err)
+    assert convergence_test(u_err, p_err, mesh_sizes(mh))
 
 
 def stokes_mms(Z, zexact):
@@ -128,7 +140,6 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
     dim = mh[0].geometric_dimension()
     if variant == "iso" and dim == 3:
         pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
-
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -155,7 +166,7 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornormL2_0(zexact[-1], ph))
 
-    assert convergence_test(u_err, p_err)
+    assert convergence_test(u_err, p_err, mesh_sizes(mh))
 
 
 def test_div_free(mh, variant, mixed_element, div_test):

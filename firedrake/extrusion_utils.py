@@ -5,7 +5,7 @@ import islpy as isl
 
 import finat
 from pyop2 import op2
-from pyop2.caching import cached
+from pyop2.caching import serial_cache
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from tsfc.finatinterface import create_element
@@ -338,7 +338,7 @@ def make_offset_key(finat_element):
     return entity_dofs_key(finat_element.entity_dofs()), is_real_tensor_product_element(finat_element)
 
 
-@cached({}, key=make_offset_key)
+@serial_cache(hashkey=make_offset_key)
 def calculate_dof_offset(finat_element):
     """Return the offset between the neighbouring cells of a
     column for each DoF.
@@ -366,7 +366,7 @@ def calculate_dof_offset(finat_element):
     return dof_offset
 
 
-@cached({}, key=make_offset_key)
+@serial_cache(hashkey=make_offset_key)
 def calculate_dof_offset_quotient(finat_element):
     """Return the offset quotient for each DoF within the base cell.
 

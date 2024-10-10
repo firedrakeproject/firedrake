@@ -323,10 +323,14 @@ def test_input_ordering_missing_point():
     # put data on the input ordering
     P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
     data_input_ordering = Function(P0DG_input_ordering)
+
     if vm.comm.rank == 0:
         data_input_ordering.dat.data_wo[:] = data
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(data_input_ordering.dat.data_ro)
     else:
         data_input_ordering.dat.data_wo[:] = []
+        # [*here]
         assert not len(data_input_ordering.dat.data_ro)
 
     # shouldn't have any halos
@@ -348,6 +352,9 @@ def test_input_ordering_missing_point():
     data_input_ordering.interpolate(data_on_vm)
     if vm.comm.rank == 0:
         assert np.allclose(data_input_ordering.dat.data_ro[0:3], 2*data[0:3])
+        # [*here]
         assert np.allclose(data_input_ordering.dat.data_ro[3], data[3])
     else:
         assert not len(data_input_ordering.dat.data_ro)
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(data_input_ordering.dat.data_ro)
