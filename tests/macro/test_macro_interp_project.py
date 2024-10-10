@@ -138,14 +138,10 @@ def test_piola_convergence(hierarchy, dim, el, deg, convrate, op):
 
 
 # Test that DirichletBC does not set derivative nodes of supersmooth H1 functions
-@pytest.mark.parametrize('enriched', (False, True))
-def test_supersmooth_bcs(mesh, enriched):
+def test_supersmooth_bcs(mesh):
     tdim = mesh.topological_dimension()
-    if enriched:
-        cell = mesh.ufl_cell()
-        element = EnrichedElement(FiniteElement("AS", cell=cell, degree=2),
-                                  FiniteElement("GNB", cell=cell, degree=tdim))
-        V = FunctionSpace(mesh, element)
+    if tdim == 3:
+        V = FunctionSpace(mesh, "GNH1div", 3)
     else:
         V = FunctionSpace(mesh, "Alfeld-Sorokina", 2)
 
@@ -168,7 +164,7 @@ def test_supersmooth_bcs(mesh, enriched):
         # check that we have the expected number of bc nodes
         nnodes = len(bc.nodes)
         expected = tdim * len(DirichletBC(CG, 0, sub).nodes)
-        if enriched:
+        if tdim == 3:
             expected += len(DirichletBC(RT, 0, sub).nodes)
         assert nnodes == expected
 
