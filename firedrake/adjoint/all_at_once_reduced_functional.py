@@ -1,5 +1,5 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, \
-    stop_annotating, no_annotations, get_working_tape
+    stop_annotating, no_annotations, get_working_tape, Tape
 from pyadjoint.enlisting import Enlist
 from firedrake import assemble, inner, dx
 from functools import wraps, cached_property
@@ -348,7 +348,34 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             The action of the Hessian in the direction m_dot.
             Should be an instance of the same type as the control.
         """
-        raise NotImplementedError
+        # create a list of overloaded types to put hessian into
+        hessians = []
+
+        kwargs = {'options': options}
+
+        # Shift lists so indexing matches standard nomenclature:
+        # index 0 is initial condition. Model i propogates from i-1 to i.
+        model_rfs = [None, *self.forward_model_rfs]
+
+        observation_rfs = (self.observation_rfs if self.initial_observations
+                           else [None, *self.observation_rfs])
+
+        # initial condition hessians
+        hessians.append(
+            self.background_rf.hessian(m_dot[0], **kwargs))
+
+        if self.initial_observations:
+            hessians[0] += observation_rfs[0].hessian(m_dot[0], **kwargs)
+
+        for i in range(1, len(model_rfs)):
+            hessians.append(observation_rfs[i].hessian(m_dot[i], **kwargs))
+
+            mhess = model_rfs[i].hessian(m_dot[i-1:i+1], **kwargs)
+
+            hessians[i-1] += mhess[0]
+            hessians[i] += mhess[1]
+
+        return hessians
 
     @no_annotations
     def hessian_matrix(self):
@@ -365,10 +392,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             *self.forward_model_rfs,
             *self.observation_rfs
         ]
-        all_functionals = [rf.functional for rf in all_rfs]
-        self.tape.optimize(
-            controls=self.controls,
-            functionals=all_functionals)
+        for rf in all_rfs:
+            rf.tape = Tape(rf.tape._blocks, rf.tape._package_data)
+            rf.optimize_tape()
 
     def _accumulate_functional(self, val):
         if not self._annotate_accumulation:
