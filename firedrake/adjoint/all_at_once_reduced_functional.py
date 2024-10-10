@@ -75,7 +75,6 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                  weak_constraint=True, tape=None,
                  _annotate_accumulation=False):
 
-        self._annotate_accumulation = _annotate_accumulation
         self.tape = get_working_tape() if tape is None else tape
 
         self.weak_constraint = weak_constraint
@@ -90,6 +89,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self.background = control.copy_data()
 
         if self.weak_constraint:
+            self._annotate_accumulation = _annotate_accumulation
+
             background_err = background_iprod(control.control - self.background)
             self.background_rf = ReducedFunctional(
                 background_err, control, tape=self.tape)
@@ -114,17 +115,21 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                 self._accumulate_functional(obs_err)
 
         else:
+            self._annotate_accumulation = True
+
             # initial conditions guess to be updated
             self.controls = Enlist(control)
 
             # Strong constraint functional to be converted to ReducedFunctional later
 
             # penalty for straying from prior
-            self.functional = background_iprod(control.control - self.background)
+            self._accumulate_functional(
+                background_iprod(control.control - self.background))
 
             # penalty for not hitting observations at initial time
             if self.initial_observations:
-                self.functional += observation_iprod(observation_err(control.control))
+                self._accumulate_functional(
+                    observation_iprod(observation_err(control.control)))
 
     def set_observation(self, state: OverloadedType, observation_err,
                         observation_iprod=None, forward_model_iprod=None):
@@ -203,7 +208,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             if hasattr(self, "_strong_reduced_functional"):
                 msg = "Cannot add observations once strong constraint ReducedFunctional instantiated"
                 raise ValueError(msg)
-            self.functional += observation_iprod(observation_err(state))
+            self._accumulate_functional(
+                observation_iprod(observation_err(state)))
 
     @cached_property
     def strong_reduced_functional(self):
@@ -216,7 +222,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             msg = "Strong constraint ReducedFunctional not instantiated for weak constraint 4DVar"
             raise AttributeError(msg)
         self._strong_reduced_functional = ReducedFunctional(
-            self.functional, self.controls, tape=self.tape)
+            self._total_functional, self.controls, tape=self.tape)
         return self._strong_reduced_functional
 
     @sc_passthrough
@@ -365,13 +371,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             functionals=all_functionals)
 
     def _accumulate_functional(self, val):
-        def accumulate(val):
-            if hasattr(self, '_total_functional'):
-                self._total_functional += val
-            else:
-                self._total_functional = val
-        if self._annotate_accumulation:
-            accumulate(val)
+        if not self._annotate_accumulation:
+            return
+        if hasattr(self, '_total_functional'):
+            self._total_functional += val
         else:
-            with stop_annotating():
-                accumulate(val)
+            self._total_functional = val
