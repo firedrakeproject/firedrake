@@ -17,7 +17,7 @@ External operators are represented by the :class:`~.AbstractExternalOperator` ba
 which can be subclassed for defining specific operators. While the base class documentation 
 provides the syntax, this document introduces the external operator abstraction in more detail and 
 explains what you need to do if you want to define your own external operator. The external operator 
-framework is discussed in more detail in :cite:`Bouziani2021`.
+framework is discussed in more detail in :cite:`Bouziani2021` and :cite:`Bouziani2024`.
 
 
 .. _math_background:
@@ -197,7 +197,7 @@ Build your own external operator
 
 External operators can be used to incorporate arbitrary operators within Firedrake. Some external 
 operators are already implemented, such as the :class:`~.MLOperator` for embedding machine learning 
-models within Firedrake, whose implementation is explained in more detail in :cite:`Bouziani2021`. 
+models within Firedrake, whose implementation is explained in more detail in :cite:`Bouziani2021` and :cite:`Bouziani2024`.
 However, you may want to build your own external operator for your specific problem. 
 In this section, we discuss how new external operators can be defined.
 

@@ -119,12 +119,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(Interpolate(coordinates, V))
 
-    coords = toreal(coordinates.dat.data_ro, "real")
+    coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values
+        cell_node_map = coordinates.cell_node_map().values_with_halo
         idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
         vertices = coords[cell_node_map[:, idx]]
 
@@ -141,12 +141,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         if typ == "interior":
             facets = mesh.interior_facets
             node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro[:, :1].reshape(-1)
+            node_map = node_map.values_with_halo[:, :node_map.arity//2]
+            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
         elif typ == "exterior":
             facets = mesh.exterior_facets
-            local_facet_ids = facets.local_facet_dat.data_ro
-            node_map = coordinates.exterior_facet_node_map().values
+            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
+            node_map = coordinates.exterior_facet_node_map().values_with_halo
         else:
             raise ValueError("Unhandled facet type")
         mask = np.zeros(node_map.shape, dtype=bool)

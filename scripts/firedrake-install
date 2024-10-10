@@ -79,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "torch",
+                           "opencascade", "torch", "jax",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -264,6 +264,8 @@ honoured.""",
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -402,6 +404,8 @@ else:
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("jax", False),
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -779,15 +783,21 @@ def get_petsc_options(minimal=False):
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
             if Version(clt["version"]) >= Version("15"):
-                # CLT >= 15 requires legacy linking behaviour
-                petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
             if Version(clt["version"]) >= Version("15"):
-                # CLT >= 15 requires legacy linking behaviour
-                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
             petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
@@ -796,8 +806,11 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
         if Version(clt["version"]) >= Version("15"):
-            # CLT >= 15 requires legacy linking behaviour
-            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+            # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+            # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+            # on macOS with parallel solvers. Its necessity is unclear, so a
+            # review in the future may be required.
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
         else:
             petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
@@ -1305,6 +1318,13 @@ def build_and_install_torch():
         run_pip_install(["typing_extensions"])
     extra_index_url = ["--extra-index-url", "https://download.pytorch.org/whl/cpu"] if args.torch == "cpu" else []
     run_pip_install(["torch"] + extra_index_url)
+
+
+def build_and_install_jax():
+    """Install JAX for a CPU or CUDA backend."""
+    log.info("Installing JAX (backend: %s)" % args.jax)
+    version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
+    run_pip_install([version_name])
 
 
 def build_and_install_slepc():
@@ -2069,6 +2089,10 @@ with pipargs("--no-deps"):
 with pipargs("--no-deps"):
     if options["torch"]:
         build_and_install_torch()
+
+with pipargs("--no-deps"):
+    if options["jax"]:
+        build_and_install_jax()
 
 if args.documentation_dependencies:
     install_documentation_dependencies()
