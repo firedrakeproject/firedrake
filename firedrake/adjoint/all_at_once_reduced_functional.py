@@ -225,6 +225,15 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self._total_functional, self.controls, tape=self.tape)
         return self._strong_reduced_functional
 
+    def __getattr__(self, attr):
+        """
+        If using strong constraint then grab attributes from self.strong_reduced_functional.
+        """
+        if self.weak_constraint:
+            raise AttributeError
+        else:
+            return getattr(self.strong_reduced_functional, attr)
+
     @sc_passthrough
     @no_annotations
     def __call__(self, values):
