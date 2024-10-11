@@ -11,18 +11,21 @@ def mesh(request):
         return UnitCubeMesh(n, n, n)
 
 
-@pytest.fixture(params=("SV", "GN", "AS"))
+@pytest.fixture(params=("SV", "GN", "GN2", "AS"))
 def space(request, mesh):
     family = request.param
     dim = mesh.topological_dimension()
     if family == "GN":
-        V = FunctionSpace(mesh, "GN", dim)
+        V = FunctionSpace(mesh, "GN", 1)
         Q = FunctionSpace(mesh, "DG", 0)
+    elif family == "GN2":
+        V = FunctionSpace(mesh, "GN2", 1)
+        Q = FunctionSpace(mesh, "DG", 0, variant="alfeld")
     elif family == "AS":
-        if dim > 2:
-            V = FunctionSpace(mesh, "GNH1div", dim)
-        else:
+        if dim == 2:
             V = FunctionSpace(mesh, "AS", 2)
+        else:
+            V = FunctionSpace(mesh, "GNH1div", dim)
         Q = FunctionSpace(mesh, "CG", 1, variant="alfeld")
     elif family == "SV":
         V = VectorFunctionSpace(mesh, "CG", dim, variant="alfeld")
