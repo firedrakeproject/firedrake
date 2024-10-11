@@ -123,10 +123,10 @@ def test_scalar_convergence(hierarchy, dim, el, deg, convrate, op):
                          [(2, 'Alfeld-Sorokina', 2, 2),
                           (3, 'Alfeld-Sorokina', 2, 2),
                           (2, 'Reduced-Arnold-Qin', 2, 1),
-                          (3, 'Guzman-Neilan', 3, 1),
+                          (3, 'Guzman-Neilan', 1, 1),
                           (3, 'Christiansen-Hu', 1, 1),
-                          (2, 'Bernardi-Raugel', 2, 1),
-                          (3, 'Bernardi-Raugel', 3, 1),
+                          (2, 'Bernardi-Raugel', 1, 1),
+                          (3, 'Bernardi-Raugel', 1, 1),
                           (2, 'Johnson-Mercier', 1, 1),
                           (3, 'Johnson-Mercier', 1, 1),
                           ])

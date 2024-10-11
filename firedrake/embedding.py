@@ -6,15 +6,16 @@ import ufl
 
 def get_embedding_dg_element(element, broken_cg=False):
     cell = element.cell
-    degree = element.degree()
     family = lambda c: "DG" if c.is_simplex() else "DQ"
     if isinstance(cell, ufl.TensorProductCell):
+        degree = element.degree()
         if type(degree) is int:
             scalar_element = finat.ufl.FiniteElement("DQ", cell=cell, degree=degree)
         else:
             scalar_element = finat.ufl.TensorProductElement(*(finat.ufl.FiniteElement(family(c), cell=c, degree=d)
                                                               for (c, d) in zip(cell.sub_cells(), degree)))
     else:
+        degree = element.embedded_superdegree
         scalar_element = finat.ufl.FiniteElement(family(cell), cell=cell, degree=degree)
     if broken_cg:
         scalar_element = finat.ufl.BrokenElement(scalar_element.reconstruct(family="Lagrange"))
