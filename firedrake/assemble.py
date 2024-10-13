@@ -1553,9 +1553,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # on the loop index, but it is always trivial. However, we still
             # need to turn our index tree into an index forest for things to
             # make sense later on.
-            context = pmap({index.id: (index.source_path, index.path)})
-            rmap = {context: rmap}
-            cmap = {context: cmap}
+            # context = pmap({index.id: (index.source_path, index.path)})
+            # rmap = {context: rmap}
+            # cmap = {context: cmap}
 
             loop = (index, rmap, cmap, (None, None))
             loops.append(loop)

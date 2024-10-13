@@ -12,8 +12,7 @@ import numpy as np
 import pyop3 as op3
 import ufl
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
-from pyop3.axtree.tree import ExpressionEvaluator
-from pyop3.array.harray import ArrayVar
+from pyop3.expr_visitors import evaluate as eval_expr
 from pyop3.itree.tree import compose_axes
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
@@ -833,9 +832,9 @@ def _indexify_tensor_axes(
                 index_expr = index_exprs[axis.id, component.label]
 
                 target_indices = {}
-                evaluator = ExpressionEvaluator(indices_, ())
+                # evaluator = ExpressionEvaluator(indices_, ())
                 for ax, expr in index_expr.items():
-                    target_indices[ax] = evaluator(expr)
+                    target_indices[ax] = eval_expr(expr, indices)
 
                 index_tree = (
                     op3.AffineSliceComponent(
@@ -1059,17 +1058,18 @@ def _orientations(mesh, perms, cell, integral_type):
         # perm = perms_[inner_subset]
         (root_label, root_clabel), (leaf_label, leaf_clabel) = op3.utils.just_one(perms_.axes.ordered_leaf_paths)
 
-        source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
-        index_keys = [None] + [
-            (axis.id, cpt) for axis, cpt in source_path.items()
-        ]
-        target_path = op3.utils.merge_dicts(
-            inner_subset.axes.target_paths.get(key, {}) for key in index_keys
-        )
-        myindices = op3.utils.merge_dicts(
-            inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
-        )
-        inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
+        # source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
+        # index_keys = [None] + [
+        #     (axis.id, cpt) for axis, cpt in source_path.items()
+        # ]
+        # target_path = op3.utils.merge_dicts(
+        #     inner_subset.axes.target_paths.get(key, {}) for key in index_keys
+        # )
+        # myindices = op3.utils.merge_dicts(
+        #     inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
+        # )
+        # inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
+        inner_subset_var = inner_subset
 
         mypermindices = (
             op3.ScalarIndex(root_label, root_clabel, inner_subset_var),

@@ -919,7 +919,7 @@ class AbstractMeshTopology(abc.ABC):
         else:
             for dim in self._plex_strata_ordering:
                 indices = self._entity_indices[dim]
-                subset_axes = op3.Axis(indices.size)
+                subset_axes = op3.Axis({str(dim): indices.size}, self.name)
                 subset_array = op3.HierarchicalArray(subset_axes, data=indices)
                 subset = op3.Subset("mylabel", subset_array, label=str(dim))
                 subsets.append(subset)
@@ -993,7 +993,7 @@ class AbstractMeshTopology(abc.ABC):
             # FIAT ordering is only valid for cell closures
             dims = (self.dimension,)
 
-        closures = []
+        closures = {}
         for dim in dims:
             closure_data = self._plex_closures_default[dim]
 
@@ -1035,8 +1035,12 @@ class AbstractMeshTopology(abc.ABC):
                 # Discard any parallel information, the maps are purely local
                 outer_axis_component = just_one(c for c in self.points.root.components if c.label == str(dim))
                 outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
+
+                # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
+                # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
+                # fix automatically internally via additional replace() arguments.
                 map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: op3.Axis(size)}
+                    {outer_axis: op3.Axis({target_dim: size}, "closure")}
                 )
                 map_dat = op3.HierarchicalArray(
                     map_axes, data=map_data.flatten(), prefix="closure"
@@ -1044,8 +1048,9 @@ class AbstractMeshTopology(abc.ABC):
                 map_components.append(
                     op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
                 )
-            closure_map = freeze({pmap({self.name: str(dim)}): map_components})
-            closures.append(closure_map)
+
+            # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
+            closures[pmap({self.name: str(dim)})] =  (tuple(map_components),)
 
         return op3.Map(closures, name="closure")
 

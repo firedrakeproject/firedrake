@@ -1145,7 +1145,7 @@ class MixedFunctionSpace(object):
         # breakpoint()
         self.flat_axes = axes
 
-        field_slice = op3.Slice("field", [op3.AffineSliceComponent(s.index) for s in self._spaces])
+        field_slice = op3.Slice("field", [op3.AffineSliceComponent(s.index, label=s.index) for s in self._spaces], label="field")
         axes_index_tree = op3.IndexTree(field_slice)
         for space, field_slice_component in zip(self._spaces, field_slice.slices):
             subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
