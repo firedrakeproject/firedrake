@@ -635,12 +635,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             self._ad_solvers["recompute"] = tape.recompute
             if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
                 self._ad_solvers["forward_nlvs"].invalidate_jacobian()
-                self._ad_solvers["adjoint_lvs"].invalidate_jacobian()
-
+                self._ad_solvers["update_adjoint"] = True
         return super().recompute_component(inputs, block_variable, idx, prepared)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        self._ad_nlvs_replace_forms()
+        self._ad_solver_replace_forms(forward=True, adjoint=False)
         self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
@@ -653,51 +652,50 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for bc in bcs:
             bc.apply(dJdu)
 
-        # Update the left hand side coefficients of the adjoint equation.
-        problem = self._ad_solvers["adjoint_lvs"]._problem
         if (
-            (not problem._constant_jacobian)
-            or (problem._constant_jacobian
-                and not self._ad_solvers["adjoint_lvs"].jacobian_assembled)
+            self._ad_solvers["forward_nlvs"]._problem._constant_jacobian
+            and self._ad_solvers["update_adjoint"]
         ):
-            for block_variable in self.get_dependencies():
-                # The self.adj_F coefficients hold the forward output
-                # references.
-                if block_variable.output in self.adj_F.coefficients():
-                    index = self.adj_F.coefficients().index(block_variable.output)
-                    if isinstance(
-                            block_variable.output, (
-                                firedrake.Function, firedrake.Constant,
-                                firedrake.Cofunction)):
-                        # jproblem.J is a deep copy of `self.adj_F`. Thus, the
-                        # indices of `self.adj_F` serve as a map for updating
-                        # the coefficients of the adjoint solver.
-                        problem.J.coefficients()[index].assign(
-                            block_variable.saved_output)
+            self._ad_solver_replace_forms(forward=False, adjoint=True)
+            self._ad_solvers["adjoint_lvs"] = type(self._ad_solvers["adjoint_lvs"])(
+                self._assemble_dFdu_adj(
+                    self._ad_solvers["adjoint_lvs"].A.form, **self.assemble_kwargs.copy()),
+                *self.adj_args, **self.adj_kwargs)
+            self._ad_solvers["update_adjoint"] = False
+        elif not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+            # Update left hand side of the adjoint equation.
+            self._ad_solver_replace_forms(forward=False, adjoint=True)
 
-            bv = self.get_outputs()[0]
-            if bv.output in self.adj_F.coefficients():
-                index = self.adj_F.coefficients().index(bv.output)
-                problem.J.coefficients()[index].assign(bv.checkpoint)
+            # Update the right hand side of the adjoint equation.
+            # problem.F._component[1] is the right hand side of the adjoint.
+            self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
 
-        # Update the right hand side of the adjoint equation.
-        # problem.F._component[1] is the right hand side of the adjoint.
-        problem.F._components[1].assign(dJdu)
+            # Solve the adjoint linear variational solver.
+            self._ad_solvers["adjoint_lvs"].solve()
+            u_sol = self._ad_solvers["adjoint_lvs"]._problem.u
 
-        # Solve the adjoint equation.
-        self._ad_solvers["adjoint_lvs"].solve()
+        if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+            u_sol = firedrake.Function(
+                self._ad_solvers["forward_nlvs"]._problem.u.function_space())
+            self._ad_solvers["adjoint_lvs"].solve(u_sol, dJdu)
+
         if compute_bdy:
             jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
 
         adj_sol_bdy = None
         if compute_bdy:
             adj_sol_bdy = self._compute_adj_bdy(
-                self._ad_solvers["adjoint_lvs"]._problem.u, adj_sol_bdy,
-                jac_adj, dJdu_copy)
-        return self._ad_solvers["adjoint_lvs"]._problem.u, adj_sol_bdy
+                u_sol, adj_sol_bdy, jac_adj, dJdu_copy)
+        return u_sol, adj_sol_bdy
 
-    def _ad_assign_map(self, form):
-        count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
+    def _ad_assign_map(self, form, forward, adjoint):
+        if forward:
+            count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
+        elif adjoint:
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+                count_map = self._ad_solvers["adj_ad_count_map"]
+            else:
+                count_map = self._ad_solvers["adjoint_lvs"]._problem._ad_count_map
         assign_map = {}
         form_ad_count_map = dict((count_map[coeff], coeff)
                                  for coeff in form.coefficients())
@@ -710,17 +708,33 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 if coeff_count in form_ad_count_map:
                     assign_map[form_ad_count_map[coeff_count]] = \
                         block_variable.saved_output
+                    
+        if adjoint and not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+            block_variable = self.get_outputs()[0]
+            coeff_count = block_variable.output.count()
+            if coeff_count in form_ad_count_map:
+                assign_map[form_ad_count_map[coeff_count]] = \
+                    block_variable.saved_output
         return assign_map
 
-    def _ad_assign_coefficients(self, form):
-        assign_map = self._ad_assign_map(form)
+    def _ad_assign_coefficients(self, form, forward, adjoint):
+        assign_map = self._ad_assign_map(
+            form, forward, adjoint)
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
-    def _ad_nlvs_replace_forms(self):
-        problem = self._ad_solvers["forward_nlvs"]._problem
-        self._ad_assign_coefficients(problem.F)
-        self._ad_assign_coefficients(problem.J)
+    def _ad_solver_replace_forms(self, forward, adjoint):
+        if forward:
+            problem = self._ad_solvers["forward_nlvs"]._problem
+            self._ad_assign_coefficients(problem.F, forward, adjoint)
+            self._ad_assign_coefficients(problem.J, forward, adjoint)
+        else:
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+                form = self._ad_solvers["adjoint_lvs"].A.form
+            else:
+                form = self._ad_solvers["adjoint_lvs"]._problem.J
+
+            self._ad_assign_coefficients(form, forward, adjoint)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         compute_bdy = self._should_compute_boundary_adjoint(

@@ -59,7 +59,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
+            from firedrake import LinearVariationalSolver, LinearSolver
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -88,9 +88,16 @@ class NonlinearVariationalSolverMixin:
                 # Adjoint variational solver.
                 if not self._ad_solvers["adjoint_lvs"]:
                     with stop_annotating():
-                        self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
-                            self._ad_adj_lvs_problem(block),
-                            *block.adj_args, **block.adj_kwargs)
+                        problem = self._ad_adj_lvs_problem(block)
+                        if self._ad_problem._constant_jacobian:
+                            self._ad_solvers["adjoint_lvs"] = LinearSolver(
+                                block._assemble_dFdu_adj(problem.J, **block.assemble_kwargs.copy()),
+                                *block.adj_args, **block.adj_kwargs)
+                            self._ad_solvers["adj_ad_count_map"] = problem._ad_count_map
+                            self._ad_solvers["update_adjoint"] = False
+                        else:
+                            self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
+                                self._ad_adj_lvs_problem(block), *block.adj_args, **block.adj_kwargs)
 
                 block._ad_solvers = self._ad_solvers
 
@@ -115,8 +122,8 @@ class NonlinearVariationalSolverMixin:
         expressions, we'll instead create clones of them.
         """
         from firedrake import NonlinearVariationalProblem
-        _ad_count_map, F_replace_map, J_replace_map = self._build_count_map(
-            problem, dependencies)
+        _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
+            problem.J, dependencies, Form=problem.F)
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
@@ -143,8 +150,9 @@ class NonlinearVariationalSolverMixin:
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the
         # `block.adj_F` coefficients.
-        _ad_count_map, _, J_replace_map = self._build_count_map(
-            tmp_problem, block._dependencies)
+        _ad_count_map, J_replace_map, _ = self._build_count_map(
+            block.adj_F, block._dependencies
+        )
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
@@ -153,24 +161,25 @@ class NonlinearVariationalSolverMixin:
         del tmp_problem
         return lvp
 
-    def _build_count_map(self, problem, dependencies):
+    def _build_count_map(self, J, dependencies, Form=None):
         from firedrake import Function
 
         F_replace_map = {}
         J_replace_map = {}
-
-        F_coefficients = problem.F.coefficients()
-        J_coefficients = problem.J.coefficients()
+        if Form:
+            F_coefficients = Form.coefficients()
+        J_coefficients = J.coefficients()
 
         _ad_count_map = {}
         for block_variable in dependencies:
             coeff = block_variable.output
-            if coeff in F_coefficients and coeff not in F_replace_map:
-                if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
-                    F_replace_map[coeff] = copy.deepcopy(coeff)
-                else:
-                    F_replace_map[coeff] = coeff.copy(deepcopy=True)
-                _ad_count_map[F_replace_map[coeff]] = coeff.count()
+            if Form:
+                if coeff in F_coefficients and coeff not in F_replace_map:
+                    if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
+                        F_replace_map[coeff] = copy.deepcopy(coeff)
+                    else:
+                        F_replace_map[coeff] = coeff.copy(deepcopy=True)
+                    _ad_count_map[F_replace_map[coeff]] = coeff.count()
 
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:
@@ -180,4 +189,4 @@ class NonlinearVariationalSolverMixin:
                 else:
                     J_replace_map[coeff] = coeff.copy()
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
-        return _ad_count_map, F_replace_map, J_replace_map
+        return _ad_count_map, J_replace_map, F_replace_map
