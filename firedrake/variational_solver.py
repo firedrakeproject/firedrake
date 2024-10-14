@@ -11,7 +11,7 @@ from firedrake.petsc import (
 )
 from firedrake.function import Function
 from firedrake.functionspace import RestrictedFunctionSpace
-from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.ufl_expr import TrialFunction, TestFunction, Argument
 from firedrake.bcs import DirichletBC, EquationBC
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import replace
@@ -25,8 +25,10 @@ __all__ = ["LinearVariationalProblem",
 def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+    # return (passes)
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
+    return  # fails!!!
     if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
     if len(J.arguments()) != 2:
@@ -112,7 +114,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.Jp_eq_J = Jp is None
 
         # Argument checking
+        assert all(type(a) is Argument for a in self.J.arguments())
         check_pde_args(self.F, self.J, self.Jp)
+        assert all(type(a) is Argument for a in self.J.arguments())
+        breakpoint()
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
