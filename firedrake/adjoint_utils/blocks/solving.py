@@ -679,11 +679,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 self._ad_solvers["forward_nlvs"]._problem.u.function_space())
             self._ad_solvers["adjoint_lvs"].solve(u_sol, dJdu)
 
-        if compute_bdy:
-            jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
-
         adj_sol_bdy = None
         if compute_bdy:
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+                jac_adj = self._ad_solvers["adjoint_lvs"].A.form
+            else:
+                jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
+
             adj_sol_bdy = self._compute_adj_bdy(
                 u_sol, adj_sol_bdy, jac_adj, dJdu_copy)
         return u_sol, adj_sol_bdy
