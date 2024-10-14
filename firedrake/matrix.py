@@ -35,13 +35,13 @@ class MatrixBase(ufl.Matrix):
         # on different processes)
 
         ufl.Matrix.__init__(self, test.ufl_function_space(), trial.ufl_function_space())
-        # Define arguments after `Matrix.__init__` since BaseForm sets `self._arguments` to None
-        self._arguments = arguments
+        # NOTE: Do not use _arguments as the name for this variable since it is reserved by UFL
+        self._firedrake_arguments = arguments
         self.bcs = bcs
-        self.comm = test.ufl_function_space().comm
+        self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm, self)
-        self.block_shape = (len(test.ufl_function_space()),
-                            len(trial.ufl_function_space()))
+        self.block_shape = (len(test.function_space()),
+                            len(trial.function_space()))
         self.mat_type = mat_type
         """Matrix type.
 
@@ -52,7 +52,7 @@ class MatrixBase(ufl.Matrix):
         if self.a:
             return self.a.arguments()
         else:
-            return self._arguments
+            return self._firedrake_arguments
 
     @property
     def has_bcs(self):

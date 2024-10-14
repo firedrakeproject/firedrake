@@ -1722,7 +1722,7 @@ def _as_global_kernel_arg_coordinates(_, self):
 @_as_global_kernel_arg.register(kernel_args.CoefficientKernelArg)
 def _as_global_kernel_arg_coefficient(_, self):
     coeff = next(self._active_coefficients)
-    V = coeff.function_space()
+    V = coeff.ufl_function_space()
     if hasattr(V, "component") and V.component is not None:
         index = V.component,
         V = V.parent
@@ -2097,9 +2097,9 @@ class _FormHandler:
         if necessary.
         """
         if all(i is None for i in indices):
-            return tuple(a.function_space() for a in form.arguments())
+            return tuple(a.ufl_function_space() for a in form.arguments())
         elif all(i is not None for i in indices):
-            return tuple(a.function_space()[i] for i, a in zip(indices, form.arguments()))
+            return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
         else:
             raise AssertionError
 

@@ -57,15 +57,15 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         d.items() for d in (ksp_defaults, snes_defaults)))
 
     if any(V.ufl_element().family() == "Real"
-           for a in arguments for V in a.ufl_function_space()):
+           for a in arguments for V in a.function_space()):
         test, trial = arguments
-        if test.ufl_function_space() != trial.ufl_function_space():
+        if test.function_space() != trial.function_space():
             # Don't know what to do here. How did it happen?
             raise ValueError("Can't generate defaults for non-square problems with real blocks")
 
         fields = []
         reals = []
-        for i, V_ in enumerate(test.ufl_function_space()):
+        for i, V_ in enumerate(test.function_space()):
             if V_.ufl_element().family() == "Real":
                 reals.append(i)
             else:
@@ -314,7 +314,7 @@ class _SNESContext(object):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].ufl_function_space()
+            V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -445,7 +445,7 @@ class _SNESContext(object):
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac(ctx._pjac)
 
-        ises = problem.J.arguments()[0].ufl_function_space()._ises
+        ises = problem.J.arguments()[0].function_space()._ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
@@ -471,7 +471,7 @@ class _SNESContext(object):
 
         fine = ctx._fine
         if fine is not None:
-            manager = dmhooks.get_transfer_manager(fine._x.ufl_function_space().dm)
+            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
             manager.inject(fine._x, ctx._x)
 
             for bc in chain(*ctx._problem.bcs):
@@ -521,4 +521,4 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return cofunction.Cofunction(self.F.arguments()[0].ufl_function_space().dual())
+        return cofunction.Cofunction(self.F.arguments()[0].function_space().dual())

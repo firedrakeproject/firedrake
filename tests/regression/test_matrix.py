@@ -11,11 +11,18 @@ def V():
 
 
 @pytest.fixture
-def a(V):
-    u = TrialFunction(V)
-    v = TestFunction(V)
+def test(V):
+    return TestFunction(V)
 
-    return inner(u, v)*dx
+
+@pytest.fixture
+def trial(V):
+    return TrialFunction(V)
+
+
+@pytest.fixture
+def a(test, trial):
+    return inner(trial, test)*dx
 
 
 @pytest.fixture(params=["nest", "aij", "matfree"])
@@ -29,7 +36,7 @@ def test_assemble_returns_matrix(a):
     assert isinstance(A, matrix.Matrix)
 
 
-def test_solve_with_assembled_matrix(V):
+def test_solve_with_assembled_matrix():
     mesh = UnitIntervalMesh(3)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -46,3 +53,15 @@ def test_solve_with_assembled_matrix(V):
     solve(A == L, solution)
 
     assert norm(assemble(f - solution)) < 1e-6
+
+
+def test_assembled_matrix_expects_2_arguments(test, trial):
+    with pytest.raises(ValueError):
+        A = AssembledMatrix((trial,), bcs=(), petscmat="unused")
+    with pytest.raises(ValueError):
+        A = AssembledMatrix((trial,trial,trial), bcs=(), petscmat="unused")
+
+
+def test_assembled_matrix_argument_ordering(test, trial):
+    with pytest.raises(ValueError):
+        A = AssembledMatrix((trial,test), bcs=(), petscmat="unused")
