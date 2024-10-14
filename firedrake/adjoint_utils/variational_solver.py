@@ -46,7 +46,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
-                                "recompute": 0}
+                                "recompute_count": 0}
             self._ad_adj_cache = {}
 
         return wrapper
@@ -59,7 +59,7 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver, LinearSolver
+            from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
             if annotate:
                 tape = get_working_tape()
@@ -88,16 +88,10 @@ class NonlinearVariationalSolverMixin:
                 # Adjoint variational solver.
                 if not self._ad_solvers["adjoint_lvs"]:
                     with stop_annotating():
-                        problem = self._ad_adj_lvs_problem(block)
+                        self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
+                            self._ad_adj_lvs_problem(block), *block.adj_args, **block.adj_kwargs)
                         if self._ad_problem._constant_jacobian:
-                            self._ad_solvers["adjoint_lvs"] = LinearSolver(
-                                block._assemble_dFdu_adj(problem.J, **block.assemble_kwargs.copy()),
-                                *block.adj_args, **block.adj_kwargs)
-                            self._ad_solvers["adj_ad_count_map"] = problem._ad_count_map
                             self._ad_solvers["update_adjoint"] = False
-                        else:
-                            self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
-                                self._ad_adj_lvs_problem(block), *block.adj_args, **block.adj_kwargs)
 
                 block._ad_solvers = self._ad_solvers
 
