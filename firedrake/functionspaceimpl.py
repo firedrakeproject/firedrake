@@ -1160,6 +1160,10 @@ class MixedFunctionSpace(object):
     def _ises(self):
         return self.dof_dset.field_ises
 
+    def collapse(self):
+        from firedrake import MixedFunctionSpace
+        return MixedFunctionSpace([V_ for V_ in self])
+
 
 class ProxyFunctionSpace(FunctionSpace):
     r"""A :class:`FunctionSpace` that one can attach extra properties to.
