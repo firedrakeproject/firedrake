@@ -1,6 +1,6 @@
 import numpy as np
 
-from firedrake.assemble import assemble, _vector_arg
+from firedrake.assemble import assemble
 from firedrake.constant import Constant
 from firedrake.dmhooks import add_hooks
 from firedrake.function import Function
@@ -20,10 +20,14 @@ from inspect import signature
 
 from math import ceil, gamma
 
-from ufl import as_vector, BrokenElement, dx, inner, grad, MixedElement, SpatialCoordinate
+from ufl import as_vector, dx, inner, grad, SpatialCoordinate
+from finat.ufl import BrokenElement, MixedElement
+
+# ~ from ufl.finiteelement import MixedElement
 
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
+from pyop2.parloop import DatParloopArg
 
 _default_pcg = PCG64()
 
@@ -60,7 +64,7 @@ def WhiteNoise(V, rng=None, scale=1.0):
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = inner(u, v)*dx
-    mass_ker, *stuff = compile_form(mass, "mass", coffee=False)
+    mass_ker, *stuff = compile_form(mass, "mass")
     mass_code = generate_code_v2(mass_ker.kinfo.kernel.code).device_code()
     mass_code = mass_code.replace("void " + mass_ker.kinfo.kernel.name,
                                   "static void " + mass_ker.kinfo.kernel.name)
@@ -135,19 +139,29 @@ void apply_cholesky(double *__restrict__ z,
                                  ldargs=BLASLAPACK_LIB.split())
 
     # Construct arguments for par loop
-    def get_map(x):
-        return x.cell_node_map()
+    # ~ def get_map(x):
+        # ~ return x.cell_node_map()
     i, _ = mass_ker.indices
 
-    z_arg = _vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
-    b_arg = _vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
+    # ~ (access, get_map, i, *, function, V)
+    # ~ if i is None:
+        # ~ map_ = get_map(V)
+        # ~ return function.dat(access, map_)
+    # ~ else:
+        # ~ map_ = get_map(V[i])
+        # ~ return function.dat[i](access, map_)
+
+    # ~ z_arg = _vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
+    z_arg = iid_normal.dat(op2.READ, Vbrok.cell_node_map())
+    # ~ b_arg = _vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
+    b_arg = wnoise.dat(op2.INC, V.cell_node_map())
     coords = mesh.coordinates
 
     op2.par_loop(cholesky_kernel,
                  mesh.cell_set,
                  z_arg,
                  b_arg,
-                 coords.dat(op2.READ, get_map(coords))
+                 coords.dat(op2.READ, coords.cell_node_map())
                  )
 
     return wnoise
