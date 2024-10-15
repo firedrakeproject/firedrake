@@ -774,6 +774,8 @@ class AbstractMeshTopology(abc.ABC):
         return self._entity_numbering(self.dimension-1)
 
     # TODO: Cache this?
+    # NOTE: I dislike this function because the renumbering goes from all points
+    # to a entity-wise numbering
     def _entity_numbering(self, dim):
         section = PETSc.Section().create(self._comm)
         section.setChart(*self.topology_dm.getChart())
@@ -1175,7 +1177,7 @@ class AbstractMeshTopology(abc.ABC):
 
         map_data_renum = np.empty_like(map_data)
         for src_pt, map_data_per_pt in enumerate(map_data):
-            src_pt_renum = src_renumbering.getOffset(src_pt) - src_offset
+            src_pt_renum = src_renumbering.getOffset(src_pt + src_offset)
             for i, dest_pt in enumerate(map_data_per_pt):
                 dest_pt_renum = dest_renumbering.getOffset(dest_pt)
                 map_data_renum[src_pt_renum, i] = dest_pt_renum
