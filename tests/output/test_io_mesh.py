@@ -33,7 +33,7 @@ def uniform_mesh(request):
 
 @pytest.fixture(params=[
     "circlemanifold",
-    pytest.param("icosahedron", marks=pytest.mark.broken),
+    "icosahedron",
     "cubedsphere"
 ])
 def radial_mesh(request):
