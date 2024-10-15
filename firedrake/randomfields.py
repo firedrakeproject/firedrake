@@ -23,11 +23,8 @@ from math import ceil, gamma
 from ufl import as_vector, dx, inner, grad, SpatialCoordinate
 from finat.ufl import BrokenElement, MixedElement
 
-# ~ from ufl.finiteelement import MixedElement
-
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
-from pyop2.parloop import DatParloopArg
 
 _default_pcg = PCG64()
 
@@ -138,22 +135,9 @@ void apply_cholesky(double *__restrict__ z,
                                  include_dirs=BLASLAPACK_INCLUDE.split(),
                                  ldargs=BLASLAPACK_LIB.split())
 
-    # Construct arguments for par loop
-    # ~ def get_map(x):
-        # ~ return x.cell_node_map()
     i, _ = mass_ker.indices
 
-    # ~ (access, get_map, i, *, function, V)
-    # ~ if i is None:
-        # ~ map_ = get_map(V)
-        # ~ return function.dat(access, map_)
-    # ~ else:
-        # ~ map_ = get_map(V[i])
-        # ~ return function.dat[i](access, map_)
-
-    # ~ z_arg = _vector_arg(op2.READ, get_map, i, function=iid_normal, V=Vbrok)
     z_arg = iid_normal.dat(op2.READ, Vbrok.cell_node_map())
-    # ~ b_arg = _vector_arg(op2.INC, get_map, i, function=wnoise, V=V)
     b_arg = wnoise.dat(op2.INC, V.cell_node_map())
     coords = mesh.coordinates
 
