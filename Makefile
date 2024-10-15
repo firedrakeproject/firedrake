@@ -105,7 +105,8 @@ _test_serial_tests:
 .PHONY: _test_small_world_tests
 _test_small_world_tests:
 	@echo "    Running parallel tests over $(NPROCS) ranks"
-	@for N in 2 3 4 ; do \
+	@set -e; \
+	for N in 2 3 4 ; do \
 		echo "    COMM_WORLD=$$N ranks"; \
 		mpispawn -nU $(NPROCS) -nW $$N --propagate-errcodes python -m pytest \
 			--splitting-algorithm least_duration \
@@ -119,7 +120,8 @@ _test_small_world_tests:
 .PHONY: _test_large_world_test
 _test_large_world_tests:
 	@echo "    Running parallel tests over $(NPROCS) ranks"
-	@for N in 6 7 8 ; do \
+	@set -e; \
+	for N in 6 7 8 ; do \
 		echo "    COMM_WORLD=$$N ranks"; \
 		mpiexec -n $$N python -m pytest \
 			$(PYTEST_ARGS) \
@@ -144,6 +146,7 @@ test_ci: test test_adjoint
 .PHONY: test_generate_timings
 test_generate_timings:
 	@echo "    Generate timings to optimise pytest-split"
+	@set -e; \
 	for N in 2 3 4 ; do \
 		@mpiexec \
 			-n 1 pytest --store-durations -m "parallel[$$N] and not broken" -v tests : \
