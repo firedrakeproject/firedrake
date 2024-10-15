@@ -27,7 +27,6 @@ def run_LDG_H_problem(r, degree, quads=False):
     U = VectorFunctionSpace(mesh, "DG", degree)
     V = FunctionSpace(mesh, "DG", degree)
     T = FunctionSpace(mesh, "HDiv Trace", degree)
-    R = FunctionSpace(mesh, "R", 0)
 
     # Mixed space and test/trial functions
     W = U * V * T
@@ -51,10 +50,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     f = Function(Vh).interpolate(-div(grad(a_scalar)))
 
     # Stability parameter
-    # FIXME: This could just be a Constant, but something breaks in SCPC when
-    # the test suite is run out of order. Specifically different code is
-    # generated on different ranks since constants are not renumbered correctly.
-    tau = Function(R).assign(1)
+    tau = Constant(1)
 
     # Numerical flux
     qhat = q + tau*(u - uhat)*n
