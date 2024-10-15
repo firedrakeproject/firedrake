@@ -217,7 +217,6 @@ jobs:
             --timeout=600 \
             --timeout-method=thread \
             -o faulthandler_timeout=660 \
-            -m "not slow" \
             -n 12 --dist worksteal \
             -sv tests/firedrake_adjoint
         timeout-minutes: 30
