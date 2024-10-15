@@ -52,20 +52,4 @@ def test_solve_with_assembled_matrix():
     solution = Function(V)
     solve(A == L, solution)
 
-    assert norm(assemble(f - solution)) < 1e-6
-
-
-def test_assembled_matrix_expects_2_arguments(test, trial):
-    bad_args = (trial,)
-    with pytest.raises(ValueError):
-        _ = AssembledMatrix(bad_args, bcs=(), petscmat="unused")
-
-    bad_args = (trial, trial, trial)
-    with pytest.raises(ValueError):
-        _ = AssembledMatrix(bad_args, bcs=(), petscmat="unused")
-
-
-def test_assembled_matrix_argument_ordering(test, trial):
-    bad_args = (trial, test)
-    with pytest.raises(ValueError):
-        _ = AssembledMatrix(bad_args, bcs=(), petscmat="unused")
+    assert norm(assemble(f - solution)) < 1e-15

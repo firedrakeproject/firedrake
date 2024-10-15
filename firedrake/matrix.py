@@ -34,9 +34,14 @@ class MatrixBase(ufl.Matrix):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
-        ufl.Matrix.__init__(self, test.ufl_function_space(), trial.ufl_function_space())
-        # NOTE: Do not use _arguments as the name for this variable since it is reserved by UFL
-        self._firedrake_arguments = arguments
+        ufl.Matrix.__init__(self, test.function_space(), trial.function_space())
+
+        # ufl.Matrix._analyze_form_arguments sets the _arguments attribute to
+        # non-Firedrake objects, which breaks things. To avoid this we overwrite
+        # this property after the fact.
+        self._analyze_form_arguments()
+        self._arguments = arguments
+
         self.bcs = bcs
         self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm, self)
@@ -52,7 +57,10 @@ class MatrixBase(ufl.Matrix):
         if self.a:
             return self.a.arguments()
         else:
-            return self._firedrake_arguments
+            return self._arguments
+
+    def ufl_domains(self):
+        return self._domains
 
     @property
     def has_bcs(self):
@@ -188,11 +196,6 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
-        if len(a) != 2:
-            raise ValueError("Expected a 2-tuple of arguments")
-        if a[0].number() != 0 or a[1].number() != 1:
-            raise ValueError("Expected a test function followed by a trial function")
-
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
@@ -209,6 +212,3 @@ class AssembledMatrix(MatrixBase):
         else:
             raise TypeError("Unable to add %s to AssembledMatrix"
                             % (type(other)))
-
-    def ufl_domains(self):
-        return ufl.domain.join_domains(self.a[0].ufl_domains() + self.a[1].ufl_domains())
