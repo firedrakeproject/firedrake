@@ -22,6 +22,7 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
+from firedrake.matrix import AssembledMatrix
 import firedrake.variational_solver as vs
 from firedrake import dmhooks, function, solving_utils, vector
 import firedrake
@@ -162,7 +163,7 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
-    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.BaseForm):
+    if isinstance(eq.lhs, (ufl.Form, AssembledMatrix)) and isinstance(eq.rhs, ufl.BaseForm):
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
