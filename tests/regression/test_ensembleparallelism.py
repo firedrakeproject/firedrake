@@ -63,7 +63,7 @@ def ensemble():
     return Ensemble(COMM_WORLD, 2)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mesh(ensemble):
     if COMM_WORLD.size == 1:
         return
