@@ -125,7 +125,7 @@ def test_extruded_periodic_annulus():
     coordV1 = FunctionSpace(mesh1, elem1)
     x1, y1 = SpatialCoordinate(mesh1)
     coord1 = Function(coordV1).interpolate(as_vector([x1 * cos(y1), x1 * sin(y1)]))
-    mesh1 = make_mesh_from_coordinates(coord1.topological, "annulus")
+    mesh1 = make_mesh_from_coordinates(coord1.topological, "annulus", comm=COMM_WORLD)
     mesh1._base_mesh = mesh
     # Check volume
     x0, y0 = SpatialCoordinate(mesh0)
