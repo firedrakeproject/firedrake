@@ -172,7 +172,8 @@ def test_multiple_custom_transfer_monolithic():
     assert count_Q == -2
 
 
-def test_custom_transfer_setting():
+@pytest.mark.parametrize("mode", ("full", pytest.param("partial", marks=pytest.mark.skipcomplexnoslate)))
+def test_custom_transfer_setting(mode):
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 1)
     mesh = mh[-1]
@@ -194,7 +195,12 @@ def test_custom_transfer_setting():
     options = {"ksp_type": "preonly",
                "pc_type": "mg"}
 
-    transfer = TransferManager(native_transfers={V.ufl_element(): (myprolong, restrict, inject)})
+    if mode == "partial":
+        transfer_ops = (myprolong, None, None)
+    else:
+        transfer_ops = (myprolong, restrict, inject)
+
+    transfer = TransferManager(native_transfers={V.ufl_element(): transfer_ops})
     problem = LinearVariationalProblem(a, L, uh)
     solver = LinearVariationalSolver(problem, solver_parameters=options)
     solver.set_transfer_manager(transfer)
