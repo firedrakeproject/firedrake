@@ -2580,7 +2580,8 @@ values from f.)"""
                                              Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints)
+                                             npoints,
+                                             self.cell_set.size)
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
@@ -2596,7 +2597,7 @@ values from f.)"""
             IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints)
+                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, int num_owned_cells)
                 {{
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{
@@ -2609,7 +2610,7 @@ values from f.)"""
                         /* to_reference_coords and to_reference_coords_xtr are defined in
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, num_owned_cells, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
 
                         for (int k = 0; k < {self.geometric_dimension()}; k++) {{
                             X[j] = found_reference_coords.X[k];
@@ -2643,7 +2644,8 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int),
-                                ctypes.c_size_t]
+                                ctypes.c_size_t,
+                                ctypes.c_int]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
