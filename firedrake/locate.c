@@ -100,8 +100,6 @@ int locate_cell(struct Function *f,
             }
         }
         else {
-            fputs("TODO 1", stderr);
-            return -1;
             for (uint64_t i = 0; i < nids; i++) {
                 int64_t current_cell = ids[i];
 
@@ -110,74 +108,49 @@ int locate_cell(struct Function *f,
                 int l = current_cell % nlayers;
                 double current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
 
-                if (current_ref_cell_dist_l1 <= 0.0) {
-                    /* Found cell! */
-                    found_cell = ids[i];
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    break;
-                }
-                else if (current_ref_cell_dist_l1 < *found_ref_cell_dist_l1) {
-                    /* getting closer... */
-                    if (current_ref_cell_dist_l1 < tolerance) {
-                        /* Close to cell within tolerance so could be this cell */
-                        found_cell = ids[i];
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    }
-                }
+                bool found = check_cell(current_cell,
+                                        current_ref_cell_dist_l1,
+                                        num_owned_cells,
+                                        &found_cell,
+                                        &found_cell_is_owned,
+                                        found_ref_coords,
+                                        temp_ref_coords,
+                                        found_ref_cell_dist_l1);
+                if (found) break;
             }
         }
         free(ids);
     } else {
-        fputs("TODO 2", stderr);
-        return -1;
-        if (f->extruded == 0) {
+        if (!f->extruded) {
             for (int c = 0; c < f->n_cols; c++) {
                 double current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
-                if (current_ref_cell_dist_l1 <= 0.0) {
-                    /* Found cell! */
-                    found_cell = c;
-                    memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                    *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    break;
-                }
-                else if (current_ref_cell_dist_l1 < *found_ref_cell_dist_l1) {
-                    /* getting closer... */
-                    if (current_ref_cell_dist_l1 < tolerance) {
-                        /* Close to cell within tolerance so could be this cell */
-                        found_cell = c;
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                    }
-                }
+                bool found = check_cell(c,
+                                        current_ref_cell_dist_l1,
+                                        num_owned_cells,
+                                        &found_cell,
+                                        &found_cell_is_owned,
+                                        found_ref_coords,
+                                        temp_ref_coords,
+                                        found_ref_cell_dist_l1);
+                if (found) break;
             }
         }
         else {
             for (int c = 0; c < f->n_cols; c++) {
                 for (int l = 0; l < f->n_layers; l++) {
+                    int64_t current_cell = c * f->n_layers + l;
                     double current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                    if (current_ref_cell_dist_l1 <= 0.0) {
-                        /* Found cell! */
-                        found_cell = l;
-                        memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                        *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                        break;
-                    }
-                    else if (current_ref_cell_dist_l1 < *found_ref_cell_dist_l1) {
-                        /* getting closer... */
-                        if (current_ref_cell_dist_l1 < tolerance) {
-                            /* Close to cell within tolerance so could be this cell */
-                            found_cell = l;
-                            memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                            *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-                        }
-                    }
+                    bool found = check_cell(current_cell,
+                                            current_ref_cell_dist_l1,
+                                            num_owned_cells,
+                                            &found_cell,
+                                            &found_cell_is_owned,
+                                            found_ref_coords,
+                                            temp_ref_coords,
+                                            found_ref_cell_dist_l1);
+                    if (found) break;
                 }
-                if (found_cell != -1) {
-                    found_cell = c * f->n_layers + found_cell;
-                    break;
-                }
+                if (found_cell != -1 && found_cell_is_owned) break;
             }
         }
     }
