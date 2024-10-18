@@ -57,6 +57,7 @@ extern int locate_cell(struct Function *f,
 
 extern int evaluate(struct Function *f,
 		    double *x,
+		    int num_owned_cells,
 		    PetscScalar *result);
 
 #ifdef __cplusplus
