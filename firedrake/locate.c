@@ -4,6 +4,12 @@
 #include <float.h>
 #include <evaluate.h>
 
+/**
+ * Check whether a point is either within, or sufficiently close to the current cell.
+ *
+ * To avoid the case where different ranks each claim the other to own the point,
+ * points are preferentially claimed by owned cells.
+ */
 bool check_cell(int64_t current_cell,
                 double current_ref_cell_dist_l1,
                 int num_owned_cells,
@@ -33,6 +39,7 @@ bool check_cell(int64_t current_cell,
         }
     }
     else {
+        // Only consider ghost cells if an owned one is yet to be found
         if (!(*found_cell_is_owned) &&
             current_ref_cell_dist_l1 < tolerance &&
             current_ref_cell_dist_l1 < *found_ref_cell_dist_l1)
