@@ -48,6 +48,7 @@ typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
 extern int locate_cell(struct Function *f,
 		       double *x,
 		       int dim,
+		       int num_owned_cells,
 		       ref_cell_l1_dist try_candidate,
 		       ref_cell_l1_dist_xtr try_candidate_xtr,
 		       void *temp_ref_coords,
@@ -56,6 +57,7 @@ extern int locate_cell(struct Function *f,
 
 extern int evaluate(struct Function *f,
 		    double *x,
+		    int num_owned_cells,
 		    PetscScalar *result);
 
 #ifdef __cplusplus

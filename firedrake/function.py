@@ -576,7 +576,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return cache[tolerance]
         except KeyError:
             result = make_c_evaluate(self, tolerance=tolerance)
-            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_void_p]
+            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_int, c_void_p]
             result.restype = c_int
             return cache.setdefault(tolerance, result)
 
@@ -650,8 +650,17 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         def single_eval(x, buf):
             r"""Helper function to evaluate at a single point."""
+            mesh = self.ufl_domain()
+            if mesh.extruded:
+                if mesh.variable_layers:
+                    raise NotImplementedError("Current codegen for extruded meshes "
+                                              "assumes constant layers")
+                num_owned_cells = mesh.cell_set.size * mesh.layers
+            else:
+                num_owned_cells = mesh.cell_set.size
             err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
                                                         x.ctypes.data_as(POINTER(c_double)),
+                                                        num_owned_cells,
                                                         buf.ctypes.data_as(c_void_p))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
