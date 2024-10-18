@@ -396,6 +396,8 @@ def _(
     if plex.ufl_cell().is_simplex():
         return indexed
 
+    raise NotImplementedError("Need to handle entity_dofs properly")
+
     if plex.ufl_cell() == ufl.hexahedron:
         perms = _entity_permutations(V)
         mytree = _orientations(plex, perms, index, integral_type)
@@ -457,19 +459,22 @@ def _(
     # on the loop index, but it is always trivial. However, we turn the index
     # tree into a forest here because that is what pyop3 "should" be doing
     # internally.
-    context = pmap({index.id: (index.source_path, index.path)})
-    rmap = {context: rmap}
-    cmap = {context: cmap}
+    # context = pmap({index.id: (index.source_path, index.path)})
+    # rmap = {context: rmap}
+    # cmap = {context: cmap}
 
     indexed = mat.getitem((rmap, cmap), strict=True)
 
     # Indexing an array with a loop index makes it "context sensitive" since
     # the index could be over multiple entities (e.g. all mesh points). Here
     # we know we are only looping over cells so the context is trivial.
-    cf_indexed = indexed.context_free
+    # cf_indexed = indexed.context_free
+    cf_indexed = indexed
 
     if plex.ufl_cell().is_simplex():
         return cf_indexed
+
+    raise NotImplementedError("Need to handle entity_dofs properly")
 
     if plex.ufl_cell() is ufl.hexahedron:
         raise NotImplementedError
@@ -542,6 +547,8 @@ def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.I
     return _with_shape_indices(V, indices, and_support=False)
 
 
+# TODO: This is absolutely awful - need to traverse "canonical" function space axis tree
+# and build slices as appropriate
 def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=False):
     is_mixed = isinstance(V.topological, MixedFunctionSpace)
 
