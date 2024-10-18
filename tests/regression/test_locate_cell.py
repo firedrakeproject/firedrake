@@ -41,3 +41,16 @@ def test_locate_cell_not_found(meshdata):
     m, f = meshdata
 
     assert m.locate_cell((0.2, -0.4)) is None
+
+
+@pytest.mark.parallel(2)
+def test_owned_cells_preferred_over_ghost_cells():
+    mesh = UnitIntervalMesh(2)
+    mesh.init()
+
+    assert mesh.cell_set.size == 1
+    assert mesh.cell_set.total_size == 2
+
+    coord = (0.6,)
+    cell = mesh.locate_cell(coord, tolerance=0.5)
+    assert cell == 0
