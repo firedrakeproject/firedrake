@@ -30,18 +30,16 @@ bool check_cell(int64_t current_cell,
             *found_cell = current_cell;
             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
             *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-            return true;
         }
     }
     else {
-        if (!*found_cell_is_owned &&
+        if (!(*found_cell_is_owned) &&
             current_ref_cell_dist_l1 < tolerance &&
             current_ref_cell_dist_l1 < *found_ref_cell_dist_l1)
         {
             *found_cell = current_cell;
             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
             *found_ref_cell_dist_l1 = current_ref_cell_dist_l1;
-            return true;
         }
     }
     return false;
