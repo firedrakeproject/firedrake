@@ -83,7 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat pbrubeck/gn-tests \
+            --package-branch fiat pbrubeck/cleanup-regge \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
