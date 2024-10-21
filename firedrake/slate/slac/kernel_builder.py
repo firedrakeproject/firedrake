@@ -159,7 +159,11 @@ class LocalLoopyKernelBuilder:
 
         # Pick the constants associated with a Tensor()/TSFC kernel
         tsfc_constants = tuple(tsfc_constants[i] for i in kinfo.constant_numbers)
-        kernel_data.extend([(c, c.name) for c in wrapper_constants if c in tsfc_constants])
+        kernel_data.extend([
+            (constant, constant_name)
+            for constant, constant_name in wrapper_constants
+            if constant in tsfc_constants
+        ])
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
@@ -254,7 +258,10 @@ class LocalLoopyKernelBuilder:
 
     def collect_constants(self):
         """ All constants of self.expression as a list """
-        return self.expression.constants()
+        return tuple(
+            (constant, f"c_{i}")
+            for i, constant in enumerate(self.expression.constants())
+        )
 
     def initialise_terminals(self, var2terminal, coefficients):
         """ Initilisation of the variables in which coefficients
@@ -361,9 +368,9 @@ class LocalLoopyKernelBuilder:
                                                   dtype=self.tsfc_parameters["scalar_type"])
                 args.append(kernel_args.CoefficientKernelArg(coeff_loopy_arg))
 
-        for constant in self.bag.constants:
+        for constant, constant_name in self.bag.constants:
             constant_loopy_arg = loopy.GlobalArg(
-                constant.name,
+                constant_name,
                 shape=constant.dat.cdim,
                 dtype=self.tsfc_parameters["scalar_type"]
             )
