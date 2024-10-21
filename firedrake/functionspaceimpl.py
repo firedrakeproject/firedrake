@@ -593,6 +593,24 @@ class FunctionSpace:
 
         return index_tree
 
+    @cached_property
+    def _packed_nodal_axes(self) -> op3.AxisTree:
+        """Return an axis tree whose shape corresponds to a packed closure.
+
+        The axis tree is 'nodal', meaning that mesh entities are indistinguishable.
+
+        """
+        from firedrake.parloops import _flatten_entity_dofs
+
+        if type(self) is MixedFunctionSpace:
+            raise NotImplementedError
+        if self.shape:
+            # scalar element?
+            raise NotImplementedError
+        num_nodes = len(_flatten_entity_dofs(self.finat_element.entity_dofs()))
+        return op3.AxisTree(op3.Axis({"XXX": num_nodes}, "nodes_flat"))
+
+
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
     index = None

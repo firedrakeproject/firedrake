@@ -1425,16 +1425,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # if vector function space revert to standard case
                 diag_blocks = [(Ellipsis, Ellipsis)]
             else:
+                raise NotImplementedError("Loop contexts are confusing")
                 # otherwise treat each block separately
                 diag_blocks = [(i, i) for i in range(n)]
         else:
             diag_blocks = [(Ellipsis, Ellipsis)]
 
-        for rindex, cindex in diag_blocks:
-            op3.do_loop(
-                p := test.ufl_domain().points.index(),
-                sparsity[rindex, cindex][p, p].assign(666, eager=False)
-            )
+        # FIXME: re-add this
+        # for rindex, cindex in diag_blocks:
+        #     op3.do_loop(
+        #         p := test.ufl_domain().points.index(),
+        #         sparsity[rindex, cindex][p, p].assign(666, eager=False)
+        #     )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -1462,12 +1464,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             )
 
         elif op3.utils.strictly_all(
-            lk.indices == (None, None) for lk in self._all_local_kernels
+            local_kernel.indices == (None, None)
+            for assembler in self._all_assemblers
+            for local_kernel, _ in assembler.local_kernels
         ):
             # Handle special cases: slate or split=False
             allocation_integral_types = {
                 local_kernel.kinfo.integral_type
-                for local_kernel in self._all_local_kernels
+                for assembler in self._all_assemblers
+                for local_kernel, _ in assembler.local_kernels
             }
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, allocation_integral_types

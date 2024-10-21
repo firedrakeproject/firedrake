@@ -13,7 +13,7 @@ from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 import pyop3 as op3
-from pyop3.cache import memory_and_disk_cache
+from pyop2.caching import memory_and_disk_cache
 
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -915,30 +915,30 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and target_mesh is not source_mesh
         )
-        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
-            if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            if argfs.ufl_element().family() != "Real":
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh. NOTE: argfs_map is
-                # allowed to be None when interpolating from a Real space, even
-                # in the trans-mesh case.
-                if source_mesh.extruded:
-                    raise NotImplementedError("TODO, pyop3")
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
-                else:
-                    argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
-        elif vom_onto_other_vom:
-            argfs_map = argfs.cell_node_map()
-        else:
-            argfs_map = argfs.entity_node_map(target_mesh.topology, "cell", None, None)
+        # if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
+        #     if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        #         raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+        #     if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+        #         raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+        #     if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+        #         raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+        #     if argfs.ufl_element().family() != "Real":
+        #         # Since the par_loop is over the target mesh cells we need to
+        #         # compose a map that takes us from target mesh cells to the
+        #         # function space nodes on the source mesh. NOTE: argfs_map is
+        #         # allowed to be None when interpolating from a Real space, even
+        #         # in the trans-mesh case.
+        #         if source_mesh.extruded:
+        #             raise NotImplementedError("TODO, pyop3")
+        #             # ExtrudedSet cannot be a map target so we need to build
+        #             # this ourselves
+        #             argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
+        #         else:
+        #             argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
+        # elif vom_onto_other_vom:
+        #     argfs_map = argfs.cell_node_map()
+        # else:
+        #     argfs_map = argfs.entity_node_map(target_mesh.topology, "cell", None, None)
         if vom_onto_other_vom:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
@@ -1133,22 +1133,22 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.mesh().topology.closure
         Vcol = arguments[0].function_space()
-        if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-            columns_map = Vcol.mesh().topology.closure
-            if target_mesh is not source_mesh:
-                raise NotImplementedError
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    columns_map = vom_cell_parent_node_map_extruded(target_mesh, columns_map)
-                else:
-                    columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
-        else:
-            columns_map = Vcol.entity_node_map(target_mesh.topology, "cell", None, None)
-                                                        columns_map)
+        # if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        #     columns_map = Vcol.mesh().topology.closure
+        #     if target_mesh is not source_mesh:
+        #         raise NotImplementedError
+        #         # Since the par_loop is over the target mesh cells we need to
+        #         # compose a map that takes us from target mesh cells to the
+        #         # function space nodes on the source mesh.
+        #         if source_mesh.extruded:
+        #             # ExtrudedSet cannot be a map target so we need to build
+        #             # this ourselves
+        #             columns_map = vom_cell_parent_node_map_extruded(target_mesh, columns_map)
+        #         else:
+        #             columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
+        #                                                 columns_map)
+        # else:
+        #     columns_map = Vcol.entity_node_map(target_mesh.topology, "cell", None, None)
         lgmaps = None
         if bcs:
             raise NotImplementedError
@@ -1192,8 +1192,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             else:
                 raise ValueError("Have coefficient with unexpected mesh")
         else:
-            breakpoint()  # merge TODO
-            m_ = coefficient.function_space().entity_node_map(target_mesh.topology, "cell", None, None)
+            coeff_index = coefficient.function_space().cell_closure_map(loop_index)
         parloop_args.append(pack_tensor(coefficient, loop_index, "cell"))
 
     for const in extract_firedrake_constants(expr):

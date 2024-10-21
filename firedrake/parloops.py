@@ -28,7 +28,7 @@ from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
-from firedrake.utils import IntType, assert_empty
+from firedrake.utils import IntType, assert_empty, tuplify
 
 
 # Set a default loopy language version (should be in __init__.py)
@@ -376,11 +376,7 @@ def _(
     index: op3.LoopIndex,
     integral_type: str,
 ):
-    plex = V.mesh().topology
-
-    perm = _flatten_entity_dofs(V.finat_element.entity_dofs())
-
-    breakpoint()
+    plex = V. mesh().topology
 
     if V.ufl_element().family() == "Real":
         return array
@@ -399,17 +395,26 @@ def _(
 
     indexed = array.getitem(pack_indices, strict=True)
 
-    if plex.ufl_cell().is_simplex():
-        return indexed
 
-    raise NotImplementedError("Need to handle entity_dofs properly")
+    # handle entity_dofs - this is done treating all nodes as equivalent so we have to
+    # discard shape beforehand
+    perm = _flatten_entity_dofs(V.finat_element.entity_dofs())
+
+    # skip if identity
+    if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), data=perm, constant=True)
+        perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
+        indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
 
     if plex.ufl_cell() == ufl.hexahedron:
+        raise NotImplementedError
         perms = _entity_permutations(V)
         mytree = _orientations(plex, perms, index, integral_type)
         mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
 
         indexed = indexed.getitem(mytree, strict=True)
+
+    return indexed
 
     tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V.finat_element.product)
     tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
@@ -1100,7 +1105,18 @@ def _orientations(mesh, perms, cell, integral_type):
     return op3.IndexTree(mynodemap)
 
 
-@serial_cache()
+def _entity_dofs_hashkey(entity_dofs: dict) -> tuple:
+    """Provide a canonical key for FInAT ``entity_dofs``."""
+    hashkey = []
+    for k in sorted(entity_dofs.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_dofs[k]):
+            sub_key.append(tuple(entity_dofs[k][sk]))
+        hashkey.append(tuple(sub_key))
+    return tuple(hashkey)
+
+
+@serial_cache(_entity_dofs_hashkey)
 def _flatten_entity_dofs(entity_dofs):
     """Flatten FInAT element ``entity_dofs`` into a permutation array."""
     flat_entity_dofs = []
