@@ -313,6 +313,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         work = self._work
         with problem.u_restrict.dat.vec as u:
+            assert work.type == u.type
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors

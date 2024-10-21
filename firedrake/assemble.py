@@ -1109,7 +1109,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # Getting the comm attribute of a form isn't straightforward
         # form.ufl_domains()[0]._comm seems the most robust method
         # revisit in a refactor
-        return op2.Global(
+        return op2.compute_backend.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
@@ -1450,7 +1450,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
         dat = op2tensor[i, j].handle.getPythonContext().dat
         if component is not None:
-            dat = op2.DatView(dat, component)
+            dat = op2.compute_backend.DatView(dat, component)
         dat.zero(subset=node_set)
 
     def _check_tensor(self, tensor):
@@ -1535,7 +1535,9 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
     return ((sig, subdomain_id)
             + tuple(subdomain_key)
             + tuplify(all_integer_subdomain_ids)
-            + cachetools.keys.hashkey(local_knl, **kwargs))
+            + cachetools.keys.hashkey(local_knl, **kwargs)
+            + op2.compute_backend.cache_key
+            )
 
 
 @cachetools.cached(cache={}, key=_global_kernel_cache_key)
@@ -1595,14 +1597,14 @@ class _GlobalKernelBuilder:
         extruded_periodic = self._mesh.extruded_periodic
         constant_layers = extruded and not self._mesh.variable_layers
 
-        return op2.GlobalKernel(self._kinfo.kernel,
-                                kernel_args,
-                                iteration_region=iteration_region,
-                                pass_layer_arg=self._kinfo.pass_layer_arg,
-                                extruded=extruded,
-                                extruded_periodic=extruded_periodic,
-                                constant_layers=constant_layers,
-                                subset=self._needs_subset)
+        return op2.compute_backend.GlobalKernel(self._kinfo.kernel,
+                                                kernel_args,
+                                                iteration_region=iteration_region,
+                                                pass_layer_arg=self._kinfo.pass_layer_arg,
+                                                extruded=extruded,
+                                                extruded_periodic=extruded_periodic,
+                                                constant_layers=constant_layers,
+                                                subset=self._needs_subset)
 
     @property
     def _integral_type(self):
@@ -1831,7 +1833,7 @@ class ParloopBuilder:
             unroll=self.needs_unrolling()
         )
         try:
-            return op2.Parloop(_global_knl, self._iterset, parloop_args)
+            return op2.compute_backend.Parloop(_global_knl, self._iterset, parloop_args)
         except MapValueError:
             raise RuntimeError("Integral measure does not match measure of all "
                                "coefficients/arguments")
@@ -2060,7 +2062,7 @@ def _as_parloop_arg_cell_facet(_, self):
 
 @_as_parloop_arg.register(LayerCountKernelArg)
 def _as_parloop_arg_layer_count(_, self):
-    glob = op2.Global(
+    glob = op2.compute_backend.Global(
         (1,),
         self._iterset.layers-2,
         dtype=numpy.int32,

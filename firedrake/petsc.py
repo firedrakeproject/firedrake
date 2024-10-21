@@ -13,6 +13,25 @@ import petsc4py
 from mpi4py import MPI
 from petsc4py import PETSc
 from pyop2 import mpi
+import firedrake_configuration
+
+
+if firedrake_configuration.get_config()["options"].get("cuda"):
+    if 0:
+        # FIXME: Enable this once
+        # https://gitlab.com/petsc/petsc/-/merge_requests/5400
+        # is merged.
+        PETSc.Sys.initializeDevice(PETSc.Device.Type.CUDA)
+    else:
+        # Hacky way to initialize context on the device
+        x = PETSc.Vec().create(PETSc.COMM_WORLD)
+        x.setType("cuda")
+        x.setSizes(size=100)
+        x.set(2)
+        x.norm()
+        del x
+
+    import pycuda.autoprimaryctx  # noqa: F401
 
 
 __all__ = (
