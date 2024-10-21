@@ -1,5 +1,6 @@
 import pytest
 import numpy
+import warnings
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
 from firedrake.utils import complex_mode
@@ -131,3 +132,25 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
 
     else:
         raise ValueError(f"Unrecognized action {action}")
+
+
+@pytest.mark.parametrize("family, degree", [("CG", 1), ("R", 0)])
+def test_cached_transfer(family, degree):
+    # Test that we can properly reuse transfers within solve
+    sp = {"mat_type": "matfree",
+          "pc_type": "mg",
+          "mg_coarse_pc_type": "none",
+          "mg_levels_pc_type": "none"}
+
+    base = UnitSquareMesh(1, 1)
+    hierarchy = MeshHierarchy(base, 3)
+    mesh = hierarchy[-1]
+
+    V = FunctionSpace(mesh, family, degree)
+    u = Function(V)
+    F = inner(u - 1, TestFunction(V)) * dx
+
+    # This test will fail if we raise this warning
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        solve(F == 0, u, solver_parameters=sp)
