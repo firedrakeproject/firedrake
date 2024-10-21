@@ -47,7 +47,7 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False, log=False, **kwargs):
+def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False, log=False):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
@@ -58,18 +58,6 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     :returns: list of kernels
     """
     cpu_time = time.time()
-
-    if "coffee" in kwargs:
-        use_coffee = kwargs.pop("coffee")
-        if use_coffee:
-            raise ValueError("COFFEE support has been removed from TSFC")
-        else:
-            import warnings
-            warnings.warn(
-                "The coffee kwarg has been removed from compile_form as COFFEE "
-                "is no longer a supported backend.", FutureWarning)
-    if kwargs:
-        raise ValueError("compile_form called with unexpected arguments")
 
     assert isinstance(form, Form)
 
