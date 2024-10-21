@@ -293,15 +293,16 @@ Citations().add("Hiptmair1998", """
 """)
 
 Citations().add("nixonhill2023consistent", """
-@misc{nixonhill2023consistent,
-  title={Consistent Point Data Assimilation in Firedrake and Icepack},
-  author={Reuben W. Nixon-Hill and Daniel Shapero and Colin J. Cotter and
-          David A. Ham},
-  year={2023},
-  eprint={2304.06058},
-  archivePrefix={arXiv},
-  primaryClass={cs.MS},
-  url = {https://arxiv.org/abs/2304.06058}
+@article{nixonhill2023consistent,
+  author        = {Nixon-Hill, R. W. and Shapero, D. and Cotter, C. J. and Ham, D. A.},
+  doi           = {10.5194/gmd-17-5369-2024},
+  journal       = {Geoscientific Model Development},
+  number        = {13},
+  pages         = {5369--5386},
+  title         = {Consistent point data assimilation in Firedrake and Icepack},
+  url           = {https://gmd.copernicus.org/articles/17/5369/2024/},
+  volume        = {17},
+  year          = {2024}
 }
 """)
 
@@ -344,5 +345,17 @@ Citations().add("Bouziani2023", """
  booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
  year = {2023},
  doi = {10.48550/arXiv.2303.06871}
+}
+""")
+
+
+Citations().add("Bouziani2024", """
+@article{Bouziani2024,
+  title = {Differentiable programming across the {PDE} and {Machine} {Learning} barrier},
+  author = {Bouziani, Nacime and Ham, David A. and Farsi, Ado},
+  journal = {arXiv preprint arXiv:2409.06085},
+  eprint = {2409.06085},
+  url = {https://arxiv.org/abs/2409.06085},
+  year = {2024}
 }
 """)

@@ -1,6 +1,9 @@
-from firedrake import *
 import numpy
 import pytest
+
+from firedrake import *
+
+
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
@@ -10,7 +13,8 @@ def mesh():
 
 
 @pytest.fixture(params=[("Argyris", 5), ("Bell", 5), ("HCT", 3),
-                        ("Morley", 2), ("Hermite", 3)],
+                        ("Morley", 2), ("Hermite", 3),
+                        ("PS6", 2), ("PS12", 2)],
                 scope="module",
                 ids=lambda x: x[0])
 def element(request):

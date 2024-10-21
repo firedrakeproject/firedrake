@@ -1,4 +1,5 @@
 import pytest
+import warnings
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 try:
@@ -19,6 +20,12 @@ def problem_type(request):
 @pytest.fixture(params=["petscasm", pytest.param("tinyasm", marks=marks)])
 def backend(request):
     return request.param
+
+
+def filter_warnings(caller):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        caller()
 
 
 def test_star_equivalence(problem_type, backend):
@@ -129,7 +136,9 @@ def test_star_equivalence(problem_type, backend):
         a = inner(grad(z), grad(v))*dx + inner(p, q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
-        nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+        nsp = MixedVectorSpaceBasis(
+            V, [V.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
+        )
 
         star_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
@@ -170,12 +179,12 @@ def test_star_equivalence(problem_type, backend):
     star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=star_params, nullspace=nsp)
-    star_solver.solve()
+    filter_warnings(star_solver.solve)
     star_its = star_solver.snes.getLinearSolveIterations()
 
     u.assign(0)
     comp_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=comp_params, nullspace=nsp)
-    comp_solver.solve()
+    filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
@@ -300,7 +309,9 @@ def test_vanka_equivalence(problem_type):
         a = inner(grad(z), grad(v))*dx - inner(p, div(v))*dx - inner(div(z), q)*dx
 
         bcs = DirichletBC(V.sub(0), Constant((1., 0.)), "on_boundary")
-        nsp = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+        nsp = MixedVectorSpaceBasis(
+            V, [V.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
+        )
 
         vanka_params = {"mat_type": "aij",
                         "snes_type": "ksponly",
@@ -345,12 +356,12 @@ def test_vanka_equivalence(problem_type):
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
-    star_solver.solve()
+    filter_warnings(star_solver.solve)
     star_its = star_solver.snes.getLinearSolveIterations()
 
     u.assign(0)
     comp_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=comp_params, nullspace=nsp)
-    comp_solver.solve()
+    filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its

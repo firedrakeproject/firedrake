@@ -7,6 +7,7 @@ from firedrake import *
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 try:
+    import vtkmodules.vtkCommonDataModel  # noqa: F401
     from firedrake.output import VTKFile
 except ImportError:
     # VTK is not installed

@@ -40,19 +40,6 @@ class BCBase:
     '''
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
-        # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if (
-            isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell))
-            or (
-                isinstance(V.finat_element, finat.Hermite)
-                and V.mesh().topological_dimension() > 1
-            )
-        ):
-            raise NotImplementedError(
-                f"Strong BCs not implemented for element {V.finat_element}, use "
-                "Nitsche-type methods until we figure this out"
-            )
-
         self._function_space = V
         self.sub_domain = sub_domain
         # init bcs
@@ -105,6 +92,56 @@ class BCBase:
                 # All done
                 break
         return tuple(reversed(indices))
+
+    @utils.cached_property
+    def nodes(self):
+        '''The list of nodes at which this boundary condition applies.'''
+
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        V = self._function_space
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
+        def hermite_stride(bcnodes):
+            fe = self._function_space.finat_element
+            tdim = self._function_space.mesh().topological_dimension()
+            if isinstance(fe, finat.Hermite) and tdim == 1:
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
+            elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
+                # Skip derivative nodes for supersmooth H1 functions
+                nodes = fe.fiat_equivalent.dual_basis()
+                deriv_nodes = [i for i, node in enumerate(nodes)
+                               if len(node.deriv_dict) != 0]
+                if len(deriv_nodes) > 0:
+                    deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                    bcnodes = np.setdiff1d(bcnodes, deriv_ids)
+            return bcnodes
+
+        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
+        bcnodes = []
+        for s in sub_d:
+            if isinstance(s, str):
+                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
+            else:
+                # s is of one of the following formats:
+                # facet: (i, )
+                # edge: (i, j)
+                # vertex: (i, j, k)
+                # take intersection of facet nodes, and add it to bcnodes
+                # i, j, k can also be strings.
+                bcnodes1 = []
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
+                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
+                for ss in s:
+                    # intersection of facets
+                    # Edge conditions have only been tested with Lagrange elements.
+                    # Need to expand the list.
+                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
+                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes.append(bcnodes1)
+        return np.concatenate(bcnodes)
 
     # TODO: this should return an axis tree instead of a slice - more flexible
     @utils.cached_property

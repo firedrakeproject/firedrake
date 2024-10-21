@@ -50,8 +50,8 @@ class _fake_module:
 # Deprecate output.File in the global namespace
 output = _fake_module(
     "firedrake.output",
-    ["File",],
-    ["VTKFile",]
+    ["File", ],
+    ["VTKFile", ]
 )
 
 

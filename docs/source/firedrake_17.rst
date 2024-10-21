@@ -31,7 +31,7 @@ Key Dates
 ---------
 
 * Early registration deadline: 10 February 2017
-* `Abstract <https://easychair.org/conferences/?conf=firedrake17>`_ deadline: 10 February 2017
+* Abstract deadline: 10 February 2017
 * Workshop: 27-28 March 2017
 
 

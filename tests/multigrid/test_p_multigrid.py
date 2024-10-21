@@ -116,7 +116,7 @@ def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
         P = prolongation_matrix_matfree(uc, v).getPythonContext()
         P._prolong()
 
-    assert norm(ui + uf - uc, "L2") < 2E-14
+    assert norm(ui + uf - uc, "L2") < 1E-13
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
@@ -489,6 +489,7 @@ def test_p_fas_nonlinear_scalar():
     relax = {
         "ksp_type": "chebyshev",
         "ksp_norm_type": "unpreconditioned",
+        "ksp_chebyshev_esteig": "0.75,0.25,0,1",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
 
@@ -561,3 +562,50 @@ def test_p_fas_nonlinear_scalar():
     check_coarsen_quadrature(solver_npmg)
     iter_npmg = solver_npmg.snes.getLinearSolveIterations()
     assert 2*iter_pfas <= iter_npmg
+
+
+@pytest.fixture
+def piola_mesh():
+    return UnitDiskMesh(3)
+
+
+@pytest.mark.parametrize("mat_type", ("matfree", "aij"))
+@pytest.mark.parametrize("mixed", (False, True), ids=("standalone", "mixed"))
+@pytest.mark.parametrize("family, degree", (("CG", 4), ("N2curl", 2), ("N1div", 3)))
+def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
+    """Test prolongation and restriction kernels for piola-mapped elements.
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree, prolongation_matrix_aij
+    Vf = FunctionSpace(piola_mesh, family, degree)
+    if mixed:
+        DG = FunctionSpace(Vf.mesh(), "DG", 2)
+        Vf = Vf * Vf * DG
+    Vc = Vf.reconstruct(degree=1)
+
+    Vf_bcs = [DirichletBC(Vf.sub(0), 0, "on_boundary")]
+    Vc_bcs = [DirichletBC(Vc.sub(0), 0, "on_boundary")]
+    if mat_type == "matfree":
+        P = prolongation_matrix_matfree(Vc, Vf, Vc_bcs, Vf_bcs)
+    else:
+        P = prolongation_matrix_aij(Vc, Vf, Vc_bcs, Vf_bcs)
+
+    uc = Function(Vc)
+    uf = Function(Vf)
+    with uc.dat.vec_wo as xc:
+        xc.setRandom()
+    for bc in Vc_bcs:
+        bc.zero(uc)
+    with uc.dat.vec_ro as xc, uf.dat.vec as xf:
+        P.mult(xc, xf)
+    assert norm(uf - uc) < 1E-12
+
+    rc = Cofunction(Vc.dual())
+    rf = Cofunction(Vf.dual())
+    with rf.dat.vec_wo as xf:
+        xf.setRandom()
+    for bc in Vf_bcs:
+        bc.zero(rf)
+    with rf.dat.vec_ro as xf, rc.dat.vec as xc:
+        P.multTranspose(xf, xc)
+
+    assert abs(assemble(action(rf, uf)) - assemble(action(rc, uc))) < 1E-11

@@ -5,11 +5,13 @@ This uses an IMEX discretisation of the linear shallow-water equations on a
 mixed function space.
 """
 
-from firedrake import (PeriodicUnitSquareMesh, FunctionSpace, Constant,
-                       MixedFunctionSpace, TestFunctions, Function, split,
-                       inner, dx, SpatialCoordinate, as_vector, pi, sin, div,
-                       NonlinearVariationalProblem, NonlinearVariationalSolver,
-                       subject, replace_subject, keep, drop, Label)
+from firedrake import (
+    PeriodicUnitSquareMesh, FunctionSpace, Constant,
+    MixedFunctionSpace, TestFunctions, Function, split, inner, dx,
+    SpatialCoordinate, as_vector, pi, sin, div,
+    NonlinearVariationalProblem, NonlinearVariationalSolver
+)
+from firedrake.fml import subject, replace_subject, keep, drop, Label
 
 import pytest
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")

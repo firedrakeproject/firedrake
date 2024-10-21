@@ -213,6 +213,35 @@ def test_tensor_function_zero_with_subset(W):
     assert np.allclose(f.dat.data_ro[3:], 1.0)
 
 
+def test_component_function_zero(W):
+    f = Function(W)
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    g = f.sub(0).zero()
+    assert f.sub(0) is g
+    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+        expected = 0.0 if i == 0 and j == 0 else 1.0
+        assert np.allclose(f.dat.data_ro[..., i, j], expected)
+
+
+def test_component_function_zero_with_subset(W):
+    f = Function(W)
+    # create an arbitrary subset consisting of the first three nodes
+    assert W.node_set.size > 3
+    subset = op2.Subset(W.node_set, [0, 1, 2])
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    f.sub(0).zero(subset=subset)
+    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+        expected = 0.0 if i == 0 and j == 0 else 1.0
+        assert np.allclose(f.dat.data_ro[:3, i, j], expected)
+        assert np.allclose(f.dat.data_ro[3:, i, j], 1.0)
+
+
 @pytest.mark.parametrize("value", [
     1,
     1.0,

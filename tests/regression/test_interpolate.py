@@ -426,7 +426,7 @@ def test_interpolate_periodic_coords_max():
     continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=MAX))
 
     # All nodes on the "seam" end up being 1, not 0.
-    assert np.allclose(np.unique(continuous.dat.data_ro),
+    assert np.allclose(np.unique(continuous.dat.data_ro.round(decimals=16)),
                        [0.25, 0.5, 0.75, 1])
 
 

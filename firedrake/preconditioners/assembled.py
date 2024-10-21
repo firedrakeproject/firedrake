@@ -1,7 +1,4 @@
-import abc
-
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
@@ -23,17 +20,13 @@ class AssembledPC(PCBase):
         from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
 
-        if pc.getType() != "python":
+        if pc.type != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        V = get_function_space(pc.getDM())
-        if len(V) == 1:
-            V = FunctionSpace(V.mesh(), V.ufl_element())
-        else:
-            V = MixedFunctionSpace([V_ for V_ in V])
+        V = get_function_space(pc.getDM()).collapse()
         test = TestFunction(V)
         trial = TrialFunction(V)
 
@@ -81,15 +74,6 @@ class AssembledPC(PCBase):
     def update(self, pc):
         self._assemble_P(tensor=self.P)
 
-    def form(self, pc, test, trial):
-        _, P = pc.getOperators()
-        if P.getType() == "python":
-            context = P.getPythonContext()
-            return (context.a, context.row_bcs)
-        else:
-            context = dmhooks.get_appctx(pc.getDM())
-            return (context.Jp or context.J, context._problem.bcs)
-
     def set_nullspaces(self, pc):
         # Copy nullspaces over from parent P matrix
         _, P = pc.getOperators()
@@ -123,19 +107,3 @@ class AuxiliaryOperatorPC(AssembledPC):
     """
 
     _prefix = "aux_"
-
-    @abc.abstractmethod
-    def form(self, pc, test, trial):
-        """
-
-        :arg pc: a `PETSc.PC` object. Use `self.get_appctx(pc)` to get the
-             user-supplied application-context, if desired.
-
-        :arg test: a `TestFunction` on this `FunctionSpace`.
-
-        :arg trial: a `TrialFunction` on this `FunctionSpace`.
-
-        :returns `(a, bcs)`, where `a` is a bilinear `Form`
-        and `bcs` is a list of `DirichletBC` boundary conditions (possibly `None`).
-        """
-        raise NotImplementedError

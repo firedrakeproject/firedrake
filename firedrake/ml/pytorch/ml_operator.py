@@ -203,6 +203,7 @@ def ml_operator(model, function_space, inputs_format=0):
     """
     from firedrake_citations import Citations
     Citations().register("Bouziani2021")
+    Citations().register("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

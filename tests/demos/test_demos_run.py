@@ -30,6 +30,10 @@ VTK_DEMOS = [
     "test_extrusion_lsw.py",
 ]
 
+parallel_demos = [
+    "full_waveform_inversion.py",
+]
+
 
 # Discover the demo files by globbing the demo directory
 @pytest.fixture(params=glob.glob("%s/*/*.py.rst" % demo_dir),
@@ -120,5 +124,14 @@ def test_demo_runs(py_file, env):
             import vtkmodules.vtkCommonDataModel  # noqa: F401
         except ImportError:
             pytest.skip(reason=f"VTK unavailable, skipping {basename(py_file)}")
+    if basename(py_file) in parallel_demos:
+        if basename(py_file) == "full_waveform_inversion.py":
+            processes = 2
+        else:
+            raise NotImplementedError("You need to specify the number of processes for this test")
 
-    subprocess.check_call([sys.executable, py_file], env=env)
+        executable = ["mpiexec", "-n", str(processes), sys.executable, py_file]
+    else:
+        executable = [sys.executable, py_file]
+
+    subprocess.check_call(executable, env=env)

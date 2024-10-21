@@ -300,7 +300,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         # Make sure the solution dm is visited last
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(c.function_space() for c in coefficients) if V.dm != solution_dm]
+        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
@@ -366,7 +366,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
-            if len(L.arguments()) != 1:
+            if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
             F = ufl_expr.action(J, u) - L
 

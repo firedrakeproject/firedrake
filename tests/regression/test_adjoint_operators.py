@@ -950,3 +950,59 @@ def test_riesz_representation_for_adjoints():
         and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
         and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
     )
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("constant_jacobian", [False, True])
+def test_lvs_constant_jacobian(constant_jacobian):
+    mesh = UnitIntervalMesh(10)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+    trial = TrialFunction(space)
+
+    u = Function(space, name="u").interpolate(X[0] - 0.5)
+    with stop_annotating():
+        u_ref = u.copy(deepcopy=True)
+    v = Function(space, name="v")
+    problem = LinearVariationalProblem(
+        inner(trial, test) * dx, inner(u, test) * dx, v,
+        constant_jacobian=constant_jacobian)
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+    J = assemble(v * v * dx)
+
+    assert "dFdu_adj" not in solver._ad_adj_cache
+
+    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
+
+    cached_dFdu_adj = solver._ad_adj_cache.get("dFdu_adj", None)
+    assert (cached_dFdu_adj is None) == (not constant_jacobian)
+    assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
+
+    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
+
+    assert cached_dFdu_adj is solver._ad_adj_cache.get("dFdu_adj", None)
+    assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_cofunction_assign_functional():
+    """Test that cofunction assignment is correctly annotated.
+    """
+    mesh = UnitIntervalMesh(5)
+    fs = FunctionSpace(mesh, "R", 0)
+    f = Function(fs)
+    f.assign(1.0)
+    f2 = Function(fs)
+    f2.assign(1.0)
+    v = TestFunction(fs)
+
+    cof = assemble(f * v * dx)
+    cof2 = Cofunction(cof)
+    cof2.assign(cof)  # Test is checking that this is taped.
+    J = assemble(action(cof2, f2))
+    Jhat = ReducedFunctional(J, Control(f))
+    assert np.allclose(float(Jhat.derivative()), 1.0)
+    f.assign(2.0)
+    assert np.allclose(Jhat(f), 2.0)

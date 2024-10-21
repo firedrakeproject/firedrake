@@ -79,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "torch",
+                           "opencascade", "torch", "jax",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -132,10 +132,10 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 13):
-    print("""\nCan not install Firedrake with Python 3.13 at the moment:
-Some wheels are not yet available for Python 3.13 for some required package(s).
-Please install with Python 3.12 (or an earlier version >= 3.9).""")
+if sys.version_info >= (3, 14):
+    print("""\nCan not install Firedrake with Python 3.14 at the moment:
+Some wheels are not yet available for Python 3.14 for some required package(s).
+Please install with Python 3.13 (or an earlier version >= 3.9).""")
     sys.exit(1)
 elif sys.version_info < (3, 9):
     if mode == "install":
@@ -264,6 +264,8 @@ honoured.""",
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -304,6 +306,7 @@ honoured.""",
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--show-dependencies", action="store_true",
@@ -402,6 +405,8 @@ else:
                         help="Install OpenCASCADE for CAD integration.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("jax", False),
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -438,6 +443,7 @@ else:
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
 
     args = parser.parse_args()
 
@@ -779,15 +785,21 @@ def get_petsc_options(minimal=False):
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
             if Version(clt["version"]) >= Version("15"):
-                # CLT >= 15 requires legacy linking behaviour
-                petsc_options.add("--LDFLAGS=-Wl,-ld_classic")
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
             if Version(clt["version"]) >= Version("15"):
-                # CLT >= 15 requires legacy linking behaviour
-                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
             petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
@@ -796,8 +808,11 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
         if Version(clt["version"]) >= Version("15"):
-            # CLT >= 15 requires legacy linking behaviour
-            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+            # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+            # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+            # on macOS with parallel solvers. Its necessity is unclear, so a
+            # review in the future may be required.
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
         else:
             petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
@@ -1307,6 +1322,13 @@ def build_and_install_torch():
     run_pip_install(["torch"] + extra_index_url)
 
 
+def build_and_install_jax():
+    """Install JAX for a CPU or CUDA backend."""
+    log.info("Installing JAX (backend: %s)" % args.jax)
+    version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
+    run_pip_install([version_name])
+
+
 def build_and_install_slepc():
     petsc_dir, petsc_arch = get_petsc_dir()
     slepc_dir, slepc_arch = get_slepc_dir()
@@ -1683,6 +1705,7 @@ if mode == "install":
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
 run_pip(["install", "-U", "setuptools"])
+run_pip(["install", "cffi"])
 run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
@@ -1836,7 +1859,10 @@ if mode == "install":
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
@@ -1981,7 +2007,10 @@ else:
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # update dependencies.
     for p in packages:
@@ -2069,6 +2098,10 @@ with pipargs("--no-deps"):
 with pipargs("--no-deps"):
     if options["torch"]:
         build_and_install_torch()
+
+with pipargs("--no-deps"):
+    if options["jax"]:
+        build_and_install_jax()
 
 if args.documentation_dependencies:
     install_documentation_dependencies()

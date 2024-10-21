@@ -35,8 +35,13 @@ class MatrixBase(ufl.Matrix):
         # on different processes)
 
         ufl.Matrix.__init__(self, test.function_space(), trial.function_space())
-        # Define arguments after `Matrix.__init__` since BaseForm sets `self._arguments` to None
+
+        # ufl.Matrix._analyze_form_arguments sets the _arguments attribute to
+        # non-Firedrake objects, which breaks things. To avoid this we overwrite
+        # this property after the fact.
+        self._analyze_form_arguments()
         self._arguments = arguments
+
         self.bcs = bcs
         self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm, self)
@@ -53,6 +58,9 @@ class MatrixBase(ufl.Matrix):
             return self.a.arguments()
         else:
             return self._arguments
+
+    def ufl_domains(self):
+        return self._domains
 
     @property
     def has_bcs(self):

@@ -1562,18 +1562,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         return tuple(loops)
 
     @cached_property
-    def _all_local_kernels(self):
-        """Collection of parloop_builders used for sparsity construction.
+    def _all_assemblers(self):
+        """Tuple of all assemblers used for sparsity construction.
 
-        When constructing sparsity, we use all parloop_builders
+        When constructing sparsity, we use all assemblers
         that are to be used in the actual assembly.
         """
-        all_local_kernels = tuple(local_kernel for local_kernel, _ in self.local_kernels)
+        all_assemblers = [self]
         for bc in self._bcs:
             if isinstance(bc, EquationBCSplit):
                 _assembler = type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False)
-                all_local_kernels += _assembler._all_local_kernels
-        return all_local_kernels
+                all_assemblers.extend(_assembler._all_assemblers)
+        return tuple(all_assemblers)
 
     def _apply_bc(self, tensor, bc):
         mat = tensor.M
