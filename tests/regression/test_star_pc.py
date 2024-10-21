@@ -2,11 +2,6 @@ import pytest
 import warnings
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
-try:
-    import tinyasm  # noqa: F401
-    marks = ()
-except ImportError:
-    marks = pytest.mark.skip(reason="No tinyasm")
 
 
 @pytest.fixture(params=["scalar",
@@ -16,7 +11,7 @@ def problem_type(request):
     return request.param
 
 
-@pytest.fixture(params=["petscasm", pytest.param("tinyasm", marks=marks)])
+@pytest.fixture(params=["petscasm", "tinyasm"])
 def backend(request):
     return request.param
 
