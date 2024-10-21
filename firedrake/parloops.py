@@ -12,8 +12,10 @@ import numpy as np
 import pyop3 as op3
 import ufl
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
+from pyop2.caching import serial_cache
 from pyop3.expr_visitors import evaluate as eval_expr
 from pyop3.itree.tree import compose_axes
+from pyop3.utils import readonly
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -375,6 +377,8 @@ def _(
     integral_type: str,
 ):
     plex = V.mesh().topology
+
+    perm = _flatten_entity_dofs(V.finat_element.entity_dofs())
 
     breakpoint()
 
@@ -1094,3 +1098,16 @@ def _orientations(mesh, perms, cell, integral_type):
     mynodemap = {None: (myroot,)}
     mynodemap.update(mychildren)
     return op3.IndexTree(mynodemap)
+
+
+@serial_cache()
+def _flatten_entity_dofs(entity_dofs):
+    """Flatten FInAT element ``entity_dofs`` into a permutation array."""
+    flat_entity_dofs = []
+    for dim in sorted(entity_dofs.keys()):
+        num_entities = len(entity_dofs[dim])
+        for entity_num in range(num_entities):
+            dofs = entity_dofs[dim][entity_num]
+            flat_entity_dofs.extend(dofs)
+    flat_entity_dofs = np.asarray(flat_entity_dofs, dtype=IntType)
+    return readonly(flat_entity_dofs)
