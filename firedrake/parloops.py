@@ -376,6 +376,8 @@ def _(
 ):
     plex = V.mesh().topology
 
+    breakpoint()
+
     if V.ufl_element().family() == "Real":
         return array
 
