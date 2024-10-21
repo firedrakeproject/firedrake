@@ -78,6 +78,7 @@ def py_file(rst_file, tmpdir, monkeypatch):
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
 @pytest.mark.markif_fixture(pytest.mark.slow, rst_file="linear_wave_equation.py.rst")
+@pytest.mark.markif_fixture(pytest.mark.slow, rst_file="full_waveform_inversion.py.rst")
 def test_demo_runs(py_file, env):
     # Add pytest skips for missing imports or packages
     if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py", "navier_stokes.py", "netgen_mesh.py"):
