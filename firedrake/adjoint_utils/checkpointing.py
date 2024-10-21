@@ -15,7 +15,7 @@ _checkpoint_init_data = False
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
            "pause_disk_checkpointing", "continue_disk_checkpointing",
            "stop_disk_checkpointing", "checkpointable_mesh",
-           "DiskCheckpointing"]
+           "AdjointDiskCheckpointing"]
 
 
 def current_checkpoint_file(init=None):
@@ -348,7 +348,7 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
         return checkpoint
 
 
-class DiskCheckpointing(ManageDiskCheckpointing):
+class AdjointDiskCheckpointing(ManageDiskCheckpointing):
     """Manager for the disk checkpointing process.
 
     Parameters
