@@ -268,23 +268,21 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse._fine = context
     context._coarse = coarse
 
-    solution = context._problem.u
-    solutiondm = solution.function_space().dm
+    solutiondm = context._problem.u.function_space().dm
     parentdm = get_parent(solutiondm)
-    if parentdm != solutiondm:
-        # Now that we have the coarse snescontext, push it to the coarsened DMs
-        # Otherwise they won't have the right transfer manager when they are
-        # coarsened in turn
-        for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
-            if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
-                V = val.function_space()
-                coarseneddm = V.dm
+    # Now that we have the coarse snescontext, push it to the coarsened DMs
+    # Otherwise they won't have the right transfer manager when they are
+    # coarsened in turn
+    for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
+        if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
+            V = val.function_space()
+            coarseneddm = V.dm
 
-                # Now attach the hook to the parent DM
-                if get_appctx(coarseneddm) is None:
-                    push_appctx(coarseneddm, coarse)
-                    teardown = partial(pop_appctx, coarseneddm, coarse)
-                    add_hook(parentdm, teardown=teardown)
+            # Now attach the hook to the parent DM
+            if get_appctx(coarseneddm) is None:
+                push_appctx(coarseneddm, coarse)
+                if parentdm.getAttr("__setup_hooks__"):
+                    add_hook(parentdm, teardown=partial(pop_appctx, coarseneddm, coarse))
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
