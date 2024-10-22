@@ -6,6 +6,7 @@ on:
     branches:
       - master
   pull_request:
+    types: [ labeled ]
   schedule:
     - cron: '0 0 * * 0'
     - cron: '0 0 1 * *'  # Monthly release
@@ -21,6 +22,45 @@ env:
   RELEASE_TAG: latest
 
 jobs:
+  build-gpu:
+    name: "Build Firedrake for GPU"
+    runs-on: [self-hosted, gpu]
+    #if: ${{ github.event.label.name == 'gpu' }}
+    if: contains(github.event.pull_request.labels.*.name, 'gpu')
+    container:
+      image: firedrakeproject/firedrake-env:latest
+    env:
+      # PETSC_DIR and MPICH_DIR are set inside the docker image
+      FIREDRAKE_CI_TESTS: 1
+      PYOP2_CI_TESTS: 1
+      PETSC_ARCH: default
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      COMPLEX: ""
+      RDMAV_FORK_SAFE: 1
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf firedrake_venv
+      - name: Build Firedrake
+        run: |
+          cd ..
+          # Linting should ignore unquoted shell variable $COMPLEX
+          # shellcheck disable=SC2086
+          ./firedrake/scripts/firedrake-install \
+            $COMPLEX \
+            --honour-petsc-dir \
+            --mpicc="$MPICH_DIR"/mpicc \
+            --mpicxx="$MPICH_DIR"/mpicxx \
+            --mpif90="$MPICH_DIR"/mpif90 \
+            --mpiexec="$MPICH_DIR"/mpiexec \
+            --venv-name firedrake_venv \
+            --no-package-manager \
+            --disable-ssh \
+            || (cat firedrake-install.log && /bin/false)
   build:
     name: "Build Firedrake"
     # Run on our self-hosted machines
