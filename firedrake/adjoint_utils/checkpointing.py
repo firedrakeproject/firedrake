@@ -307,7 +307,10 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                               function.dat, name=self.name(), count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        return checkpoint.restore()
+        if isinstance(checkpoint, CheckpointFunction):
+            return checkpoint.restore()
+        else:
+            return checkpoint
 
 
 def maybe_disk_checkpoint(function):
