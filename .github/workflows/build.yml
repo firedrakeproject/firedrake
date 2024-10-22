@@ -83,7 +83,6 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch tsfc connorjward/pyop3 \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
