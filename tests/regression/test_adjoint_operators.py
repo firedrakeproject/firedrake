@@ -1003,3 +1003,37 @@ def test_cofunction_assign_functional():
     assert np.allclose(float(Jhat.derivative()), 1.0)
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_bdy_control():
+    # Test for the case the boundary condition is a control for a
+    # domain with length different from 1.
+    mesh = IntervalMesh(10, 0, 2)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    test = TestFunction(space)
+    trial = TrialFunction(space)
+    sol = Function(space, name="sol")
+    # Dirichlet boundary conditions
+    R = FunctionSpace(mesh, "R", 0)
+    a = Function(R, val=1.0)
+    b = Function(R, val=2.0)
+    bc_left = DirichletBC(space, a, 1)
+    bc_right = DirichletBC(space, b, 2)
+    bc = [bc_left, bc_right]
+    F = dot(grad(trial), grad(test)) * dx
+    problem = LinearVariationalProblem(lhs(F), rhs(F), sol, bcs=bc)
+    solver = LinearVariationalSolver(problem)
+    solver.solve()
+    # Analytical solution of the analytical Laplace equation is:
+    # u(x) = a + (b - a)/2 * x
+    u_analytical = a + (b - a)/2 * X[0]
+    der_analytical0 = assemble(derivative((u_analytical**2) * dx, a))
+    der_analytical1 = assemble(derivative((u_analytical**2) * dx, b))
+    J = assemble(sol * sol * dx)
+    J_hat = ReducedFunctional(J, [Control(a), Control(b)])
+    adj_derivatives = J_hat.derivative(options={"riesz_representation": "l2"})
+    assert np.allclose(adj_derivatives[0].dat.data_ro, der_analytical0.dat.data_ro)
+    assert np.allclose(adj_derivatives[1].dat.data_ro, der_analytical1.dat.data_ro)
+
