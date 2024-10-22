@@ -5,13 +5,8 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 from firedrake.logging import warning
+from tinyasm import _tinyasm as tinyasm
 import numpy
-
-try:
-    from tinyasm import _tinyasm as tinyasm
-    have_tinyasm = True
-except ImportError:
-    have_tinyasm = False
 
 
 __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
@@ -77,9 +72,6 @@ class ASMPatchPC(PCBase):
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
             asmpc.setASMLocalSubdomains(len(ises), ises)
         elif backend == "tinyasm":
-            if not have_tinyasm:
-                raise ValueError("To use the TinyASM backend you need to install firedrake with TinyASM (firedrake-update --tinyasm)")
-
             _, P = asmpc.getOperators()
             lgmap = V.dof_dset.lgmap
             P.setLGMap(rmap=lgmap, cmap=lgmap)

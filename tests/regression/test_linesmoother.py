@@ -1,11 +1,8 @@
 import pytest
 from firedrake import *
+
+
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-try:
-    import tinyasm  # noqa: F401
-    marks = ()
-except ImportError:
-    marks = pytest.mark.skip(reason="No tinyasm")
 
 
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
@@ -44,7 +41,7 @@ def expected(mesh_type):
         return [5, 11]
 
 
-@pytest.fixture(params=["petscasm", pytest.param("tinyasm", marks=marks)])
+@pytest.fixture(params=["petscasm", "tinyasm"])
 def backend(request):
     return request.param
 
