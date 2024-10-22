@@ -370,7 +370,9 @@ class AdjointDiskCheckpointing(ManageDiskCheckpointing):
     """
 
     def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True):
-        super().__init__(dirname, comm=comm, cleanup=cleanup)
+        self.dirname = dirname
+        self.comm = comm
+        self.cleanup = cleanup
 
     def start_checkpointing(self):
         enable_disk_checkpointing(self.dirname, self.comm, self.cleanup)
