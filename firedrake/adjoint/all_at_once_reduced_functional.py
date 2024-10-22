@@ -44,21 +44,33 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
     Parameters
     ----------
-    control : The initial condition :math:`x_{0}`. Starting value is used as the
-            background (prior) data :math:`x_{b}`.
-    background_iprod : The inner product to calculate the background error functional
-                     from the background error :math:`x_{0} - x_{b}`. Can include the
-                     error covariance matrix.
-    observation_err : Given a state :math:`x`, returns the observations error
-                    :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the
-                    observations at the initial time and :math:`\\mathcal{H}_{0}` is
-                    the observation operator for the initial time. Optional.
-    observation_iprod : The inner product to calculate the observation error functional
-                      from the observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`.
-                      Can include the error covariance matrix. Must be provided if
-                      observation_err is provided.
-    weak_constraint : Whether to use the weak or strong constraint 4DVar formulation.
-    tape : The tape to record on.
+
+    control
+        The initial condition :math:`x_{0}`. Starting value is used as the
+        background (prior) data :math:`x_{b}`.
+
+    background_iprod
+        The inner product to calculate the background error functional
+        from the background error :math:`x_{0} - x_{b}`. Can include the
+        error covariance matrix.
+
+    observation_err
+        Given a state :math:`x`, returns the observations error
+        :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the
+        observations at the initial time and :math:`\\mathcal{H}_{0}` is
+        the observation operator for the initial time. Optional.
+
+    observation_iprod
+        The inner product to calculate the observation error functional
+        from the observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`.
+        Can include the error covariance matrix. Must be provided if
+        observation_err is provided.
+
+    weak_constraint
+        Whether to use the weak or strong constraint 4DVar formulation.
+
+    tape
+        The tape to record on.
 
     See Also
     --------
@@ -196,21 +208,26 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         Parameters
         ----------
 
-        state: The state at the current observation time.
-        observation_err : Given a state :math:`x`, returns the observations error
-                        :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are
-                        the observations at the current observation time and
-                        :math:`\\mathcal{H}_{i}` is the observation operator for the
-                        current observation time.
-        observation_iprod : The inner product to calculate the observation error
-                          functional from the observation error
-                          :math:`y_{i} - \\mathcal{H}_{i}(x)`. Can include the error
-                          covariance matrix.
-        forward_model_iprod : The inner product to calculate the model error functional
-                            from the model error
-                            :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})`. Can include the
-                            error covariance matrix. Ignored if using the strong
-                            constraint formulation.
+        state
+            The state at the current observation time.
+
+        observation_err
+            Given a state :math:`x`, returns the observations error
+            :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are
+            the observations at the current observation time and
+            :math:`\\mathcal{H}_{i}` is the observation operator for the
+            current observation time.
+
+        observation_iprod
+            The inner product to calculate the observation error functional
+            from the observation error :math:`y_{i} - \\mathcal{H}_{i}(x)`.
+            Can include the error covariance matrix.
+
+        forward_model_iprod
+            The inner product to calculate the model error functional from
+            the model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})`. Can
+            include the error covariance matrix. Ignored if using the strong
+            constraint formulation.
         """
         observation_iprod = observation_iprod or l2prod
         if self.weak_constraint:
@@ -368,10 +385,12 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         Parameters
         ----------
-        values : If you have multiple controls this should be a list of new values
-               for each control in the order you listed the controls to the constructor.
-               If you have a single control it can either be a list or a single object.
-               Each new value should have the same type as the corresponding control.
+
+        values
+            If you have multiple controls this should be a list of new values
+            for each control in the order you listed the controls to the constructor.
+            If you have a single control it can either be a list or a single object.
+            Each new value should have the same type as the corresponding control.
 
         Returns
         -------
@@ -434,8 +453,11 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         Parameters
         ----------
-        adj_input : The adjoint input.
-        options : Additional options for the derivative computation.
+        adj_input
+            The adjoint input.
+
+        options
+            Additional options for the derivative computation.
 
         Returns
         -------
@@ -506,9 +528,13 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         Parameters
         ----------
-        m_dot : The direction in which to compute the action of the Hessian.
-        options : A dictionary of options. To find a list of available options
-                  have a look at the specific control type.
+
+        m_dot
+            The direction in which to compute the action of the Hessian.
+
+        options
+            A dictionary of options. To find a list of available options
+            have a look at the specific control type.
 
         Returns
         -------
@@ -560,6 +586,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                    *self.observation_errors,
                    *self.observation_rfs,
                    *self.forward_model_stages,
+                   *self.forward_model_errors,
                    *self.forward_model_rfs):
             rf.optimize_tape()
 
