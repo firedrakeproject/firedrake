@@ -71,6 +71,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                  observation_iprod: Optional[Callable[[OverloadedType], AdjFloat]] = None,
                  weak_constraint: bool = True,
                  tape: Optional[Tape] = None,
+                 bkg_split: Optional[str] = 'full',
                  _annotate_accumulation: bool = False):
 
         self.tape = get_working_tape() if tape is None else tape
@@ -82,6 +83,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         background_iprod = background_iprod or l2prod
         observation_iprod = observation_iprod or l2prod
 
+        assert bkg_split in ('full', 'split')
+
         # We need a copy for the prior, but this shouldn't be part of the tape
         with stop_annotating():
             self.background = control.copy_data()
@@ -89,46 +92,60 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         if self.weak_constraint:
             self._annotate_accumulation = _annotate_accumulation
 
+            self.bkg_split = bkg_split
+
             # Full background error reduction
-            with set_working_tape() as tape:
-                # start from independent control
-                with stop_annotating():
-                    control_copy = control.copy_data()
-                bkg_err = background_iprod(control_copy - self.background)
-                self.background_rf_full = ReducedFunctional(
-                    bkg_err, Control(control_copy), tape=tape,
-                    name="Background_RF", claim_block_variables=True)
+            if self.bkg_split == 'full':
+                with set_working_tape() as tape:
+                    # start from independent control
+                    with stop_annotating():
+                        control_copy = control.copy_data()
+                        control_copy.rename("Control_0_bkg_copy")
+                    bkg_err_vec = Function(control_copy.function_space(),
+                                           name="bkg_err_vec")
+                    bkg_err_vec.assign(control_copy - self.background,
+                                       ad_block_tag="bkg_err_sub")
+                    bkg_err = background_iprod(bkg_err_vec)
+                    self.background_rf_full = ReducedFunctional(
+                        bkg_err, Control(control_copy), tape=tape,
+                        name="Background_RF", claim_block_variables=True)
 
-            # new tape for background error vector
-            # with set_working_tape() as tape:
-            #     # start from a control independent of any other tapes
-            #     with stop_annotating():
-            #         control_copy = control.copy_data()
+            elif self.bkg_split == 'split':
+                # new tape for background error vector
+                with set_working_tape() as tape:
+                    # start from a control independent of any other tapes
+                    with stop_annotating():
+                        control_copy = control.copy_data()
+                        control_copy.rename("Control_0_bkg_copy")
 
-            #     # vector of x_0 - x_b
-            #     bkg_err_vec = Function(self.background.function_space())
-            #     bkg_err_vec.assign(control_copy - self.background,
-            #                        ad_block_tag="bkg_err_sub")
-            #     bkg_err_vec.rename("bkg_err_vec")
+                    # vector of x_0 - x_b
+                    bkg_err_vec = Function(control_copy.function_space(),
+                                           name="bkg_err_vec")
+                    bkg_err_vec.assign(control_copy - self.background,
+                                       ad_block_tag="bkg_err_sub")
 
-            #     # RF to recover x_0 - x_b
-            #     self.background_error = ReducedFunctional(
-            #         bkg_err_vec, Control(control_copy), tape=tape,
-            #         name="Background_vector_RF", claim_block_variables=True)
+                    # bkg_err_vec = assemble(control_copy - self.background)
+                    # bkg_err_vec.rename("bkg_err_vec")
 
-            # # new tape for background error reduction
-            # with set_working_tape() as tape:
-            #     # start from a control independent of any other tapes
-            #     with stop_annotating():
-            #         bkg_err_vec_copy = bkg_err_vec.copy(deepcopy=True)
+                    # RF to recover x_0 - x_b
+                    self.background_error = ReducedFunctional(
+                        bkg_err_vec, Control(control_copy), tape=tape,
+                        name="Background_vector_RF", claim_block_variables=True)
 
-            #     # inner product |x_0 - x_b|_B
-            #     bkg_err = background_iprod(bkg_err_vec_copy)
+                # new tape for background error reduction
+                with set_working_tape() as tape:
+                    # start from a control independent of any other tapes
+                    with stop_annotating():
+                        bkg_err_vec_copy = bkg_err_vec.copy(deepcopy=True)
+                        bkg_err_vec_copy.rename("bkg_err_vec_copy")
 
-            #     # RF to recover |x_0 - x_b|_B
-            #     self.background_rf = ReducedFunctional(
-            #         bkg_err, Control(bkg_err_vec_copy), tape=tape,
-            #         name="Background_reduction_RF", claim_block_variables=True)
+                    # inner product |x_0 - x_b|_B
+                    bkg_err = background_iprod(bkg_err_vec_copy)
+
+                    # RF to recover |x_0 - x_b|_B
+                    self.background_rf = ReducedFunctional(
+                        bkg_err, Control(bkg_err_vec_copy), tape=tape,
+                        name="Background_reduction_RF", claim_block_variables=True)
 
             self.controls = [control]       # The solution at the beginning of each time-chunk
             self.states = []                # The model propogation at the end of each time-chunk
@@ -156,6 +173,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                     # start from a control independent of any other tapes
                     with stop_annotating():
                         control_copy = control.copy_data()
+                        control_copy.rename("Control_0_obs_copy")
 
                     # vector of H(x_0) - y_0
                     obs_err_vec = observation_err(control_copy)
@@ -172,6 +190,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                     # start from a control independent of any othe tapes
                     with stop_annotating():
                         obs_err_vec_copy = obs_err_vec.copy(deepcopy=True)
+                        obs_err_vec_copy.rename("obs_err_vec_0_copy")
 
                     # inner product |H(x_0) - y_0|_R
                     obs_err = observation_iprod(obs_err_vec_copy)
@@ -246,14 +265,14 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                 msg = "working tape canot be changed during observation stage"
                 raise ValueError(msg)
 
-            # record forward propogation
-            # with set_working_tape(prev_stage_tape.copy()) as tape:
-            #     this_state = state.copy(deepcopy=True)
-            #     prev_control = self.controls[-1]
-            #     self.forward_model_stages.append(ReducedFunctional(
-            #         this_state, controls=prev_control, tape=tape,
-            #         name=f"Model_forward_{stage_index}_RF", claim_block_variables=True)
-            #     )
+            # # record forward propogation
+            with set_working_tape(prev_stage_tape.copy()) as tape:
+                # this_state = state.copy(deepcopy=True)
+                prev_control = self.controls[-1]
+                self.forward_model_stages.append(ReducedFunctional(
+                    state.copy(deepcopy=True), controls=prev_control, tape=tape,
+                    name=f"Model_forward_{stage_index}_RF", claim_block_variables=True)
+                )
 
             # with stop_annotating():
             #     print(f"set_observation {stage_index} entry")
@@ -269,55 +288,55 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             with stop_annotating():
                 # smuggle initial guess at this time into the control without the tape seeing
                 next_control_state = state.copy(deepcopy=True)
+                next_control_state.rename(f"Control_{len(self.controls)}")
             next_control = Control(next_control_state)
-            next_control.control.topological.rename(f"Control {len(self.controls)}")
             self.controls.append(next_control)
 
             # model error links time-chunks by depending on both the
             # previous and current controls
 
-            with set_working_tape(prev_stage_tape.copy()) as tape:
-                model_err = forward_model_iprod(state - next_control.control)
-                self.forward_model_rfs_full.append(ReducedFunctional(
-                    model_err, self.controls[-2:], tape=tape,
-                    name=f"Model_{stage_index}_RF", claim_block_variables=False)
+            # with set_working_tape(prev_stage_tape.copy()) as tape:
+            #     model_err = forward_model_iprod(state - next_control.control)
+            #     self.forward_model_rfs_full.append(ReducedFunctional(
+            #         model_err, self.controls[-2:], tape=tape,
+            #         name=f"Model_{stage_index}_RF", claim_block_variables=False)
+            #     )
+
+            # new tape for model error vector
+            self.forward_model_rfs_full.append(None)
+            with set_working_tape() as tape:
+                # start from a control independent of any other tapes
+                with stop_annotating():
+                    state_copy = state.copy(deepcopy=True)
+                    next_control_copy = next_control.copy_data()
+
+                # vector of M_i - x_i
+                model_err_vec = Function(state_copy.function_space())
+                model_err_vec.assign(state_copy - next_control_copy,
+                                     ad_block_tag=f"model_err_sub_{stage_index}")
+                model_err_vec.rename(f"model_err_vec_{stage_index}")
+
+                # RF to recover M_i - x_i
+                fmcontrols = [Control(state_copy), Control(next_control_copy)]
+                self.forward_model_errors.append(ReducedFunctional(
+                    model_err_vec, fmcontrols, tape=tape,
+                    name="Model_vector_{stage_index}_RF", claim_block_variables=True)
                 )
 
-            # # new tape for model error vector
-            # self.forward_model_rfs_full.append(None)
-            # with set_working_tape() as tape:
-            #     # start from a control independent of any other tapes
-            #     with stop_annotating():
-            #         state_copy = state.copy(deepcopy=True)
-            #         next_control_copy = next_control.copy_data()
+            # new tape for model error reduction
+            with set_working_tape() as tape:
+                # start from a control independent of any othe tapes
+                with stop_annotating():
+                    model_err_vec_copy = model_err_vec.copy(deepcopy=True)
 
-            #     # vector of M_i - x_i
-            #     model_err_vec = Function(state_copy.function_space())
-            #     model_err_vec.assign(state_copy - next_control_copy,
-            #                          ad_block_tag=f"model_err_sub_{stage_index}")
-            #     model_err_vec.rename(f"model_err_vec_{stage_index}")
+                # inner product |M_i - x_i|_Q
+                model_err = forward_model_iprod(model_err_vec_copy)
 
-            #     # RF to recover M_i - x_i
-            #     fmcontrols = [Control(state_copy), Control(next_control_copy)]
-            #     self.forward_model_errors.append(ReducedFunctional(
-            #         model_err_vec, fmcontrols, tape=tape,
-            #         name="Model_vector_{stage_index}_RF", claim_block_variables=True)
-            #     )
-
-            # # new tape for model error reduction
-            # with set_working_tape() as tape:
-            #     # start from a control independent of any othe tapes
-            #     with stop_annotating():
-            #         model_err_vec_copy = model_err_vec.copy(deepcopy=True)
-
-            #     # inner product |M_i - x_i|_Q
-            #     model_err = forward_model_iprod(model_err_vec_copy)
-
-            #     # RF to recover |M_i - x_i|_Q
-            #     self.forward_model_rfs.append(ReducedFunctional(
-            #         model_err, Control(model_err_vec_copy), tape=tape,
-            #         name=f"Model_reduction_{stage_index}_RF", claim_block_variables=True)
-            #     )
+                # RF to recover |M_i - x_i|_Q
+                self.forward_model_rfs.append(ReducedFunctional(
+                    model_err, Control(model_err_vec_copy), tape=tape,
+                    name=f"Model_reduction_{stage_index}_RF", claim_block_variables=True)
+                )
 
             # Observations after tape cut because this is now a control, not a state
 
@@ -334,6 +353,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                 # start from a control independent of any other tapes
                 with stop_annotating():
                     next_control_copy = next_control.copy_data()
+                    next_control_copy.rename(f"Control_{stage_index}_copy")
 
                 # vector of H(x_i) - y_i
                 obs_err_vec = observation_err(next_control_copy)
@@ -350,6 +370,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                 # start from a control independent of any othe tapes
                 with stop_annotating():
                     obs_err_vec_copy = obs_err_vec.copy(deepcopy=True)
+                    obs_err_vec_copy.rename(f"obs_err_vec_{stage_index}_copy")
 
                 # inner product |H(x_i) - y_i|_R
                 obs_err = observation_iprod(obs_err_vec_copy)
@@ -450,10 +471,11 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                                 else [None, *self.observation_rfs_full])
 
         # Initial condition functionals
-        J = self.background_rf_full(values[0])
-
-        # bkg_err_vec = self.background_error(values[0])
-        # J = self.background_rf(bkg_err_vec)
+        if self.bkg_split == 'full':
+            J = self.background_rf_full(values[0])
+        elif self.bkg_split == 'split':
+            bkg_err_vec = self.background_error(values[0])
+            J = self.background_rf(bkg_err_vec)
 
         if self.initial_observations:
             # J += observation_rfs_full[0](values[0])
@@ -466,11 +488,11 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             prev_control = values[i-1]
             this_control = values[i]
 
-            J += model_rfs_full[i]([prev_control, this_control])
+            # J += model_rfs_full[i]([prev_control, this_control])
 
-            # Mi = model_stages[i](prev_control)
-            # model_err_vec = model_errors[i]([Mi, this_control])
-            # J += model_rfs[i](model_err_vec)
+            Mi = model_stages[i](prev_control)
+            model_err_vec = model_errors[i]([Mi, this_control])
+            J += model_rfs[i](model_err_vec)
 
             # observation error - do we match the 'real world'?
             # J += observation_rfs_full[i](this_control)
@@ -518,18 +540,21 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         # initial condition derivatives
         # print("Evaluating background derivative")
-        derivatives.append(
-            self.background_rf_full.derivative(**kwargs))
-
-        # bkg_deriv = self.background_rf.derivative(**kwargs)
-        # derivatives.append(
-        #     self.background_error.derivative(adj_input=bkg_deriv))
+        if self.bkg_split == 'full':
+            derivatives.append(
+                self.background_rf_full.derivative(**kwargs))
+        elif self.bkg_split == 'split':
+            bkg_deriv = self.background_rf.derivative(**kwargs)
+            bkg_deriv = bkg_deriv.riesz_representation()
+            derivatives.append(
+                self.background_error.derivative(adj_input=bkg_deriv))
 
         if self.initial_observations:
             # print("Evaluating observation 0 derivative")
             # derivatives[0] += observation_rfs_full[0].derivative(**kwargs)
 
             obs_deriv = self.observation_rfs[0].derivative(**kwargs)
+            obs_deriv = obs_deriv.riesz_representation()
             derivatives[0] += self.observation_errors[0].derivative(adj_input=obs_deriv)
 
         for i in range(1, len(model_rfs_full)):
@@ -537,23 +562,24 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             # derivatives.append(observation_rfs_full[i].derivative(**kwargs))
 
             obs_deriv = self.observation_rfs[i].derivative(**kwargs)
+            obs_deriv = obs_deriv.riesz_representation()
             derivatives.append(self.observation_errors[i].derivative(adj_input=obs_deriv))
 
-            # print(f"Evaluating model {i} derivative")
-            mderivs = model_rfs_full[i].derivative(**kwargs)
+            # # print(f"Evaluating model {i} derivative")
+            # mderivs = model_rfs_full[i].derivative(**kwargs)
 
-            derivatives[i-1] += mderivs[0]
-            derivatives[i] += mderivs[1]
+            # derivatives[i-1] += mderivs[0]
+            # derivatives[i] += mderivs[1]
 
             # print(f"Evaluating model {i} derivative")
-            # model_deriv = model_rfs[i].derivative(**kwargs)
+            model_deriv = model_rfs[i].derivative(**kwargs)
             # print(f"Evaluating model error {i} derivative")
-            # model_err_derivs = model_errors[i].derivative(adj_input=model_deriv)
+            model_err_derivs = model_errors[i].derivative(adj_input=model_deriv.riesz_representation())
             # print(f"Evaluating model stage {i} derivative")
-            # model_stage_deriv = model_stages[i].derivative(adj_input=model_err_derivs[0])
+            model_stage_deriv = model_stages[i].derivative(adj_input=model_err_derivs[0].riesz_representation())
 
-            # derivatives[i-1] += model_stage_deriv
-            # derivatives[i] += model_err_derivs[1]
+            derivatives[i-1] += model_stage_deriv
+            derivatives[i] += model_err_derivs[1]
 
         return derivatives
 
