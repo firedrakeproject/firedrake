@@ -1015,9 +1015,9 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
-                    parloop(**{self._tensor_name: tensor_mod})
+                    parloop(**{self._tensor_name: tensor_mod}, compiler_parameters=self._pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name: subtensor})
+                parloop(**{self._tensor_name: subtensor}, compiler_parameters=self._pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1071,7 +1071,6 @@ class ParloopFormAssembler(FormAssembler):
                     subdomain_id,
                     self.all_integer_subdomain_ids,
                     diagonal=self.diagonal,
-                    pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                 )
             )
         return tuple(out)
@@ -1738,16 +1737,13 @@ class ParloopBuilder:
 
     """
     def __init__(self, form, bcs, local_knl, subdomain_id,
-                 all_integer_subdomain_ids, diagonal,
-                 *,
-                 pyop3_compiler_parameters):
+                 all_integer_subdomain_ids, diagonal):
         self._form = form
         self._local_knl = local_knl
         self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
         self._diagonal = diagonal
         self._bcs = bcs
-        self._pyop3_compiler_parameters = pyop3_compiler_parameters
 
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
@@ -1771,7 +1767,7 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        return op3.loop(p, kernel(*args), compiler_parameters=self._pyop3_compiler_parameters)
+        return op3.loop(p, kernel(*args))
 
     @property
     def test_function_space(self):
