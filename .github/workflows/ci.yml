@@ -1,0 +1,123 @@
+name: CI
+
+# Trigger the workflow on push or pull request,
+# but only for the master branch
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Don't immediately kill all if one Python version fails
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    env:
+      CC: mpicc
+      PETSC_DIR: ${{ github.workspace }}/petsc
+      PETSC_ARCH: default
+      PETSC_CONFIGURE_OPTIONS: --with-debugging=1 --with-shared-libraries=1 --with-c2html=0 --with-fortran-bindings=0
+      RDMAV_FORK_SAFE: 1
+      PYOP2_CI_TESTS: 1
+    timeout-minutes: 60
+
+    steps:
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install build-essential mpich libmpich-dev \
+              libblas-dev liblapack-dev gfortran
+
+      - name: Set correct Python version
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Clone PETSc
+        uses: actions/checkout@v2
+        with:
+          repository: firedrakeproject/petsc
+          path: ${{ env.PETSC_DIR }}
+
+      - name: Build and install PETSc
+        shell: bash
+        working-directory: ${{ env.PETSC_DIR }}
+        run: |
+          ./configure ${PETSC_CONFIGURE_OPTIONS}
+          make
+
+      - name: Build and install petsc4py
+        shell: bash
+        working-directory: ${{ env.PETSC_DIR }}/src/binding/petsc4py
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade wheel cython numpy
+          python -m pip install --no-deps .
+
+      - name: Checkout PyOP2
+        uses: actions/checkout@v2
+        with:
+          path: PyOP2
+
+      - name: Install PyOP2 dependencies
+        shell: bash
+        working-directory: PyOP2
+        run: |
+          # xargs is used to force installation of requirements in the order we specified.
+          xargs -l1 python -m pip install < requirements-ext.txt
+          xargs -l1 python -m pip install < requirements-git.txt
+          python -m pip install pulp
+          python -m pip install -U flake8
+          python -m pip install -U pytest-timeout
+
+      - name: Install PyOP2 (Python <3.12)
+        if: ${{ matrix.python-version != '3.12' }}
+        shell: bash
+        working-directory: PyOP2
+        run: python -m pip install .
+
+        # Not sure if this is a bug in setuptools or something PyOP2 is doing wrong
+      - name: Install PyOP2 (Python == 3.12)
+        if: ${{ matrix.python-version == '3.12' }}
+        shell: bash
+        working-directory: PyOP2
+        run: |
+          python -m pip install -U setuptools
+          python setup.py install
+
+      - name: Run linting
+        shell: bash
+        working-directory: PyOP2
+        run: make lint
+
+      - name: Run tests
+        shell: bash
+        working-directory: PyOP2
+        run: |
+          # Running parallel test cases separately works around a bug in pytest-mpi
+          pytest -k "not parallel" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v test
+          mpiexec -n 3 pytest -k "parallel[3]" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v test
+        timeout-minutes: 10
+
+      - name: Build documentation
+        if: ${{ matrix.python-version == '3.10' }}
+        shell: bash
+        working-directory: PyOP2
+        run: |
+          python -m pip install sphinx
+          make -C doc/sphinx html
+      - name: Upload to github pages
+        if: ${{ github.ref == 'refs/heads/master' && github.event_name == 'push' && matrix.python-version== '3.10' }}
+        uses: crazy-max/ghaction-github-pages@v2.2.0
+        with:
+          build_dir: PyOP2/doc/sphinx/build/html
+          jekyll: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
