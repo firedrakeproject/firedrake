@@ -202,8 +202,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     stored_parent_cell_nums = np.copy(vm.topology_dm.getField("parentcellnum"))
     vm.topology_dm.restoreField("parentcellnum")
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
-    for i in range(len(stored_vertex_coords)):
-        assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
+    if MPI.COMM_WORLD.size == 1:
+        for i in range(len(stored_vertex_coords)):
+            # this will only be true if no extra point searches were done,
+            # which is only guaranteed to be true in serial.
+            assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
     # Input is correct (and includes points that were out of bounds)
     vm_input = vm.input_ordering
     assert vm_input.name == name + "_input_ordering"
