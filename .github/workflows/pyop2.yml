@@ -50,7 +50,7 @@ jobs:
         shell: bash
         working-directory: ${{ env.PETSC_DIR }}
         run: |
-          ./configure ${PETSC_CONFIGURE_OPTIONS}
+          ./configure "$PETSC_CONFIGURE_OPTIONS"
           make
 
       - name: Build and install petsc4py
