@@ -1882,7 +1882,6 @@ if mode == "install":
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -1899,7 +1898,7 @@ if mode == "install":
         build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
     with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-        for p in ("PyOP2", "firedrake"):
+        for p in ("firedrake", ):
             install(p+"/")
 
     # Work around easy-install.pth bug.
@@ -2056,7 +2055,6 @@ Please consider updating your PETSc manually.
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -2073,7 +2071,7 @@ Please consider updating your PETSc manually.
             build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
         with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-            for p in ("PyOP2", "firedrake"):
+            for p in ("firedrake", ):
                 install(p+"/")
 
         # Ensure pytest is at the latest version
