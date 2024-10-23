@@ -2,6 +2,7 @@ from pyadjoint import Block, OverloadedType
 import numpy
 
 from pyadjoint.reduced_functional_numpy import gather
+import firedrake
 from .block_utils import isconstant
 
 
@@ -69,6 +70,23 @@ class ConstantAssignBlock(Block):
         elif isconstant(values):
             values = values.values()
         return constant_from_values(block_variable.output, values)
+
+    def solve_tlm(self):
+        if self.assigned_list:
+            # Not reachable?
+            raise NotImplementedError
+
+        x, = self.get_outputs()
+        dep, = self.get_dependencies()
+        if dep.tlm_value is None:
+            x.tlm_value = None
+        else:
+            if len(x.output.ufl_shape) == 0:
+                x.tlm_value = firedrake.Constant(0.0)
+            else:
+                x.tlm_value = firedrake.Constant(
+                    numpy.reshape(numpy.zeros_like(x.output.values()), x.output.ufl_shape))
+            x.tlm_value.assign(dep.tlm_value)
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):

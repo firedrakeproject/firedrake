@@ -129,6 +129,32 @@ class FunctionAssignBlock(Block):
 
         return dudm
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        expr = self.expr
+
+        if expr is None:
+            other, = self.get_dependencies()
+            if other.tlm_value is None:
+                x.tlm_value = None
+            else:
+                x.tlm_value = firedrake.Function(x.output.function_space()).assign(other.tlm_value)
+        else:
+            tlm_rhs = 0
+            for block_variable in self.get_dependencies():
+                dep = block_variable.output
+                tlm_dep = block_variable.tlm_value
+                if tlm_dep is not None:
+                    tlm_rhs = tlm_rhs + ufl.derivative(expr, dep, tlm_dep)
+
+            x.tlm_value = None
+            if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+                return
+            tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+            if isinstance(tlm_rhs, ufl.constantvalue.Zero):
+                return
+            x.tlm_value = firedrake.Function(x.output.function_space()).assign(tlm_rhs)
+
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
                                  relevant_dependencies):
         return self.prepare_evaluate_adj(inputs, hessian_inputs,
@@ -211,6 +237,15 @@ class SubfunctionBlock(Block):
                                prepared=None):
         return firedrake.Function.sub(tlm_inputs[0], self.idx)
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        dep, = self.get_dependencies()
+        tlm_dep = dep.tlm_value
+        if tlm_dep is None:
+            x.tlm_value = None
+        else:
+            x.tlm_value = firedrake.Function(x.output.function_space()).assign(tlm_dep.sub(self.idx))
+
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
@@ -252,6 +287,17 @@ class FunctionMergeBlock(Block):
         output.add_tlm_output(
             type(output.output).assign(f.sub(self.idx), tlm_input)
         )
+
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        tlm_dep = self.get_dependencies()[0].tlm_value
+        if tlm_dep is None:
+            if x.tlm_value is not None:
+                x.tlm_value.sub(self.idx).zero()
+        else:
+            if x.tlm_value is None:
+                x.tlm_value = type(x.output)(x.output.function_space())
+            x.tlm_value.sub(self.idx).assign(tlm_dep)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,

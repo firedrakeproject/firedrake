@@ -323,6 +323,56 @@ class GenericSolveBlock(Block):
             dFdm, dudm, bcs
         )
 
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        if self.linear:
+            tmp_x = firedrake.Function(x.output.function_space())
+            replace_map = {tmp_x: x.output}
+            form = firedrake.action(self.lhs, tmp_x) - self.rhs
+        else:
+            replace_map = None
+            form = self.lhs
+
+        tlm_rhs = 0
+        tlm_bcs = []
+        for block_variable in self.get_dependencies():
+            dep = block_variable.output
+            if dep == x.output and not self.linear:
+                continue
+            tlm_dep = block_variable.tlm_value
+            if isinstance(dep, firedrake.DirichletBC):
+                if tlm_dep is None:
+                    tlm_bcs.append(dep.reconstruct(g=0))
+                else:
+                    tlm_bcs.append(tlm_dep)
+            elif tlm_dep is not None:
+                if isinstance(dep, firedrake.MeshGeometry):
+                    dep = firedrake.SpatialCoordinate(dep)
+                    tlm_rhs = tlm_rhs - firedrake.derivative(
+                        form, dep, tlm_dep)
+                else:
+                    tlm_rhs = tlm_rhs - firedrake.action(
+                        firedrake.derivative(form, dep), tlm_dep)
+
+        if isinstance(tlm_rhs, int) and tlm_rhs == 0:
+            tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
+        else:
+            tlm_rhs = ufl.algorithms.expand_derivatives(tlm_rhs)
+            if isinstance(tlm_rhs, ufl.ZeroBaseForm) or (isinstance(tlm_rhs, ufl.Form) and tlm_rhs.empty()):
+                tlm_rhs = firedrake.Cofunction(x.output.function_space().dual())
+
+        if self.linear:
+            J = self.lhs
+        else:
+            J = firedrake.derivative(form, x.output, firedrake.TrialFunction(x.output.function_space()))
+
+        if replace_map is not None:
+            J = ufl.replace(J, replace_map)
+            tlm_rhs = ufl.replace(tlm_rhs, replace_map)
+        x.tlm_value = firedrake.Function(x.output.function_space())
+        firedrake.solve(J == tlm_rhs, x.tlm_value, tlm_bcs, *self.forward_args,
+                        **self.forward_kwargs)
+
     def _assemble_and_solve_tlm_eq(self, dFdu, dFdm, dudm, bcs):
         return self._assembled_solve(dFdu, dFdm, dudm, bcs)
 
@@ -816,6 +866,7 @@ class SupermeshProjectBlock(Block):
             mesh = target_space.mesh()
         self.source_space = source.function_space()
         self.target_space = target_space
+        self._kwargs = dict(kwargs)
         self.projector = firedrake.Projector(source, target_space, **kwargs)
 
         # Assemble mixed mass matrix
@@ -895,6 +946,15 @@ class SupermeshProjectBlock(Block):
             dJdm += self.recompute_component([tlm_input], block_variable, idx,
                                              prepared)
         return dJdm
+
+    def solve_tlm(self):
+        x, = self.get_outputs()
+        dep, = self.get_dependencies()
+        if dep.tlm_value is None:
+            x.tlm_value = None
+        else:
+            x.tlm_value = firedrake.Function(x.output.function_space())
+            firedrake.project(dep.tlm_value, x.tlm_value, **self._kwargs)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
