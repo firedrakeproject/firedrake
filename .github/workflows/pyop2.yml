@@ -102,8 +102,8 @@ jobs:
         working-directory: PyOP2
         run: |
           # Running parallel test cases separately works around a bug in pytest-mpi
-          pytest -k "not parallel" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v test
-          mpiexec -n 3 pytest -k "parallel[3]" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v test
+          pytest -k "not parallel" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/pyop2
+          mpiexec -n 3 pytest -k "parallel[3]" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/pyop2
         timeout-minutes: 10
 
       - name: Build documentation
