@@ -790,6 +790,7 @@ def test_voting_algorithm_edgecases_3_ranks():
 def test_voting_algorithm_edgecases_4_ranks():
     voting_algorithm_edgecases(4)
 
+
 @pytest.mark.parallel
 @pytest.mark.parametrize('periodic', [False, True])
 def test_interpolate_cross_mesh_interval(periodic):
