@@ -20,7 +20,6 @@ ZENODO_URL = "https://zenodo.org/api"
 # And the same for slepc4py.
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
-    ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
     ("tsfc", "The Two Stage Form Compiler"),
     ("ufl", "The Unified Form Language"),
     ("FInAT", "a smarter library of finite elements"),
@@ -33,7 +32,6 @@ descriptions = OrderedDict([
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
-     ("PyOP2", "OP2"),
      ("tsfc", "firedrakeproject"),
      ("ufl", "firedrakeproject"),
      ("FInAT", "FInAT"),

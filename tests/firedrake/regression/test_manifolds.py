@@ -1,9 +1,6 @@
-import firedrake_configuration
 from firedrake import *
 import pytest
 import numpy as np
-
-config = firedrake_configuration.get_config()
 
 
 # This test solves a mixed formulation of the Poisson equation with

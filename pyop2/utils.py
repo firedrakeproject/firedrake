@@ -39,6 +39,7 @@ import sys
 import numpy as np
 from decorator import decorator
 import argparse
+import petsc4py
 
 from functools import cached_property  # noqa: F401
 
@@ -304,19 +305,23 @@ def strip(code):
 
 
 def get_petsc_dir():
-    try:
-        arch = '/' + os.environ.get('PETSC_ARCH', '')
-        dir = os.environ['PETSC_DIR']
-        return (dir, dir + arch)
-    except KeyError:
-        try:
-            import petsc4py
-            config = petsc4py.get_config()
-            petsc_dir = config["PETSC_DIR"]
-            petsc_arch = config["PETSC_ARCH"]
-            return petsc_dir, petsc_dir + petsc_arch
-        except ImportError:
-            sys.exit("""Error: Could not find PETSc library.
+    """Attempts to find the PETSc directory on the system
+    """
+    petsc_config = petsc4py.get_config()
+    petsc_dir = petsc_config["PETSC_DIR"]
+    petsc_arch = petsc_config["PETSC_ARCH"]
+    pathlist = [petsc_dir]
+    if petsc_arch:
+        pathlist.append(os.path.join(petsc_dir, petsc_arch))
+    return tuple(pathlist)
 
-Set the environment variable PETSC_DIR to your local PETSc base
-directory or install PETSc from PyPI: pip install petsc""")
+
+def get_petsc_variables():
+    """Attempts obtain a dictionary of PETSc configuration settings
+    """
+    path = [get_petsc_dir()[-1], "lib/petsc/conf/petscvariables"]
+    variables_path = os.path.join(*path)
+    with open(variables_path) as fh:
+        # Split lines on first '=' (assignment)
+        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
+    return {k.strip(): v.strip() for k, v in splitlines}

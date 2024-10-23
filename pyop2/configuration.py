@@ -81,12 +81,6 @@ class Configuration(dict):
     # name, env variable, type, default, write once
     cache_dir = os.path.join(gettempdir(), "pyop2-cache-uid%s" % os.getuid())
     DEFAULTS = {
-        "cc":
-            ("PYOP2_CC", str, ""),
-        "cxx":
-            ("PYOP2_CXX", str, ""),
-        "ld":
-            ("PYOP2_LD", str, ""),
         "cflags":
             ("PYOP2_CFLAGS", str, ""),
         "cxxflags":

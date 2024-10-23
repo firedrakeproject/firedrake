@@ -4,6 +4,8 @@ import hashlib
 from typing import Union
 
 import loopy as lp
+from loopy.kernel import LoopKernel
+from loopy.translation_unit import TranslationUnit
 from loopy.tools import LoopyKeyBuilder
 import numpy as np
 
@@ -212,7 +214,7 @@ class LoopyLocalKernel(LocalKernel):
         or :class:`loopy.TranslationUnit`.
     """
 
-    @validate_type(("code", (lp.LoopKernel, lp.TranslationUnit), TypeError))
+    @validate_type(("code", (LoopKernel, TranslationUnit), TypeError))
     def __init__(self, code, *args, **kwargs):
         super().__init__(code, *args, **kwargs)
 

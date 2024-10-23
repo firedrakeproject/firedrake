@@ -1,11 +1,8 @@
-import firedrake_configuration
 import pytest
 import numpy as np
 from firedrake import *
 from firedrake.__future__ import *
 import finat
-
-config = firedrake_configuration.get_config()
 
 
 @pytest.fixture(params=["square", "cube"])

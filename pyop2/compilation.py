@@ -55,6 +55,7 @@ from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
+from pyop2.utils import get_petsc_variables
 import pyop2.global_kernel
 from petsc4py import PETSc
 
@@ -72,6 +73,8 @@ _compiler = None
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+# PETSc Configuration
+petsc_variables = get_petsc_variables()
 
 
 def set_default_compiler(compiler):
@@ -218,8 +221,8 @@ class Compiler(ABC):
     """
     _name = "unknown"
 
-    _cc = "mpicc"
-    _cxx = "mpicxx"
+    _cc = None
+    _cxx = None
     _ld = None
 
     _cflags = ()
@@ -248,15 +251,15 @@ class Compiler(ABC):
 
     @property
     def cc(self):
-        return configuration["cc"] or self._cc
+        return self._cc or petsc_variables["CC"]
 
     @property
     def cxx(self):
-        return configuration["cxx"] or self._cxx
+        return self._cxx or petsc_variables["CXX"]
 
     @property
     def ld(self):
-        return configuration["ld"] or self._ld
+        return self._ld
 
     @property
     def cflags(self):
@@ -373,9 +376,6 @@ class LinuxIntelCompiler(Compiler):
     """The Intel compiler for building a shared library on Linux systems."""
     _name = "Intel"
 
-    _cc = "mpiicc"
-    _cxx = "mpiicpc"
-
     _cflags = ("-fPIC", "-no-multibyte-chars", "-std=gnu11")
     _cxxflags = ("-fPIC", "-no-multibyte-chars")
     _ldflags = ("-shared",)
@@ -387,9 +387,6 @@ class LinuxIntelCompiler(Compiler):
 class LinuxCrayCompiler(Compiler):
     """The Cray compiler for building a shared library on Linux systems."""
     _name = "Cray"
-
-    _cc = "cc"
-    _cxx = "CC"
 
     _cflags = ("-fPIC", "-Wall", "-std=gnu11")
     _cxxflags = ("-fPIC", "-Wall")
@@ -464,11 +461,11 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
         # Use the global compiler if it has been set
         compiler = _compiler
     else:
-        # Sniff compiler from executable
+        # Sniff compiler from file extension,
         if extension == "cpp":
-            exe = configuration["cxx"] or "mpicxx"
+            exe = petsc_variables["CXX"]
         else:
-            exe = configuration["cc"] or "mpicc"
+            exe = petsc_variables["CC"]
         compiler = sniff_compiler(exe, comm)
 
     debug = configuration["debug"]
@@ -617,7 +614,7 @@ def make_so(compiler, jitmodule, extension, comm, filename=None):
                 _run(cc, logfile, errfile)
             else:
                 # Compile
-                cc = (exe,) + compiler_flags + ('-c', '-o', oname, cname)
+                cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
                 _run(cc, logfile, errfile)
                 # Extract linker specific "cflags" from ldflags and link
                 ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))

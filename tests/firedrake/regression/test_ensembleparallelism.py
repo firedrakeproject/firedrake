@@ -205,13 +205,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     parallel_assert(
         lambda: error < 1e-12,
         subset=root_ranks,
-        msg=f"{error = :.5f}"
+        msg=f"{error = :.5f}"  # noqa: E203, E251
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
         lambda: error < 1e-12,
         subset={range(COMM_WORLD.size)} - root_ranks,
-        msg=f"{error = :.5f}"
+        msg=f"{error = :.5f}"  # noqa: E203, E251
     )
 
     # check that u_reduce dat vector is still synchronised
@@ -347,7 +347,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     parallel_assert(
         lambda: error < 1e-12,
         subset=root_ranks,
-        msg=f"{error = :.5f}"
+        msg=f"{error = :.5f}"  # noqa: E203, E251
     )
 
 

@@ -1,6 +1,7 @@
 import pytest
 import os
 from firedrake import *
+from pathlib import Path
 
 
 # See https://pytest-xdist.readthedocs.io/en/stable/how-to.html#identifying-the-worker-process-during-a-test
@@ -26,19 +27,7 @@ def test_pyop2_custom_init():
     op2.configuration.reset()
 
 
-def test_int_type():
-    import firedrake_configuration
-    from firedrake.utils import IntType
-
-    expected = firedrake_configuration.get_config()["options"]["petsc_int_type"]
-    actual = {4: "int32", 8: "int64"}[IntType.itemsize]
-
-    assert expected == actual
-
-
 def test_pyop2_cache_dir_set_correctly():
-    from firedrake_configuration import get_config
-
-    config = get_config()
-    cache_dir = os.path.join(config["options"]["cache_dir"], "pyop2")
+    root = Path(os.environ.get("VIRTUAL_ENV", "~")).joinpath(".cache")
+    cache_dir = os.environ.get("PYOP2_CACHE_DIR", str(root.joinpath("pyop2")))
     assert op2.configuration["cache_dir"] == cache_dir

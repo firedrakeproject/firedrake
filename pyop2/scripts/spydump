@@ -41,30 +41,33 @@ import numpy as np
 import pylab
 from scipy.sparse import csr_matrix
 
-COOKIE     = 1211216 # from petscmat.h
-IntType    = '>i4'   # big-endian, 4 byte integer
-ScalarType = '>f8'   # big-endian, 8 byte real floating
+COOKIE = 1211216    # from petscmat.h
+IntType = '>i4'     # big-endian, 4 byte integer
+ScalarType = '>f8'  # big-endian, 8 byte real floating
+
 
 # after http://lists.mcs.anl.gov/pipermail/petsc-users/2010-February/005935.html
 def readmat(filename):
     with open(filename, 'rb') as fh:
         header = np.fromfile(fh, dtype=IntType, count=4)
-        assert header[0] == COOKIE 
+        assert header[0] == COOKIE
         M, N, nz = header[1:]
         #
         I = np.empty(M+1, dtype=IntType)
-        I[0] = 0 
+        I[0] = 0
         rownz = np.fromfile(fh, dtype=IntType, count=M)
         np.cumsum(rownz, out=I[1:])
         assert I[-1] == nz
         #
-        J = np.fromfile(fh, dtype=IntType,    count=nz)
+        J = np.fromfile(fh, dtype=IntType, count=nz)
         V = np.fromfile(fh, dtype=ScalarType, count=nz)
     return (M, N), (I, J, V)
+
 
 def dump2csr(filename):
     (M, N), (I, J, V) = readmat(filename)
     return csr_matrix((V, J, I))
+
 
 def compare_dump(files, outfile=None, marker='.', markersize=.5):
     """Compare two binary PETSc matrix dumps as spy plots."""
@@ -104,7 +107,8 @@ def compare_dump(files, outfile=None, marker='.', markersize=.5):
     else:
         pylab.show()
 
-if __name__ == '__main__':
+
+def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__, add_help=True)
     parser.add_argument('files', nargs='+', help='Matrix dump files')
@@ -117,3 +121,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     compare_dump(args.files, args.output, marker=args.marker, markersize=args.markersize)
+
+
+if __name__ == '__main__':
+    main()

@@ -17,7 +17,7 @@ Demo = namedtuple("Demo", ["loc", "requirements"])
 
 
 CWD = abspath(dirname(__file__))
-DEMO_DIR = join(CWD, "..", "..", "demos")
+DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("benney_luke", "benney_luke"), ["vtk"]),

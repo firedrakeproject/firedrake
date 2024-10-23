@@ -12,7 +12,7 @@ except ImportError:
 
 
 cwd = os.path.abspath(os.path.dirname(__file__))
-nb_dir = os.path.join(cwd, "..", "..", "docs", "notebooks")
+nb_dir = os.path.join(cwd, "..", "..", "..", "docs", "notebooks")
 
 
 # Discover the notebook files by globbing the notebook directory
