@@ -72,6 +72,8 @@ include_dirs = [np.get_include(), rtree.finder.get_include()]
 petsc_include = [petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs]
 include_dirs += petsc_include
 petsc_library = [os.path.join(petsc_dirs[1], "lib")]
+numpy_include = [np.get_include()]
+include_dirs += numpy_include
 
 dirs = (sys.prefix, *petsc_dirs)
 link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
@@ -88,6 +90,16 @@ extensions = [
         extra_link_args=link_args,
         cython_compile_time_env=cython_compile_time_env
     ) for (ext, libs) in cythonfiles
+] + [
+    Extension(
+        "pyop2.sparsity",
+        sources=[os.path.join("pyop2", "sparsity.pyx")],
+        language="c",
+        include_dirs=petsc_include + numpy_include,
+        libraries=["petsc"],
+        extra_link_args=link_args,
+        cython_compile_time_env=cython_compile_time_env
+    )
 ] + [
     Pybind11Extension(
         name="tinyasm._tinyasm",
