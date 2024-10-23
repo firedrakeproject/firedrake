@@ -41,7 +41,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Clone PETSc
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: firedrakeproject/petsc
           path: ${{ env.PETSC_DIR }}
@@ -62,7 +62,7 @@ jobs:
           python -m pip install --no-deps .
 
       - name: Checkout PyOP2
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           path: PyOP2
 
