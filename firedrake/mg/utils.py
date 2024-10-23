@@ -3,7 +3,7 @@ from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
-import ufl
+import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
 
@@ -14,8 +14,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -52,8 +52,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -90,8 +90,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -135,9 +135,9 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
 
 def physical_node_locations(V):
     element = V.ufl_element()
-    if element.value_shape():
-        assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
-        element = element.sub_elements()[0]
+    if element.value_shape:
+        assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
+        element = element.sub_elements[0]
     mesh = V.mesh()
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
@@ -146,9 +146,9 @@ def physical_node_locations(V):
     try:
         return cache[key]
     except KeyError:
-        Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+        Vc = firedrake.FunctionSpace(mesh, finat.ufl.VectorElement(element))
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)
 
 

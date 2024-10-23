@@ -1,6 +1,6 @@
-from firedrake import *
 import numpy
 import pytest
+from firedrake import *
 
 
 @pytest.fixture(scope="module")
@@ -8,8 +8,9 @@ def mesh():
     return UnitSquareMesh(10, 10)
 
 
-@pytest.fixture(params=[("Argyris", 5), ("Bell", 5),
-                        ("Morley", 2), ("Hermite", 3)],
+@pytest.fixture(params=[("Argyris", 5), ("Bell", 5), ("HCT", 3),
+                        ("Morley", 2), ("Hermite", 3),
+                        ("PS6", 2), ("PS12", 2)],
                 scope="module",
                 ids=lambda x: x[0])
 def element(request):
@@ -41,7 +42,7 @@ def tolerance(element, which):
 
 @pytest.fixture
 def expect(V, which):
-    x, y = SpatialCoordinate(V.ufl_domain())
+    x, y = SpatialCoordinate(V.mesh())
     expr = (x + y)**(V.ufl_element().degree())
     if which == "coefficient":
         return expr

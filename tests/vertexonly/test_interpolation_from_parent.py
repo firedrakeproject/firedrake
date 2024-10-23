@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import pytest
 import numpy as np
 from functools import reduce
@@ -165,7 +166,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
-    w_expr = interpolate(expr, W)
+    w_expr = assemble(interpolate(expr, W))
     assert np.allclose(w_expr.dat.data_ro, np.sum(vertexcoords, axis=1))
 
 
@@ -186,16 +187,16 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
     v = Function(V).interpolate(expr)
-    w_v = interpolate(v, W)
+    w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
     # use it again for a different Function in V
-    v = Function(V).assign(Constant(2, domain=parentmesh))
-    A_w.interpolate(v, output=w_v)
+    v = Function(V).assign(Constant(2))
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, 2)
 
 
@@ -206,7 +207,7 @@ def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vertexcoords = vm.coordinates.dat.data_ro
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
-    w_expr = interpolate(expr, W)
+    w_expr = assemble(interpolate(expr, W))
     assert np.allclose(w_expr.dat.data_ro, 2*np.asarray(vertexcoords))
 
 
@@ -225,17 +226,17 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     W = VectorFunctionSpace(vm, "DG", 0)
     expr = 2 * SpatialCoordinate(parentmesh)
     v = Function(V).interpolate(expr)
-    w_v = interpolate(v, W)
+    w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
     # use it again for a different Function in V
     expr = 4 * SpatialCoordinate(parentmesh)
     v = Function(V).interpolate(expr)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, 4*np.asarray(vertexcoords))
 
 
@@ -249,7 +250,7 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     gdim = parentmesh.geometric_dimension()
     expr = 2 * as_tensor([x]*gdim)
     assert W.shape == expr.ufl_shape
-    w_expr = interpolate(expr, W)
+    w_expr = assemble(interpolate(expr, W))
     result = 2 * np.asarray([[vertexcoords[i]]*gdim for i in range(len(vertexcoords))])
     if len(result) == 0:
         result = result.reshape(vertexcoords.shape + (gdim,))
@@ -277,17 +278,17 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     result = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result) == 0:
         result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
-    w_v = interpolate(v, W)
+    w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
     # use it again for a different Function in V
     expr = 2*outer(x, x)
     v = Function(V).interpolate(expr)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), 2*result)
 
 
@@ -311,16 +312,16 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # use outer product to check Regge works
     expr1 = outer(x, x)
     assert W1.shape == expr1.ufl_shape
-    interpolate(expr1, v1)
+    assemble(interpolate(expr1, v1))
     result1 = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result1) == 0:
         result1 = result1.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     # Get Function in V2
     expr2 = reduce(add, SpatialCoordinate(parentmesh))
-    interpolate(expr2, v2)
+    assemble(interpolate(expr2, v2))
     result2 = np.sum(vertexcoords, axis=1)
     # Interpolate Function in V into W
-    w_v = interpolate(v, W)
+    w_v = assemble(interpolate(v, W))
     # Split result and check
     w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
@@ -328,7 +329,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # try and make reusable Interpolator from V to W
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     # Split result and check
     w_v1, w_v2 = w_v.subfunctions
     assert np.allclose(w_v1.dat.data_ro, result1)
@@ -343,10 +344,10 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     # Remove below when interpolating constant onto Real works for extruded
     if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
         with pytest.raises(ValueError):
-            interpolate(Constant(1.0, domain=parentmesh), V)
+            assemble(interpolate(Constant(1), V))
         return
-    v = interpolate(Constant(1.0, domain=parentmesh), V)
-    w_v = interpolate(v, W)
+    v = assemble(interpolate(Constant(1), V))
+    w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
@@ -358,12 +359,12 @@ def test_scalar_real_interpolator(parentmesh, vertexcoords):
     # Remove below when interpolating constant onto Real works for extruded
     if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
         with pytest.raises(ValueError):
-            interpolate(Constant(1.0, domain=parentmesh), V)
+            assemble(interpolate(Constant(1), V))
         return
-    v = interpolate(Constant(1.0, domain=parentmesh), V)
+    v = assemble(interpolate(Constant(1), V))
     A_w = Interpolator(TestFunction(V), W)
     w_v = Function(W)
-    A_w.interpolate(v, output=w_v)
+    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
@@ -383,8 +384,8 @@ def test_extruded_cell_parent_cell_list():
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour=None)
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
-    assert np.equal(vms.coordinates.dat.data_ro, coords).all()
-    assert np.equal(vmx.coordinates.dat.data_ro, coords).all()
+    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._dm_renumbering]).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._dm_renumbering]).all()
 
     # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
     # per cell which is the expression evaluated at the cell midpoint.
@@ -401,8 +402,8 @@ def test_extruded_cell_parent_cell_list():
     expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
     assert np.allclose(fs.at(coords), expected)
     assert np.allclose(fx.at(coords), expected)
-    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected)
-    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected)
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
 
 
 @pytest.mark.parallel

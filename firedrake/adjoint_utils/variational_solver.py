@@ -14,15 +14,15 @@ class NonlinearVariationalProblemMixin:
             from firedrake import derivative, adjoint, TrialFunction
             init(self, *args, **kwargs)
             self._ad_F = self.F
-            self._ad_u = self.u
+            self._ad_u = self.u_restrict
             self._ad_bcs = self.bcs
             self._ad_J = self.J
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
                 dFdu = derivative(self.F,
-                                  self.u,
-                                  TrialFunction(self.u.function_space()))
+                                  self.u_restrict,
+                                  TrialFunction(self.u_restrict.function_space()))
                 self._ad_adj_F = adjoint(dFdu)
             except (TypeError, NotImplementedError):
                 self._ad_adj_F = None
@@ -46,7 +46,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_nlvs = None
-            self._ad_dFdm_cache = {}
+            self._ad_adj_cache = {}
 
         return wrapper
 
@@ -70,7 +70,7 @@ class NonlinearVariationalSolverMixin:
                                                        problem._ad_u,
                                                        problem._ad_bcs,
                                                        problem._ad_adj_F,
-                                                       dFdm_cache=self._ad_dFdm_cache,
+                                                       adj_cache=self._ad_adj_cache,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
@@ -130,8 +130,9 @@ class NonlinearVariationalSolverMixin:
                 _ad_count_map[J_replace_map[coeff]] = coeff.count()
 
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u],
+                                           F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
                                            J=replace(problem.J, J_replace_map))
+        nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
         return nlvp

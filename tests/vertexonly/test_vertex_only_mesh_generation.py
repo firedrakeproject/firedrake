@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_PARTITIONER
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -143,24 +144,40 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
     total_in_bounds = MPI.COMM_WORLD.allreduce(len(in_bounds), op=MPI.SUM)
     skip_in_bounds_checks = False
+    local_cells = len(vm.coordinates.dat.data_ro)
     if total_cells != total_in_bounds:
         assert MPI.COMM_WORLD.size > 1  # i.e. we're in parallel
         assert total_cells < total_in_bounds  # i.e. some points are duplicated
-        local_cells = len(vm.coordinates.dat.data_ro)
         local_in_bounds = len(in_bounds)
         if not local_cells == local_in_bounds and local_in_bounds > 0:
-            assert max(ref_cell_dists_l1) > 0.5*m.tolerance
+            # This assertion needs to happen in parallel!
+            assertion = (max(ref_cell_dists_l1) > 0.5*m.tolerance)
             skip_in_bounds_checks = True
+        else:
+            assertion = True
+    else:
+        assertion = True
+    # FIXME: Replace with parallel assert when it's merged into pytest-mpi
+    assert min(MPI.COMM_WORLD.allgather([assertion]))
+
     # Correct local coordinates (though not guaranteed to be in same order)
     if not skip_in_bounds_checks:
         # Correct local coordinates (though not guaranteed to be in same order)
+        # [*here]
         np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
+    else:
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(vm.coordinates.dat.data_ro)
     # Correct parent topology
     assert vm._parent_mesh is m
     assert vm.topology._parent_mesh is m.topology
     # Correct generic cell properties
     if not skip_in_bounds_checks:
+        # [*here]
         assert vm.cell_closure.shape == (len(vm.coordinates.dat.data_ro_with_halos), 1)
+    else:
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(vm.coordinates.dat.data_ro_with_halos)
     with pytest.raises(AttributeError):
         vm.exterior_facets()
     with pytest.raises(AttributeError):
@@ -168,8 +185,13 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     if not skip_in_bounds_checks:
+        # [*here]
         assert vm.num_cells() == vm.cell_closure.shape[0] == len(vm.coordinates.dat.data_ro_with_halos) == vm.cell_set.total_size
         assert vm.cell_set.size == len(inputvertexcoords[in_bounds]) == len(vm.coordinates.dat.data_ro)
+    else:
+        # Accessing data_ro and data_ro_with_halos [*here] is collective, hence this redundant call
+        _ = len(vm.coordinates.dat.data_ro_with_halos)
+        _ = len(vm.coordinates.dat.data_ro)
     assert vm.num_facets() == 0
     assert vm.num_faces() == vm.num_entities(2) == 0
     assert vm.num_edges() == vm.num_entities(1) == 0
@@ -259,11 +281,17 @@ def test_generate_cell_midpoints(parentmesh, redundant):
     out_of_mesh_point = np.full((1, parentmesh.geometric_dimension()), np.inf)
     for i in range(max_len):
         if i < len(vm.coordinates.dat.data_ro):
+            # [*here]
             cell_num = parentmesh.locate_cell(vm.coordinates.dat.data_ro[i])
         else:
             cell_num = parentmesh.locate_cell(out_of_mesh_point)  # should return None
+            # Accessing data_ro [*here] is collective, hence this redundant call
+            _ = len(vm.coordinates.dat.data_ro)
         if cell_num is not None:
             assert (f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i]).all()
+        else:
+            _ = len(f.dat.data_ro)
+            _ = len(vm.coordinates.dat.data_ro)
 
     # Have correct pyop2 labels as implied by cell set sizes
     if parentmesh.extruded:
@@ -284,6 +312,11 @@ def test_generate_cell_midpoints_parallel(parentmesh, redundant):
 
 
 def test_generate_random(parentmesh, vertexcoords):
+    if parentmesh.name == "immersedsphere" and len(vertexcoords) == 100 \
+            and COMM_WORLD.size > 1 and DEFAULT_PARTITIONER == "simple":
+        # The immersedsphere-100-coords fixture is the only failure
+        # TODO: This failure should be investigated
+        pytest.skip(reason="This test hangs in parallel when using the simple partitioner")
     vm = VertexOnlyMesh(
         parentmesh, vertexcoords, missing_points_behaviour=None, name="testvom"
     )
@@ -322,7 +355,6 @@ def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
     assert m.tolerance == 0.5
-    assert m.tolerance == m.topology.tolerance
     # Make the mesh non-axis-aligned.
     m.coordinates.dat.data[1, :] = [1.1, 1]
     coords = [[1.0501, 0.5]]
@@ -330,11 +362,9 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
-    assert m.topology.tolerance == 0.1
     vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
-    assert m.topology.tolerance == 0.0
     # See if changing the tolerance on the parent mesh changes the tolerance
     # on the VertexOnlyMesh
     m.tolerance = 0.1

@@ -3,6 +3,7 @@ from pyop2 import op2
 import firedrake
 from firedrake import ufl_expr
 from firedrake.petsc import PETSc
+from ufl.duals import is_dual
 from . import utils
 from . import kernels
 
@@ -10,15 +11,21 @@ from . import kernels
 __all__ = ["prolong", "restrict", "inject"]
 
 
-def check_arguments(coarse, fine):
+def check_arguments(coarse, fine, needs_dual=False):
+    if is_dual(coarse) != needs_dual:
+        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
+    if is_dual(fine) != needs_dual:
+        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        raise TypeError("Fine argument is a %s, not a %s" % (type(fine).__name__, expected_type.__name__))
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
     if hierarchy is None:
-        raise ValueError("Coarse function not from hierarchy")
+        raise ValueError("Coarse argument not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
     if lvl >= flvl:
-        raise ValueError("Coarse function must be from coarser space")
+        raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
     if coarse.ufl_shape != fine.ufl_shape:
@@ -62,7 +69,7 @@ def prolong(coarse, fine):
             Vf = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Function(Vf)
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse)
@@ -88,7 +95,7 @@ def prolong(coarse, fine):
 
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
-    check_arguments(coarse_dual, fine_dual)
+    check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()
     if len(Vc) > 1:
@@ -120,16 +127,16 @@ def restrict(fine_dual, coarse_dual):
         if j == repeat - 1:
             coarse_dual.dat.zero()
             next = coarse_dual
-            Vc = next.function_space()
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
-            next = firedrake.Function(Vc)
+            next = firedrake.Cofunction(Vc.dual())
+        Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
@@ -203,7 +210,7 @@ def inject(fine, coarse):
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
-            fine_coords = Vf.ufl_domain().coordinates
+            fine_coords = Vf.mesh().coordinates
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 

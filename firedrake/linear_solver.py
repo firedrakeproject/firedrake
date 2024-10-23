@@ -8,7 +8,7 @@ from firedrake import dmhooks
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
-from pyop2.mpi import internal_comm, decref
+from pyop2.mpi import internal_comm
 
 __all__ = ["LinearSolver"]
 
@@ -57,7 +57,7 @@ class LinearSolver(OptionsManager):
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS)
         self.A = A
         self.comm = A.comm
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
         # Set up parameters mixin
@@ -102,10 +102,6 @@ class LinearSolver(OptionsManager):
         # anyway).
         self.set_from_options(self.ksp)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-
     @cached_property
     def test_space(self):
         return self.A.arguments()[0].function_space()
@@ -116,19 +112,19 @@ class LinearSolver(OptionsManager):
 
     @cached_property
     def _rhs(self):
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
 
         u = function.Function(self.trial_space)
         b = cofunction.Cofunction(self.test_space.dual())
         expr = -action(self.A.a, u)
-        return u, OneFormAssembler(expr, tensor=b).assemble, b
+        return u, get_assembler(expr).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
         u.dat.zero()
         for bc in self.A.bcs:
             bc.apply(u)
-        update()
+        update(tensor=blift)
         # blift contains -A u_bc
         blift += b
         if isinstance(blift, cofunction.Cofunction):

@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.__future__ import *
 from FIAT.dual_set import DualSet
 from FIAT.finite_element import CiarletElement
 from FIAT.reference_element import UFCInterval
@@ -9,7 +10,7 @@ from FIAT.quadrature import make_quadrature
 from FIAT.polynomial_set import ONPolynomialSet
 from finat.fiat_elements import ScalarFiatElement
 from tsfc.finatinterface import convert, as_fiat_cell
-import ufl
+import finat.ufl
 
 ufcint = UFCInterval()
 
@@ -91,13 +92,13 @@ class FInAT_P3IntMoments(ScalarFiatElement):
 # Replace the old tsfc.finatinterface.convert dispatch with a new one that
 # gives the the new FInAT element for P3 on an interval with variant
 # "interior-moment"
-old_convert = convert.dispatch(ufl.FiniteElement)
+old_convert = convert.dispatch(finat.ufl.FiniteElement)
 
 
 def temp_convert(element, **kwargs):
-    if element.family() == "Lagrange" and element.cell() == interval \
+    if element.family() == "Lagrange" and element.cell == interval \
        and element.degree() == 3 and element.variant() == "interior-moment":
-        return FInAT_P3IntMoments(as_fiat_cell(element.cell()), element.degree()), set()
+        return FInAT_P3IntMoments(as_fiat_cell(element.cell), element.degree()), set()
     else:
         return old_convert(element, **kwargs)
 
@@ -105,19 +106,19 @@ def temp_convert(element, **kwargs):
 # Register the new tsfc covert method - remove after tests have run (post yield)
 @pytest.fixture
 def add_p3intmoments_tsfc():
-    convert.register(ufl.FiniteElement, temp_convert)
+    convert.register(finat.ufl.FiniteElement, temp_convert)
     yield
-    convert.register(ufl.FiniteElement, old_convert)
+    convert.register(finat.ufl.FiniteElement, old_convert)
 
 
 # Test New Element Dual Evaluation
 def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     mesh = UnitIntervalMesh(1)
-    e = ufl.FiniteElement("CG", "interval", 3, variant="interior-moment")
+    e = finat.ufl.FiniteElement("CG", "interval", 3, variant="interior-moment")
     V = FunctionSpace(mesh, e)
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr) for node in dual_basis])
@@ -125,13 +126,13 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = 1-x[0]
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr_fiat) for node in dual_basis])
     expr = x[0]**2
     expr_fiat = (1-x[0])**2
-    f = interpolate(expr, V)
+    f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
     assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
                        [node(expr_fiat) for node in dual_basis])

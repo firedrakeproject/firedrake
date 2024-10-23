@@ -1,11 +1,13 @@
+import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
-from firedrake.interpolation import Interpolator, interpolate
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
+from firedrake.__future__ import interpolate
 from ufl import grad, curl, SpatialCoordinate
+from pyop2.utils import as_tuple
 
 __all__ = ("HypreADS",)
 
@@ -20,11 +22,7 @@ class HypreADS(PCBase):
 
         family = str(V.ufl_element().family())
         formdegree = V.finat_element.formdegree
-        degree = V.ufl_element().degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
+        degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
@@ -32,12 +30,12 @@ class HypreADS(PCBase):
         NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(Interpolator(grad(TestFunction(P1)), NC1).callable().handle)
+            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
         else:
             G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = chop(Interpolator(curl(TestFunction(NC1)), V).callable().handle)
+            C = chop(assemble.assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
         else:
             C = C_callback(NC1, V)
 
@@ -50,11 +48,12 @@ class HypreADS(PCBase):
         pc.setHYPREType('ads')
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
-        V = VectorFunctionSpace(mesh, "Lagrange", 1)
-        linear_coordinates = interpolate(SpatialCoordinate(mesh), V).dat.data_ro.copy()
-        pc.setCoordinates(linear_coordinates)
 
-        pc.setUp()
+        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
+        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
+        pc.setCoordinates(assemble.assemble(interp).dat.data_ro.copy())
+
+        pc.setFromOptions()
         self.pc = pc
 
     def apply(self, pc, x, y):

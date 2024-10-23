@@ -8,18 +8,41 @@
 Firedrake events
 ----------------
 
+Firedrake '24
+~~~~~~~~~~~~~
+
+The eighth Firedrake user and developer workshop will be held
+between 16-18 September 2024 at the University of Oxford. For more
+information see :doc:`the workshop page <firedrake_24>`.
+
+Algorithms for Exascale Computing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A summer school, aimed at Research Software Engineers and postgraduate
+students, will be a mix of expert lectures, hands-on workshops and
+informal discussion and networking sessions. This will include a
+Firedrake workshop on during the Wednesday morning session. `More
+information about the summer school
+<https://sites.google.com/view/algorithmsforexascale/home>`__.
+
 Firedrake '23
 ~~~~~~~~~~~~~
 
-The seventh Firedrake user and developer workshop will be held
+The seventh Firedrake user and developer workshop was held
 between 13-15 September 2023 at Missenden Abbey. For more
 information see :doc:`the workshop page <firedrake_23>`.
+
+RSECon23
+~~~~~~~~
+
+A Firedrake workshop was run during the Wednesday morning session of
+`RSECon23 <https://rsecon23.society-rse.org/>`__.
 
 PETSc4py documentation sprint
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Firedrakers and collaborators will be meeting to finally document PETSc4py in
-Faversham, Kent from 27-31 March 2023. Stay tuned for updates.
+Firedrakers and collaborators met to finally document PETSc4py in
+Faversham, Kent from 27-31 March 2023.
 
 Firedrake '22
 ~~~~~~~~~~~~~
@@ -39,9 +62,8 @@ G-Adopt Firedrake workshop April 28-29 2022
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The `G-ADOPT <https://g-adopt.github.io/index.html>`__ programme held a
-`workshop on automating finite element methods for geodynamics via firedrake
-<https://g-adopt.github.io/workshop.html>`__ at the Australian National
-University in Canberra.
+workshop on automating finite element methods for geodynamics via firedrake
+at the Australian National University in Canberra.
 
 Firedrake '21
 ~~~~~~~~~~~~~
@@ -79,7 +101,7 @@ Firedrake tutorial at CSE 19
 
 The Firedrake team presented a live cloud tutorial at the SIAM
 Conference on Computational Science and Engineering in Spokane
-Washington on 1 March 2019. See `the conference page <https://www.siam.org/Conferences/CM/Program/Minitutorials/cse19-minitutorials>`_.
+Washington on 1 March 2019.
 
 Firedrake tutorial Jan 11 2019
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

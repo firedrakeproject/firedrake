@@ -7,7 +7,7 @@ from firedrake.adjoint_utils.blocks import AssembleBlock
 
 def annotate_assemble(assemble):
     @wraps(assemble)
-    def wrapper(*args, **kwargs):
+    def wrapper(form, *args, **kwargs):
         """When a form is assembled, the information about its nonlinear dependencies is lost,
         and it is no longer easy to manipulate. Therefore, we decorate :func:`.assemble`
         to *attach the form to the assembled object*. This lets the automatic annotation work,
@@ -16,13 +16,23 @@ def annotate_assemble(assemble):
         ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         with stop_annotating():
-            output = assemble(*args, **kwargs)
+            from firedrake.assemble import BaseFormAssembler
+            from firedrake.slate import slate
+            if not isinstance(form, slate.TensorBase):
+                # Preprocess the form at the annotation stage so that the `AssembleBlock`
+                # records the preprocessed form. This facilitates derivation of the tangent linear/adjoint models.
+                # For example,
+                # -> `interp = Action(Interpolate(v1, v0), f)` with `v1` and `v0` being respectively `Argument`
+                # and `Coargument`. Differentiating `interp` is not currently supported as the action's left slot
+                # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
+                form = BaseFormAssembler.preprocess_base_form(form)
+                kwargs['is_base_form_preprocessed'] = True
+            output = assemble(form, *args, **kwargs)
 
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction
-        form = args[0]
         if isinstance(output, (numbers.Complex, Function, Cofunction)):
-            # Assembling a 0-form or 1-form (e.g. Form)
+            # Assembling a 0-form or 1-form (e.g. Form or BaseFormOperator)
             if not annotate:
                 return output
 
@@ -34,7 +44,15 @@ def annotate_assemble(assemble):
             tape = get_working_tape()
             tape.add_block(block)
 
-            block.add_output(output.block_variable)
+            if kwargs.get("tensor") is not None:
+                # Create a new block variable when a tensor is provided to the assembly.
+                # This is necessary as this tensor may belong to the block dependency as well,
+                # which would result in a cyclic dependency.
+                # Example (self-interpolation):
+                #  -> u.interpolate(u + c), with `u` a Function and `c` a Constant.
+                block.add_output(output.create_block_variable())
+            else:
+                block.add_output(output.block_variable)
         else:
             # Assembled a 2-form
             output.form = form

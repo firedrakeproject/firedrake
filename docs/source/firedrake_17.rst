@@ -31,7 +31,7 @@ Key Dates
 ---------
 
 * Early registration deadline: 10 February 2017
-* `Abstract <https://easychair.org/conferences/?conf=firedrake17>`_ deadline: 10 February 2017
+* Abstract deadline: 10 February 2017
 * Workshop: 27-28 March 2017
 
 
@@ -48,7 +48,7 @@ further facilitate their science goals.
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-The workshop dinner will be held at `the Pepys <http://www.thepepys.co.uk/>`_ on Monday 27 March.
+The workshop dinner will be held at the Pepys on Monday 27 March.
 
 Location
 ~~~~~~~~

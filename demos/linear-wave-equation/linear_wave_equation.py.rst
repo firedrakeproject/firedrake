@@ -66,7 +66,7 @@ output file::
 
 Output the initial conditions::
 
-  outfile = File("out.pvd")
+  outfile = VTKFile("out.pvd")
   outfile.write(phi)
 
 We next establish a boundary condition object. Since we have time-dependent
@@ -128,7 +128,7 @@ Step forward :math:`\phi` by the second half timestep::
       phi -= dt / 2 * p
 
 Advance time and output as appropriate, note how we pass the current
-timestep value into the :meth:`~.File.write` method, so that when
+timestep value into the :meth:`~.VTKFile.write` method, so that when
 visualising the results Paraview will use it::
 
       t += dt

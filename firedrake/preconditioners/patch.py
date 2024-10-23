@@ -3,17 +3,16 @@ from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType
-from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
-from firedrake.interpolation import interpolate
+from firedrake.interpolation import Interpolate
 
 from collections import namedtuple
 import operator
 from itertools import chain
 from functools import partial
 import numpy
-from ufl import VectorElement, MixedElement
+from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -21,8 +20,8 @@ import weakref
 
 import ctypes
 from pyop2 import op2
+from pyop2.mpi import COMM_SELF
 import pyop2.types
-import pyop2.parloop
 from pyop2.compilation import load
 from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
@@ -192,11 +191,11 @@ def matrix_funptr(form, state):
         arg = mesh.coordinates.dat(op2.READ, get_map(mesh.coordinates))
         args.append(arg)
         if kinfo.oriented:
-            c = form.ufl_domain().cell_orientations()
+            c = mesh.cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.ufl_domain().cell_sizes
+            c = mesh.cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -217,7 +216,7 @@ def matrix_funptr(form, state):
             args.append(all_constants[constant_index].dat(op2.READ))
 
         if kinfo.integral_type == "interior_facet":
-            arg = test.ufl_domain().interior_facets.local_facet_dat(op2.READ)
+            arg = mesh.interior_facets.local_facet_dat(op2.READ)
             args.append(arg)
         iterset = op2.Subset(iterset, [])
 
@@ -286,11 +285,11 @@ def residual_funptr(form, state):
         args.append(arg)
 
         if kinfo.oriented:
-            c = form.ufl_domain().cell_orientations()
+            c = mesh.cell_orientations()
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         if kinfo.needs_cell_sizes:
-            c = form.ufl_domain().cell_sizes
+            c = mesh.cell_sizes
             arg = c.dat(op2.READ, get_map(c))
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
@@ -378,7 +377,7 @@ typedef struct {{
     return struct, call, Struct
 
 
-def make_residual_wrapper(coeffs, maps):
+def make_residual_wrapper(coeffs, maps, flops):
     struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=False)
 
     return """
@@ -435,12 +434,13 @@ PetscErrorCode ComputeResidual(PC pc,
    if (x) {{
      ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
    }}
+   PetscLogFlops({} * npoints);
    PetscFunctionReturn(0);
 }}
-""".format(struct_decl, pyop2_call), struct
+""".format(struct_decl, pyop2_call, flops), struct
 
 
-def make_jacobian_wrapper(coeffs, maps):
+def make_jacobian_wrapper(coeffs, maps, flops):
     struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=True)
 
     return """
@@ -494,9 +494,10 @@ PetscErrorCode ComputeJacobian(PC pc,
    if (x) {{
      ierr = VecRestoreArrayRead(x, &state);CHKERRQ(ierr);
    }}
+   PetscLogFlops({} * npoints);
    PetscFunctionReturn(0);
 }}
-""".format(struct_decl, pyop2_call), struct
+""".format(struct_decl, pyop2_call, flops), struct
 
 
 def load_c_function(code, name, comm):
@@ -514,11 +515,12 @@ def load_c_function(code, name, comm):
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
                      require_facet_number=False):
-    coeffs = [form.ufl_domain().coordinates]
+    mesh = form.ufl_domains()[kernel.kinfo.domain_number]
+    coeffs = [mesh.coordinates]
     if kernel.kinfo.oriented:
-        coeffs.append(form.ufl_domain().cell_orientations())
+        coeffs.append(mesh.cell_orientations())
     if kernel.kinfo.needs_cell_sizes:
-        coeffs.append(form.ufl_domain().cell_sizes)
+        coeffs.append(mesh.cell_sizes)
     for n, indices in kernel.kinfo.coefficient_numbers:
         c = form.coefficients()[n]
         if c is state:
@@ -550,7 +552,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
         data_args.extend(all_constants[constant_index].dat._kernel_args_)
 
     if require_facet_number:
-        data_args.extend(form.ufl_domain().interior_facets.local_facet_dat._kernel_args_)
+        data_args.extend(mesh.interior_facets.local_facet_dat._kernel_args_)
     return data_args, map_args
 
 
@@ -641,6 +643,7 @@ class PlaneSmoother(object):
     def sort_entities(self, dm, axis, dir, ndiv=None, divisions=None):
         # compute
         # [(pStart, (x, y, z)), (pEnd, (x, y, z))]
+        from firedrake.assemble import assemble
 
         if ndiv is None and divisions is None:
             raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
@@ -658,7 +661,8 @@ class PlaneSmoother(object):
             # not its weakref proxy (the variable `mesh`)
             # as interpolation fails because they are not hashable
             CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
-            coordinates = interpolate(mesh.coordinates, CGk, access=op2.MAX)
+            coordinates = Interpolate(mesh.coordinates, CGk, access=op2.MAX)
+            coordinates = assemble(coordinates)
         else:
             coordinates = mesh.coordinates
 
@@ -740,10 +744,10 @@ class PlaneSmoother(object):
                 if not patch:
                     continue
                 else:
-                    iset = PETSc.IS().createGeneral(patch, comm=PETSc.COMM_SELF)
+                    iset = PETSc.IS().createGeneral(patch, comm=COMM_SELF)
                     patches.append(iset)
 
-        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=PETSc.COMM_SELF)
+        iterationSet = PETSc.IS().createStride(size=len(patches), first=0, step=1, comm=COMM_SELF)
         return (patches, iterationSet)
 
 
@@ -751,34 +755,15 @@ class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
 
-        if isinstance(obj, PETSc.PC):
-            A, P = obj.getOperators()
-        elif isinstance(obj, PETSc.SNES):
-            A, P = obj.ksp.pc.getOperators()
-        else:
-            raise ValueError("Not a PC or SNES?")
-
         ctx = get_appctx(obj.getDM())
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r" % ctx)
 
-        if P.getType() == "python":
-            ictx = P.getPythonContext()
-            if ictx is None:
-                raise ValueError("No context found on matrix")
-            if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r" % ictx)
-            J = ictx.a
-            bcs = ictx.row_bcs
-            if bcs != ictx.col_bcs:
-                raise NotImplementedError("Row and column bcs must match")
-        else:
-            J = ctx.Jp or ctx.J
-            bcs = ctx._problem.bcs
-
-        mesh = J.ufl_domain()
+        J, bcs = self.form(obj)
+        V = J.arguments()[0].function_space()
+        mesh = V.mesh()
         self.plex = mesh.topology_dm
         # We need to attach the mesh and appctx to the plex, so that
         # PlaneSmoothers (and any other user-customised patch
@@ -798,7 +783,7 @@ class PatchBase(PCSNESBase):
                 # but doesn't warn!
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
-        patch = obj.__class__().create(comm=obj.comm)
+        patch = obj.__class__().create(comm=mesh.comm)
         patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
@@ -810,35 +795,38 @@ class PatchBase(PCSNESBase):
             Jstate = None
             is_snes = False
 
-        V, _ = map(operator.methodcaller("function_space"), J.arguments())
-
         if len(bcs) > 0:
-            ghost_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=True)
-                                                             for bc in bcs]))
-            global_bc_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False)
-                                                              for bc in bcs]))
+            ghost_bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=True) for bc in bcs],
+                                  dtype=PETSc.IntType)
+            )
+            global_bc_nodes = numpy.unique(
+                numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs],
+                                  dtype=PETSc.IntType))
         else:
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
         Jcell_kernel, = Jcell_kernels
+        Jcell_flops = Jcell_kernel.kinfo.kernel.num_flops
         Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
                                                        operator.methodcaller("cell_node_map"))
-        code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args)
-        Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
+        code, Struct = make_jacobian_wrapper(Jop_data_args, Jop_map_args, Jcell_flops)
+        Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
         Jop_struct = make_c_struct(Jop_data_args, Jop_map_args, Jcell_kernel.funptr, Struct)
 
         Jhas_int_facet_kernel = False
         if len(Jint_facet_kernels) > 0:
             Jint_facet_kernel, = Jint_facet_kernels
             Jhas_int_facet_kernel = True
+            Jint_facet_flops = Jint_facet_kernel.kinfo.kernel.num_flops
             facet_Jop_data_args, facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
                                                                        operator.methodcaller("interior_facet_node_map"),
                                                                        require_facet_number=True)
-            code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args)
-            facet_Jop_function = load_c_function(code, "ComputeJacobian", obj.comm)
-            point2facet = J.ufl_domain().interior_facets.point2facetnumber.ctypes.data
+            code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args, Jint_facet_flops)
+            facet_Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
+            point2facet = mesh.interior_facets.point2facetnumber.ctypes.data
             facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
                                              Jint_facet_kernel.funptr, Struct,
                                              point2facet=point2facet)
@@ -850,26 +838,25 @@ class PatchBase(PCSNESBase):
             Fcell_kernels, Fint_facet_kernels = residual_funptr(F, Fstate)
 
             Fcell_kernel, = Fcell_kernels
-
+            Fcell_flops = Fcell_kernel.kinfo.kernel.num_flops
             Fop_data_args, Fop_map_args = make_c_arguments(F, Fcell_kernel, Fstate,
                                                            operator.methodcaller("cell_node_map"),
                                                            require_state=True)
-
-            code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args)
-            Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+            code, Struct = make_residual_wrapper(Fop_data_args, Fop_map_args, Fcell_flops)
+            Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
             Fop_struct = make_c_struct(Fop_data_args, Fop_map_args, Fcell_kernel.funptr, Struct)
 
             Fhas_int_facet_kernel = False
             if len(Fint_facet_kernels) > 0:
                 Fint_facet_kernel, = Fint_facet_kernels
                 Fhas_int_facet_kernel = True
-
+                Fint_facet_flops = Fint_facet_kernel.kinfo.kernel.num_flops
                 facet_Fop_data_args, facet_Fop_map_args = make_c_arguments(F, Fint_facet_kernel, Fstate,
                                                                            operator.methodcaller("interior_facet_node_map"),
                                                                            require_state=True,
                                                                            require_facet_number=True)
-                code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args)
-                facet_Fop_function = load_c_function(code, "ComputeResidual", obj.comm)
+                code, Struct = make_jacobian_wrapper(facet_Fop_data_args, facet_Fop_map_args, Fint_facet_flops)
+                facet_Fop_function = load_c_function(code, "ComputeResidual", mesh.comm)
                 point2facet = extract_unique_domain(F).interior_facets.point2facetnumber.ctypes.data
                 facet_Fop_struct = make_c_struct(facet_Fop_data_args, facet_Fop_map_args,
                                                  Fint_facet_kernel.funptr, Struct,

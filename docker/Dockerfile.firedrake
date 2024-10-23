@@ -11,11 +11,17 @@ WORKDIR /home/firedrake
 RUN bash -c "source firedrake/bin/activate; \
     firedrake-update \
         --documentation-dependencies \
+        --jax \
         --netgen \
         --slepc \
-        --tinyasm \
+        --torch \
+        --install asQ \
+        --install defcon \
+        --install fascd \
         --install femlium \
+        --install gadopt \
         --install gusto \
         --install icepack \
         --install irksome \
         --install thetis"
+

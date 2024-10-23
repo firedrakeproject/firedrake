@@ -1,12 +1,17 @@
 import numpy as np
 import ufl
+
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
+from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
+from firedrake.petsc import PETSc
 
 
 class Cofunction(ufl.Cofunction, FunctionMixin):
@@ -27,8 +32,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     the :class:`.FunctionSpace`.
     """
 
+    @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -52,20 +59,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
-        ufl.Cofunction.__init__(self, V.ufl_function_space())
+        ufl.Cofunction.__init__(self, V.ufl_function_space(), count=count)
 
         # User comm
         self.comm = V.comm
         # Internal comm
-        self._comm = mpi.internal_comm(V.comm)
+        self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
+        if isinstance(val, Cofunction):
             val = val.dat
+
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self._comm
             self.dat = val
@@ -75,10 +82,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(function_space, Cofunction):
             self.dat.copy(function_space.dat)
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
-
+    @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
 
@@ -121,6 +125,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
                          for i in range(self.function_space().value_size))
 
+    @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
 
@@ -142,9 +147,33 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         """
         return self._function_space
 
-    @FunctionMixin._ad_not_implemented
+    def equals(self, other):
+        """Check equality."""
+        if type(other) is not Cofunction:
+            return False
+        if self is other:
+            return True
+        return self._count == other._count and self._function_space == other._function_space
+
+    def zero(self, subset=None):
+        """Set values to zero.
+
+        Parameters
+        ----------
+        subset : pyop2.types.set.Subset
+                 A subset of the domain indicating the nodes to zero.
+                 If `None` then the whole function is zeroed.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        return self.assign(0, subset=subset)
+
+    @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=None, expr_from_assemble=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
@@ -160,20 +189,42 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
+
+        The `expr_from_assemble` optional argument indicates whether the
+        expression results from an assemble operation performed within the
+        current method. `expr_from_assemble` is required for the
+        `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
-            self.dat.zero(subset=subset)
+            with stop_annotating(modifies=(self,)):
+                self.dat.zero(subset=subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
+            # do not annotate in case of self assignment
+            if annotate_tape() and self != expr:
+                if subset is not None:
+                    raise NotImplementedError("Cofunction subset assignment "
+                                              "annotation is not supported.")
+                self.block_variable = self.create_block_variable()
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
+                    expr.block_variable)
+                get_working_tape().add_block(
+                    CofunctionAssignBlock(
+                        self, expr, rhs_from_assemble=expr_from_assemble)
+                )
+
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable to write down c += B where c is a Cofunction
-            # and B an appropriate BaseForm object
+            # Enable c.assign(B) where c is a Cofunction and B an appropriate
+            # BaseForm object. If annotation is enabled, the following
+            # operation will result in an assemble block on the Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
-            return self.assign(assembled_expr)
+            return self.assign(
+                assembled_expr, subset=subset,
+                expr_from_assemble=True)
 
         raise ValueError('Cannot assign %s' % expr)
 
@@ -255,6 +306,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             self.dat *= expr.dat
             return self
         return NotImplemented
+
+    def interpolate(self, expression):
+        r"""Interpolate an expression onto this :class:`Cofunction`.
+
+        :param expression: a UFL expression to interpolate
+        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
+        from firedrake import interpolation
+        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
+        return firedrake.assemble(interp, tensor=self)
 
     def vector(self):
         r"""Return a :class:`.Vector` wrapping the data in this

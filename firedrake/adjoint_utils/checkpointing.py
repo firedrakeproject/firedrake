@@ -1,5 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape
+from pyadjoint import get_working_tape, OverloadedType
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 import tempfile
@@ -8,7 +8,7 @@ import shutil
 import atexit
 from abc import ABC, abstractmethod
 from numbers import Number
-_stop_disk_checkpointing = 1
+_enable_disk_checkpoint = False
 _checkpoint_init_data = False
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
@@ -73,30 +73,34 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
 
 
 def disk_checkpointing():
-    """Return true if disk checkpointing of the adjoint tape is active."""
-    return _stop_disk_checkpointing <= 0
+    """Return whether disk checkpointing is enabled."""
+    return _enable_disk_checkpoint
 
 
 def pause_disk_checkpointing():
     """Pause disk checkpointing and instead checkpoint to memory."""
-    global _stop_disk_checkpointing
-    _stop_disk_checkpointing += 1
+    global _enable_disk_checkpoint
+    _enable_disk_checkpoint = False
 
 
 def continue_disk_checkpointing():
     """Resume disk checkpointing."""
-    global _stop_disk_checkpointing
-    _stop_disk_checkpointing -= 1
-    return _stop_disk_checkpointing <= 0
+    global _enable_disk_checkpoint
+    _enable_disk_checkpoint = True
+    return _enable_disk_checkpoint
 
 
-class stop_disk_checkpointing(object):
+class stop_disk_checkpointing:
     """A context manager inside which disk checkpointing is paused."""
+    def __init__(self):
+        self._original_state = disk_checkpointing()
+
     def __enter__(self):
         pause_disk_checkpointing()
 
     def __exit__(self, *args):
-        continue_disk_checkpointing()
+        global _enable_disk_checkpoint
+        _enable_disk_checkpoint = self._original_state
 
 
 class CheckPointFileReference:
@@ -306,7 +310,7 @@ def maybe_disk_checkpoint(function):
     return CheckpointFunction(function) if disk_checkpointing() else function
 
 
-class DelegatedFunctionCheckpoint(CheckpointBase):
+class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
     """A wrapper which delegates the checkpoint of this Function to another Function.
 
     This enables us to avoid checkpointing a Function twice when it is copied.
@@ -330,3 +334,10 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
             return type(saved_output)(saved_output.function_space(),
                                       saved_output.dat,
                                       count=self.count)
+
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        # This method is reached when a Block output is `self`.
+        if isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            raise ValueError("We must not have output and checkpoint as "
+                             "DelegatedFunctionCheckpoint objects.")
+        return checkpoint

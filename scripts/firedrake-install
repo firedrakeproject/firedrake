@@ -41,6 +41,14 @@ firedrake_apps = {
                 "git+ssh://github.com/firedrakeproject/Irksome.git#egg=Irksome"),
     "femlium": ("""Interactive visualization of finite element simulations on geographic maps with folium. https://femlium.github.io/""",
                 "git+ssh://github.com/FEMlium/FEMlium.git@main#egg=FEMlium"),
+    "fascd": ("""Full approximation scheme constraint decomposition solver for variational inequalities. https://bitbucket.org/pefarrell/fascd""",
+              "git+ssh://bitbucket.org/pefarrell/fascd.git@master#egg=fascd"),
+    "defcon": ("""Deflated continuation algorithm for bifurcation analysis. https://bitbucket.org/pefarrell/defcon""",
+               "git+ssh://bitbucket.org/pefarrell/defcon.git@master#egg=defcon"),
+    "gadopt": ("""Geodynamic Adjoint Optimization Platform. http://g-adopt.github.io""",
+               "git+ssh://github.com/g-adopt/g-adopt.git@master#egg=gadopt"),
+    "asQ": ("""ParaDiag parallel-in-time methods. http://firedrakeproject.org/asQ""",
+            "git+ssh://github.com/firedrakeproject/asQ.git@master#egg=asQ"),
 }
 
 
@@ -71,7 +79,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
-                           "opencascade", "tinyasm", "torch",
+                           "opencascade", "torch", "jax",
                            "petsc_int_type", "cache_dir", "complex", "remove_build_files", "with_blas", "netgen"]
 
 
@@ -124,18 +132,14 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
-if sys.version_info >= (3, 12):
-    print("""\nCan not install Firedrake with Python 3.12 at the moment:
-Some wheels are not yet available for Python 3.12 for some required package(s).
-Please install with Python 3.11 (or an earlier version >= 3.8).""")
+if sys.version_info >= (3, 14):
+    print("""\nCan not install Firedrake with Python 3.14 at the moment:
+Some wheels are not yet available for Python 3.14 for some required package(s).
+Please install with Python 3.13 (or an earlier version >= 3.9).""")
     sys.exit(1)
-elif sys.version_info < (3, 9) and osname == "Darwin" and arch == "arm64":
-    print("""
-Installing Firedrake on Mac Arm (M1 or M2) requires at least Python 3.9 since
-some required package(s) are not available for earlier Python versions.""")
-elif sys.version_info < (3, 8):
+elif sys.version_info < (3, 9):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.8.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.9.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -157,20 +161,18 @@ def resolve_doi_branches(doi):
     import requests
     import hashlib
     log.info("Installing Firedrake components specified by {}".format(doi))
-    response = requests.get("https://zenodo.org/api/records",
-                            params={"q": "doi:{}".format(doi.replace("/", r"\/"))})
-    if response.status_code >= 400:
+    # Zenodo updated their API to use elastic search so simply querying with
+    # ?q=doi:10.5281/zenodo.<id> now returns multiple results (not ideal)
+    # Instead use
+    # /<id>
+    # as documented here https://developers.zenodo.org/#retrieve
+    id_ = doi.split('.')[-1]
+    response = requests.get("https://zenodo.org/api/records/{}".format(id_))
+    if not response.ok:
         log.error("Unable to obtain Zenodo record for doi {}".format(doi))
         log.error("Response was {}".format(response.json()))
         sys.exit(1)
-    response = response.json()
-    try:
-        record, = response["hits"]["hits"]
-    except ValueError:
-        log.error("Was expecting one record for doi '{doi}', found {num}".format(
-            doi=doi, num=response["hits"]["total"]))
-        log.error("Response was {}".format(response))
-        sys.exit(1)
+    record = response.json()
     files = record["files"]
     try:
         componentjson, = (f for f in files if f["key"] == "components.json")
@@ -260,10 +262,10 @@ honoured.""",
                         help="Install SLEPc along with PETSc.")
     parser.add_argument("--opencascade", action="store_true",
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true",
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", default=False, nargs='?', choices=["cpu", "cuda"],
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
@@ -304,6 +306,7 @@ honoured.""",
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
     parser.add_argument("--show-dependencies", action="store_true",
@@ -330,6 +333,8 @@ honoured.""",
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true",
                         help="Install NGSolve/Netgen and ngsPETSc.")
+    parser.add_argument("--no-vtk", action="store_true",
+                        help="Do not install VTK into the Firedrake virtualenv")
 
     args = parser.parse_args()
 
@@ -398,10 +403,10 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--opencascade", action="store_true", dest="opencascade", default=config["options"].get("opencascade", False),
                         help="Install OpenCASCADE for CAD integration.")
-    parser.add_argument("--tinyasm", action="store_true", dest="tinyasm", default=config["options"].get("tinyasm", False),
-                        help="Install TinyASM as backend for ASMPatchPC.")
     parser.add_argument("--torch", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("torch", False),
                         help="Install PyTorch for a CPU or CUDA backend (default: CPU).")
+    parser.add_argument("--jax", const="cpu", nargs='?', choices=["cpu", "cuda"], default=config["options"].get("jax", False),
+                        help="Install JAX for a CPU or CUDA backend (default: CPU).")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         default=config["options"]["honour_petsc_dir"],
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -438,6 +443,7 @@ else:
                         help="Specify path to system BLAS directory. Use '--with-blas=download' to download openblas")
     parser.add_argument("--netgen", action="store_true", dest="netgen", default=config["options"].get("netgen", False),
                         help="Install Netgen.")
+    parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
 
     args = parser.parse_args()
 
@@ -562,16 +568,22 @@ if platform.system() == "Linux" and mode == "install":
     # Check if it is a tigerlake processor ie: "i3-11", "i5-11", "i7-11"
     if any(bad_cpu in cpuinfostring for bad_cpu in ["i3-11", "i5-11", "i7-11"]):
         # Get the compiler names and versions
-        cc = sniff_compiler(args.mpicc or "gcc")
-        cxx = sniff_compiler(args.mpicxx or "g++")
-        fortran = sniff_compiler(args.mpif90 or "gfortran")
-        # Check if the combination is a problem
-        if any(map(lambda compiler: compiler[0] == "GNU" and compiler[1] < Version("9.4"), [cc, cxx, fortran])):
-            print(
-                "\nUsing a Tiger Lake (or newer) CPU with gcc, g++ and gfortran version<=9.3 is not possible."
-                " Please install at least gcc, g++ and gfortran version 9.4.0 or later"
+        try:
+            cc = sniff_compiler(args.mpicc or "gcc")
+            cxx = sniff_compiler(args.mpicxx or "g++")
+            fortran = sniff_compiler(args.mpif90 or "gfortran")
+            # Check if the combination is a problem
+            if any(map(lambda compiler: compiler[0] == "GNU" and compiler[1] < Version("9.4"), [cc, cxx, fortran])):
+                log.info(
+                    "\nUsing a Tiger Lake (or newer) CPU with gcc, g++ and gfortran version<=9.3 is not possible."
+                    " Please install at least gcc, g++ and gfortran version 9.4.0 or later"
+                )
+                sys.exit(1)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            log.info(
+                "\nFailed to sniff compiler version, perhaps there is no compiler installed.\n"
+                "You can ignore this if you are not using a Tiger Lake (or newer) CPU with gcc, g++ or gfortran version<=9.3\n"
             )
-            sys.exit(1)
 
 
 @atexit.register
@@ -678,7 +690,6 @@ def check_output(args):
         raise
 
 
-pyinstall = [python, "setup.py", "install"]
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
 If you really want to use your own Python packages, please run again with the
@@ -699,23 +710,16 @@ def get_minimal_petsc_packages():
     pkgs = set()
     # File format
     pkgs.add("hdf5")
-    # Sparse direct solver
-    pkgs.add("superlu_dist")
     # Parallel mesh partitioner
     pkgs.add("ptscotch")
     # Sparse direct solver
     pkgs.add("scalapack")  # Needed for mumps
     pkgs.add("mumps")
-    if not options["complex"]:
-        # AMG
-        pkgs.add("hypre")
-    if options["petsc_int_type"] == "int32":
-        # Serial mesh partitioner
-        pkgs.add("chaco")
     return pkgs
 
 
 def get_petsc_options(minimal=False):
+    # The logic in this function is getting out of hand...
     petsc_options = {"--with-fortran-bindings=0",
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
@@ -726,11 +730,17 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-" + pkg)
     if osname == "Darwin":
         petsc_options.add("--with-x=0")
+        # These three lines are used to inspect the MacOS Command Line Tools (CLT) version
+        cmd = ["pkgutil", "--pkg-info=com.apple.pkg.CLTools_Executables"]
+        output = subprocess.run(cmd, stdout=subprocess.PIPE, encoding="UTF-8")
+        clt = {k.strip(): v.strip() for k, v in [line.split(':') for line in output.stdout.split('\n') if line]}
     elif osname == "Linux":
         # PETSc requires cmake version 3.18.1 or higher.
         petsc_options.add("--download-cmake")
 
     if (not options["minimal_petsc"]) and (not minimal):
+        # Another sparse direct solver
+        petsc_options.add("--download-superlu_dist")
         petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
@@ -748,16 +758,14 @@ def get_petsc_options(minimal=False):
             # Non-free license.
             petsc_options.add("--download-parmetis")
 
-    if options["petsc_int_type"] == "int32":
-        if not options["minimal_petsc"]:
-            # AMG
-            petsc_options.add("--download-ml")
-    else:
+    if options["petsc_int_type"] != "int32":
         petsc_options.add("--with-64-bit-indices")
 
     if options["complex"]:
-        petsc_options -= {'--download-ml'}
         petsc_options.add('--with-scalar-type=complex')
+    else:
+        # AMG
+        petsc_options.add("--download-hypre")
 
     if options.get("mpiexec") is not None:
         petsc_options.add("--with-mpiexec={}".format(options["mpiexec"]))
@@ -776,18 +784,37 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-openblas-make-options='USE_THREAD=0 USE_LOCKING=1 USE_OPENMP=0'")
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-Wno-implicit-function-declaration")
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         if osname == "Darwin":
             petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(options["with_blas"]))
+            if Version(clt["version"]) >= Version("15"):
+                # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+                # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+                # on macOS with parallel solvers. Its necessity is unclear, so a
+                # review in the future may be required.
+                petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
         else:
             petsc_options.add("--CFLAGS=-I{}/include".format(options["with_blas"]))
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib".format(options["with_blas"]))
     elif osname == "Darwin":
         brew_blas_prefix = check_output(["brew", "--prefix", "openblas"])[:-1]
         petsc_options.add("--with-blaslapack-dir={}".format(brew_blas_prefix))
         petsc_options.add("--CFLAGS=-I{}/include -Wno-implicit-function-declaration".format(brew_blas_prefix))
-        petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        if Version(clt["version"]) >= Version("15"):
+            # CLT >= 15 requires legacy linking behaviour (-ld_classic flag)
+            # The -dead_strip_dylibs flag is a workaround for MUMPS issues
+            # on macOS with parallel solvers. Its necessity is unclear, so a
+            # review in the future may be required.
+            petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
+        else:
+            petsc_options.add("--LDFLAGS=-Wl,-rpath,{0}/lib -L{0}/lib -L{1}".format(brew_blas_prefix, brew_gcc_libdir()))
 
     if not minimal:
         for option in shlex.split(os.environ.get("PETSC_CONFIGURE_OPTIONS", "")):
@@ -975,12 +1002,8 @@ def run_pip_install(pipargs):
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
     with environment(**blas):
-        pipargs = ["-vvv"] + pipargs
+        pipargs = ["-v"] + pipargs
         check_call(pipinstall + pipargs)
-
-
-def run_cmd(args):
-    check_call(args)
 
 
 def get_requirements(reqfname):
@@ -995,14 +1018,6 @@ def run_pip_install_wrap(reqs, parallel_compiler_env):
         if package_name in parallel_packages:
             with environment(**parallel_compiler_env):
                 run_pip_install([req])
-        elif package_name == "numpy":
-            # Downgrade setuptools and wheel for numpy
-            run_pip(["install", "-U", "setuptools==59.2.0"])
-            run_pip(["install", "-U", "wheel==0.37.0"])
-            run_pip_install(["numpy==1.24"])
-            # Upgrade setuptools and wheel for everything else
-            run_pip(["install", "-U", "setuptools"])
-            run_pip(["install", "-U", "wheel"])
         else:
             run_pip_install([req])
 
@@ -1149,8 +1164,8 @@ def build_and_install_petsc():
         petsc_options = get_petsc_options()
         # Set MACOSX_DEPLOYMENT_TARGET to the current macos version
         # to workaround issues configuring PETSc on macos.
-        # Choosing 11.0 as the oldest MacOS version supported as at 2023-03-22
-        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")
+        # Choosing 12.0 as the oldest MacOS version supported as of 2024-02-08
+        macosx_deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "12.0")
         with environment(MACOSX_DEPLOYMENT_TARGET=macosx_deployment_target):
             check_call([python, "./configure", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch)] + petsc_options)
             check_call(["make", "PETSC_DIR={}".format(petsc_dir), "PETSC_ARCH={}".format(petsc_arch), "all"])
@@ -1244,7 +1259,7 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_libsupermesh():
+def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
     log.info("Installing libsupermesh")
     url = "git+https://github.com/firedrakeproject/libsupermesh.git"
     if os.path.exists("libsupermesh"):
@@ -1258,49 +1273,20 @@ def build_and_install_libsupermesh():
             check_call(["git", "clean", "-f", "-x", "-d"])
             check_call(["mkdir", "-p", "build"])
             with directory("build"):
-                cmd = ["cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                       "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                       "-DMPI_C_COMPILER=" + cc,
-                       "-DMPI_CXX_COMPILER=" + cxx,
-                       "-DMPI_Fortran_COMPILER=" + f90,
-                       "-DCMAKE_Fortran_COMPILER=" + f90,
-                       "-DLIBSUPERMESH_AUTO_COMPILER_FLAGS=OFF"]
-                fortran, version = sniff_compiler(f90)
-                if fortran == "GNU" and version >= Version("10"):
-                    # Necessary because gcc >= 10 barfs on the Fortran MPI interface without it.
-                    # cf. https://lists.mpich.org/pipermail/discuss/2020-January/005863.html
-                    cmd.append("-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch")
+                cmd = [
+                    "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
+                    "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
+                    "-DMPI_C_COMPILER=" + cc,
+                    "-DMPI_CXX_COMPILER=" + cxx,
+                    "-DMPI_Fortran_COMPILER=" + f90,
+                    "-DCMAKE_Fortran_COMPILER=" + f90,
+                    "-DMPIEXEC_EXECUTABLE=" + mpiexec,
+                ]
                 check_call(cmd)
                 check_call(["make"])
                 check_call(["make", "install"])
     else:
         log.info("No need to rebuild libsupermesh")
-
-
-def build_and_install_tinyasm():
-    log.info("Installing TinyASM")
-    if os.path.exists("TinyASM"):
-        log.info("Updating the git repository for TinyASM")
-        with directory("TinyASM"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            tinyasm_changed = git_sha != git_sha_new
-            if tinyasm_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/florianwechsung/TinyASM.git")
-        tinyasm_changed = True
-
-    if tinyasm_changed:
-        with directory("TinyASM"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            run_pip_install(["-e", "."])
-    else:
-        log.info("No need to rebuild TinyASM")
 
 
 def build_and_install_pythonocc():
@@ -1336,37 +1322,11 @@ def build_and_install_torch():
     run_pip_install(["torch"] + extra_index_url)
 
 
-def build_and_install_libspatialindex():
-    log.info("Installing libspatialindex")
-    if os.path.exists("libspatialindex"):
-        log.info("Updating the git repository for libspatialindex")
-        with directory("libspatialindex"):
-            check_call(["git", "fetch"])
-            git_sha = check_output(["git", "rev-parse", "HEAD"])
-            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-            libspatialindex_changed = git_sha != git_sha_new
-            if libspatialindex_changed:
-                check_call(["git", "reset", "--hard"])
-                check_call(["git", "pull"])
-    else:
-        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
-        libspatialindex_changed = True
-
-    if libspatialindex_changed:
-        with directory("libspatialindex"):
-            # Clean source directory
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            # Patch Makefile.am to skip building test
-            check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
-            # Build and install
-            check_call(["./autogen.sh"])
-            check_call(["./configure", "--prefix=" + firedrake_env,
-                        "--enable-shared", "--disable-static"])
-            check_call(["make"])
-            check_call(["make", "install"])
-    else:
-        log.info("No need to rebuild libspatialindex")
+def build_and_install_jax():
+    """Install JAX for a CPU or CUDA backend."""
+    log.info("Installing JAX (backend: %s)" % args.jax)
+    version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
+    run_pip_install([version_name])
 
 
 def build_and_install_slepc():
@@ -1417,7 +1377,7 @@ def build_and_install_slepc():
 
 def build_and_install_netgen():
     log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "ngsolve", "--pre"])
+    run_pip(["install", "netgen-mesher"])
     log.info("Installing ngsPETSc.")
     url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
     ngsPETSc_changed = False
@@ -1585,6 +1545,7 @@ if mode == "install" or not args.update_script:
                              "make",
                              "automake",
                              "cmake",
+                             "ninja",
                              "libtool",
                              "boost"]
         if args.with_blas is None and mode == "install":
@@ -1603,6 +1564,7 @@ if mode == "install" or not args.update_script:
                              "pkgconf",  # for p4est
                              "libtool",
                              "libxml2-dev",
+                             "ninja-build",  # for meson/numpy
                              "python3-dev",
                              "python3-pip",
                              "python3-tk",
@@ -1742,31 +1704,25 @@ if mode == "install":
     os.environ["VIRTUAL_ENV"] = firedrake_env
 
 # Ensure pip, setuptools, hatchling and wheel are at the latest version.
-# numpy requires setuptools==59.2.0 and wheel==0.37.0 until it moves to meson build
-run_pip(["install", "-U", "setuptools==59.2.0"])
+run_pip(["install", "-U", "setuptools"])
+run_pip(["install", "cffi"])
 run_pip(["install", "-U", "hatch"])
+run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
-run_pip(["install", "-U", "wheel==0.37.0"])
+run_pip(["install", "-U", "wheel"])
 
-# Pin Cython because it's causing multiple packages to fail to build
-run_pip(["install", "-U", "Cython==0.29.36"])
+# Extra numpy dependendencies, see
+# https://github.com/numpy/numpy/blob/main/pyproject.toml
+run_pip(["install", "-U", "meson-python>=0.15.0"])
+run_pip(["install", "-U", "Cython>=3.0.6"])
+
+run_pip(["install", "-U", "numpy"])
 
 # Loopy has additional build dependencies
 run_pip(["install", "-U", "scikit-build"])
 run_pip(["install", "-U", "nanobind"])
 run_pip(["install", "-U", "make"])
 run_pip(["install", "-U", "pcpp"])
-
-# See build failure caused by pybind11==2.10.0 at https://github.com/firedrakeproject/firedrake/runs/7370283417?check_suite_focus=true.
-log.info("We use pybind11==2.9.2 until the issue with pybind11==2.10.0 is resolved.\n")
-run_pip(["install", "pybind11==2.9.2"])
-# Tarball of islpy==2023.2 appears to be broken
-run_pip([
-    "install",
-    "--no-build-isolation",
-    "--no-binary", ",".join(wheel_blacklist),
-    "islpy!=2023.2"
-])
 
 petsc_dir, petsc_arch = get_petsc_dir()
 if options["slepc"]:
@@ -1798,6 +1754,7 @@ if mode == "install":
 cc = options["mpicc"]
 cxx = options["mpicxx"]
 f90 = options["mpif90"]
+mpiexec = options["mpiexec"]
 compiler_env = create_compiler_env(cc, cxx, f90)
 os.chdir(firedrake_env)
 
@@ -1847,34 +1804,17 @@ if mode == "install":
     # recovery can be attempted if required.
     build_update_script()
 
-    # Force Cython to install first to work around pip dependency issues.
-    run_pip_install(["Cython>=0.22"])
-
     # Pre-install requested packages
     if args.pip_packages is not None:
         for package in args.pip_packages:
             log.info("Pip installing %s to venv" % package)
             run_pip_install_wrap(package.split(), {})
 
-    # "Temporary" workaround for missing VTK wheel on Python 3.11
-    if sys.version_info[:2] == (3, 11):
-        # Update source when release is no longer a draft
-        source = "https://github.com/firedrakeproject/VTKPythonPackage/releases/download/firedrake_20221116/"
-        if osname == "Darwin":
-            if arch == "arm64":
-                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_arm64.whl "
-            elif arch == "x86_64":
-                source += "vtk-9.2.2.dev0-cp311-cp311-macosx_12_0_x86_64.whl"
-            else:
-                log.error("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
-                raise InstallError("Cannot install VTK for Python 3.11: unknown Darwin architecture {0}.".format(arch))
-        elif osname == "Linux":
-            source += "vtk-9.2.2.dev0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-        else:
-            log.error("Cannot install VTK for Python 3.11: unknown operating system  {0}.".format(osname))
-            raise InstallError("Cannot install VTK for Python 3.11: unknown operating system {0}.".format(osname))
-        log.info("Pip installing VTK for Python 3.11 to venv")
-        run_pip_install([source])
+    # Install VTK
+    if not args.no_vtk:
+        log.info("Pip installing VTK to venv")
+        run_pip_install_wrap(["vtk>=9.0.1"], {})
+
     if sys.version_info[:2] >= (3, 9):
         # Also lazy-object-proxy
         run_pip(["install", "lazy-object-proxy==1.4.*"])
@@ -1906,6 +1846,7 @@ if mode == "install":
         cc = os.path.join(compilerbin, "mpicc")
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
+        mpiexec = os.path.join(compilerbin, "mpiexec")
         compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
@@ -1918,25 +1859,21 @@ if mode == "install":
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
-
-    # numpy requires old setuptools (+wheel)
-    log.info("Installing numpy using setuptools==59.2.0 and wheel==0.37.0 and Cython==0.29.36")
-    log.info("Installing numpy==1.24 due to performance regression")
-    # https://github.com/inducer/pytential/issues/211
-    run_pip_install(["numpy==1.24"])
-    log.info("Updating setuptools and wheel to latest versions")
-    run_pip(["install", "-U", "setuptools"])
-    run_pip(["install", "-U", "wheel"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     for p in packages:
         pip_requirements(p, compiler_env)
 
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
+
     with environment(**compiler_env):
         build_and_install_h5py()
-        build_and_install_libsupermesh()
-
-    build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -1944,6 +1881,12 @@ if mode == "install":
         packages.remove("loopy")
 
     with pipargs("--no-deps"):
+        try:
+            packages.remove("PyOP2")
+            packages.remove("firedrake")
+        except ValueError:
+            pass
+
         for p in packages:
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
@@ -1952,13 +1895,19 @@ if mode == "install":
                 install(p+"/")
             sys.path.append(os.getcwd() + "/" + p)
 
+    with environment(**compiler_env):
+        build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
+
+    with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+        for p in ("PyOP2", "firedrake"):
+            install(p+"/")
+
     # Work around easy-install.pth bug.
     try:
         packages.remove("petsc")
     except ValueError:
         pass
     packages.remove("petsc4py")
-    packages.remove("firedrake")
 
 else:
     # Update mode
@@ -2045,6 +1994,7 @@ else:
             cc = os.path.join(compilerbin, "mpicc")
             cxx = os.path.join(compilerbin, "mpicxx")
             f90 = os.path.join(compilerbin, "mpif90")
+            mpiexec = os.path.join(compilerbin, "mpiexec")
             compiler_env = create_compiler_env(cc, cxx, f90)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
@@ -2057,11 +2007,19 @@ else:
 
     # Install mpi4py
     with environment(**compiler_env, **link_env):
-        run_pip_install(["--no-cache-dir", "mpi4py"])
+        if args.mpi4py_version:
+            run_pip_install(["--no-cache-dir", "mpi4py==" + args.mpi4py_version])
+        else:
+            run_pip_install(["--no-cache-dir", "mpi4py"])
 
     # update dependencies.
     for p in packages:
         pip_requirements(p, compiler_env)
+
+    # FIAT requires recursivenodes, but does not include a requirements.txt
+    run_pip_install(["recursivenodes"])
+    # Pyadjoint requires checkpoint-schedules, but does not include a requirements.txt
+    run_pip_install(["checkpoint_schedules"])
 
     with pipargs("--no-deps"):
         if args.rebuild or update_petsc or update_petsc4py:
@@ -2083,8 +2041,6 @@ Please consider updating your PETSc manually.
         # Always rebuild h5py.
         with environment(**compiler_env):
             build_and_install_h5py()
-            build_and_install_libsupermesh()
-        build_and_install_libspatialindex()
 
     if "loopy" in packages:
         # We do want to install loopy's dependencies.
@@ -2104,13 +2060,20 @@ Please consider updating your PETSc manually.
             packages.remove("firedrake")
         except ValueError:
             pass
-        packages += ("PyOP2", "firedrake")
+
         for p in packages:
             clean(p)
             if p in parallel_packages:
                 with environment(**compiler_env, **link_env):
                     install(p+"/")
             else:
+                install(p+"/")
+
+        with environment(**compiler_env):
+            build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
+
+        with pipargs("--no-deps"), environment(**compiler_env, **link_env):
+            for p in ("PyOP2", "firedrake"):
                 install(p+"/")
 
         # Ensure pytest is at the latest version
@@ -2125,8 +2088,6 @@ with environment(**compiler_env):
                              PETSC_ARCH=petsc_arch):
                 install("slepc4py/")
 
-    if options["tinyasm"]:
-        build_and_install_tinyasm()
     if options["netgen"]:
         build_and_install_netgen()
 
@@ -2137,6 +2098,10 @@ with pipargs("--no-deps"):
 with pipargs("--no-deps"):
     if options["torch"]:
         build_and_install_torch()
+
+with pipargs("--no-deps"):
+    if options["jax"]:
+        build_and_install_jax()
 
 if args.documentation_dependencies:
     install_documentation_dependencies()

@@ -1,21 +1,23 @@
 import ufl
 import firedrake
+from ufl.domain import as_domain
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
-from .backend import Backend
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
+from .block_utils import isconstant
 
 
-class AssembleBlock(Block, Backend):
+class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        if self.backend.__name__ != "firedrake":
-            mesh = self.form.ufl_domain().ufl_cargo()
-        else:
-            mesh = self.form.ufl_domain() if hasattr(self.form, 'ufl_domain') else None
+        try:
+            mesh = as_domain(form)
+        except AttributeError:
+            mesh = None
 
-        if mesh:
+        if mesh and not isinstance(self.form, ufl.Interpolate):
+            # Interpolation differentiation wrt spatial coordinates is currently not supported.
             self.add_dependency(mesh)
 
         for c in self.form.coefficients():
@@ -39,35 +41,36 @@ class AssembleBlock(Block, Backend):
         """
         if arity_form == 0:
             if dform is None:
-                dc = self.backend.TestFunction(space)
-                dform = self.backend.derivative(form, c_rep, dc)
-            dform_adj = self.compat.assemble_adjoint_value(dform)
+                dc = firedrake.TestFunction(space)
+                dform = firedrake.derivative(form, c_rep, dc)
+            dform_adj = firedrake.assemble(dform)
             if dform_adj == 0:
                 # `dform_adj` is a `ZeroBaseForm`
                 return AdjFloat(0.), dform
-            # Return the adjoint model of `form` scaled by the scalar `adj_input`
+            # Return the adjoint model of `form` scaled by the scalar
+            # `adj_input`
             adj_output = dform_adj._ad_mul(adj_input)
             return adj_output, dform
         elif arity_form == 1:
             if dform is None:
-                dc = self.backend.TrialFunction(space)
-                dform = self.backend.derivative(form, c_rep, dc)
+                dc = firedrake.TrialFunction(space)
+                dform = firedrake.derivative(form, c_rep, dc)
             # Symbolic operators such as action/adjoint require derivatives to
             # have been expanded beforehand. However, UFL doesn't support
             # expanding coordinate derivatives of Coefficients in physical
             # space, implying that we can't symbolically take the
             # action/adjoint of the Jacobian for SpatialCoordinates.
             # -> Workaround: Apply action/adjoint numerically (using PETSc).
-            if not isinstance(c_rep, self.backend.SpatialCoordinate):
+            if not isinstance(c_rep, firedrake.SpatialCoordinate):
                 # Symbolically compute: (dform/dc_rep)^* * adj_input
-                adj_output = self.backend.action(self.backend.adjoint(dform),
-                                                 adj_input)
-                adj_output = self.compat.assemble_adjoint_value(adj_output)
+                adj_output = firedrake.action(firedrake.adjoint(dform),
+                                              adj_input)
+                adj_output = firedrake.assemble(adj_output)
             else:
-                adj_output = self.backend.Cofunction(space.dual())
+                adj_output = firedrake.Cofunction(space.dual())
                 # Assemble `dform`: derivatives are expanded along the way
                 # which may lead to a ZeroBaseForm
-                assembled_dform = self.compat.assemble_adjoint_value(dform)
+                assembled_dform = firedrake.assemble(dform)
                 if assembled_dform == 0:
                     return adj_output, dform
                 # Get PETSc matrix
@@ -101,24 +104,13 @@ class AssembleBlock(Block, Backend):
         from ufl.algorithms.analysis import extract_arguments
         arity_form = len(extract_arguments(form))
 
-        if isinstance(c, self.compat.ExpressionType):
-            # Create a FunctionSpace from self.form and Expression.
-            # And then make a TestFunction from this space.
-            mesh = self.form.ufl_domain().ufl_cargo()
-            V = c._ad_function_space(mesh)
-            dc = self.backend.TestFunction(V)
-
-            dform = self.backend.derivative(form, c_rep, dc)
-            output = self.compat.assemble_adjoint_value(dform)
-            return [[adj_input * output, V]]
-
-        if self.compat.isconstant(c):
-            mesh = self.compat.extract_mesh_from_form(self.form)
+        if isconstant(c):
+            mesh = as_domain(self.form)
             space = c._ad_function_space(mesh)
-        elif isinstance(c, (self.backend.Function, self.backend.Cofunction)):
+        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
-        elif isinstance(c, self.compat.MeshType):
-            c_rep = self.backend.SpatialCoordinate(c_rep)
+        elif isinstance(c, firedrake.MeshGeometry):
+            c_rep = firedrake.SpatialCoordinate(c_rep)
             space = c._ad_function_space()
 
         return self.compute_action_adjoint(adj_input, arity_form, form, c_rep,
@@ -139,16 +131,18 @@ class AssembleBlock(Block, Backend):
 
             if tlm_value is None:
                 continue
-            if isinstance(c_rep, self.compat.MeshType):
-                X = self.backend.SpatialCoordinate(c_rep)
-                # Spatial coordinates derivatives cannot be expanded in the physical space,
-                # which is required by symbolic operators such as `action`.
-                dform += self.backend.derivative(form, X, tlm_value)
+            if isinstance(c_rep, firedrake.MeshGeometry):
+                X = firedrake.SpatialCoordinate(c_rep)
+                # Spatial coordinates derivatives cannot be expanded in the
+                # physical space, which is required by symbolic operators such
+                # as `action`.
+                dform += firedrake.derivative(form, X, tlm_value)
             else:
-                dform += self.backend.action(self.backend.derivative(form, c_rep), tlm_value)
+                dform += firedrake.action(firedrake.derivative(form, c_rep),
+                                          tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
-            dform = self.compat.assemble_adjoint_value(dform)
+            dform = firedrake.assemble(dform)
         return dform
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs,
@@ -169,16 +163,13 @@ class AssembleBlock(Block, Backend):
         c1 = block_variable.output
         c1_rep = block_variable.saved_output
 
-        if self.compat.isconstant(c1):
-            mesh = self.compat.extract_mesh_from_form(form)
+        if isconstant(c1):
+            mesh = as_domain(form)
             space = c1._ad_function_space(mesh)
-        elif isinstance(c1, (self.backend.Function, self.backend.Cofunction)):
+        elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
-        elif isinstance(c1, self.compat.ExpressionType):
-            mesh = form.ufl_domain().ufl_cargo()
-            space = c1._ad_function_space(mesh)
-        elif isinstance(c1, self.compat.MeshType):
-            c1_rep = self.backend.SpatialCoordinate(c1)
+        elif isinstance(c1, firedrake.MeshGeometry):
+            c1_rep = firedrake.SpatialCoordinate(c1)
             space = c1._ad_function_space()
         else:
             return None
@@ -195,28 +186,28 @@ class AssembleBlock(Block, Backend):
             if tlm_input is None:
                 continue
 
-            if isinstance(c2_rep, self.compat.MeshType):
-                X = self.backend.SpatialCoordinate(c2_rep)
-                ddform += self.backend.derivative(dform, X, tlm_input)
+            if isinstance(c2_rep, firedrake.MeshGeometry):
+                X = firedrake.SpatialCoordinate(c2_rep)
+                ddform += firedrake.derivative(dform, X, tlm_input)
             else:
-                ddform += self.backend.derivative(dform, c2_rep, tlm_input)
+                ddform += firedrake.derivative(dform, c2_rep, tlm_input)
 
         if not isinstance(ddform, float):
             ddform = ufl.algorithms.expand_derivatives(ddform)
-            if not (isinstance(ddform, ufl.ZeroBaseForm) or (isinstance(ddform, ufl.Form) and ddform.empty())):
-                hessian_outputs += self.compute_action_adjoint(adj_input, arity_form, dform=ddform)[0]
+            if not (isinstance(ddform, ufl.ZeroBaseForm)
+                    or (isinstance(ddform, ufl.Form) and ddform.empty())):
+                hessian_outputs += self.compute_action_adjoint(
+                    adj_input, arity_form, dform=ddform
+                )[0]
 
-        if isinstance(c1, self.compat.ExpressionType):
-            return [(hessian_outputs, space)]
-        else:
-            return hessian_outputs
+        return hessian_outputs
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return self.prepare_evaluate_adj(inputs, None, None)
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         form = prepared
-        output = self.backend.assemble(form)
+        output = firedrake.assemble(form)
         output = create_overloaded_object(output)
         if isinstance(output, firedrake.Function):
             return maybe_disk_checkpoint(output)

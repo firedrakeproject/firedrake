@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
 
 @pytest.fixture(scope='module')
@@ -62,8 +63,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     elif request.param == 1:
@@ -110,8 +110,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200,
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     else:
@@ -159,8 +158,7 @@ def solver_params(request):
                "fas_coarse_pc_python_type": "firedrake.AssembledPC",
                "fas_coarse_assembled_mat_type": "aij",
                "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-               "fas_coarse_assembled_mat_mumps_icntl_14": 200
+               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         }
 
 
@@ -172,7 +170,7 @@ def test_snespatch(mesh, CG1, solver_params):
     f = Constant(1, domain=mesh)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx + inner(u**3 - u, v)*dx
 
-    z = zero(CG1.ufl_element().value_shape())
+    z = zero(CG1.ufl_element().value_shape)
     bcs = DirichletBC(CG1, z, "on_boundary")
 
     nvproblem = NonlinearVariationalProblem(F, u, bcs=bcs)

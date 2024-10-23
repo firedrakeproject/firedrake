@@ -5,7 +5,8 @@ import functools
 import itertools
 
 import ufl
-from ufl import as_ufl, as_tensor, VectorElement
+from ufl import as_ufl, as_tensor
+from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
@@ -39,10 +40,6 @@ class BCBase(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
 
-        # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
         self._function_space = V
         self.sub_domain = sub_domain
         # If this BC is defined on a subspace (IndexedFunctionSpace or
@@ -130,12 +127,26 @@ class BCBase(object):
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        V = self._function_space
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
         def hermite_stride(bcnodes):
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
-            else:
-                return bcnodes
+            fe = self._function_space.finat_element
+            tdim = self._function_space.mesh().topological_dimension()
+            if isinstance(fe, finat.Hermite) and tdim == 1:
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
+            elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
+                # Skip derivative nodes for supersmooth H1 functions
+                nodes = fe.fiat_equivalent.dual_basis()
+                deriv_nodes = [i for i, node in enumerate(nodes)
+                               if len(node.deriv_dict) != 0]
+                if len(deriv_nodes) > 0:
+                    deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                    bcnodes = np.setdiff1d(bcnodes, deriv_ids)
+            return bcnodes
 
         sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
@@ -151,8 +162,8 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, finat.Lagrange):
-                    raise TypeError("Currently, edge conditions have only been tested with Lagrange elements")
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
+                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
@@ -278,6 +289,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 warnings.simplefilter('always', DeprecationWarning)
                 warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
                               DeprecationWarning)
+        if len(V.boundary_set) and sub_domain not in V.boundary_set:
+            raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
         super().__init__(V, sub_domain)
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
@@ -324,21 +337,30 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
+        try:
+            # Clear any previously set update function
+            del self._function_arg_update
+        except AttributeError:
+            pass
         if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
             if g.function_space() != self.function_space():
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape():
+            if g.ufl_shape != self.function_space().ufl_element().value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(self.function_space())
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg).interpolate
+                # Use `Interpolator` instead of assembling an `Interpolate` form
+                # as the expression compilation needs to happen at this stage to
+                # determine if we should use interpolation or projection
+                #  -> e.g. interpolation may not be supported for the element.
+                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(self.function_space()).project(g)

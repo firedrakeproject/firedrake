@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import numpy as np
 
 
@@ -144,7 +145,7 @@ def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     f.assign(Constant([2, 1]))
     assert np.allclose(assemble(f.sub(0)*dx),
-                       assemble(Constant(2)*dx(domain=f.ufl_domain())))
+                       assemble(Constant(2)*dx(domain=V.mesh())))
 
 
 @pytest.mark.parametrize("cmpt",
@@ -181,7 +182,7 @@ def test_stokes_component_all():
 
     params = {"mat_type": "aij",
               "pc_type": "lu",
-              "pc_factor_mat_solver_type": "mumps",
+              "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
               "pc_factor_shift_type": "nonzero"}
 
     Uall = Function(W)

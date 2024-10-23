@@ -93,12 +93,12 @@ of the manual on :doc:`solving PDEs <../solving-interface>`.
 Next, we might want to look at the result, so we output our solution
 to a file::
 
-  File("helmholtz.pvd").write(u)
+  VTKFile("helmholtz.pvd").write(u)
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
 We could use the built-in plotting functions of firedrake by calling
-:func:`tripcolor <firedrake.plot.tripcolor>` to make a pseudo-color plot.
+:func:`tripcolor <firedrake.pyplot.tripcolor>` to make a pseudo-color plot.
 Before that, matplotlib.pyplot should be installed and imported::
 
   try:
@@ -107,6 +107,7 @@ Before that, matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
+    from firedrake.pyplot import tripcolor, tricontour
     fig, axes = plt.subplots()
     colors = tripcolor(u, axes=axes)
     fig.colorbar(colors)
@@ -115,7 +116,7 @@ Before that, matplotlib.pyplot should be installed and imported::
 
 The plotting functions in Firedrake mimic those of matplotlib; to produce a
 contour plot instead of a pseudocolor plot, we can call
-:func:`tricontour <firedrake.plot.tricontour>` instead::
+:func:`tricontour <firedrake.pyplot.tricontour>` instead::
 
   try:
     fig, axes = plt.subplots()

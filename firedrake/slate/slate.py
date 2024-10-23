@@ -22,7 +22,7 @@ from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
 from firedrake.function import Function, Cofunction
-from firedrake.utils import cached_property
+from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
 
@@ -1387,16 +1387,6 @@ def space_equivalence(A, B):
     """
 
     return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
-
-
-def unique(iterable):
-    """ Return tuple of unique items in iterable, items must be hashable
-    """
-    # Use dict to preserve order and compare by hash
-    unique_dict = {}
-    for item in iterable:
-        unique_dict[item] = None
-    return tuple(unique_dict.keys())
 
 
 # Establishes levels of precedence for Slate tensors

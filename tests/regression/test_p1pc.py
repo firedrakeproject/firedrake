@@ -36,7 +36,7 @@ def test_p_independence(mesh, expected):
 
         L = inner(Constant(1), v)*dx
 
-        bcs = DirichletBC(V, zero(V.ufl_element().value_shape()), "on_boundary")
+        bcs = DirichletBC(V, zero(V.ufl_element().value_shape), "on_boundary")
 
         uh = Function(V)
         problem = LinearVariationalProblem(a, L, uh, bcs=bcs)

@@ -71,7 +71,7 @@ def norm(v, norm_type="L2", mesh=None):
     elif typ == 'h1':
         expr = inner(v, v) + inner(grad(v), grad(v))
     elif typ == "hdiv":
-        expr = inner(v, v) + div(v)*div(v)
+        expr = inner(v, v) + inner(div(v), div(v))
     elif typ == "hcurl":
         expr = inner(v, v) + inner(curl(v), curl(v))
     else:

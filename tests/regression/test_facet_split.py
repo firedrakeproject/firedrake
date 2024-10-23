@@ -2,12 +2,8 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize(['quadrilateral', 'ptype'],
-                         [(q, p)
-                          for q in [True, False]
-                          for p in ["lu", "jacobi"]])
-def test_facet_split(quadrilateral, ptype):
-    if ptype == "lu":
+def run_facet_split(quadrilateral, pc_type, refine=2):
+    if pc_type == "lu":
         parameters = {
             "mat_type": "matfree",
             "ksp_type": "preonly",
@@ -23,7 +19,7 @@ def test_facet_split(quadrilateral, ptype):
                 "fieldsplit_1_pc_type": "lu",
             },
         }
-    elif ptype == "jacobi":
+    elif pc_type == "jacobi":
         parameters = {
             "mat_type": "matfree",
             "ksp_type": "preonly",
@@ -39,11 +35,10 @@ def test_facet_split(quadrilateral, ptype):
                 "fieldsplit_1_pc_type": "jacobi",
                 "fieldsplit_1_ksp_type": "cg",
                 "fieldsplit_1_ksp_rtol": 1E-12,
-                "fieldsplit_1_ksp_atol": 1E-10,
             },
         }
 
-    r = 2
+    r = refine
     variant = "fdm" if quadrilateral else None
     mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
 
@@ -60,4 +55,16 @@ def test_facet_split(quadrilateral, ptype):
            DirichletBC(V, Constant(42), 4)]
 
     solve(a == L, uh, bcs=bcs, solver_parameters=parameters)
-    assert sqrt(assemble(inner(uh - u_exact, uh - u_exact) * dx)) < 1E-10
+    return sqrt(assemble(inner(uh - u_exact, uh - u_exact) * dx))
+
+
+@pytest.mark.parametrize("quadrilateral", [True, False])
+@pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
+def test_facet_split(quadrilateral, pc_type):
+    assert run_facet_split(quadrilateral, pc_type) < 1E-10
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize("pc_type", ["lu", "jacobi"])
+def test_facet_split_parallel(pc_type):
+    assert run_facet_split(True, pc_type, refine=3) < 1E-10

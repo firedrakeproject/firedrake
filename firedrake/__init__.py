@@ -13,12 +13,28 @@ elif "PETSC_DIR" not in os.environ and config["options"]["honour_petsc_dir"]:
 elif not config["options"]["honour_petsc_dir"]:  # Using our own PETSC.
     os.environ["PETSC_DIR"] = os.path.join(sys.prefix, "src", "petsc")
     os.environ["PETSC_ARCH"] = "default"
-del sys, config
+del config
+
+# Set up the cache directories before importing PyOP2.
+firedrake_configuration.setup_cache_dirs()
 
 # Ensure petsc is initialised by us before anything else gets in there.
-import firedrake.petsc as petsc
+#
+# When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
+# crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
+# is because PETSc wants to complain about unused options to stderr, but by this
+# point the worker's stderr stream has already been destroyed by xdist, causing
+# a crash. To prevent this we disable unused options checking in PETSc when
+# running with xdist.
+import petsc4py
+if "PYTEST_XDIST_WORKER" in os.environ:
+    petsc4py.init(sys.argv + ["-options_left", "no"])
+else:
+    petsc4py.init(sys.argv)
+del petsc4py
 
 # Initialise PETSc events for both import and entire duration of program
+from firedrake import petsc
 _is_logging = "log_view" in petsc.OptionsManager.commandline_options
 if _is_logging:
     _main_event = petsc.PETSc.Log.Event("firedrake")
@@ -54,8 +70,7 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
-# Set up the cache directories before importing PyOP2.
-firedrake_configuration.setup_cache_dirs()
+from finat.ufl import *
 
 # By default we disable pyadjoint annotation.
 # To enable annotation, the user has to call continue_annotation().
@@ -78,7 +93,6 @@ from firedrake.exceptions import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
-from firedrake.output import *
 from firedrake.linear_solver import *
 from firedrake.preconditioners import *
 from firedrake.mesh import *
@@ -91,7 +105,6 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
-from firedrake.plot import *
 from firedrake.projection import *
 from firedrake.slate import *
 from firedrake.slope_limiter import *
@@ -104,6 +117,7 @@ from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
+from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 
 from firedrake.logging import *
@@ -111,8 +125,17 @@ from firedrake.logging import *
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
+# Moved functionality
+from firedrake._deprecation import plot, File  # noqa: F401
+# Once `File` is deprecated update the above line removing `File` and add
+#   from firedrake._deprecation import output
+#   sys.modules["firedrake.output"] = output
+from firedrake.output import *
+sys.modules["firedrake.plot"] = plot
+from firedrake.plot import *
+
 check()
-del check
+del check, sys
 
 from firedrake._version import get_versions
 __version__ = get_versions()['version']

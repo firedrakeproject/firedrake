@@ -50,7 +50,9 @@ def test_periodic_rectangle_advection(degree, threshold,
                                      direction=direction,
                                      quadrilateral=quadrilateral)
         x = SpatialCoordinate(mesh)
-        V = FunctionSpace(mesh, "DG", degree)
+        # variant="integral" gives an orthonormal basis for DG
+        # on affine meshes
+        V = FunctionSpace(mesh, "DG", degree, variant="integral")
         D = TrialFunction(V)
         phi = TestFunction(V)
         n = FacetNormal(mesh)
@@ -70,28 +72,27 @@ def test_periodic_rectangle_advection(degree, threshold,
         nstep = 200
         dt = Constant(5e-5)
         arhs = action(a_mass - dt * (a_int + a_flux), D1)
-        rhs = Function(V)
+        rhs = Cofunction(V.dual())
 
-        # Since DG mass-matrix is block diagonal, just assemble the
-        # inverse and then "solve" is a matvec.
-        mass_inv = assemble(Tensor(a_mass).inv)
-        mass_inv = mass_inv.petscmat
+        # Since DG mass-matrix is diagonal, just assemble the
+        # diagonal and then "solve" is an entry-wise division.
+        mass_diag = assemble(a_mass, diagonal=True)
 
-        def solve(mass_inv, arhs, rhs, update):
+        def solve(mass_diag, arhs, rhs, update):
             with assemble(arhs, tensor=rhs).dat.vec_ro as x:
-                with update.dat.vec as y:
-                    mass_inv.mult(x, y)
+                with update.dat.vec as y, mass_diag.dat.vec_ro as d:
+                    y.pointwiseDivide(x, d)
 
         for _ in range(nstep):
             # SSPRK3
             D1.assign(D)
-            solve(mass_inv, arhs, rhs, dD1)
+            solve(mass_diag, arhs, rhs, dD1)
 
             D1.assign(dD1)
-            solve(mass_inv, arhs, rhs, dD1)
+            solve(mass_diag, arhs, rhs, dD1)
 
             D1.assign(0.75*D + 0.25*dD1)
-            solve(mass_inv, arhs, rhs, dD1)
+            solve(mass_diag, arhs, rhs, dD1)
             D.assign((1.0/3.0)*D + (2.0/3.0)*dD1)
 
         D1.assign(D)

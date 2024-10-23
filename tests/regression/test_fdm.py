@@ -1,5 +1,7 @@
 import pytest
 from firedrake import *
+from pyop2.utils import as_tuple
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 ksp = {
     "mat_type": "matfree",
@@ -20,6 +22,7 @@ coarse = {
 fdmstar = {
     "pc_type": "python",
     "pc_python_type": "firedrake.P1PC",
+    "pmg_mg_coarse_compiler_mode": "vanilla",  # Turn off sum-factorization at lowest-order
     "pmg_mg_coarse": coarse,
     "pmg_mg_levels": {
         "ksp_max_it": 1,
@@ -51,12 +54,14 @@ facetstar = {
     "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
     "facet_fdm_fieldsplit_0": {
         "ksp_type": "preonly",
-        "pc_type": "icc",  # this is exact for the sparse approximation used in FDM
+        "pc_type": "bjacobi",
+        "sub_pc_type": "icc",  # this is exact for the sparse approximation used in FDM
     },
     "facet_fdm_fieldsplit_1": {
         "ksp_type": "preonly",
         "pc_type": "python",
         "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse_compiler_mode": "vanilla",  # Turn off sum-factorization at lowest-order
         "pmg_mg_coarse": coarse,
         "pmg_mg_levels": {
             "ksp_max_it": 1,
@@ -85,7 +90,7 @@ def build_riesz_map(V, d):
 
     x = SpatialCoordinate(V.mesh())
     x -= Constant([0.5]*len(x))
-    if V.ufl_element().value_shape() == ():
+    if V.ufl_element().value_shape == ():
         u_exact = exp(-10*dot(x, x))
         u_bc = u_exact
     else:
@@ -136,34 +141,33 @@ def test_p_independence_hgrad(mesh, variant):
     expected = [16, 12] if mesh.topological_dimension() == 3 else [9, 7]
     solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant=variant)
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant=variant)
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
     expected = [13, 10] if mesh.topological_dimension() == 3 else [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant="fdm")
         problem = build_riesz_map(V, curl)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
 
 
+@pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
     expected = [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
-        element = FiniteElement(family, cell=mesh.ufl_cell(), degree=degree, variant="fdm")
-        V = FunctionSpace(mesh, element)
+        V = FunctionSpace(mesh, family, degree, variant="fdm")
         problem = build_riesz_map(V, div)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
@@ -191,7 +195,7 @@ def test_variable_coefficient(mesh):
     subs = ("on_boundary",)
     if mesh.cell_set._extruded:
         subs += ("top", "bottom")
-    bcs = [DirichletBC(V, zero(V.ufl_element().value_shape()), sub) for sub in subs]
+    bcs = [DirichletBC(V, zero(V.ufl_element().value_shape), sub) for sub in subs]
 
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
@@ -206,18 +210,17 @@ def test_variable_coefficient(mesh):
 def fs(request, mesh):
     degree = 3
     tdim = mesh.topological_dimension()
-    cell = mesh.ufl_cell()
     element = request.param
     variant = "fdm_ipdg"
     if element == "rt":
         family = "RTCF" if tdim == 2 else "NCF"
-        return FunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant))
+        return FunctionSpace(mesh, family, degree, variant=variant)
     else:
         if tdim == 1:
             family = "DG" if element == "dg" else "CG"
         else:
             family = "DQ" if element == "dg" else "Q"
-        return VectorFunctionSpace(mesh, FiniteElement(family, cell, degree=degree, variant=variant), dim=5-tdim)
+        return VectorFunctionSpace(mesh, family, degree, dim=5-tdim, variant=variant)
 
 
 @pytest.mark.skipcomplex
@@ -225,7 +228,7 @@ def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
-    ncomp = fs.ufl_element().value_size()
+    ncomp = fs.ufl_element().value_size
 
     homogenize = gdim > 2
     if homogenize:
@@ -240,11 +243,7 @@ def test_ipdg_direct_solver(fs):
             u_exact = as_vector([u_exact + Constant(k) for k in range(ncomp)])
         u_bc = u_exact
 
-    degree = fs.ufl_element().degree()
-    try:
-        degree = max(degree)
-    except TypeError:
-        pass
+    degree = max(as_tuple(fs.ufl_element().degree()))
     quad_degree = 2*(degree+1)-1
 
     # problem coefficients
@@ -324,7 +323,7 @@ def test_ipdg_direct_solver(fs):
         "pc_type": "python",
         "pc_python_type": "firedrake.PoissonFDMPC",
         "fdm_pc_type": "cholesky",
-        "fdm_pc_factor_mat_solver_type": "mumps",
+        "fdm_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
         "fdm_pc_factor_mat_ordering_type": "nd",
     }, appctx={"eta": eta, })
     solver.solve()

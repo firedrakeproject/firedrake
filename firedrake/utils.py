@@ -6,9 +6,11 @@ from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
+from pyop2.mpi import MPI
 from firedrake_configuration import get_config
 
-_current_uid = 0
+# MPI key value for storing a per communicator universal identifier
+FIREDRAKE_UID = MPI.Comm.Create_keyval()
 
 RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
@@ -20,10 +22,12 @@ complex_mode = get_config()["options"].get("complex", False)
 SLATE_SUPPORTS_COMPLEX = False
 
 
-def _new_uid():
-    global _current_uid
-    _current_uid += 1
-    return _current_uid
+def _new_uid(comm):
+    uid = comm.Get_attr(FIREDRAKE_UID)
+    if uid is None:
+        uid = 0
+    comm.Set_attr(FIREDRAKE_UID, uid + 1)
+    return uid
 
 
 def _init():
@@ -35,6 +39,16 @@ def _init():
     from firedrake.parameters import parameters
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
+
+
+def unique(iterable):
+    """ Return tuple of unique items in iterable, items must be hashable
+    """
+    # Use dict to preserve order and compare by hash
+    unique_dict = {}
+    for item in iterable:
+        unique_dict[item] = None
+    return tuple(unique_dict.keys())
 
 
 def unique_name(name, nameset):

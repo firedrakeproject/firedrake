@@ -26,12 +26,14 @@ import pytest
 from firedrake import *
 
 
+@pytest.fixture(scope="module")
 def setup_poisson():
+    p = 3
     n = 2
     mesh = UnitSquareMesh(n, n)
-    U = FunctionSpace(mesh, "RT", 4)
-    V = FunctionSpace(mesh, "DG", 3)
-    W = U * V
+    S = FunctionSpace(mesh, "RT", p+1)
+    V = FunctionSpace(mesh, "DG", p)
+    W = S * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
 
@@ -47,28 +49,24 @@ def setup_poisson():
     return a, L, W
 
 
+@pytest.fixture(scope="module")
 def setup_poisson_3D():
     p = 3
     n = 2
-    mesh = SquareMesh(n, n, 1, quadrilateral=True)
-    mesh = ExtrudedMesh(mesh, n)
-    RT = FiniteElement("RTCF", quadrilateral, p+1)
-    DG_v = FiniteElement("DG", interval, p)
-    DG_h = FiniteElement("DQ", quadrilateral, p)
-    CG = FiniteElement("CG", interval, p+1)
-    HDiv_ele = EnrichedElement(HDiv(TensorProductElement(RT, DG_v)),
-                               HDiv(TensorProductElement(DG_h, CG)))
-    V = FunctionSpace(mesh, HDiv_ele)
-    U = FunctionSpace(mesh, "DQ", p)
-    W = V * U
+    mesh = UnitCubeMesh(n, n, n)
+    S = FunctionSpace(mesh, "RT", p+1)
+    V = FunctionSpace(mesh, "DG", p)
+    W = S * V
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
-    V, U = W.subfunctions
-    f = Function(U)
+
+    # Define the source function
     x, y, z = SpatialCoordinate(mesh)
     expr = (1+12*pi*pi)*cos(100*pi*x)*cos(100*pi*y)*cos(100*pi*z)
-    f.interpolate(expr)
-    a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx(degree=8)
+    f = Function(V).interpolate(expr)
+
+    # Define the variational forms
+    a = dot(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
     L = -f*v*dx(degree=8)
     return a, L, W
 
@@ -96,7 +94,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
 
     # Define the variational forms
-    a = (inner(sigma, tau) - inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx
+    a = inner(sigma, tau)*dx + (-inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx(degree=2*(degree-1))
     L = inner(f, v) * dx - 42 * inner(n, tau)*ds
 
     # Compare hybridized solution with non-hybridized
@@ -132,8 +130,8 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     assert u_err < 1e-11
 
 
-def test_slate_hybridization_wrong_option():
-    a, L, W = setup_poisson()
+def test_slate_hybridization_wrong_option(setup_poisson):
+    a, L, W = setup_poisson
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -145,8 +143,7 @@ def test_slate_hybridization_wrong_option():
                                 'localsolve': {'ksp_type': 'preonly',
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'frog'}}}
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     with pytest.raises(ValueError):
         # HybridizationPC isn't called directly from the Python interpreter,
@@ -162,8 +159,8 @@ def test_slate_hybridization_wrong_option():
         PETSc.Sys.popErrorHandler("ignore")
 
 
-def test_slate_hybridization_nested_schur():
-    a, L, W = setup_poisson()
+def test_slate_hybridization_nested_schur(setup_poisson):
+    a, L, W = setup_poisson
 
     w = Function(W)
     params = {'mat_type': 'matfree',
@@ -176,8 +173,7 @@ def test_slate_hybridization_nested_schur():
                                                'pc_type': 'fieldsplit',
                                                'pc_fieldsplit_type': 'schur'}}}
 
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
     expected = {'nested': True,
@@ -213,40 +209,18 @@ class DGLaplacian(AuxiliaryOperatorPC):
         gamma = Constant(4**3)
         h = CellSize(W.mesh())
         h_avg = (h('+') + h('-'))/2
-        a_dg = -(inner(grad(u), grad(v))*dx
-                 - inner(jump(u, n), avg(grad(v)))*dS
-                 - inner(avg(grad(u)), jump(v, n), )*dS
-                 + alpha/h_avg * inner(jump(u, n), jump(v, n))*dS
-                 - inner(u*n, grad(v))*ds
-                 - inner(grad(u), v*n)*ds
-                 + (gamma/h)*inner(u, v)*ds)
+        a_dg = -(inner(grad(u), grad(v)) * dx
+                 + (- inner(jump(u, n), avg(grad(v)))
+                    - inner(avg(grad(u)), jump(v, n))
+                    + (alpha/h_avg) * inner(jump(u, n), jump(v, n))) * dS
+                 + (- inner(u*n, grad(v))
+                    - inner(grad(u), v*n)
+                    + (gamma/h)*inner(u, v)) * ds)
         bcs = None
         return (a_dg, bcs)
 
 
-class DGLaplacian3D(AuxiliaryOperatorPC):
-    def form(self, pc, u, v):
-        W = u.function_space()
-        n = FacetNormal(W.mesh())
-        gamma = Constant(4.**3)
-        h = CellVolume(W.mesh())/FacetArea(W.mesh())
-
-        a_dg = -(dot(grad(v), grad(u))*dx(degree=8)
-                 - dot(grad(v), (u)*n)*ds_v(degree=8)
-                 - dot(v*n, grad(u))*ds_v(degree=8)
-                 + gamma/h*dot(v, u)*ds_v(degree=8)
-                 - dot(grad(v), (u)*n)*ds_t(degree=8)
-                 - dot(v*n, grad(u))*ds_t(degree=8)
-                 + gamma/h*dot(v, u)*ds_t(degree=8)
-                 - dot(grad(v), (u)*n)*ds_b(degree=8)
-                 - dot(v*n, grad(u))*ds_b(degree=8)
-                 + gamma/h*dot(v, u)*ds_b(degree=8))
-
-        bcs = []
-        return (a_dg, bcs)
-
-
-def test_mixed_poisson_approximated_schur():
+def test_mixed_poisson_approximated_schur(setup_poisson):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with uses a user supplied operator as preconditioner to the
@@ -256,8 +230,7 @@ def test_mixed_poisson_approximated_schur():
     defined as DGLaplacian as a preconditioner to the schur complement,
     reduces the condition number of the local solve from 16.77 to 6.06.
     """
-    # setup FEM
-    a, L, W = setup_poisson()
+    a, L, W = setup_poisson
 
     # setup first solver
     w = Function(W)
@@ -276,8 +249,7 @@ def test_mixed_poisson_approximated_schur():
                                                                 'pc_type': 'python',
                                                                 'pc_python_type': __name__ + '.DGLaplacian'}}}}
 
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 
@@ -299,7 +271,7 @@ def test_mixed_poisson_approximated_schur():
                   'pc_python_type': 'firedrake.HybridizationPC',
                   'hybridization': {'ksp_type': 'cg',
                                     'pc_type': 'none',
-                                    'ksp_rtol': 1e-8,
+                                    'ksp_rtol': 1e-9,
                                     'mat_type': 'matfree'}}
     solve(a == L, w2, solver_parameters=aij_params)
     _sigma, _u = w2.subfunctions
@@ -312,7 +284,7 @@ def test_mixed_poisson_approximated_schur():
     assert u_err < 1e-8
 
 
-def test_slate_hybridization_jacobi_prec_A00():
+def test_slate_hybridization_jacobi_prec_A00(setup_poisson_3D):
     """A test, which compares a solution to a 3D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with the same solver but which has a nested schur complement
@@ -322,8 +294,7 @@ def test_slate_hybridization_jacobi_prec_A00():
     schur complement matrix, the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 36.59 to 3.06.
     """
-    # setup FEM
-    a, L, W = setup_poisson_3D()
+    a, L, W = setup_poisson_3D
 
     # setup first solver
     w = Function(W)
@@ -340,8 +311,7 @@ def test_slate_hybridization_jacobi_prec_A00():
                                                'pc_fieldsplit_type': 'schur',
                                                'fieldsplit_0': {'ksp_type': 'default',
                                                                 'pc_type': 'jacobi'}}}}
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 
@@ -365,7 +335,7 @@ def test_slate_hybridization_jacobi_prec_A00():
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-8,
+                                               'ksp_rtol': 1e-9,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.subfunctions
 
@@ -376,7 +346,7 @@ def test_slate_hybridization_jacobi_prec_A00():
     assert u_err < 1e-8
 
 
-def test_slate_hybridization_jacobi_prec_schur():
+def test_slate_hybridization_jacobi_prec_schur(setup_poisson_3D):
     """A test, which compares a solution to a 3D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system to
     a solution with the same solver but which has a nested schur complement
@@ -387,8 +357,7 @@ def test_slate_hybridization_jacobi_prec_schur():
     schur complement matrix the condition number of the matrix of the local solve
     P.inv * A.solve(...) is reduced from 17.13 to 16.71
     """
-    # setup FEM
-    a, L, W = setup_poisson_3D()
+    a, L, W = setup_poisson_3D
 
     # setup first solver
     w = Function(W)
@@ -405,8 +374,7 @@ def test_slate_hybridization_jacobi_prec_schur():
                                                'pc_fieldsplit_type': 'schur',
                                                'fieldsplit_1': {'ksp_type': 'default',
                                                                 'pc_type': 'jacobi'}}}}
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 
@@ -429,7 +397,7 @@ def test_slate_hybridization_jacobi_prec_schur():
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization': {'ksp_type': 'cg',
                                                'pc_type': 'none',
-                                               'ksp_rtol': 1e-8,
+                                               'ksp_rtol': 1e-9,
                                                'mat_type': 'matfree'}})
     nh_sigma, nh_u = w2.subfunctions
 
@@ -441,15 +409,14 @@ def test_slate_hybridization_jacobi_prec_schur():
     assert u_err < 1e-8
 
 
-def test_mixed_poisson_approximated_schur_jacobi_prec():
+def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
     """A test, which compares a solution to a 2D mixed Poisson problem solved
     globally matrixfree with a HybridizationPC and CG on the trace system where
     the a user supplied operator is used as preconditioner to the
     Schur solver to a solution where the user supplied operator is replaced
     with the jacobi preconditioning operator.
     """
-    # setup FEM
-    a, L, W = setup_poisson()
+    a, L, W = setup_poisson
 
     # setup first solver
     w = Function(W)
@@ -470,8 +437,7 @@ def test_mixed_poisson_approximated_schur_jacobi_prec():
                                                                 'aux_ksp_type': 'preonly',
                                                                 'aux_pc_type': 'jacobi'}}}}
 
-    eq = a == L
-    problem = LinearVariationalProblem(eq.lhs, eq.rhs, w)
+    problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 

@@ -1,7 +1,8 @@
 import loopy as lp
 from firedrake.utils import IntType, as_cstr
 
-from ufl import MixedElement, TensorProductCell
+from ufl import TensorProductCell
+from finat.ufl import MixedElement
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import extract_unique_domain

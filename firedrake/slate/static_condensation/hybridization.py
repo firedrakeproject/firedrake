@@ -1,7 +1,9 @@
+import functools
 import numbers
 
 import numpy as np
 import ufl
+import finat.ufl
 
 import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -40,7 +42,7 @@ class HybridizationPC(SCBase):
         from firedrake import (FunctionSpace, Cofunction, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
-        from firedrake.assemble import allocate_matrix, OneFormAssembler, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
@@ -59,15 +61,15 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape() for Vi in V):
+        if all(Vi.ufl_element().value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space().name == "HDiv":
+            if Vi.ufl_element().sobolev_space.name == "HDiv":
                 self.vidx = i
             else:
-                assert Vi.ufl_element().sobolev_space().name == "L2"
+                assert Vi.ufl_element().sobolev_space.name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.
@@ -87,7 +89,7 @@ class HybridizationPC(SCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
+        broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
@@ -204,20 +206,15 @@ class HybridizationPC(SCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Cofunction(TraceSpace.dual())
-        self._assemble_Srhs = OneFormAssembler(schur_rhs, tensor=self.schur_rhs,
-                                               form_compiler_parameters=self.ctx.fc_params).assemble
+        self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
-                                 form_compiler_parameters=self.ctx.fc_params,
-                                 mat_type=mat_type,
-                                 options_prefix=prefix,
-                                 appctx=self.get_appctx(pc))
-        self._assemble_S = TwoFormAssembler(schur_comp, tensor=self.S, bcs=trace_bcs,
-                                            form_compiler_parameters=self.ctx.fc_params).assemble
+        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        self.S = form_assembler.allocate()
+        self._assemble_S = form_assembler.assemble
 
         with PETSc.Log.Event("HybridOperatorAssembly"):
-            self._assemble_S()
+            self._assemble_S(tensor=self.S)
 
         Smat = self.S.petscmat
 
@@ -267,7 +264,7 @@ class HybridizationPC(SCBase):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
         """
-        from firedrake.assemble import OneFormAssembler
+        from firedrake.assemble import get_assembler
 
         # We always eliminate the velocity block first
         id0, id1 = (self.vidx, self.pidx)
@@ -302,20 +299,18 @@ class HybridizationPC(SCBase):
                 rhs = Shat * rhs
 
         u_rec = S.solve(rhs, decomposition="PartialPivLU")
-        self._sub_unknown = OneFormAssembler(u_rec, tensor=u,
-                                             form_compiler_parameters=self.ctx.fc_params).assemble
+        self._sub_unknown = functools.partial(get_assembler(u_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=u)
 
         sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
                             decomposition="PartialPivLU")
-        self._elim_unknown = OneFormAssembler(sigma_rec, tensor=sigma,
-                                              form_compiler_parameters=self.ctx.fc_params).assemble
+        self._elim_unknown = functools.partial(get_assembler(sigma_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=sigma)
 
     @PETSc.Log.EventDecorator("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
-        self._assemble_S()
+        self._assemble_S(tensor=self.S)
 
     def forward_elimination(self, pc, x):
         """Perform the forward elimination of fields and
@@ -353,7 +348,7 @@ class HybridizationPC(SCBase):
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
-            self._assemble_Srhs()
+            self._assemble_Srhs(tensor=self.schur_rhs)
 
     def sc_solve(self, pc):
         """Solve the condensed linear system for the

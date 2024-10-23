@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.__future__ import *
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -103,7 +104,7 @@ def functionspace_tests(vm):
     # Assembly works as expected - global assembly (integration) of a
     # constant on a vertex only mesh is evaluation of that constant
     # num_vertices (globally) times
-    f.interpolate(Constant(2, domain=vm))
+    f.interpolate(Constant(2))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
     if "input_ordering" in vm.name:
         assert vm.input_ordering is None
@@ -121,17 +122,17 @@ def functionspace_tests(vm):
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # check other interpolation APIs work identically
-    h2 = interpolate(g, W)
+    h2 = assemble(interpolate(g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     I = Interpolator(g, W)
-    h2 = I.interpolate()
+    h2 = assemble(I.interpolate())
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     h2.zero()
-    I.interpolate(output=h2)
+    assemble(I.interpolate(), tensor=h2)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
-    h2.interpolate(2*g*Constant(1, domain=vm))
+    h2.interpolate(2*g)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
@@ -142,31 +143,35 @@ def functionspace_tests(vm):
     # inner product matrix in the reisz representer is the identity. TODO: when
     # we introduce cofunctions, this will need to be rewritten.
     I_io = Interpolator(TestFunction(V), W)
-    h = I_io.interpolate(g)
+    h = assemble(I_io.interpolate(g))
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
-    h2 = I2_io.interpolate(g)
+    I2_io = Interpolator(2*TestFunction(V), W)
+    h2 = assemble(I2_io.interpolate(g))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-    g = I_io.interpolate(h, transpose=True)
+
+    h_star = h.riesz_representation(riesz_map="l2")
+    g = assemble(I_io.interpolate(h_star, transpose=True))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        g2 = I2_io.interpolate(h, transpose=True)
+        g2 = assemble(I2_io.interpolate(h_star, transpose=True))
         assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
     I_io_transpose = Interpolator(TestFunction(W), V)
-    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
-    h = I_io_transpose.interpolate(g, transpose=True)
+    I2_io_transpose = Interpolator(2*TestFunction(W), V)
+    h_star = assemble(I_io_transpose.interpolate(g, transpose=True))
+    h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        h2 = I2_io_transpose.interpolate(g, transpose=True)
+        h2 = assemble(I2_io_transpose.interpolate(g, transpose=True))
         assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-    g = I_io_transpose.interpolate(h)
+    g = assemble(I_io_transpose.interpolate(h))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    g2 = I2_io_transpose.interpolate(h)
+    g2 = assemble(I2_io_transpose.interpolate(h))
     assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
@@ -202,7 +207,9 @@ def vectorfunctionspace_tests(vm):
     # num_vertices (globally) times. Note that we get a vertex cell for
     # each geometric dimension so we have to sum over geometric
     # dimension too.
-    f.interpolate(Constant([1] * gdim, domain=vm))
+    R = VectorFunctionSpace(vm, "R", dim=gdim)
+    ones = Function(R).assign(1)
+    f.interpolate(ones)
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
     if "input_ordering" in vm.name:
         assert vm.input_ordering is None
@@ -220,17 +227,17 @@ def vectorfunctionspace_tests(vm):
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # check other interpolation APIs work identically
-    h2 = interpolate(g, W)
+    h2 = assemble(interpolate(g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     I = Interpolator(g, W)
-    h2 = I.interpolate()
+    h2 = assemble(I.interpolate())
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     h2.zero()
-    I.interpolate(output=h2)
+    assemble(I.interpolate(), tensor=h2)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
-    h2.interpolate(2*g*Constant(1, domain=vm))
+    h2.interpolate(2*g)
     assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
@@ -241,31 +248,35 @@ def vectorfunctionspace_tests(vm):
     # inner product matrix in the reisz representer is the identity. TODO: when
     # we introduce cofunctions, this will need to be rewritten.
     I_io = Interpolator(TestFunction(V), W)
-    h = I_io.interpolate(g)
+    h = assemble(I_io.interpolate(g))
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
-    h2 = I2_io.interpolate(g)
+    I2_io = Interpolator(2*TestFunction(V), W)
+    h2 = assemble(I2_io.interpolate(g))
     assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    g = I_io.interpolate(h, transpose=True)
+
+    h_star = h.riesz_representation(riesz_map="l2")
+    g = assemble(I_io.interpolate(h_star, transpose=True))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        g2 = I2_io.interpolate(h, transpose=True)
+        g2 = assemble(I2_io.interpolate(h_star, transpose=True))
         assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
     I_io_transpose = Interpolator(TestFunction(W), V)
-    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
-    h = I_io_transpose.interpolate(g, transpose=True)
-    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    I2_io_transpose = Interpolator(2*TestFunction(W), V)
+    h_star = assemble(I_io_transpose.interpolate(g, transpose=True))
+    assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with pytest.raises(NotImplementedError):
         # Can't use transpose on interpolators with expressions yet
-        h2 = I2_io_transpose.interpolate(g, transpose=True)
+        h2 = assemble(I2_io_transpose.interpolate(g, transpose=True))
         assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    g = I_io_transpose.interpolate(h)
+
+    h = h_star.riesz_representation(riesz_map="l2")
+    g = assemble(I_io_transpose.interpolate(h))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    g2 = I2_io_transpose.interpolate(h)
+    g2 = assemble(I2_io_transpose.interpolate(h))
     assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
@@ -312,10 +323,14 @@ def test_input_ordering_missing_point():
     # put data on the input ordering
     P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
     data_input_ordering = Function(P0DG_input_ordering)
+
     if vm.comm.rank == 0:
         data_input_ordering.dat.data_wo[:] = data
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(data_input_ordering.dat.data_ro)
     else:
         data_input_ordering.dat.data_wo[:] = []
+        # [*here]
         assert not len(data_input_ordering.dat.data_ro)
 
     # shouldn't have any halos
@@ -337,6 +352,9 @@ def test_input_ordering_missing_point():
     data_input_ordering.interpolate(data_on_vm)
     if vm.comm.rank == 0:
         assert np.allclose(data_input_ordering.dat.data_ro[0:3], 2*data[0:3])
+        # [*here]
         assert np.allclose(data_input_ordering.dat.data_ro[3], data[3])
     else:
         assert not len(data_input_ordering.dat.data_ro)
+        # Accessing data_ro [*here] is collective, hence this redundant call
+        _ = len(data_input_ordering.dat.data_ro)

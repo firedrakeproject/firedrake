@@ -266,9 +266,10 @@ def get_transfer_manager(dm):
     appctx = get_appctx(dm)
     if appctx is None:
         # We're not in a solve, so all we can do is make a new one (not cached)
+        import warnings
+        warnings.warn("Creating new TransferManager to transfer data to coarse grids", RuntimeWarning)
+        warnings.warn("This might be slow (you probably want to save it on an appctx)", RuntimeWarning)
         transfer = firedrake.TransferManager()
-        firedrake.warning("Creating new TransferManager to transfer data to coarse grids")
-        firedrake.warning("This might be slow (you probably want to save it on an appctx)")
     else:
         transfer = appctx.transfer_manager
     return transfer
@@ -342,7 +343,7 @@ def create_field_decomposition(dm, *args, **kwargs):
     for d in dms:
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
                  call_setup=True)
-    if ctx is not None:
+    if ctx is not None and len(W) > 1:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
