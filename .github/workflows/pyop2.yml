@@ -17,7 +17,7 @@ jobs:
       # Don't immediately kill all if one Python version fails
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
     env:
       CC: mpicc
       PETSC_DIR: ${{ github.workspace }}/petsc
@@ -36,7 +36,7 @@ jobs:
               libblas-dev liblapack-dev gfortran
 
       - name: Set correct Python version
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
