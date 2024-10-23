@@ -108,7 +108,7 @@ def test_function_val(V):
 
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
-    f = Function(V, op2.Dat(V.node_set**V.value_size))
+    f = Function(V, op2.compute_backend.Dat(V.node_set**V.value_size))
     f.interpolate(Constant(1))
     assert (f.dat.data_ro == 1.0).all()
 
