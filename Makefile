@@ -65,6 +65,10 @@ clean:
 	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/mg/impl.c"
 	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
+	@echo "    RM pyop2/*.so"
+	-@rm -f pyop2/*.so > /dev/null 2>&1
+	@echo "    RM tinyasm/*.so"
+	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
 
 THREADS=1
