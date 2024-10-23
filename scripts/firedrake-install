@@ -27,7 +27,7 @@ arch = platform.uname().machine
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -1820,7 +1820,7 @@ if mode == "install":
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
-    packages = clone_dependencies("PyOP2") + ["petsc4py"] + packages
+    packages = ["petsc4py"] + packages
     packages += ["firedrake"]
 
     for p in options["packages"]:
@@ -1925,7 +1925,6 @@ else:
             run_pip_install(package.split())
 
     deps = OrderedDict()
-    deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
         name = split_requirements_url(p)[0]
