@@ -215,7 +215,7 @@ def parameters(request):
         expected = np.asarray(
             [np.outer(coords[i], coords[i]) for i in range(len(coords))]
         )
-        V_src = FunctionSpace(m_src, "Regge", 2)  # Not point evaluation nodes
+        V_src = FunctionSpace(m_src, "Regge", 2, variant="point")  # Not point evaluation nodes
         V_dest = TensorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = TensorFunctionSpace(m_dest, "DQ", 2)
     elif request.param == "spheresphere":
