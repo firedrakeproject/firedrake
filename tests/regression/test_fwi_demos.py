@@ -35,6 +35,7 @@ def wave_equation_solver(c, source_function, dt, V):
     return solver, u_np1, u_n, u_nm1
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=2)
 def test_fwi_demos():
     M = 2
