@@ -243,8 +243,10 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             # get the tape used for this stage and make sure its the right one
             prev_stage_tape = get_working_tape()
             if prev_stage_tape is not self._stage_tape:
-                msg = "working tape canot be changed during observation stage"
-                raise ValueError(msg)
+                raise ValueError(
+                    "Working tape at the end of the observation stage"
+                    " differs from the tape at the stage beginning."
+                )
 
             # # record forward propogation
             with set_working_tape(prev_stage_tape.copy()) as tape:
