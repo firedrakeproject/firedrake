@@ -30,6 +30,7 @@ VTK_DEMOS = [
     "test_extrusion_lsw.py",
 ]
 
+
 # Discover the demo files by globbing the demo directory
 @pytest.fixture(params=glob.glob("%s/*/*.py.rst" % demo_dir),
                 ids=lambda x: basename(x))
