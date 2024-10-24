@@ -43,3 +43,34 @@ __pycache__/
 /firedrake_configuration/configuration.json
 /firedrake.egg-info
 /docs/source/element_list.csv
+
+
+# Build
+build
+dist
+MANIFEST
+PyOP2.egg-info
+*.py[cdo]
+
+# Extension modules
+sparsity.so
+sparsity.c
+sparsity.cpython*.so
+# Docs
+pyop2.coffee.rst
+pyop2.rst
+pyop2.pdf
+pyop2.aux
+pyop2.log
+
+# Testing
+.pytest-incremental
+.tox
+.vagrant
+
+# Meshes
+*.edge
+*.ele
+*.msh
+*.node
+*.geo

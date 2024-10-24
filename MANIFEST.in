@@ -1,2 +1,5 @@
 include versioneer.py
 include firedrake/_version.py
+recursive-include pyop2 *.c
+include pyop2/_version.py
+
