@@ -114,6 +114,8 @@ extensions = [
 
 if "CC" not in env:
     env["CC"] = "mpicc"
+if "CXX" not in env:
+    env["CXX"] = "mpicxx"
 
 
 setup(
