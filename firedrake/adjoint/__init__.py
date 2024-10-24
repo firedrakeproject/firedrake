@@ -24,7 +24,7 @@ from pyadjoint.reduced_functional import ReducedFunctional  # noqa F401
 from firedrake.adjoint_utils.checkpointing import \
     enable_disk_checkpointing, pause_disk_checkpointing, \
     continue_disk_checkpointing, stop_disk_checkpointing, \
-    checkpointable_mesh   # noqa F401
+    checkpointable_mesh, AdjointDiskCheckpointing   # noqa F401
 from firedrake.adjoint_utils import get_solve_blocks  # noqa F401
 
 from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401

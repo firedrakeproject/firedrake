@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch pyadjoint dolci/disk_checkpointing \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
