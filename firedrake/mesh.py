@@ -260,7 +260,7 @@ class _FacetContext:
                     self._owned_facet_data,
                     unmarked_points,
                     return_indices=True)
-                indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
+                indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
                 subset = op3.Slice(
                     self.mesh.topology.name,
                     [op3.Subset(self._owned_facet_label, indices_dat)],
@@ -327,7 +327,7 @@ class _FacetContext:
             np.unique(marked_points_renum),
             return_indices=True
         )
-        indices_dat = op3.HierarchicalArray(op3.Axis(len(indices)), data=indices)
+        indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
         subset = op3.Slice(
             self.mesh.topology.name,
             [op3.Subset(self._owned_facet_label, indices_dat)],
@@ -386,13 +386,13 @@ class _FacetContext:
 
     @cached_property
     def _facet_dat(self):
-        return op3.HierarchicalArray(
+        return op3.Dat(
             self._facet_axis, data=self._facet_data
         )
 
     @cached_property
     def _owned_facet_dat(self):
-        return op3.HierarchicalArray(
+        return op3.Dat(
             self._owned_facet_axis, data=self._owned_facet_data
         )
 
@@ -431,7 +431,7 @@ class _FacetContext:
         # cast dtype, I think that this is a bug
         owned_local_facet_number = np.asarray(owned_local_facet_number, dtype=np.uint32)
 
-        return op3.HierarchicalArray(
+        return op3.Dat(
             local_facet_axes, data=owned_local_facet_number.flatten()
         )
 
@@ -943,7 +943,7 @@ class AbstractMeshTopology(abc.ABC):
             for dim in self._plex_strata_ordering:
                 indices = self._entity_indices[dim]
                 subset_axes = op3.Axis({str(dim): indices.size}, self.name)
-                subset_array = op3.HierarchicalArray(subset_axes, data=indices)
+                subset_array = op3.Dat(subset_axes, data=indices)
                 subset = op3.Subset("mylabel", subset_array, label=str(dim))
                 subsets.append(subset)
 
@@ -1065,7 +1065,7 @@ class AbstractMeshTopology(abc.ABC):
                 map_axes = op3.AxisTree.from_nest(
                     {outer_axis: op3.Axis({target_dim: size}, "closure")}
                 )
-                map_dat = op3.HierarchicalArray(
+                map_dat = op3.Dat(
                     map_axes, data=map_data.flatten(), prefix="closure"
                 )
                 map_components.append(
@@ -1226,12 +1226,12 @@ class AbstractMeshTopology(abc.ABC):
                     continue
 
                 outer_axis = self.points[str(dim)].root
-                size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
+                size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
                 inner_axis = op3.Axis(size_dat)
                 map_axes = op3.AxisTree.from_nest(
                     {outer_axis: inner_axis}
                 )
-                map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="map")
+                map_dat = op3.Dat(map_axes, data=data, prefix="map")
                 map_components.append(
                     op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
                 )
@@ -1320,12 +1320,12 @@ class AbstractMeshTopology(abc.ABC):
             )
 
             outer_axis = self.points[str(dim)].root
-            size_dat = op3.HierarchicalArray(outer_axis, data=size, max_value=max(size), prefix="size")
+            size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
             inner_axis = op3.Axis(size_dat)
             map_axes = op3.AxisTree.from_nest(
                 {outer_axis: inner_axis}
             )
-            map_dat = op3.HierarchicalArray(map_axes, data=data, prefix="support")
+            map_dat = op3.Dat(map_axes, data=data, prefix="support")
             supports.append({map_dim: map_dat})
         return tuple(supports)
 
@@ -1354,14 +1354,14 @@ class AbstractMeshTopology(abc.ABC):
             if include_ghost_points:
                 arity_data = facet_support_dat.axes.leaf_component.count.data_ro
                 selected_arity_data = arity_data[selected_facets]
-                arity = op3.HierarchicalArray(facet_axis, data=selected_arity_data, max_value=2)
+                arity = op3.Dat(facet_axis, data=selected_arity_data, max_value=2)
             else:
                 arity = 2
 
         selected_facet_support_axes = op3.AxisTree.from_iterable(
             [facet_axis, op3.Axis(op3.AxisComponent(arity))]
         )
-        selected_facet_support_dat = op3.HierarchicalArray(
+        selected_facet_support_dat = op3.Dat(
             selected_facet_support_axes,
             data=np.full(selected_facet_support_axes.size, -1, dtype=IntType),
         )
@@ -1541,7 +1541,7 @@ class AbstractMeshTopology(abc.ABC):
             num_owned = self.points.owned_count_per_component[self.cell_label]
             indices = indices[indices < num_owned]
             n, = indices.shape
-            harray = op3.HierarchicalArray(op3.Axis(n), data=indices, prefix="subset", dtype=utils.IntType)
+            harray = op3.Dat(op3.Axis(n), data=indices, prefix="subset", dtype=utils.IntType)
             slce = op3.Slice(self.points.label, [op3.Subset(self.cell_label, harray)])
             return self._subsets.setdefault(key, self.points[slce])
 
@@ -2100,7 +2100,7 @@ class MeshTopology(AbstractMeshTopology):
         for dim in range(self.dimension+1):
             closure_map = self._fiat_closure.connectivity[pmap({self.name: self.cell_label})][dim]
             axes = op3.AxisTree.from_iterable((op3.Axis({self.cell_label: self.num_cells()}, self.name), op3.Axis({str(dim): closure_map.arity}, "closure")))
-            dat = op3.HierarchicalArray(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
+            dat = op3.Dat(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
             dats.append(dat)
         return tuple(dats)
 
@@ -2936,7 +2936,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         dest_stratum = self._parent_mesh.cell_label
 
         axes = op3.AxisTree.from_iterable((self.points, 1))
-        dat = op3.HierarchicalArray(axes, data=self.cell_parent_cell_list)
+        dat = op3.Dat(axes, data=self.cell_parent_cell_list)
 
         return op3.Map({
             src_path: [

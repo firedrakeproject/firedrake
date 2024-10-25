@@ -75,7 +75,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         if isinstance(val, Cofunction):
             val = val.dat
-        if isinstance(val, op3.HierarchicalArray):
+        if isinstance(val, op3.Dat):
             # FIXME
             # assert val.comm == self._comm
             self.dat = val
@@ -123,7 +123,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     if label.startswith("dof")
                 })
                 # .with_axes
-                subdat = op3.HierarchicalArray(subaxes, data=subdat.buffer, name=subdat.name)
+                subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )

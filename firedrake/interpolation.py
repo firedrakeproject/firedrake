@@ -1115,7 +1115,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if tensor in set((c.dat for c in coefficients)):
         output = tensor
-        tensor = op3.HierarchicalArray(tensor.axes, dtype=tensor.dtype)
+        tensor = op3.Dat(tensor.axes, dtype=tensor.dtype)
         if access != op3.WRITE:
             copyin = (partial(output.copy, tensor), )
         else:

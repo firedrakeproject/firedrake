@@ -371,7 +371,7 @@ def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
 
 @pack_pyop3_tensor.register
 def _(
-    array: op3.HierarchicalArray,
+    array: op3.Dat,
     V: WithGeometry,
     index: op3.LoopIndex,
     integral_type: str,
@@ -435,7 +435,7 @@ def _(
     )
     composed_axes = compose_axes(tensor_axes, indexed.axes)
 
-    return op3.HierarchicalArray(
+    return op3.Dat(
         composed_axes,
         data=indexed.buffer,
         max_value=indexed.max_value,
@@ -1041,8 +1041,8 @@ def _entity_permutations(V):
 
         # the inner label needs to match here for codegen to resolve
         axes = op3.AxisTree.from_iterable([op3.Axis(nperms), op3.Axis({"XXX": perm_size}, "dof")])
-        # dat = op3.HierarchicalArray(axes, data=perms_concat.flatten(), constant=True, prefix=)
-        dat = op3.HierarchicalArray(axes, data=perms_concat.flatten(), prefix="perm")
+        # dat = op3.Dat(axes, data=perms_concat.flatten(), constant=True, prefix=)
+        dat = op3.Dat(axes, data=perms_concat.flatten(), prefix="perm")
         perm_dats.append(dat)
     return tuple(perm_dats)
 

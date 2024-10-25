@@ -576,12 +576,11 @@ def closure_ordering(mesh, closure_data):
         PetscInt tdim, cell, v_start, v_end
         PetscInt nverts_per_cell, nedges_per_cell, nfacets_per_cell
         PetscInt *verts=NULL,*facets=NULL
-        const PetscInt *edge_verts=NULL
         PetscInt *edge_incident_verts=NULL, *edges=NULL, *global_verts=NULL
         PetscInt *facet_closure=NULL
         PetscInt nfacet_closure
         PetscInt *facet_verts=NULL
-        const PetscInt *edge_cone=NULL
+        const PetscInt *edge_verts=NULL
 
     dm = mesh.topology_dm
     tdim = mesh.dimension
@@ -602,8 +601,6 @@ def closure_ordering(mesh, closure_data):
     CHKERR(PetscMalloc1(nedges_per_cell, &edges))
     CHKERR(PetscMalloc1(nfacets_per_cell, &facets))
     CHKERR(PetscMalloc1(nverts_per_cell, &global_verts))
-
-    CHKERR(PetscMalloc1(2, &edge_verts))
     CHKERR(PetscMalloc1(nedges_per_cell, &edge_incident_verts))
 
     # upper bound
@@ -693,7 +690,6 @@ def closure_ordering(mesh, closure_data):
     CHKERR(PetscFree(edges))
     CHKERR(PetscFree(facets))
     CHKERR(PetscFree(global_verts))
-    CHKERR(PetscFree(edge_verts))
     CHKERR(PetscFree(edge_incident_verts))
     CHKERR(PetscFree(facet_verts))
     if facet_closure != NULL:

@@ -554,7 +554,7 @@ class FunctionSpace:
                 for pt in range(mesh.flat_points.size):
                     ndofs[pt] = self.local_section.getDof(pt)
 
-                ndofs_dat = op3.HierarchicalArray(mesh.flat_points, data=ndofs)
+                ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
 
                 subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
                 axes = axes.add_axis(subaxis, axes.root, "mylabel")
@@ -843,7 +843,7 @@ class FunctionSpace:
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
-        return op3.HierarchicalArray(
+        return op3.Dat(
             self.axes,
             data=val.flatten() if val is not None else None,
             dtype=valuetype,
@@ -1361,7 +1361,7 @@ class MixedFunctionSpace(object):
         if val is not None and val.size != self.axes.size:
             raise ValueError("Provided array has the wrong number of entries")
 
-        return op3.HierarchicalArray(
+        return op3.Dat(
             self.axes,
             data=val,
             dtype=valuetype,
@@ -1634,7 +1634,7 @@ class RealFunctionSpace(FunctionSpace):
         if val is not None and val.size != self.axes.size:
             raise ValueError("Provided array has the wrong number of entries")
 
-        return op3.HierarchicalArray(
+        return op3.Dat(
             self.axes,
             data=val,
             dtype=valuetype,

@@ -1006,7 +1006,7 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         if needs_zeroing:
-            self._as_pyop3_type(tensor).zero()
+            self._as_pyop3_type(tensor).zero(eager=True)
 
         for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = _FormHandler.index_tensor(
@@ -1129,7 +1129,7 @@ class ParloopFormAssembler(FormAssembler):
 
     @staticmethod
     def _as_pyop3_type(tensor):
-        if isinstance(tensor, op3.HierarchicalArray):
+        if isinstance(tensor, op3.Dat):
             return tensor
         elif isinstance(tensor, firedrake.Cofunction):
             return tensor.dat
@@ -1173,7 +1173,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # TODO this is more convoluted than strictly needed, add a factory method?
         sf = op3.sf.single_star(comm)
         axis = op3.Axis([op3.AxisComponent(1, sf=sf)])
-        return op3.HierarchicalArray(
+        return op3.Dat(
             axis,
             data=numpy.asarray([0.0], dtype=utils.ScalarType),
         )
@@ -1623,7 +1623,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     size = op3.utils.single_valued([
                         ax.size for ax in {assignee.raxes, assignee.caxes}
                     ])
-                    expression = op3.HierarchicalArray(
+                    expression = op3.Dat(
                         axes, data=numpy.eye(size, dtype=utils.ScalarType).flatten(), constant=True
                     )
                 else:

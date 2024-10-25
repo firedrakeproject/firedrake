@@ -250,7 +250,7 @@ class Assigner:
             if not isinstance(rvalue, numbers.Number):
                 # convert rvalue to a pyop3 object
                 axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
-                rvalue = op3.HierarchicalArray(axes, data=rvalue)
+                rvalue = op3.Dat(axes, data=rvalue)
             lhs[subset].assign(rvalue)
             return
 
@@ -292,7 +292,7 @@ class IAddAssigner(Assigner):
 
     def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
         # convert to a numpy type
-        rval = rvalue.data_ro if isinstance(rvalue, op3.HierarchicalArray) else rvalue
+        rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:
@@ -309,7 +309,7 @@ class ISubAssigner(Assigner):
 
     def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
         # convert to a numpy type
-        rval = rvalue.data_ro if isinstance(rvalue, op3.HierarchicalArray) else rvalue
+        rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:

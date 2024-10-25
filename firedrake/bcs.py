@@ -213,7 +213,7 @@ class BCBase:
         for dim, data in flat_subset_data.items():
             point_label = str(dim)
             n, = data.shape
-            array = op3.HierarchicalArray(op3.Axis(n), data=data, prefix="subset", dtype=utils.IntType)
+            array = op3.Dat(op3.Axis(n), data=data, prefix="subset", dtype=utils.IntType)
             subset = op3.Subset(point_label, array)
             subsets.append(subset)
         return op3.Slice(mesh.points.label, subsets)

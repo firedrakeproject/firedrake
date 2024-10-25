@@ -35,7 +35,7 @@ def _create_const(value, comm):
         axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
         for i, s in enumerate(shape[1:]):
             axes = axes.add_axis(op3.Axis({"XXX": s}, label=f"dim{i+1}"), *axes.leaf)
-    dat = op3.HierarchicalArray(axes, data=data.flatten())
+    dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
 

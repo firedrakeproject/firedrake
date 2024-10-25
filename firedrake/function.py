@@ -80,7 +80,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, op3.HierarchicalArray):
+        if isinstance(val, op3.Dat):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -125,7 +125,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                     if label.startswith("dof")
                 })
                 # .with_axes
-                subdat = op3.HierarchicalArray(subaxes, data=subdat.buffer, name=subdat.name)
+                subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
