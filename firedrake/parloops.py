@@ -401,7 +401,9 @@ def _(
     perm = _flatten_entity_dofs(V.finat_element.entity_dofs())
 
     # skip if identity
-    if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+    # if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+    if False:  # debug
+        # breakpoint()  # hmm
         perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), data=perm, constant=True)
         perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
         indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
@@ -466,15 +468,39 @@ def _(
     else:
         raise NotImplementedError
 
-    # FIXME: These maps are technically context-sensitive since they depend
-    # on the loop index, but it is always trivial. However, we turn the index
-    # tree into a forest here because that is what pyop3 "should" be doing
-    # internally.
-    # context = pmap({index.id: (index.source_path, index.path)})
-    # rmap = {context: rmap}
-    # cmap = {context: cmap}
-
     indexed = mat.getitem((rmap, cmap), strict=True)
+
+    row_perm = _flatten_entity_dofs(Vrow.finat_element.entity_dofs())
+    col_perm = _flatten_entity_dofs(Vcol.finat_element.entity_dofs())
+
+    # skip if identity
+    if (
+        np.any(row_perm != np.arange(row_perm.size, dtype=IntType))
+        or np.any(col_perm != np.arange(col_perm.size, dtype=IntType))
+    ):
+        # NOTE: This construction is horrible
+        row_perm_dat = op3.Dat(
+            Vrow._packed_nodal_axes.root.copy(label="mylabel"),
+            data=row_perm,
+            constant=True
+        )
+        row_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", row_perm_dat)], label="mylabel")
+
+        col_perm_dat = op3.Dat(
+            Vcol._packed_nodal_axes.root.copy(label="mylabel"),
+            data=col_perm,
+            constant=True
+        )
+        col_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", col_perm_dat)], label="mylabel")
+
+        if Vrow.shape or Vcol.shape:
+            raise NotImplementedError("Not considering any extra axes here")
+
+        # index_tree = op3.IndexTree.from_iterable([row_perm_subset, col_perm_subset])
+
+        indexed = indexed.reshape(Vrow._packed_nodal_axes, Vcol._packed_nodal_axes)[row_perm_subset, col_perm_subset]
+
+    return indexed
 
     # Indexing an array with a loop index makes it "context sensitive" since
     # the index could be over multiple entities (e.g. all mesh points). Here
