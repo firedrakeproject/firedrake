@@ -2,9 +2,7 @@ import firedrake
 import ufl
 import finat.ufl
 import weakref
-from functools import reduce
 from enum import IntEnum
-from operator import and_
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 
@@ -12,15 +10,22 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced Hsieh-Clough-Tocher", "Johnson-Mercier"])
-non_native_variants = frozenset(["integral", "fdm"])
+native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
+alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
+                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
+                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
+non_native_variants = frozenset(["integral", "fdm", "alfeld"])
 
 
 def get_embedding_element(element):
-    dg_element = get_embedding_dg_element(element)
-    if element.family() in alfeld_families:
-        dg_element = dg_element.reconstruct(variant="alfeld")
+    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
+    dg_element = get_embedding_dg_element(element, broken_cg=broken_cg)
+    variant = element.variant() or "default"
+    family = element.family()
+    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
+    # This yields supermesh projection
+    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
+        dg_element = dg_element.reconstruct(variant="powell-sabin")
     return dg_element
 
 
@@ -62,18 +67,18 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
-    def is_native(self, element):
+    def is_native(self, element, op):
         if element in self.native_transfers.keys():
-            return True
+            return self.native_transfers[element][op] is not None
         if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return reduce(and_, map(self.is_native, element.sub_elements))
-        return element.family() in native_families and not element.variant() in non_native_variants
+            return all(self.is_native(e, op) for e in element.sub_elements)
+        return (element.family() in native_families) and not (element.variant() in non_native_variants)
 
     def _native_transfer(self, element, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if self.is_native(element):
+            if self.is_native(element, op):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
@@ -241,7 +246,7 @@ class TransferManager(object):
         if not self.requires_transfer(source_element, transfer_op, source, target):
             return
 
-        if self.is_native(source_element) and self.is_native(target_element):
+        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
             self._native_transfer(source_element, transfer_op)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
@@ -306,7 +311,7 @@ class TransferManager(object):
         if not self.requires_transfer(source_element, Op.RESTRICT, source, target):
             return
 
-        if self.is_native(source_element) and self.is_native(target_element):
+        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
             self._native_transfer(source_element, Op.RESTRICT)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement

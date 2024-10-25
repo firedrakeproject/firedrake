@@ -178,7 +178,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         ierr = PetscHSetICreate(&ranksUniq);CHKERRQ(ierr);
         for (i = 0; i < n; ++i) {
             const PetscMPIInt *ranks = NULL;
-            PetscInt           nranks, j;
+            PetscMPIInt        nranks, j;
 
             ierr = PetscSFSetUp(sf[i]);CHKERRQ(ierr);
             ierr = PetscSFGetRootRanks(sf[i], &nranks, &ranks, NULL, NULL, NULL);CHKERRQ(ierr);

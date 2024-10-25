@@ -24,7 +24,7 @@ jobs:
   build:
     name: "Build Firedrake"
     # Run on our self-hosted machines
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
@@ -109,7 +109,7 @@ jobs:
         timeout-minutes: 120
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
-        if: ${{ always() }}
+        if: ${{ always() && ( github.ref != 'refs/heads/master') }}
         with:
           report_paths: '/__w/firedrake/firedrake/firedrake.xml'
           comment: true
@@ -137,7 +137,7 @@ jobs:
           rm -rf firedrake_venv
   docker_tag:
     name: "Set the Docker release tag"
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux]
     if: ${{ github.ref == 'refs/heads/master' }}
     steps:
       - name: Set release tag

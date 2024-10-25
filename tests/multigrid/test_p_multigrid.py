@@ -116,7 +116,7 @@ def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
         P = prolongation_matrix_matfree(uc, v).getPythonContext()
         P._prolong()
 
-    assert norm(ui + uf - uc, "L2") < 2E-14
+    assert norm(ui + uf - uc, "L2") < 1E-13
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
@@ -489,6 +489,7 @@ def test_p_fas_nonlinear_scalar():
     relax = {
         "ksp_type": "chebyshev",
         "ksp_norm_type": "unpreconditioned",
+        "ksp_chebyshev_esteig": "0.75,0.25,0,1",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
 

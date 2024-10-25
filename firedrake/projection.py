@@ -57,7 +57,7 @@ def project(
     solver_parameters: Optional[dict] = None,
     form_compiler_parameters: Optional[dict] = None,
     use_slate_for_inverse: Optional[bool] = True,
-    quadrature_degree: Optional[int | tuple[int]] = None,
+    quadrature_degree: Optional[Union[int, tuple[int]]] = None,
     name: Optional[str] = None,
     ad_block_tag: Optional[str] = None
 ) -> firedrake.Function:
@@ -296,7 +296,7 @@ def Projector(
     form_compiler_parameters: Optional[dict] = None,
     constant_jacobian: Optional[bool] = True,
     use_slate_for_inverse: Optional[bool] = False,
-    quadrature_degree: Optional[int | tuple[int]] = None
+    quadrature_degree: Optional[Union[int, tuple[int]]] = None
 ):
     """ Projection class.
 
