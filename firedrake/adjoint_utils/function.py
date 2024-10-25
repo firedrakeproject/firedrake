@@ -361,16 +361,12 @@ class FunctionMixin(FloatingType):
         return self.function_space().dim()
 
     def _ad_imul(self, other):
-        vec = self.vector()
-        vec *= other
+        self *= other
+        return self
 
     def _ad_iadd(self, other):
-        vec = self.vector()
-        ovec = other.vector()
-        if ovec.dat == vec.dat:
-            vec *= 2
-        else:
-            vec += ovec
+        self += other
+        return self
 
     def _ad_function_space(self, mesh):
         return self.ufl_function_space()
