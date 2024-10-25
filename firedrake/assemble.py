@@ -1430,12 +1430,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             diag_blocks = [(Ellipsis, Ellipsis)]
 
-        # FIXME: re-add this
-        # for rindex, cindex in diag_blocks:
-        #     op3.do_loop(
-        #         p := test.ufl_domain().points.index(),
-        #         sparsity[rindex, cindex][p, p].assign(666, eager=False)
-        #     )
+        for rindex, cindex in diag_blocks:
+            op3.do_loop(
+                p := test.ufl_domain().points.index(),
+                sparsity[rindex, cindex][p, p].assign(666, eager=False)
+            )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -2058,7 +2057,7 @@ class _FormHandler:
     @staticmethod
     def index_tensor(tensor, form, indices, diagonal):
         """Return the (indexed) pyop3 data structure tied to ``tensor``."""
-        # indices = tuple(i if i is not None else Ellipsis for i in indices)
+        indices = tuple(i if i is not None else Ellipsis for i in indices)
 
         rank = len(form.arguments())
         if rank == 0:
@@ -2066,7 +2065,7 @@ class _FormHandler:
             return tensor
         elif rank == 1 or rank == 2 and diagonal:
             index, = indices
-            if index is None:
+            if index is Ellipsis:
                 return tensor.dat
             else:
                 return tensor.subfunctions[index].dat
