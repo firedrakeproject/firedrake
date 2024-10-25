@@ -300,7 +300,6 @@ class FunctionMixin(FloatingType):
         with checkpoint_init_data():
             super()._ad_will_add_as_dependency()
 
-    @no_annotations
     def _ad_mul(self, other):
         from firedrake import Function
 
@@ -309,7 +308,6 @@ class FunctionMixin(FloatingType):
         r.assign(other * self)
         return r
 
-    @no_annotations
     def _ad_add(self, other):
         from firedrake import Function
 
