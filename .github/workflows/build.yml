@@ -83,9 +83,10 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat pbrubeck/h1curl \
-            --package-branch finat pbrubeck/hhj \
-            --package-branch tsfc pbrubeck/hhj \
+            --package-branch fiat pbrubeck/hcurldiv \
+            --package-branch finat pbrubeck/hcurldiv \
+            --package-branch tsfc pbrubeck/hcurldiv \
+            --package-branch ufl pbrubeck/hcurldiv \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
