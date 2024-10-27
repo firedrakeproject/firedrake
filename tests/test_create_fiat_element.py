@@ -1,7 +1,7 @@
 import pytest
 
 import FIAT
-from FIAT.discontinuous_lagrange import HigherOrderDiscontinuousLagrange as FIAT_DiscontinuousLagrange
+from FIAT.discontinuous_lagrange import DiscontinuousLagrange as FIAT_DiscontinuousLagrange
 
 import ufl
 import finat.ufl

@@ -1,29 +1,25 @@
 import collections
-import string
 import operator
+import string
 from functools import reduce
 from itertools import chain, product
 
-import numpy
-from numpy import asarray
-
-from ufl.utils.sequences import max_degree
-
-from FIAT.reference_element import TensorProductCell
-
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
-
 import gem
-
-from gem.node import traversal
-from gem.utils import cached_property
 import gem.impero_utils as impero_utils
-from gem.optimise import remove_componenttensors as prune, constant_fold_zero
-
+import numpy
+from FIAT.reference_element import TensorProductCell
+from finat.cell_tools import max_complex
+from finat.quadrature import AbstractQuadratureRule, make_quadrature
+from gem.node import traversal
+from gem.optimise import constant_fold_zero
+from gem.optimise import remove_componenttensors as prune
+from gem.utils import cached_property
+from numpy import asarray
 from tsfc import fem, ufl_utils
-from tsfc.kernel_interface import KernelInterface
 from tsfc.finatinterface import as_fiat_cell, create_element
+from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
+from ufl.utils.sequences import max_degree
 
 
 class KernelBuilderBase(KernelInterface):
@@ -301,22 +297,26 @@ def set_quad_rule(params, cell, integral_type, functions):
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
         quadrature_degree = params["estimated_polynomial_degree"]
-        function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
+        function_degrees = [f.ufl_function_space().ufl_element().degree()
+                            for f in functions]
         if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
                for degree in function_degrees):
             logger.warning("Estimated quadrature degree %s more "
                            "than tenfold greater than any "
                            "argument/coefficient degree (max %s)",
                            quadrature_degree, max_degree(function_degrees))
-    if params.get("quadrature_rule") == "default":
-        del params["quadrature_rule"]
-    try:
-        quad_rule = params["quadrature_rule"]
-    except KeyError:
+    quad_rule = params.get("quadrature_rule", "default")
+    if isinstance(quad_rule, str):
+        scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
+        finat_elements = set(create_element(f.ufl_element()) for f in functions
+                             if f.ufl_element().family() != "Real")
+        fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
+        fiat_cell = max_complex(fiat_cells)
+
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
-        integration_cell = fiat_cell.construct_subelement(integration_dim)
-        quad_rule = make_quadrature(integration_cell, quadrature_degree)
+        integration_cell = fiat_cell.construct_subcomplex(integration_dim)
+        quad_rule = make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
         params["quadrature_rule"] = quad_rule
 
     if not isinstance(quad_rule, AbstractQuadratureRule):

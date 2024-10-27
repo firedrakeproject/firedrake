@@ -109,7 +109,7 @@ def assign_dtypes(expressions, scalar_type):
     mapper = Memoizer(_assign_dtype)
     mapper.scalar_type = scalar_type
     mapper.real_type = numpy.finfo(scalar_type).dtype
-    return [(e, numpy.find_common_type(mapper(e), [])) for e in expressions]
+    return [(e, numpy.result_type(*mapper(e))) for e in expressions]
 
 
 class LoopyContext(object):
