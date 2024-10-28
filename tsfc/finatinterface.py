@@ -51,6 +51,7 @@ supported_elements = {
     "Johnson-Mercier": finat.JohnsonMercier,
     "Nonconforming Arnold-Winther": finat.ArnoldWintherNC,
     "Conforming Arnold-Winther": finat.ArnoldWinther,
+    "Hu-Zhang": finat.HuZhang,
     "Hermite": finat.Hermite,
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
