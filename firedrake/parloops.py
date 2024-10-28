@@ -500,6 +500,9 @@ def _(
 
         indexed = indexed.reshape(Vrow._packed_nodal_axes, Vcol._packed_nodal_axes)[row_perm_subset, col_perm_subset]
 
+    if plex.ufl_cell() is ufl.hexahedron:
+        raise NotImplementedError
+
     return indexed
 
     # Indexing an array with a loop index makes it "context sensitive" since
