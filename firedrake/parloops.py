@@ -400,11 +400,16 @@ def _(
     # discard shape beforehand
     perm = _flatten_entity_dofs(V.finat_element.entity_dofs())
 
+    # testing
+    # if array.name != "f":
+    from pyop3.utils import invert
+    perm = invert(perm)
+
     # skip if identity
-    # if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-    if False:  # debug
+    if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+    # if False:  # debug
         # breakpoint()  # hmm
-        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), data=perm, constant=True)
+        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), data=perm, constant=True, prefix="p")
         perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
         indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
 
