@@ -1,25 +1,31 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Extension
+from setuptools.command.install import install as install_orig
+from setuptools.command.develop import develop as develop_orig
 from glob import glob
 from os import environ as env, path
 from pathlib import Path
 from Cython.Distutils import build_ext
+from Cython.Build import cythonize
 import os
 import sys
 import numpy as np
 import petsc4py
 import rtree
+import supermesh
 import versioneer
 
-from firedrake_configuration import get_config
+# ~ from firedrake_configuration import get_config
 
-try:
-    from Cython.Distutils.extension import Extension
-    config = get_config()
-    complex_mode = config["options"].get("complex", False)
-except ImportError:
-    # No Cython Extension means no complex mode!
-    from setuptools import Extension
-    complex_mode = False
+# ~ try:
+    # ~ from Cython.Distutils.extension import Extension
+    # ~ config = get_config()
+    # ~ complex_mode = config["options"].get("complex", False)
+# ~ except ImportError:
+    # ~ # No Cython Extension means no complex mode!
+    # ~ from setuptools import Extension
+    # ~ complex_mode = False
+
+complex_mode = False
 
 try:
     from pybind11.setup_helpers import Pybind11Extension
@@ -53,6 +59,7 @@ if "clean" in sys.argv[1:]:
                 or ext == ".so"):
                 os.remove(os.path.join(dirname, f))
 
+# JBTODO: Sort out linking, everything currently linked to everything
 cython_compile_time_env = {"COMPLEX": complex_mode}
 cythonfiles = [
     ("dmcommon", ["petsc"]),
@@ -61,46 +68,53 @@ cythonfiles = [
     ("mgimpl", ["petsc"]),
     ("patchimpl", ["petsc"]),
     ("spatialindex", None),
-    ("supermeshimpl", ["supermesh", "petsc"]),
+    ("supermeshimpl", ["petsc"]),
 ]
 
+include_dirs = []
 
+# PETSc and HDF5
 petsc_dirs = get_petsc_dir()
 if os.environ.get("HDF5_DIR"):
     petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
-include_dirs = [np.get_include(), rtree.finder.get_include()]
 petsc_include = [petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs]
 include_dirs += petsc_include
 petsc_library = [os.path.join(petsc_dirs[1], "lib")]
+dirs = (sys.prefix, *petsc_dirs)
+link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
+
+# numpy
 numpy_include = [np.get_include()]
 include_dirs += numpy_include
 
-dirs = (sys.prefix, *petsc_dirs)
-link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
+# libspatialindex
 libspatialindex_so = Path(rtree.core.rt._name).absolute()
 link_args += [str(libspatialindex_so)]
-link_args += ["-Wl,-rpath,%s" % libspatialindex_so.parent]
+link_args += ["-Wl,-rpath,$ORIGIN/../Rtree.libs"]
+include_dirs += [rtree.finder.get_include()]
 
-extensions = [
-    Extension(
+# libsupermesh
+supermesh_dir = Path(supermesh.__path__._path[0]).absolute()
+supermesh_so = next(supermesh_dir.glob('*.so'))
+link_args += [f"-L{supermesh_so!s} -l:{supermesh_so.name!s}"]
+link_args += [f"-Wl,-rpath,$ORIGIN/../supermesh,--soname={supermesh_so.name!s}"]
+include_dirs += [str(supermesh_dir.joinpath("include"))]
+
+extensions = cythonize([Extension(
         "firedrake.cython.{}".format(ext),
         sources=[os.path.join("firedrake", "cython", "{}.pyx".format(ext))],
         include_dirs=include_dirs,
         libraries=libs,
         extra_link_args=link_args,
-        cython_compile_time_env=cython_compile_time_env
-    ) for (ext, libs) in cythonfiles
-] + [
-    Extension(
+    ) for (ext, libs) in cythonfiles]) + \
+    cythonize([Extension(
         "pyop2.sparsity",
         sources=[os.path.join("pyop2", "sparsity.pyx")],
         language="c",
         include_dirs=petsc_include + numpy_include,
         libraries=["petsc"],
         extra_link_args=link_args,
-        cython_compile_time_env=cython_compile_time_env
-    )
-] + [
+    )]) + [
     Pybind11Extension(
         name="tinyasm._tinyasm",
         sources=sorted(glob("tinyasm/*.cpp")),  # Sort source files for reproducibility

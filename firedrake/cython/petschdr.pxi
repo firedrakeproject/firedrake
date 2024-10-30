@@ -5,14 +5,17 @@ cimport numpy as np
 cdef extern from "mpi-compat.h":
     pass
 
-IF COMPLEX:
-    ctypedef np.complex128_t PetscScalar
-ELSE:
-    ctypedef double PetscScalar
+# JBTODO: Check if this _does_ work with complex. code used to be:
+#~ IF COMPLEX:
+#~     ctypedef np.complex128_t PetscScalar
+#~ ELSE:
+#~     ctypedef double PetscScalar
+# from petsc4py.PETSc import IntType, RealType, ScalarType
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
     ctypedef double PetscReal
+    ctypedef double PetscScalar
     ctypedef enum PetscBool:
         PETSC_TRUE, PETSC_FALSE
     ctypedef enum PetscCopyMode:

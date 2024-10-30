@@ -70,10 +70,6 @@ jobs:
         shell: bash
         working-directory: PyOP2
         run: |
-          # xargs is used to force installation of requirements in the order we specified.
-          xargs -l1 python -m pip install < requirements-ext.txt
-          xargs -l1 python -m pip install < requirements-git.txt
-          python -m pip install pulp
           python -m pip install -U flake8
           python -m pip install -U pytest-timeout
 
