@@ -10,6 +10,7 @@ from firedrake.petsc import (
     DEFAULT_SNES_PARAMETERS
 )
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC
@@ -305,6 +306,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         for dbc in problem.dirichlet_bcs():
             dbc.apply(problem.u_restrict)
+            for coeff in coefficients:
+                if isinstance(coeff, Cofunction):
+                    # Apply the DirichletBC to the right hand side of the equation.
+                    dbc.apply(coeff)
 
         if bounds is not None:
             lower, upper = bounds
