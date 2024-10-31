@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install build-essential mpich libmpich-dev \
-              libblas-dev liblapack-dev gfortran
+              libblas-dev liblapack-dev gfortran libhdf5-mpich-dev
 
       - name: Set correct Python version
         uses: actions/setup-python@v5
