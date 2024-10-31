@@ -57,6 +57,7 @@ jobs:
       - name: Build Firedrake
         run: |
           cd ..
+          export MPI_HOME=$PETSC_DIR/packages
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
