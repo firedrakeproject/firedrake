@@ -1829,7 +1829,10 @@ if mode == "install":
         packages += [name]
 
     if args.honour_petsc_dir:
-        packages.remove("petsc")
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            log.warning("PETSc wasn't in dependencies list")
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:

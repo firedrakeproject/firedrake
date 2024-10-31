@@ -72,21 +72,12 @@ jobs:
         run: |
           python -m pip install -U flake8
           python -m pip install -U pytest-timeout
+          python -m pip install -U setuptools
 
-      - name: Install PyOP2 (Python <3.12)
-        if: ${{ matrix.python-version != '3.12' }}
+      - name: Install PyOP2
         shell: bash
         working-directory: PyOP2
         run: python -m pip install .
-
-        # Not sure if this is a bug in setuptools or something PyOP2 is doing wrong
-      - name: Install PyOP2 (Python == 3.12)
-        if: ${{ matrix.python-version == '3.12' }}
-        shell: bash
-        working-directory: PyOP2
-        run: |
-          python -m pip install -U setuptools
-          python setup.py install
 
       - name: Run linting
         shell: bash
