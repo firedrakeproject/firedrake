@@ -1,0 +1,76 @@
+[project]
+name = "firedrake"
+version = "0.14"
+description = "An automated system for the portable solution of partial differential equations using the finite element method"
+readme = "README.rst"
+authors = [
+  {name = "Jack Betteridge", email = "J.Betteridge@imperial.ac.uk"},
+]
+maintainers = [
+  {name = "Jack Betteridge", email = "J.Betteridge@imperial.ac.uk"},
+]
+dependencies = [
+  "cachetools",
+  "mpi4py",
+  "nbval",
+  "numpy>=2.0",
+  "packaging",
+  "pkgconfig",
+  "progress",
+  "pycparser",
+  "pytools",
+  "requests",
+  "rtree>=1.2",
+  "scipy",
+  "sympy",
+  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
+  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  "finat @ git+https://github.com/FInAT/FInAT.git",
+  "tsfc @ git+https://github.com/firedrakeproject/tsfc.git",
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
+  "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@JDBetteridge/pip_install",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+  "Programming Language :: Python",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Repository = "https://github.com/firedrakeproject/firedrake"
+
+[project.optional-dependencies]
+test = [
+  "pylit",
+  "pytest",
+  "pytest-xdist",
+  "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",
+]
+dev = [
+  "flake8",
+  "pylint",
+]
+slepc = [
+  "slepc4py",
+]
+
+[build-system]
+requires = [
+  "setuptools>61.2",
+  "Cython>=3.0",
+  "pybind11",
+  "versioneer",
+  "numpy>=2.0",
+  "mpi4py",
+  "petsc4py",
+  "rtree>=1.2",
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@JDBetteridge/pip_install",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+
+[tool.versioneer]
+
