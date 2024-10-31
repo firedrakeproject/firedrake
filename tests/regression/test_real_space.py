@@ -258,6 +258,7 @@ def test_real_mixed_solve_split_comms():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
+@pytest.mark.skipcomplex
 def test_real_space_nonlinear_solve():
     M = UnitIntervalMesh(5)
 
