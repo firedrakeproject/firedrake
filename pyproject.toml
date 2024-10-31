@@ -12,7 +12,7 @@ maintainers = [
 dependencies = [
   "cachetools",
   "mpi4py",
-  "nbval",
+  "h5py",
   "numpy>=2.0",
   "packaging",
   "pkgconfig",
@@ -44,6 +44,7 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 [project.optional-dependencies]
 test = [
   "pylit",
+  "nbval",
   "pytest",
   "pytest-xdist",
   "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",

@@ -1719,6 +1719,7 @@ run_pip(["install", "-U", "Cython>=3.0.6"])
 run_pip(["install", "-U", "numpy"])
 
 # Loopy has additional build dependencies
+run_pip(["install", "-U", "scikit-build-core"])
 run_pip(["install", "-U", "scikit-build"])
 run_pip(["install", "-U", "nanobind"])
 run_pip(["install", "-U", "make"])
