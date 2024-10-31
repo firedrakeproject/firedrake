@@ -74,10 +74,14 @@ cythonfiles = [
 include_dirs = []
 
 # HDF5
+# JBTODO: This is a terrible idea, but let's see if we can get CI to pass!
 if os.environ.get("HDF5_DIR"):
-    hdf5_dir = os.environ.get("HDF5_DIR")
+    hdf5_dir = Path(os.environ.get("HDF5_DIR"))
+    hdf5_lib = str(hdf5_dir.joinpath("lib"))
+    hdf5_include = str(hdf5_dir.joinpath("include"))
 else:
-    hdf5_dir = ""
+    hdf5_lib = "/usr/lib/x86_64-linux-gnu/hdf5/mpich"
+    hdf5_include = "/usr/include/hdf5/mpich"
 
 # PETSc
 petsc_dirs = get_petsc_dir()
