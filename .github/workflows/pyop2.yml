@@ -73,6 +73,7 @@ jobs:
           python -m pip install -U flake8
           python -m pip install -U pytest-timeout
           python -m pip install -U setuptools
+          python -m pip install --no-binary h5py h5py
 
       - name: Install PyOP2
         shell: bash

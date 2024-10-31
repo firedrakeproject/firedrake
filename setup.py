@@ -73,10 +73,14 @@ cythonfiles = [
 
 include_dirs = []
 
-# PETSc and HDF5
-petsc_dirs = get_petsc_dir()
+# HDF5
 if os.environ.get("HDF5_DIR"):
-    petsc_dirs = petsc_dirs + (os.environ.get("HDF5_DIR"), )
+    hdf5_dir = os.environ.get("HDF5_DIR")
+else:
+    hdf5_dir = ""
+
+# PETSc
+petsc_dirs = get_petsc_dir()
 petsc_include = [petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs]
 include_dirs += petsc_include
 petsc_library = [os.path.join(petsc_dirs[1], "lib")]
