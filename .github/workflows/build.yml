@@ -60,7 +60,7 @@ jobs:
           export MPI_HOME=$PETSC_DIR/packages
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
-          ./firedrake/scripts/firedrake-install \
+          ./firedrake/firedrake/scripts/firedrake-install \
             $COMPLEX \
             --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
