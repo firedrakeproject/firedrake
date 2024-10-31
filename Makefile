@@ -13,12 +13,16 @@ else
 endif
 
 lint:
-	@echo "    Linting firedrake codebase"
+	@echo "    Linting firedrake"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
-	@echo "    Linting firedrake test suite"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting firedrake scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
+	@echo "    Linting firedrake tests"
+	@python -m flake8 $(FLAKE8_FORMAT) tests
+	@echo "    Linting PyOP2"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2
+	@echo "    Linting PyOP2 scripts"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 
 actionlint:
 	@echo "    Pull latest actionlint image"
