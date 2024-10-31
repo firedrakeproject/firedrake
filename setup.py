@@ -82,6 +82,7 @@ if os.environ.get("HDF5_DIR"):
 else:
     hdf5_lib = "/usr/lib/x86_64-linux-gnu/hdf5/mpich"
     hdf5_include = "/usr/include/hdf5/mpich"
+include_dirs += [hdf5_include]
 
 # PETSc
 petsc_dirs = get_petsc_dir()
