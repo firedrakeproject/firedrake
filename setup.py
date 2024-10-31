@@ -144,7 +144,10 @@ if "CXX" not in env:
 setup(
     cmdclass=cmdclass,
     packages=find_packages(),
-    package_data={"firedrake": ["evaluate.h", "locate.c", "icons/*.png"]},
+    package_data={
+        "firedrake": ["evaluate.h", "locate.c", "icons/*.png"],
+        "pyop2": ["assets/*", "*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
+    },
     ext_modules=extensions
 )
 
