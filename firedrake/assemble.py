@@ -2108,19 +2108,21 @@ class _FormHandler:
 
 def _as_pyop2_tensor(tensor, indices=None):
     """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+    is_indexed = indices and any(index is not None for index in indices)
+
     if isinstance(tensor, op2.Global):
-        assert not indices
+        assert not is_indexed
         return tensor
 
     if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-        if indices:
+        if is_indexed:
             i, = indices
             return tensor.dat[i]
         else:
             return tensor.dat
     else:
         assert isinstance(tensor, firedrake.Matrix)
-        if indices:
+        if is_indexed:
             i, j = indices
             return tensor.M[i, j]
         else:
