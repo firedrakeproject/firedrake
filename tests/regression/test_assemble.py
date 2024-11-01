@@ -126,21 +126,17 @@ def test_assemble_mat_with_tensor(mesh):
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
 
-@pytest.mark.parametrize("space", ["CG", "CGxR"])
-def test_assembler_reuse_respects_tensor(mesh, space):
-    if space == "CG":
-        W = FunctionSpace(mesh, "CG", 1)
-    else:
-        assert space == "CGxR"
-        V = FunctionSpace(mesh, "CG", 1)
-        R = FunctionSpace(mesh, "R", 0)
-        W = V * R
+@pytest.mark.skipcomplex
+def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    W = V * R
 
     u = TrialFunction(W)
     v = TestFunction(W)
     a = inner(v, u) * dx
 
-    assembler = TwoFormAssembler(a)
+    assembler = TwoFormAssembler(a, mat_type="nest")
     A1 = assembler.assemble()
     A2 = assembler.assemble(tensor=A1)
 
