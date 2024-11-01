@@ -701,8 +701,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                            firedrake.Cofunction)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
-                    assign_map[form_ad_count_map[coeff_count]].assign(
-                        block_variable.saved_output)
+                    assign_map[form_ad_count_map[coeff_count]] = \
+                        block_variable.saved_output
 
         if (
             solver == Solver.ADJOINT
@@ -711,8 +711,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             block_variable = self.get_outputs()[0]
             coeff_count = block_variable.output.count()
             if coeff_count in form_ad_count_map:
-                assign_map[form_ad_count_map[coeff_count]].assign(
-                    block_variable.saved_output)
+                assign_map[form_ad_count_map[coeff_count]] = \
+                    block_variable.saved_output
         return assign_map
 
     def _ad_assign_coefficients(self, form, solver):
