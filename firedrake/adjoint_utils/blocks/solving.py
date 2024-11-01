@@ -673,7 +673,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
-        self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
+        self._ad_solvers["adjoint_lvs"]._problem.F._components[1] = dJdu
 
         # Solve the adjoint linear variational solver.
         self._ad_solvers["adjoint_lvs"].solve()
@@ -701,8 +701,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                            firedrake.Cofunction)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
-                    assign_map[form_ad_count_map[coeff_count]] = \
-                        block_variable.saved_output
+                    assign_map[form_ad_count_map[coeff_count]].assign(
+                        block_variable.saved_output)
 
         if (
             solver == Solver.ADJOINT
@@ -711,8 +711,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             block_variable = self.get_outputs()[0]
             coeff_count = block_variable.output.count()
             if coeff_count in form_ad_count_map:
-                assign_map[form_ad_count_map[coeff_count]] = \
-                    block_variable.saved_output
+                assign_map[form_ad_count_map[coeff_count]].assign(
+                    block_variable.saved_output)
         return assign_map
 
     def _ad_assign_coefficients(self, form, solver):
@@ -734,9 +734,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        if not self.adj_state:
-            self.adj_state = firedrake.Function(adj_sol.function_space())
-        self.adj_state.assign(adj_sol)
+        self.adj_state = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -744,7 +742,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         r = {}
         r["form"] = self._create_F_form()
-        r["adj_sol"] = adj_sol
+        r["adj_sol"] = self.adj_state
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
