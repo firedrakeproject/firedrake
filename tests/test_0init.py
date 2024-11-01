@@ -28,6 +28,6 @@ def test_pyop2_custom_init():
 
 
 def test_pyop2_cache_dir_set_correctly():
-    root = Path(os.environ.get("VIRTUAL_ENV", "~"))
+    root = Path(os.environ.get("VIRTUAL_ENV", "~")).joinpath(".cache")
     cache_dir = os.environ.get("PYOP2_CACHE_DIR", str(root.joinpath("pyop2")))
     assert op2.configuration["cache_dir"] == cache_dir
