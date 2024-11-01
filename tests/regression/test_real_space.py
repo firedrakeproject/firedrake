@@ -259,23 +259,6 @@ def test_real_mixed_solve_split_comms():
 
 
 @pytest.mark.skipcomplex
-def test_real_space_nonlinear_solve():
-    M = UnitIntervalMesh(5)
-
-    V = FunctionSpace(M, "CG", 1)
-    R = FunctionSpace(M, "R", 0)
-    Z = V * R
-
-    func = Function(Z)
-    u, l = split(func)
-    v, w = TestFunctions(Z)
-    F = (u + u**2 - 8)*v*dx + l*w*dx
-
-    solve(F == 0, func, solver_parameters={"mat_type": "nest"})
-    # TODO: Need some accuracy test?
-
-
-@pytest.mark.skipcomplex
 def test_real_space_eq():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)

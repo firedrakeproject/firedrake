@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType, IntType
 
 
@@ -123,6 +124,27 @@ def test_assemble_mat_with_tensor(mesh):
     M = assemble(Constant(2)*a, tensor=M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
+
+
+@pytest.mark.parametrize("space", ["CG", "CGxR"])
+def test_assembler_reuse_respects_tensor(mesh, space):
+    if space == "CG":
+        W = FunctionSpace(mesh, "CG", 1)
+    else:
+        assert space == "CGxR"
+        V = FunctionSpace(mesh, "CG", 1)
+        R = FunctionSpace(mesh, "R", 0)
+        W = V * R
+
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    a = inner(v, u) * dx
+
+    assembler = TwoFormAssembler(a)
+    A1 = assembler.assemble()
+    A2 = assembler.assemble(tensor=A1)
+
+    assert A2.M is A1.M
 
 
 def test_assemble_diagonal(mesh):
