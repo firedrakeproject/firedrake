@@ -19,9 +19,24 @@ from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
+from pathlib import Path
+from functools import cache
 
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
+
+
+# JBTODO: This _really_ needs adding to the libsupermesh python package
+@cache
+def supermesh_location():
+    try:
+        import supermesh
+        supermesh_dir = Path(supermesh.__path__._path[-1]).absolute()
+        supermesh_so = [*supermesh_dir.glob("*.so")][0]
+    except ImportError:
+        supermesh_dir = ""
+        supermesh_so = ""
+    return supermesh_dir, supermesh_so
 
 
 class BlockMatrix(object):
@@ -431,7 +446,14 @@ each supermesh cell.
     dirs = get_petsc_dir() + (sys.prefix, )
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
-    libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
+    libs += ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc"]
+
+    supermesh_dir, supermesh_so = supermesh_location()
+    if supermesh_dir:
+        libs += [f"-L{supermesh_dir!s}", f"-l:{supermesh_so.name!s}", f"-Wl,-rpath,{supermesh_dir!s}"]
+    else:
+        libs += ["-lsupermesh"]
+
     lib = load(
         supermesh_kernel_str, "c", "supermesh_kernel",
         cppargs=includes,

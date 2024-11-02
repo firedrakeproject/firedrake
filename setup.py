@@ -90,7 +90,7 @@ petsc_include = [petsc4py.get_include()] + [os.path.join(d, "include") for d in 
 include_dirs += petsc_include
 petsc_library = [os.path.join(petsc_dirs[1], "lib")]
 dirs = (sys.prefix, *petsc_dirs)
-link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
+petsc_link_args = ["-L%s/lib" % d for d in dirs] + ["-Wl,-rpath,%s/lib" % d for d in dirs]
 
 # numpy
 numpy_include = [np.get_include()]
@@ -98,15 +98,15 @@ include_dirs += numpy_include
 
 # libspatialindex
 libspatialindex_so = Path(rtree.core.rt._name).absolute()
-link_args += [str(libspatialindex_so)]
-link_args += ["-Wl,-rpath,$ORIGIN/../Rtree.libs"]
+link_args = petsc_link_args + [str(libspatialindex_so)]
+link_args += ["-Wl,-rpath,$ORIGIN/../../Rtree.libs"]
 include_dirs += [rtree.finder.get_include()]
 
 # libsupermesh
 supermesh_dir = Path(supermesh.__path__._path[0]).absolute()
 supermesh_so = next(supermesh_dir.glob('*.so'))
-link_args += [f"-L{supermesh_so!s} -l:{supermesh_so.name!s}"]
-link_args += [f"-Wl,-rpath,$ORIGIN/../supermesh,--soname={supermesh_so.name!s}"]
+link_args += [f"-L{supermesh_dir!s}", f"-l:{supermesh_so.name!s}"]
+link_args += ["-Wl,-rpath,$ORIGIN/../../supermesh"]
 include_dirs += [str(supermesh_dir.joinpath("include"))]
 
 extensions = cythonize([Extension(
@@ -122,7 +122,7 @@ extensions = cythonize([Extension(
         language="c",
         include_dirs=petsc_include + numpy_include,
         libraries=["petsc"],
-        extra_link_args=link_args,
+        extra_link_args=petsc_link_args,
     )]) + [
     Pybind11Extension(
         name="tinyasm._tinyasm",

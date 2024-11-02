@@ -1,6 +1,6 @@
 [project]
 name = "firedrake"
-version = "0.14"
+version = "0.14_dev"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = {file = "LICENSE"}
@@ -14,6 +14,7 @@ maintainers = [
 ]
 dependencies = [
   "cachetools",
+  "decorator",
   "mpi4py",
   "h5py",
   "petsc4py",
