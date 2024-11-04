@@ -2,9 +2,7 @@ import firedrake
 import ufl
 import finat.ufl
 import weakref
-from functools import reduce
 from enum import IntEnum
-from operator import and_
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
 
@@ -69,18 +67,18 @@ class TransferManager(object):
         self.use_averaging = use_averaging
         self.caches = {}
 
-    def is_native(self, element):
+    def is_native(self, element, op):
         if element in self.native_transfers.keys():
-            return True
+            return self.native_transfers[element][op] is not None
         if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return reduce(and_, map(self.is_native, element.sub_elements))
+            return all(self.is_native(e, op) for e in element.sub_elements)
         return (element.family() in native_families) and not (element.variant() in non_native_variants)
 
     def _native_transfer(self, element, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if self.is_native(element):
+            if self.is_native(element, op):
                 ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
@@ -248,7 +246,7 @@ class TransferManager(object):
         if not self.requires_transfer(source_element, transfer_op, source, target):
             return
 
-        if self.is_native(source_element) and self.is_native(target_element):
+        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
             self._native_transfer(source_element, transfer_op)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
@@ -313,7 +311,7 @@ class TransferManager(object):
         if not self.requires_transfer(source_element, Op.RESTRICT, source, target):
             return
 
-        if self.is_native(source_element) and self.is_native(target_element):
+        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
             self._native_transfer(source_element, Op.RESTRICT)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
