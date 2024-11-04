@@ -46,6 +46,8 @@ def rst_file(request):
 def env():
     env = os.environ.copy()
     env["MPLBACKEND"] = "pdf"
+    # Set environment variables for the test.
+    env["RUN_MODE"] = "test"
     return env
 
 
@@ -124,8 +126,13 @@ def test_demo_runs(py_file, env):
         except ImportError:
             pytest.skip(reason=f"VTK unavailable, skipping {basename(py_file)}")
     if basename(py_file) in parallel_demos:
-        # Skip this test. It is expensive and reproduced in a simpler form
-        # at test/regression/test_fwi_demos.py
-        pytest.skip("Skipping parallel full waveform inversion (FWI) test")
+        if basename(py_file) == "full_waveform_inversion.py":
+            processes = 2
+        else:
+            raise NotImplementedError("You need to specify the number of processes for this test")
 
-    subprocess.check_call([sys.executable, py_file], env=env)
+        executable = ["mpiexec", "-n", str(processes), sys.executable, py_file]
+    else:
+        executable = [sys.executable, py_file]
+
+    subprocess.check_call(executable, env=env)
