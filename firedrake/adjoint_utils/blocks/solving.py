@@ -673,7 +673,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
-        self._ad_solvers["adjoint_lvs"]._problem.F._components[1] = dJdu
+        self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
 
         # Solve the adjoint linear variational solver.
         self._ad_solvers["adjoint_lvs"].solve()
