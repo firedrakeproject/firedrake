@@ -166,7 +166,7 @@ class NonlinearVariationalSolverMixin:
         _ad_count_map = {}
         for block_variable in dependencies:
             coeff = block_variable.output
-            if Form:
+            if F:
                 if coeff in F_coefficients and coeff not in F_replace_map:
                     if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
                         F_replace_map[coeff] = copy.deepcopy(coeff)
