@@ -159,7 +159,7 @@ class NonlinearVariationalSolverMixin:
 
         F_replace_map = {}
         J_replace_map = {}
-        if Form:
+        if F:
             F_coefficients = Form.coefficients()
         J_coefficients = J.coefficients()
 
