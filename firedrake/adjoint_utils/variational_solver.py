@@ -154,7 +154,7 @@ class NonlinearVariationalSolverMixin:
         lvp._ad_count_map_update(_ad_count_map)
         return lvp
 
-    def _build_count_map(self, J, dependencies, Form=None):
+    def _build_count_map(self, J, dependencies, F=None):
         from firedrake import Function
 
         F_replace_map = {}
