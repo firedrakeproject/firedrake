@@ -70,7 +70,6 @@ class NonlinearVariationalSolverMixin:
                 block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
                                                        problem._ad_u,
                                                        problem._ad_bcs,
-                                                       problem._ad_adj_F,
                                                        adj_cache=self._ad_adj_cache,
                                                        problem_J=problem._ad_J,
                                                        solver_params=self.parameters,
@@ -89,7 +88,8 @@ class NonlinearVariationalSolverMixin:
                 if not self._ad_solvers["adjoint_lvs"]:
                     with stop_annotating():
                         self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
-                            self._ad_adj_lvs_problem(block), *block.adj_args, **block.adj_kwargs)
+                            self._ad_adj_lvs_problem(block, problem._ad_adj_F),
+                            *block.adj_args, **block.adj_kwargs)
                         if self._ad_problem._constant_jacobian:
                             self._ad_solvers["update_adjoint"] = False
 
@@ -117,7 +117,7 @@ class NonlinearVariationalSolverMixin:
         """
         from firedrake import NonlinearVariationalProblem
         _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
-            problem.J, dependencies, Form=problem.F)
+            problem.J, dependencies, F=problem.F)
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
@@ -128,7 +128,7 @@ class NonlinearVariationalSolverMixin:
         return nlvp
 
     @no_annotations
-    def _ad_adj_lvs_problem(self, block):
+    def _ad_adj_lvs_problem(self, block, adj_F):
         """Create the adjoint variational problem."""
         from firedrake import Function, Cofunction, LinearVariationalProblem
         # Homogeneous boundary conditions for the adjoint problem
@@ -137,16 +137,14 @@ class NonlinearVariationalSolverMixin:
         adj_sol = Function(block.function_space)
         right_hand_side = Cofunction(block.function_space.dual())
         tmp_problem = LinearVariationalProblem(
-            block.adj_F, right_hand_side,
-            adj_sol, bcs=bcs,
+            adj_F, right_hand_side, adj_sol, bcs=bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         # The `block.adj_F` coefficients hold the output references.
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the
         # `block.adj_F` coefficients.
         _ad_count_map, J_replace_map, _ = self._build_count_map(
-            block.adj_F, block._dependencies
-        )
+            adj_F, block._dependencies)
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
@@ -160,7 +158,7 @@ class NonlinearVariationalSolverMixin:
         F_replace_map = {}
         J_replace_map = {}
         if F:
-            F_coefficients = Form.coefficients()
+            F_coefficients = F.coefficients()
         J_coefficients = J.coefficients()
 
         _ad_count_map = {}
