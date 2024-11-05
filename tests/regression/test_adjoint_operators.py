@@ -971,7 +971,7 @@ def test_lvs_constant_jacobian(constant_jacobian):
 
     J_hat = ReducedFunctional(J, Control(u))
 
-    dJ = J_hat.derivative(options={"riesz_representation": "l2"})
+    dJ = J_hat.derivative(options={"riesz_representation": None})
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
     u_ref = Function(space, name="u").interpolate(X[0] - 0.1)
