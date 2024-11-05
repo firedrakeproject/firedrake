@@ -152,7 +152,6 @@ class NonlinearVariationalSolverMixin:
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)
-        del tmp_problem
         return lvp
 
     def _build_count_map(self, J, dependencies, Form=None):
