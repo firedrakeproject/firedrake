@@ -84,15 +84,15 @@ endif
 
 test_regression: modules
 	@echo "    Running non-extruded regression tests"
-	@python -m pytest tests/regression $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/regression $(PYTEST_ARGS)
 
 test_extrusion: modules
 	@echo "    Running extruded regression tests"
-	@python -m pytest tests/extrusion $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/extrusion $(PYTEST_ARGS)
 
 test_demos: modules
 	@echo "    Running test of demos"
-	@python -m pytest tests/demos $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/demos $(PYTEST_ARGS)
 
 test: modules
 	@echo "    Running all regression tests"
@@ -102,7 +102,7 @@ alltest: modules lint test
 
 shorttest: modules lint
 	@echo "    Running short regression tests"
-	@python -m pytest --short tests $(PYTEST_ARGS)
+	@python -m pytest --short tests/firedrake $(PYTEST_ARGS)
 
 # PyOP2 Makefile
 # PYTEST = py.test
