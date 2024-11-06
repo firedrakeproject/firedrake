@@ -51,6 +51,7 @@ supported_elements = {
     "Johnson-Mercier": finat.JohnsonMercier,
     "Nonconforming Arnold-Winther": finat.ArnoldWintherNC,
     "Conforming Arnold-Winther": finat.ArnoldWinther,
+    "Hu-Zhang": finat.HuZhang,
     "Hermite": finat.Hermite,
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
@@ -74,6 +75,8 @@ supported_elements = {
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
     "Raviart-Thomas": finat.RaviartThomas,
     "Regge": finat.Regge,
+    "Gopalakrishnan-Lederer-Schoberl 1st kind": finat.GopalakrishnanLedererSchoberlFirstKind,
+    "Gopalakrishnan-Lederer-Schoberl 2nd kind": finat.GopalakrishnanLedererSchoberlSecondKind,
     "BDMCE": finat.BrezziDouglasMariniCubeEdge,
     "BDMCF": finat.BrezziDouglasMariniCubeFace,
     # These require special treatment below
