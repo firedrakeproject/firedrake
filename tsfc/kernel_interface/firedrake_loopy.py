@@ -11,7 +11,7 @@ from gem.flop_count import count_flops
 
 import loopy as lp
 
-from tsfc import kernel_args
+from tsfc import kernel_args, fem
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
@@ -259,14 +259,26 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
             facet = gem.Variable('facet', (1,))
             self._entity_number = {None: gem.VariableIndex(gem.Indexed(facet, (0,)))}
+            facet_orientation = gem.Variable('facet_orientation', (1,), dtype=gem.uint_type)
+            self._entity_orientation = {None: gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,)))}
         elif integral_type in ['interior_facet', 'interior_facet_vert']:
             facet = gem.Variable('facet', (2,))
             self._entity_number = {
                 '+': gem.VariableIndex(gem.Indexed(facet, (0,))),
                 '-': gem.VariableIndex(gem.Indexed(facet, (1,)))
             }
+            facet_orientation = gem.Variable('facet_orientation', (2,), dtype=gem.uint_type)
+            self._entity_orientation = {
+                '+': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,))),
+                '-': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (1,)))
+            }
         elif integral_type == 'interior_facet_horiz':
             self._entity_number = {'+': 1, '-': 0}
+            facet_orientation = gem.Variable('facet_orientation', (1,), dtype=gem.uint_type)  # base mesh entity orientation
+            self._entity_orientation = {
+                '+': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,))),
+                '-': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,)))
+            }
 
         self.set_arguments(integral_data_info.arguments)
         self.integral_data_info = integral_data_info
@@ -406,6 +418,14 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
             int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
             args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
+        # Will generalise this in the submesh PR.
+        if fem.PointSetContext(**self.fem_config()).use_canonical_quadrature_point_ordering:
+            if info.integral_type == "exterior_facet":
+                ext_ornt_loopy_arg = lp.GlobalArg("facet_orientation", gem.uint_type, shape=(1,))
+                args.append(kernel_args.ExteriorFacetOrientationKernelArg(ext_ornt_loopy_arg))
+            elif info.integral_type == "interior_facet":
+                int_ornt_loopy_arg = lp.GlobalArg("facet_orientation", gem.uint_type, shape=(2,))
+                args.append(kernel_args.InteriorFacetOrientationKernelArg(int_ornt_loopy_arg))
         for name_, shape in tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))

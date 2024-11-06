@@ -34,6 +34,10 @@ class KernelInterface(metaclass=ABCMeta):
         """Facet or vertex number as a GEM index."""
 
     @abstractmethod
+    def entity_orientation(self, restriction):
+        """Entity orientation as a GEM index."""
+
+    @abstractmethod
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
