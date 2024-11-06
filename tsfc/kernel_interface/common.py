@@ -91,6 +91,11 @@ class KernelBuilderBase(KernelInterface):
         # Assume self._entity_number dict is set up at this point.
         return self._entity_number[restriction]
 
+    def entity_orientation(self, restriction):
+        """Facet orientation as a GEM index."""
+        # Assume self._entity_orientation dict is set up at this point.
+        return self._entity_orientation[restriction]
+
     def apply_glue(self, prepare=None, finalise=None):
         """Append glue code for operations that are not handled in the
         GEM abstraction.

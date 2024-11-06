@@ -2,6 +2,7 @@
 
 This is the final stage of code generation in TSFC."""
 
+from numbers import Integral
 import numpy
 from functools import singledispatch
 from collections import defaultdict, OrderedDict
@@ -47,6 +48,11 @@ def _assign_dtype(expression, self):
 @_assign_dtype.register(gem.Terminal)
 def _assign_dtype_terminal(expression, self):
     return {self.scalar_type}
+
+
+@_assign_dtype.register(gem.Variable)
+def _assign_dtype_variable(expression, self):
+    return {expression.dtype or self.scalar_type}
 
 
 @_assign_dtype.register(gem.Zero)
@@ -420,6 +426,16 @@ def _expression_division(expr, ctx):
     return p.Quotient(*(expression(c, ctx) for c in expr.children))
 
 
+@_expression.register(gem.FloorDiv)
+def _expression_floordiv(expr, ctx):
+    return p.FloorDiv(*(expression(c, ctx) for c in expr.children))
+
+
+@_expression.register(gem.Remainder)
+def _expression_remainder(expr, ctx):
+    return p.Remainder(*(expression(c, ctx) for c in expr.children))
+
+
 @_expression.register(gem.Power)
 def _expression_power(expr, ctx):
     return p.Variable("pow")(*(expression(c, ctx) for c in expr.children))
@@ -538,12 +554,19 @@ def _expression_flexiblyindexed(expr, ctx):
 
     rank = []
     for off, idxs in expr.dim2idxs:
+        rank_ = [expression(off, ctx)]
         for index, stride in idxs:
-            assert isinstance(index, gem.Index)
-
-        rank_ = [off]
-        for index, stride in idxs:
-            rank_.append(p.Product((ctx.active_indices[index], stride)))
+            if isinstance(index, gem.Index):
+                rank_.append(p.Product((ctx.active_indices[index], expression(stride, ctx))))
+            elif isinstance(index, gem.VariableIndex):
+                rank_.append(p.Product((expression(index.expression, ctx), expression(stride, ctx))))
+            else:
+                raise ValueError(f"Expecting Index or VariableIndex, not {type(index)}")
         rank.append(p.Sum(tuple(rank_)))
 
     return p.Subscript(var, tuple(rank))
+
+
+@_expression.register(Integral)
+def _expression_numbers_integral(expr, ctx):
+    return expr

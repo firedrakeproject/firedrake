@@ -92,9 +92,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     :arg log: bool if the Kernel should be profiled with Log events
     :returns: a kernel constructed by the kernel interface
     """
-    if integral_data.domain.ufl_cell().cellname() == "hexahedron" and \
-       integral_data.integral_type == "interior_facet":
-        raise NotImplementedError("interior facet integration in hex meshes not currently supported")
     parameters = preprocess_parameters(parameters)
     if interface is None:
         interface = firedrake_interface_loopy.KernelBuilder
