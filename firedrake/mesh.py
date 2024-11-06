@@ -36,6 +36,7 @@ from firedrake.petsc import (
 )
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
+import gem
 
 try:
     import netgen
@@ -44,6 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
+from tsfc.finatinterface import as_fiat_cell
 
 
 __all__ = [
@@ -316,6 +318,44 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
+
+    @utils.cached_property
+    def local_facet_orientation_dat(self):
+        """Dat for the local facet orientations."""
+        dtype = gem.uint_type
+        # Make a map from cell to facet orientations.
+        fiat_cell = as_fiat_cell(self.mesh.ufl_cell())
+        topo = fiat_cell.topology
+        num_entities = [0]
+        for d in range(len(topo)):
+            num_entities.append(len(topo[d]))
+        offsets = np.cumsum(num_entities)
+        local_facet_start = offsets[-3]
+        local_facet_end = offsets[-2]
+        map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
+        # Make output data;
+        # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
+        # Halo data are required by design, but not actually used.
+        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
+        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
+        data.fill(np.iinfo(dtype).max)
+        # Set local facet orientations on the block corresponding to the owned facets; i.e., data[:shape[0], :] below.
+        local_facets = self.local_facet_dat.data_ro  # do not need halos.
+        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
+        local_facets = local_facets.reshape((-1, self._rank))
+        shape = local_facets.shape
+        map_from_owned_facet_to_cells = self.facet_cell[:shape[0], :]
+        data[:shape[0], :] = np.take_along_axis(
+            map_from_cell_to_facet_orientations[map_from_owned_facet_to_cells],
+            local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
+            axis=2,
+        ).reshape(shape)
+        return op2.Dat(
+            self.local_facet_dat.dataset,
+            data,
+            dtype,
+            f"{self.mesh.name}_{self.kind}_local_facet_orientation"
+        )
 
 
 @PETSc.Log.EventDecorator()
