@@ -17,6 +17,7 @@ class NonlinearVariationalProblemMixin:
             self._ad_u = self.u_restrict
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+            print("testing")
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
