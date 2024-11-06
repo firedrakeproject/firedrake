@@ -46,8 +46,6 @@ def rst_file(request):
 def env():
     env = os.environ.copy()
     env["MPLBACKEND"] = "pdf"
-    # Set environment variables for the test.
-    env["RUN_MODE"] = "test"
     return env
 
 

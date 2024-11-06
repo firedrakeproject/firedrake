@@ -69,6 +69,26 @@ To achieve this, we use ensemble parallelism, which involves solving simultaneou
 equation (3) with different forcing terms :math:`f_s(\mathbf{x}, t)`, different :math:`J_s` and their
 gradients (which we will discuss later).
 
+We start  by importing firedrake and the necessary parameters used in spatial and time execution::
+
+    from firedrake import *
+    import os
+    test = False
+    if os.getenv("FIREDRAKE_CI_TESTS") == 1:
+        test = True
+
+    def spatial_time_parameters(test):
+        if test:
+            # Setup for a faster test execution.
+            dt = 0.03  # time step in seconds
+            final_time = 0.6  # final time in seconds
+            nx, ny = 15, 15
+        else:
+            dt = 0.002  # time step in seconds
+            final_time = 1.0  # final time in seconds
+            nx, ny = 80, 80
+        return dt, final_time, nx, ny
+
 Instantiating an ensemble requires a communicator (usually MPI_COMM_WORLD) plus the number of MPI
 processes to be used in each member of the ensemble (2, in this case)::
 
@@ -76,10 +96,7 @@ processes to be used in each member of the ensemble (2, in this case)::
     from firedrake import *
     M = 2
     my_ensemble = Ensemble(COMM_WORLD, M)
-    test = False
-    if os.getenv("RUN_MODE") == "test":
-        # Set the test flag to True.
-        test = True
+    
 
 Each ensemble member will have the same spatial parallelism with the number of ensemble members given
 by dividing the size of the original communicator by the number processes in each ensemble member.
@@ -106,26 +123,15 @@ The source number is defined with the ``Ensemble.ensemble_comm`` rank::
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
 built over the ``my_ensemble.comm`` (spatial) communicator::
 
-    if test:
-        # Setup for a faster test execution.
-        nx, ny = 15, 15
-    else:
-        nx, ny = 80, 80
+    dt, final_time, nx, ny = spatial_time_parameters(test)
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
 
-The basic input for the FWI problem are defined as follows::
+The frequency of the Ricker wavelet, the source and receiver locations are defined as follows::
 
     import numpy as np
     frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
     source_locations = np.linspace((0.3, 0.1), (0.7, 0.1), num_sources)
     receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 20)
-    if test:
-        # Setup for a faster test execution.
-        dt = 0.03  # time step in seconds
-        final_time = 0.6  # final time in seconds
-    else:
-        dt = 0.002  # time step in seconds
-        final_time = 1.0  # final time in seconds
 
 Sources and receivers locations are illustrated in the following figure:
 
@@ -281,7 +287,6 @@ To have the step 4, we need first to tape the forward problem. That is done by c
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
 
-    print("Functional value: ", J_val)
 
 We now instantiate :class:`~.EnsembleReducedFunctional`::
 
