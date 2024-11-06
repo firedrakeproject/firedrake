@@ -69,7 +69,7 @@ To achieve this, we use ensemble parallelism, which involves solving simultaneou
 equation (3) with different forcing terms :math:`f_s(\mathbf{x}, t)`, different :math:`J_s` and their
 gradients (which we will discuss later).
 
-We start  by importing firedrake and the necessary parameters used in spatial and time execution::
+We start  by importing firedrake and the necessary parameters used in spatial and time executions::
 
     from firedrake import *
     import os
@@ -92,11 +92,9 @@ We start  by importing firedrake and the necessary parameters used in spatial an
 Instantiating an ensemble requires a communicator (usually MPI_COMM_WORLD) plus the number of MPI
 processes to be used in each member of the ensemble (2, in this case)::
 
-    import os
     from firedrake import *
     M = 2
     my_ensemble = Ensemble(COMM_WORLD, M)
-    
 
 Each ensemble member will have the same spatial parallelism with the number of ensemble members given
 by dividing the size of the original communicator by the number processes in each ensemble member.
@@ -121,7 +119,7 @@ The source number is defined with the ``Ensemble.ensemble_comm`` rank::
     source_number = my_ensemble.ensemble_comm.rank
 
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
-built over the ``my_ensemble.comm`` (spatial) communicator::
+built over the ``my_ensemble.comm`` (spatial) communicator.::
 
     dt, final_time, nx, ny = spatial_time_parameters(test)
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
@@ -286,7 +284,6 @@ To have the step 4, we need first to tape the forward problem. That is done by c
         guess_receiver = assemble(interpolate_receivers)
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
-
 
 We now instantiate :class:`~.EnsembleReducedFunctional`::
 
