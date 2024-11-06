@@ -74,7 +74,7 @@ We start  by importing firedrake and the necessary parameters used in spatial an
     from firedrake import *
     import os
     test = False
-    if os.getenv("FIREDRAKE_CI_TESTS") == 1:
+    if os.getenv("FIREDRAKE_CI_TESTS") == "1":
         test = True
 
     def spatial_time_parameters(test):
