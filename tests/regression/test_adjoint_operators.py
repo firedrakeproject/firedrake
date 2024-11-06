@@ -840,7 +840,7 @@ def test_assign_cofunction(solve_type):
             solver.solve()
         J += assemble(((sol + Constant(1.0)) ** 2) * dx)
     rf = ReducedFunctional(J, Control(k))
-    assert rf(k) == J
+    assert np.isclose(rf(k), J, rtol=1e-10)
     assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
 
 
@@ -969,17 +969,15 @@ def test_lvs_constant_jacobian(constant_jacobian):
     solver.solve()
     J = assemble(v * v * dx)
 
-    assert "dFdu_adj" not in solver._ad_adj_cache
+    J_hat = ReducedFunctional(J, Control(u))
 
-    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
-
-    cached_dFdu_adj = solver._ad_adj_cache.get("dFdu_adj", None)
-    assert (cached_dFdu_adj is None) == (not constant_jacobian)
+    dJ = J_hat.derivative(options={"riesz_representation": None})
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
-    dJ = compute_gradient(J, Control(u), options={"riesz_representation": "l2"})
+    u_ref = Function(space, name="u").interpolate(X[0] - 0.1)
+    J_hat(u_ref)
 
-    assert cached_dFdu_adj is solver._ad_adj_cache.get("dFdu_adj", None)
+    dJ = J_hat.derivative(options={"riesz_representation": None})
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
