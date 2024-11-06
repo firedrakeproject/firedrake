@@ -1375,23 +1375,6 @@ def build_and_install_slepc():
             git_clone(url)
 
 
-def build_and_install_netgen():
-    log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "netgen-mesher"])
-    log.info("Installing ngsPETSc.")
-    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
-    ngsPETSc_changed = False
-    if os.path.exists("ngsPETSc"):
-        ngsPETSc_changed |= git_update("ngsPETSc")
-    else:
-        git_clone(url)
-        ngsPETSc_changed = True
-    if ngsPETSc_changed:
-        with directory("ngsPETSc"):
-            with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
-                check_call([python, "-m", "pip", "install", "-e", "."])
-
-
 def install_documentation_dependencies():
     """Just install the required dependencies. There are no provenance
     issues here so no need to record this in the configuration dict."""
@@ -2089,7 +2072,7 @@ with environment(**compiler_env):
                 install("slepc4py/")
 
     if options["netgen"]:
-        build_and_install_netgen()
+        packages += ["ngsPETSc"]
 
 with pipargs("--no-deps"):
     if options["opencascade"]:
