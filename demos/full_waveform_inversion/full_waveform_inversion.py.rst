@@ -101,7 +101,7 @@ The source number is defined with the ``Ensemble.ensemble_comm`` rank::
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
 built over the ``my_ensemble.comm`` (spatial) communicator.
 
-.. code-block:: python
+::
 
     import os
     if os.getenv("FIREDRAKE_CI_TESTS") == "1": 
