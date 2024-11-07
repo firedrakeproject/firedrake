@@ -756,6 +756,41 @@ def test_exact_refinement_parallel():
     test_exact_refinement()
 
 
+def voting_algorithm_edgecases(nprocs):
+    # this triggers lots of cases where the VOM voting algorithm has to deal
+    # with points being claimed by multiple ranks: there are cases where each
+    # rank will claim another one owns a point, for example, and yet also all
+    # claim zero distance to the reference cell!
+    s = nprocs
+    nx = 2 * s
+    mx = 3 * nx
+    mh = [UnitCubeMesh(nx, nx, nx),
+          UnitCubeMesh(mx, mx, mx)]
+    family = "Lagrange"
+    degree = 1
+    Vc = FunctionSpace(mh[0], family, degree=degree)
+    Vf = FunctionSpace(mh[1], family, degree=degree)
+    uc = Function(Vc).interpolate(SpatialCoordinate(mh[0])[0])
+    uf = Function(Vf).interpolate(uc)
+    uf2 = Function(Vf).interpolate(SpatialCoordinate(mh[1])[0])
+    assert np.isclose(errornorm(uf, uf2), 0.0)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_voting_algorithm_edgecases_2_ranks():
+    voting_algorithm_edgecases(2)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_voting_algorithm_edgecases_3_ranks():
+    voting_algorithm_edgecases(3)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_voting_algorithm_edgecases_4_ranks():
+    voting_algorithm_edgecases(4)
+
+
 @pytest.mark.parallel
 @pytest.mark.parametrize('periodic', [False, True])
 def test_interpolate_cross_mesh_interval(periodic):
