@@ -36,6 +36,7 @@ from firedrake.petsc import (
 )
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
+import gem
 
 try:
     import netgen
@@ -44,6 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
+from tsfc.finatinterface import as_fiat_cell
 
 
 __all__ = [
@@ -316,6 +318,44 @@ class _Facets(object):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
+
+    @utils.cached_property
+    def local_facet_orientation_dat(self):
+        """Dat for the local facet orientations."""
+        dtype = gem.uint_type
+        # Make a map from cell to facet orientations.
+        fiat_cell = as_fiat_cell(self.mesh.ufl_cell())
+        topo = fiat_cell.topology
+        num_entities = [0]
+        for d in range(len(topo)):
+            num_entities.append(len(topo[d]))
+        offsets = np.cumsum(num_entities)
+        local_facet_start = offsets[-3]
+        local_facet_end = offsets[-2]
+        map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
+        # Make output data;
+        # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
+        # Halo data are required by design, but not actually used.
+        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
+        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
+        data.fill(np.iinfo(dtype).max)
+        # Set local facet orientations on the block corresponding to the owned facets; i.e., data[:shape[0], :] below.
+        local_facets = self.local_facet_dat.data_ro  # do not need halos.
+        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
+        local_facets = local_facets.reshape((-1, self._rank))
+        shape = local_facets.shape
+        map_from_owned_facet_to_cells = self.facet_cell[:shape[0], :]
+        data[:shape[0], :] = np.take_along_axis(
+            map_from_cell_to_facet_orientations[map_from_owned_facet_to_cells],
+            local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
+            axis=2,
+        ).reshape(shape)
+        return op2.Dat(
+            self.local_facet_dat.dataset,
+            data,
+            dtype,
+            f"{self.mesh.name}_{self.kind}_local_facet_orientation"
+        )
 
 
 @PETSc.Log.EventDecorator()
@@ -2494,7 +2534,7 @@ values from f.)"""
         return spatialindex.from_regions(coords_min, coords_max)
 
     @PETSc.Log.EventDecorator()
-    def locate_cell(self, x, tolerance=None):
+    def locate_cell(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point.
 
         :arg x: point coordinates
@@ -2502,12 +2542,13 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: cell number (int), or None (if the point is not
             in the domain)
         """
-        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[0]
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[0]
 
-    def locate_reference_coordinate(self, x, tolerance=None):
+    def locate_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Get reference coordinates of a given point in its cell. Which
         cell the point is in can be queried with the locate_cell method.
 
@@ -2516,12 +2557,13 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: reference coordinates within cell (numpy array) or
             None (if the point is not in the domain)
         """
-        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance)[1]
+        return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[1]
 
-    def locate_cell_and_reference_coordinate(self, x, tolerance=None):
+    def locate_cell_and_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
 
@@ -2530,6 +2572,7 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: tuple either
             (cell number, reference coordinates) of type (int, numpy array),
             or, when point is not in the domain, (None, None).
@@ -2538,12 +2581,12 @@ values from f.)"""
         if x.size != self.geometric_dimension():
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension()))
-        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance)
+        cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance, cells_ignore=[[cell_ignore]])
         if cells[0] == -1:
             return None, None
         return cells[0], ref_coords[0]
 
-    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None):
+    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
 
@@ -2552,6 +2595,11 @@ values from f.)"""
             Default is this mesh's :attr:`tolerance` property. Changing
             this from default will cause the spatial index to be rebuilt which
             can take some time.
+        :kwarg cells_ignore: Cell numbers to ignore in the search for each
+            point in xs. Shape should be (npoints, n_ignore_pts). Each column
+            corresponds to a single coordinate in xs. To not ignore any cells,
+            pass None. To ensure a full cell search for any given point, set
+            the corresponding entries to -1.
         :returns: tuple either
             (cell numbers array, reference coordinates array, ref_cell_dists_l1 array)
             of type
@@ -2572,6 +2620,13 @@ values from f.)"""
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         Xs = np.empty_like(xs)
         npoints = len(xs)
+        if cells_ignore is None or cells_ignore[0][0] is None:
+            cells_ignore = np.full((npoints, 1), -1, dtype=IntType, order="C")
+        else:
+            cells_ignore = np.asarray(cells_ignore, dtype=IntType, order="C")
+        if cells_ignore.shape[0] != npoints:
+            raise ValueError("Number of cells to ignore does not match number of points")
+        assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension()
@@ -2580,7 +2635,9 @@ values from f.)"""
                                              Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints)
+                                             npoints,
+                                             cells_ignore.shape[1],
+                                             cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
@@ -2596,7 +2653,7 @@ values from f.)"""
             IntTypeC = as_cstr(IntType)
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints)
+                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
                 {{
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{
@@ -2609,7 +2666,9 @@ values from f.)"""
                         /* to_reference_coords and to_reference_coords_xtr are defined in
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i]);
+                        /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
+                        int *cells_ignore_i = cells_ignore + i*ncells_ignore;
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension()}; k++) {{
                             X[j] = found_reference_coords.X[k];
@@ -2643,7 +2702,9 @@ values from f.)"""
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int),
-                                ctypes.c_size_t]
+                                ctypes.c_size_t,
+                                ctypes.c_size_t,
+                                np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
@@ -4100,12 +4161,18 @@ def _parent_mesh_embedding(
     if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
         # The reference coordinates contain an extra unnecessary dimension
         # which we can safely delete
-        reference_coords = reference_coords[:, :parent_mesh.topological_dimension()]
+        reference_coords = reference_coords[:, : parent_mesh.topological_dimension()]
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
     # see below for why np.inf is used here.
     ref_cell_dists_l1[~locally_visible] = np.inf
+
+    # ensure that points which a rank thinks it owns are always chosen in a tie
+    # break by setting the rank to be negative. If multiple ranks think they
+    # own a point then the one with the highest rank will be chosen.
+    on_this_rank = ranks == parent_mesh.comm.rank
+    ranks[on_this_rank] = -parent_mesh.comm.rank
     ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
 
     # In parallel there will regularly be disagreements about which cell owns a
@@ -4124,23 +4191,73 @@ def _parent_mesh_embedding(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
 
+    # switch ranks back to positive
+    owned_ref_cell_dists_l1_and_ranks[:, 1] = np.abs(
+        owned_ref_cell_dists_l1_and_ranks[:, 1]
+    )
+    ref_cell_dists_l1_and_ranks[:, 1] = np.abs(ref_cell_dists_l1_and_ranks[:, 1])
+    ranks = np.abs(ranks)
+
+    owned_ref_cell_dists_l1 = owned_ref_cell_dists_l1_and_ranks[:, 0]
     owned_ranks = owned_ref_cell_dists_l1_and_ranks[:, 1]
 
-    # Any rows where owned_ref_cell_dists_l1_and_ranks and
-    # ref_cell_dists_l1_and_ranks differ in distance or rank correspond to
-    # points which are claimed by a cell that we cannot see. We should now
-    # update our information accordingly. This should only happen for points
-    # which we've already marked as being owned by a different rank.
-    extra_missing_points = ~np.all(
-        owned_ref_cell_dists_l1_and_ranks == ref_cell_dists_l1_and_ranks, axis=1
-    )
-    if any(owned_ranks[extra_missing_points] == parent_mesh.comm.rank):
-        raise RuntimeError(
-            "Some points have been claimed by a cell that we cannot see, "
-            "but which we think we own. This should not happen."
-        )
-    locally_visible[extra_missing_points] = False
-    parent_cell_nums[extra_missing_points] = -1
+    changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+    changed_ranks = owned_ranks != ranks
+
+    # If distance has changed the the point is not in local mesh partition
+    # since some other cell on another rank is closer.
+    locally_visible[changed_ref_cell_dists_l1] = False
+    parent_cell_nums[changed_ref_cell_dists_l1] = -1
+    # If the rank has changed but the distance hasn't then there was a tie
+    # break and we need to search for the point again, this time disallowing
+    # the previously identified cell: if we match the identified owned_rank AND
+    # the distance is the same then we have found the correct cell. If we
+    # cannot make a match to owned_rank and distance then we can't see the
+    # point.
+    changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
+    if any(changed_ranks_tied):
+        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
+        while any(changed_ranks_tied):
+            (
+                parent_cell_nums[changed_ranks_tied],
+                new_reference_coords,
+                ref_cell_dists_l1[changed_ranks_tied],
+            ) = parent_mesh.locate_cells_ref_coords_and_dists(
+                coords_global[changed_ranks_tied],
+                tolerance,
+                cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
+            )
+            # delete extra dimension if necessary
+            if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
+                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension()]
+            reference_coords[changed_ranks_tied, :] = new_reference_coords
+            # remove newly lost points
+            locally_visible[changed_ranks_tied] = (
+                parent_cell_nums[changed_ranks_tied] != -1
+            )
+            changed_ranks_tied &= locally_visible
+            # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
+            # disregard the point.
+            locally_visible[changed_ranks_tied] &= (
+                ref_cell_dists_l1[changed_ranks_tied]
+                <= owned_ref_cell_dists_l1[changed_ranks_tied]
+            )
+            changed_ranks_tied &= locally_visible
+            # update the identified rank
+            ranks[changed_ranks_tied] = visible_ranks[
+                parent_cell_nums[changed_ranks_tied]
+            ]
+            # if the rank now matches then we have found the correct cell
+            locally_visible[changed_ranks_tied] &= (
+                owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
+            )
+            # remove these rank matches from changed_ranks_tied
+            changed_ranks_tied &= ~locally_visible
+            # add more cells to ignore
+            cells_ignore_T = np.vstack((
+                cells_ignore_T,
+                parent_cell_nums)
+            )
 
     # Any ranks which are still np.inf are not in the mesh
     missing_global_idxs = np.where(owned_ranks == np.inf)[0]

@@ -369,7 +369,7 @@ class _SNESContext(object):
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(field, V, subu, u)
+                    bc_temp = bc.reconstruct(V, subu, u, field, False)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
