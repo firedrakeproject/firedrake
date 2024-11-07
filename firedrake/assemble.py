@@ -977,7 +977,7 @@ class ParloopFormAssembler(FormAssembler):
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
-        self._pyop3_compiler_parameters = pyop3_compiler_parameters
+        self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
 
     def assemble(self, tensor=None):
         """Assemble the form.
@@ -1008,6 +1008,9 @@ class ParloopFormAssembler(FormAssembler):
         if needs_zeroing:
             self._as_pyop3_type(tensor).zero(eager=True)
 
+        pyop3_compiler_parameters = {"optimize": True}
+        pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
+
         for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = _FormHandler.index_tensor(
                 tensor, self._form, lknl.indices, self.diagonal
@@ -1015,9 +1018,9 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
-                    parloop(**{self._tensor_name: tensor_mod}, compiler_parameters=self._pyop3_compiler_parameters)
+                    parloop(**{self._tensor_name: tensor_mod}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name: subtensor}, compiler_parameters=self._pyop3_compiler_parameters)
+                parloop(**{self._tensor_name: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
