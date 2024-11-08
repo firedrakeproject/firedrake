@@ -112,10 +112,12 @@ def test_poisson_inverse_conductivity(num_points):
     Ĵ = ReducedFunctional(J, q̂)
 
     # Estimate q using Newton-CG which evaluates the hessian action
-    minimize(Ĵ, method='Newton-CG', options={'disp': True})
+    minimize(Ĵ, method='Newton-CG', options={'maxiter': 3, 'disp': True})
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parallel
+@pytest.mark.markif_fixture(pytest.mark.slow, num_points="sparse")
+@pytest.mark.markif_fixture(pytest.mark.slow, num_points="dense")
 def test_poisson_inverse_conductivity_parallel(num_points):
     test_poisson_inverse_conductivity(num_points)
