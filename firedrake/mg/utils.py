@@ -11,7 +11,7 @@ from firedrake.cython import mgimpl as impl
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -41,15 +41,15 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
-                                             fine_to_coarse_nodes.shape[1],
-                                             values=fine_to_coarse_nodes))
+        return cache.setdefault(key, op2.compute_backend.Map(Vf.node_set, Vc.node_set,
+                                                             fine_to_coarse_nodes.shape[1],
+                                                             values=fine_to_coarse_nodes))
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -79,15 +79,15 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             coarse_to_fine_nodes.shape[1],
-                                             values=coarse_to_fine_nodes))
+        return cache.setdefault(key, op2.compute_backend.Map(Vc.node_set, Vf.node_set,
+                                                             coarse_to_fine_nodes.shape[1],
+                                                             values=coarse_to_fine_nodes))
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.compute_backend.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -128,9 +128,9 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         offset = Vf.offset
         if offset is not None:
             offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
-        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
-                                             offset=offset))
+        return cache.setdefault(key, op2.compute_backend.Map(iterset, Vf.node_set,
+                                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
+                                                             offset=offset))
 
 
 def physical_node_locations(V):

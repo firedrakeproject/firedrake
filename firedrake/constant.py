@@ -75,7 +75,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
                 "create a Function in the Real space.", FutureWarning
             )
 
-            dat, rank, shape = _create_dat(op2.Global, value, domain._comm)
+            dat, rank, shape = _create_dat(op2.compute_backend.Global, value, domain._comm)
 
             if not isinstance(domain, ufl.AbstractDomain):
                 cell = ufl.as_cell(domain)
@@ -102,7 +102,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
+        self.dat, rank, self._ufl_shape = _create_dat(op2.compute_backend.Constant, value, None)
 
         super().__init__()
         Counted.__init__(self, count, Counted)
