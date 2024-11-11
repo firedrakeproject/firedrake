@@ -977,7 +977,7 @@ class ParloopFormAssembler(FormAssembler):
         else:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                self._as_parloop_type(tensor).zero()
+                self._as_pyop2_type(tensor).zero()
 
         self.execute_parloops(tensor)
 
@@ -994,6 +994,11 @@ class ParloopFormAssembler(FormAssembler):
     def _check_tensor(self, tensor):
         """Check input tensor."""
 
+    @staticmethod
+    @abc.abstractmethod
+    def _as_pyop2_type(tensor, indices=None):
+        """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+
     def execute_parloops(self, tensor):
         for parloop in self.parloops(tensor):
             parloop()
@@ -1001,7 +1006,7 @@ class ParloopFormAssembler(FormAssembler):
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
             for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
-                data = self._as_parloop_type(tensor, lknl.indices)
+                data = self._as_pyop2_type(tensor, lknl.indices)
                 parloop.arguments[0].data = data
 
         else:
@@ -1016,7 +1021,7 @@ class ParloopFormAssembler(FormAssembler):
                     self.all_integer_subdomain_ids,
                     diagonal=self.diagonal,
                 )
-                pyop2_tensor = self._as_parloop_tensor(tensor, local_kernel.indices)
+                pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
                 parloop = parloop_builder.build(pyop2_tensor)
                 parloops_.append(parloop)
             self._parloops = tuple(parloops_)
@@ -1075,11 +1080,6 @@ class ParloopFormAssembler(FormAssembler):
     def result(self, tensor):
         """The result of the assembly operation."""
 
-    @abc.abstractmethod
-    @classmethod
-    def _as_pyop2_tensor(cls, tensor, indices=None):
-        """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
-
 
 class ZeroFormAssembler(ParloopFormAssembler):
     """Class for assembling a 0-form.
@@ -1123,13 +1123,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
     def _check_tensor(self, tensor):
         pass
 
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
+        assert not indices
+        return tensor
+
     def result(self, tensor):
         return tensor.data[0]
-
-    @classmethod
-    def _as_pyop2_tensor(cls, tensor, indices=None):
-        assert indices is None
-        return tensor
 
 
 class OneFormAssembler(ParloopFormAssembler):
@@ -1203,6 +1203,14 @@ class OneFormAssembler(ParloopFormAssembler):
         if tensor.function_space() != self._form.arguments()[0].function_space():
             raise ValueError("Form's argument does not match provided result tensor")
 
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
+        if indices is not None and any(index is not None for index in indices):
+            i, = indices
+            return tensor.dat[i]
+        else:
+            return tensor.dat
+
     def execute_parloops(self, tensor):
         # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
         # can be skipped.
@@ -1216,14 +1224,6 @@ class OneFormAssembler(ParloopFormAssembler):
 
     def result(self, tensor):
         return tensor
-
-    @classmethod
-    def _as_pyop2_tensor(cls, tensor, indices=None):
-        if indices is not None and any(index is not None for index in indices):
-            i, = indices
-            return tensor.dat[i]
-        else:
-            return tensor.dat
 
 
 def TwoFormAssembler(form, *args, **kwargs):
@@ -1460,12 +1460,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
 
-    def result(self, tensor):
-        tensor.M.assemble()
-        return tensor
-
-    @classmethod
-    def _as_pyop2_tensor(cls, tensor, indices=None):
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
         if indices is not None and any(index is not None for index in indices):
             i, j = indices
             mat = tensor.M[i, j]
@@ -1481,6 +1477,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 mat = mat_context.dat
 
         return mat
+
+    def result(self, tensor):
+        tensor.M.assemble()
+        return tensor
 
 
 class MatrixFreeAssembler(FormAssembler):
@@ -1526,9 +1526,9 @@ class MatrixFreeAssembler(FormAssembler):
         if tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
 
-    @classmethod
-    def _as_pyop2_tensor(cls, tensor, indices=None):
-        assert False, " dont think this is needed"
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
+        raise AssertionError("Should not be called for matrix-free assembly")
 
 
 def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
@@ -1927,7 +1927,7 @@ class ParloopBuilder:
             lgmaps = []
             for i, j in self.get_indicess():
                 row_bcs, col_bcs = self._filter_bcs(i, j)
-                rlgmap, clgmap = self._tensor.M[i, j].local_to_global_maps
+                rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
                 rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
                 clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                 lgmaps.append((rlgmap, clgmap))
@@ -2119,5 +2119,3 @@ class _FormHandler:
             return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
         else:
             raise AssertionError
-
-
