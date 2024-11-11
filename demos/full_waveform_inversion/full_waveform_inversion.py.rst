@@ -251,6 +251,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
     from firedrake.adjoint import *
     continue_annotation()
+    get_working_tape().progress_bar = ProgressBar
 
 **Steps 2-3**: Solve the wave equation and compute the functional::
 
