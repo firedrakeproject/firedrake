@@ -1937,7 +1937,7 @@ class ParloopBuilder:
             lgmaps = []
             for i, j in self.get_indicess():
                 row_bcs, col_bcs = self._filter_bcs(i, j)
-                rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
+                rlgmap, clgmap = self._tensor.local_to_global_maps
                 rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
                 clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                 lgmaps.append((rlgmap, clgmap))
@@ -2023,10 +2023,10 @@ def _as_parloop_arg_output(_, self):
 
         if all(V.ufl_element().family() == "Real" for V in Vs):
             assert rmap is None and cmap is None
-            return op2.GlobalParloopArg(self._tensor.handle.getPythonContext().global_)
+            return op2.GlobalParloopArg(self._tensor)
         elif any(V.ufl_element().family() == "Real" for V in Vs):
             m = rmap or cmap
-            return op2.DatParloopArg(self._tensor.handle.getPythonContext().dat, m)
+            return op2.DatParloopArg(self._tensor, m)
         else:
             return op2.MatParloopArg(self._tensor, (rmap, cmap), lgmaps=self.collect_lgmaps())
     else:
