@@ -977,7 +977,7 @@ class ParloopFormAssembler(FormAssembler):
         else:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                _as_pyop2_tensor(tensor).zero()
+                self._as_parloop_type(tensor).zero()
 
         self.execute_parloops(tensor)
 
@@ -1001,22 +1001,14 @@ class ParloopFormAssembler(FormAssembler):
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
             for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
-                data = _as_parloop_type(tensor, lknl.indices)
+                data = self._as_parloop_type(tensor, lknl.indices)
                 parloop.arguments[0].data = data
+
         else:
             # Make parloops for one concrete output tensor and cache them.
-            self._parloops = tuple(
-                parloop_builder.build(tensor)
-                for parloop_builder in self.parloop_builders
-            )
-        return self._parloops
-
-    @cached_property
-    def parloop_builders(self):
-        out = []
-        for local_kernel, subdomain_id in self.local_kernels:
-            out.append(
-                ParloopBuilder(
+            parloops_ = []
+            for local_kernel, subdomain_id in self.local_kernels:
+                parloop_builder = ParloopBuilder(
                     self._form,
                     self._bcs,
                     local_kernel,
@@ -1024,8 +1016,12 @@ class ParloopFormAssembler(FormAssembler):
                     self.all_integer_subdomain_ids,
                     diagonal=self.diagonal,
                 )
-            )
-        return tuple(out)
+                pyop2_tensor = self._as_parloop_tensor(tensor, local_kernel.indices)
+                parloop = parloop_builder.build(pyop2_tensor)
+                parloops_.append(parloop)
+            self._parloops = tuple(parloops_)
+
+        return self._parloops
 
     @cached_property
     def local_kernels(self):
@@ -1079,6 +1075,11 @@ class ParloopFormAssembler(FormAssembler):
     def result(self, tensor):
         """The result of the assembly operation."""
 
+    @abc.abstractmethod
+    @classmethod
+    def _as_pyop2_tensor(cls, tensor, indices=None):
+        """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+
 
 class ZeroFormAssembler(ParloopFormAssembler):
     """Class for assembling a 0-form.
@@ -1124,6 +1125,11 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def result(self, tensor):
         return tensor.data[0]
+
+    @classmethod
+    def _as_pyop2_tensor(cls, tensor, indices=None):
+        assert indices is None
+        return tensor
 
 
 class OneFormAssembler(ParloopFormAssembler):
@@ -1210,6 +1216,14 @@ class OneFormAssembler(ParloopFormAssembler):
 
     def result(self, tensor):
         return tensor
+
+    @classmethod
+    def _as_pyop2_tensor(cls, tensor, indices=None):
+        if indices is not None and any(index is not None for index in indices):
+            i, = indices
+            return tensor.dat[i]
+        else:
+            return tensor.dat
 
 
 def TwoFormAssembler(form, *args, **kwargs):
@@ -1450,6 +1464,24 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         tensor.M.assemble()
         return tensor
 
+    @classmethod
+    def _as_pyop2_tensor(cls, tensor, indices=None):
+        if indices is not None and any(index is not None for index in indices):
+            i, j = indices
+            mat = tensor.M[i, j]
+        else:
+            mat = tensor.M
+
+        if mat.handle.getType() == "python":
+            mat_context = mat.handle.getPythonContext()
+            if isinstance(mat_context, _GlobalMatPayload):
+                mat = mat_context.global_
+            else:
+                assert isinstance(mat_context, _DatMatPayload)
+                mat = mat_context.dat
+
+        return mat
+
 
 class MatrixFreeAssembler(FormAssembler):
     """Stub class wrapping matrix-free assembly.
@@ -1493,6 +1525,10 @@ class MatrixFreeAssembler(FormAssembler):
     def _check_tensor(self, tensor):
         if tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
+
+    @classmethod
+    def _as_pyop2_tensor(cls, tensor, indices=None):
+        assert False, " dont think this is needed"
 
 
 def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
@@ -1806,12 +1842,12 @@ class ParloopBuilder:
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
-    def build(self, tensor):
+    def build(self, tensor: op2.Global | op2.Dat | op2.Mat) -> op2.Parloop:
         """Construct the parloop.
 
         Parameters
         ----------
-        tensor : op2.Global or firedrake.cofunction.Cofunction or matrix.MatrixBase
+        tensor :
             The output tensor.
 
         """
@@ -1972,28 +2008,27 @@ def _as_parloop_arg(tsfc_arg, self):
 @_as_parloop_arg.register(kernel_args.OutputKernelArg)
 def _as_parloop_arg_output(_, self):
     rank = len(self._form.arguments())
-    pyop2_tensor = _as_pyop2_tensor(self._tensor, self._indices)
     Vs = self._indexed_function_spaces
 
     if rank == 0:
-        return op2.GlobalParloopArg(pyop2_tensor)
+        return op2.GlobalParloopArg(self._tensor)
     elif rank == 1 or rank == 2 and self._diagonal:
         V, = Vs
         if V.ufl_element().family() == "Real":
-            return op2.GlobalParloopArg(pyop2_tensor)
+            return op2.GlobalParloopArg(self._tensor)
         else:
-            return op2.DatParloopArg(pyop2_tensor, self._get_map(V))
+            return op2.DatParloopArg(self._tensor, self._get_map(V))
     elif rank == 2:
         rmap, cmap = [self._get_map(V) for V in Vs]
 
         if all(V.ufl_element().family() == "Real" for V in Vs):
             assert rmap is None and cmap is None
-            return op2.GlobalParloopArg(pyop2_tensor.handle.getPythonContext().global_)
+            return op2.GlobalParloopArg(self._tensor.handle.getPythonContext().global_)
         elif any(V.ufl_element().family() == "Real" for V in Vs):
             m = rmap or cmap
-            return op2.DatParloopArg(pyop2_tensor.handle.getPythonContext().dat, m)
+            return op2.DatParloopArg(self._tensor.handle.getPythonContext().dat, m)
         else:
-            return op2.MatParloopArg(pyop2_tensor, (rmap, cmap), lgmaps=self.collect_lgmaps())
+            return op2.MatParloopArg(self._tensor, (rmap, cmap), lgmaps=self.collect_lgmaps())
     else:
         raise AssertionError
 
@@ -2106,44 +2141,3 @@ class _FormHandler:
             raise AssertionError
 
 
-def _as_pyop2_tensor(tensor, indices=None):
-    """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
-    is_indexed = indices and any(index is not None for index in indices)
-
-    if isinstance(tensor, op2.Global):
-        assert not is_indexed
-        return tensor
-
-    if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-        if is_indexed:
-            i, = indices
-            return tensor.dat[i]
-        else:
-            return tensor.dat
-    else:
-        assert isinstance(tensor, firedrake.Matrix)
-        if is_indexed:
-            i, j = indices
-            return tensor.M[i, j]
-        else:
-            return tensor.M
-
-
-def _as_parloop_type(tensor, indices):
-    """Cast a Firedrake tensor into a PyOP2 data structure suitable for a parloop.
-
-    This function differs from `_as_pyop2_tensor` in that matrices with ``"python"``
-    type are unpacked into their underlying `op2.Global` or `op2.Dat`.
-
-    """
-    pyop2_tensor = _as_pyop2_tensor(tensor, indices)
-
-    if isinstance(pyop2_tensor, op2.Mat) and pyop2_tensor.handle.getType() == "python":
-        mat_context = pyop2_tensor.handle.getPythonContext()
-        if isinstance(mat_context, _GlobalMatPayload):
-            pyop2_tensor = mat_context.global_
-        else:
-            assert isinstance(mat_context, _DatMatPayload)
-            pyop2_tensor = mat_context.dat
-
-    return pyop2_tensor
