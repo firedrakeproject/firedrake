@@ -1931,17 +1931,28 @@ class ParloopBuilder:
         :param local_knl: A :class:`tsfc_interface.SplitKernel`.
         :param bcs: Iterable of boundary conditions.
         """
+
         if len(self._form.arguments()) == 2 and not self._diagonal:
             if not self._bcs:
                 return None
-            lgmaps = []
-            for i, j in self.get_indicess():
+
+            if any(i is not None for i in self._local_knl.indices):
+                i, j = self._local_knl.indices
                 row_bcs, col_bcs = self._filter_bcs(i, j)
+                # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
                 rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
                 clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
-                lgmaps.append((rlgmap, clgmap))
-            return tuple(lgmaps)
+                return ((rlgmap, clgmap),)
+            else:
+                lgmaps = []
+                for i, j in self.get_indicess():
+                    row_bcs, col_bcs = self._filter_bcs(i, j)
+                    rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                    lgmaps.append((rlgmap, clgmap))
+                return tuple(lgmaps)
         else:
             return None
 
