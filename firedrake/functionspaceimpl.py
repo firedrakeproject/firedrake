@@ -176,16 +176,13 @@ class WithGeometryBase(object):
     def _components(self):
         if len(self) == 1:
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
-                         for i in range(self.value_size))
+                         for i in range(numpy.prod(self.shape)))
         else:
             return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        if len(self) == 1:
-            bound = self.value_size
-        else:
-            bound = len(self)
+        bound = len(self._components)
         if i < 0 or i >= bound:
             raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
         return self._components[i]
@@ -654,7 +651,7 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
+        return tuple(ComponentFunctionSpace(self, i) for i in range(numpy.prod(self.shape)))
 
     def sub(self, i):
         r"""Return a view into the ith component."""

@@ -935,7 +935,7 @@ class CheckpointFile(object):
             self._update_function_name_function_space_name_map(tmesh.name, mesh.name, {f.name(): V_name})
             # Embed if necessary
             element = V.ufl_element()
-            _element = get_embedding_element_for_checkpointing(element, element.value_shape(mesh))
+            _element = get_embedding_element_for_checkpointing(element, V.value_shape)
             if _element != element:
                 path = self._path_to_function_embedded(tmesh.name, mesh.name, V_name, f.name())
                 self.require_group(path)
@@ -1337,7 +1337,7 @@ class CheckpointFile(object):
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 _f = self.load_function(mesh, _name, idx=idx)
                 element = V.ufl_element()
-                _element = get_embedding_element_for_checkpointing(element, element.value_shape(mesh))
+                _element = get_embedding_element_for_checkpointing(element, V.value_shape)
                 method = get_embedding_method_for_checkpointing(element)
                 assert _element == _f.function_space().ufl_element()
                 f = Function(V, name=name)

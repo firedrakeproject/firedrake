@@ -124,8 +124,7 @@ class ExtractSubBlock(MultiFunction):
                     args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
             else:
                 args += [Zero()
-                         for j in numpy.ndindex(
-                         V_is[i].ufl_element().value_shape(V_is[i].mesh()))]
+                         for j in numpy.ndindex(V_is[i].value_shape)]
         return self._arg_cache.setdefault(o, as_vector(args))
 
 

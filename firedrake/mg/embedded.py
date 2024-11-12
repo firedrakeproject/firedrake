@@ -91,7 +91,7 @@ class TransferManager(object):
 
     def get_cache_key(self, V):
         elem = V.ufl_element()
-        value_shape = elem.value_shape(V.mesh())
+        value_shape = V.value_shape
         return elem, value_shape
 
     def V_dof_weights(self, V):

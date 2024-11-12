@@ -177,11 +177,10 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            elem = create_element(dual_space.ufl_element())
-            if elem.value_shape:
-                var = gem.Indexed(gem.Variable("b", elem.value_shape),
-                                  tensor_indices)
-                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=elem.value_shape)]
+            value_shape = dual_space.value_shape
+            if value_shape:
+                var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
@@ -220,7 +219,7 @@ def prolong_kernel(expression):
         assert hierarchy._meshes[int(idx)].cell_set._extruded
     V = expression.function_space()
     key = (("prolong",)
-           + expression.ufl_element().value_shape(meshc)
+           + V.value_shape
            + entity_dofs_key(V.finat_element.complex.get_topology())
            + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -284,7 +283,7 @@ def prolong_kernel(expression):
                "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "Rdim": numpy.prod(element.value_shape),
+               "Rdim": numpy.prod(V.value_shape),
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -302,7 +301,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.ufl_element().value_shape(Vf.mesh())
+           + Vf.value_shape
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -390,7 +389,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape(Vf.mesh())
+           + Vf.value_shape
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -465,7 +464,7 @@ def inject_kernel(Vf, Vc):
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
             "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
-            "Rdim": numpy.prod(Vf_element.value_shape),
+            "Rdim": numpy.prod(Vf.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
