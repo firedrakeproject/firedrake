@@ -1,7 +1,7 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
 from pyadjoint import get_working_tape, OverloadedType
 from pyadjoint.tape import TapePackageData
-from pyadjoint.checkpointing import ManageDiskCheckpointing
+from pyadjoint.checkpointing import DiskCheckpointingManager
 from pyop2.mpi import COMM_WORLD
 import tempfile
 import os
@@ -351,7 +351,7 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
         return checkpoint
 
 
-class AdjointDiskCheckpointing(ManageDiskCheckpointing):
+class AdjointDiskCheckpointing(DiskCheckpointingManager):
     """Manager for the disk checkpointing process.
 
     Parameters
