@@ -34,6 +34,8 @@ __all__ = ("as_fiat_cell", "create_base_element",
 supported_elements = {
     # These all map directly to FInAT elements
     "Bernstein": finat.Bernstein,
+    "Bernardi-Raugel": finat.BernardiRaugel,
+    "Bernardi-Raugel Bubble": finat.BernardiRaugelBubble,
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Bubble": finat.Bubble,
@@ -53,8 +55,18 @@ supported_elements = {
     "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
     "Argyris": finat.Argyris,
     "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
+    "QuadraticPowellSabin6": finat.QuadraticPowellSabin6,
+    "QuadraticPowellSabin12": finat.QuadraticPowellSabin12,
     "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
     "Mardal-Tai-Winther": finat.MardalTaiWinther,
+    "Alfeld-Sorokina": finat.AlfeldSorokina,
+    "Arnold-Qin": finat.ArnoldQin,
+    "Reduced-Arnold-Qin": finat.ReducedArnoldQin,
+    "Christiansen-Hu": finat.ChristiansenHu,
+    "Guzman-Neilan 1st kind H1": finat.GuzmanNeilanFirstKindH1,
+    "Guzman-Neilan 2nd kind H1": finat.GuzmanNeilanSecondKindH1,
+    "Guzman-Neilan Bubble": finat.GuzmanNeilanBubble,
+    "Guzman-Neilan H1(div)": finat.GuzmanNeilanH1div,
     "Morley": finat.Morley,
     "Bell": finat.Bell,
     "Lagrange": finat.Lagrange,
@@ -141,11 +153,15 @@ def convert_finiteelement(element, **kwargs):
         return finat.FlattenedDimensions(finat_elem), deps
 
     kind = element.variant()
-    is_interval = element.cell.cellname() == 'interval'
     if kind is None:
         kind = 'spectral'  # default variant
+    is_interval = element.cell.cellname() == 'interval'
 
-    if element.family() == "Lagrange":
+    if element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
+                            "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)",
+                            "Argyris"}:
+        lmbda = partial(lmbda, variant=element.variant())
+    elif element.family() == "Lagrange":
         if kind == 'spectral':
             lmbda = finat.GaussLobattoLegendre
         elif kind.startswith('integral'):
@@ -169,9 +185,6 @@ def convert_finiteelement(element, **kwargs):
         else:
             # Let FIAT handle the general case
             lmbda = partial(finat.Lagrange, variant=kind)
-    elif element.family() in {"Raviart-Thomas", "Nedelec 1st kind H(curl)",
-                              "Brezzi-Douglas-Marini", "Nedelec 2nd kind H(curl)"}:
-        lmbda = partial(lmbda, variant=element.variant())
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'spectral':
             lmbda = finat.GaussLegendre
@@ -183,6 +196,8 @@ def convert_finiteelement(element, **kwargs):
             lmbda = lambda *args: finat.DiscontinuousElement(finat.FDMLagrange(*args))
         elif kind in 'fdm_broken' and is_interval:
             lmbda = finat.FDMBrokenL2
+        elif kind in ['demkowicz', 'fdm']:
+            lmbda = partial(finat.Legendre, variant=kind)
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
@@ -192,16 +207,10 @@ def convert_finiteelement(element, **kwargs):
         else:
             # Let FIAT handle the general case
             lmbda = partial(finat.DiscontinuousLagrange, variant=kind)
-    elif element.family() == ["DPC", "DPC L2"]:
-        if element.cell.topological_dimension() == 2:
-            element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell.topological_dimension() == 3:
-            element = element.reconstruct(cell=ufl.cell.hypercube(3))
-    elif element.family() == "S":
-        if element.cell.topological_dimension() == 2:
-            element = element.reconstruct(cell=ufl.cell.hypercube(2))
-        elif element.cell.topological_dimension() == 3:
-            element = element.reconstruct(cell=ufl.cell.hypercube(3))
+    elif element.family() == ["DPC", "DPC L2", "S"]:
+        dim = element.cell.geometric_dimension()
+        if dim > 1:
+            element = element.reconstruct(cell=ufl.cell.hypercube(dim))
 
     return lmbda(cell, element.degree()), set()
 

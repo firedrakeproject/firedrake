@@ -8,7 +8,9 @@ from functools import singledispatch
 import gem
 import numpy
 import ufl
-from FIAT.reference_element import UFCSimplex, make_affine_mapping
+from FIAT.orientation_utils import Orientation as FIATOrientation
+from FIAT.reference_element import UFCHexahedron, UFCSimplex, make_affine_mapping
+from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
@@ -107,6 +109,10 @@ class ContextBase(ProxyKernelInterface):
     def translator(self):
         # NOTE: reference cycle!
         return Translator(self)
+
+    @cached_property
+    def use_canonical_quadrature_point_ordering(self):
+        return isinstance(self.fiat_cell, UFCHexahedron) and self.integral_type in ['exterior_facet', 'interior_facet']
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -267,9 +273,12 @@ class PointSetContext(ContextBase):
     )
 
     @cached_property
+    def integration_cell(self):
+        return self.fiat_cell.construct_subelement(self.integration_dim)
+
+    @cached_property
     def quadrature_rule(self):
-        integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
-        return make_quadrature(integration_cell, self.quadrature_degree)
+        return make_quadrature(self.integration_cell, self.quadrature_degree)
 
     @cached_property
     def point_set(self):
@@ -629,6 +638,11 @@ def translate_argument(terminal, mt, ctx):
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
     table = ctx.entity_selector(callback, mt.restriction)
+    if ctx.use_canonical_quadrature_point_ordering:
+        quad_multiindex = ctx.quadrature_rule.point_set.indices
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
+        mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
+        table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return gem.ComponentTensor(gem.Indexed(table, argument_multiindex + sigma), sigma)
 
 
@@ -698,7 +712,41 @@ def translate_coefficient(terminal, mt, ctx):
                                        for node in traversal((result,))
                                        if isinstance(node, gem.Literal)):
         result = gem.optimise.aggressive_unroll(result)
+
+    if ctx.use_canonical_quadrature_point_ordering:
+        quad_multiindex = ctx.quadrature_rule.point_set.indices
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
+        mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
+        result = mapper(result, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return result
+
+
+def _make_quad_multiindex_permuted(mt, ctx):
+    quad_rule = ctx.quadrature_rule
+    # Note that each quad index here represents quad points on a physical
+    # cell axis, but the table is indexed by indices representing the points
+    # on each reference cell axis, so we need to apply permutation based on the orientation.
+    cell = quad_rule.ref_el
+    quad_multiindex = quad_rule.point_set.indices
+    if isinstance(cell, TensorProductCell):
+        for comp in set(cell.cells):
+            extents = set(q.extent for c, q in zip(cell.cells, quad_multiindex) if c == comp)
+            if len(extents) != 1:
+                raise ValueError("Must have the same number of quadrature points in each symmetric axis")
+    quad_multiindex_permuted = []
+    o = ctx.entity_orientation(mt.restriction)
+    if not isinstance(o, FIATOrientation):
+        raise ValueError(f"Expecting an instance of FIATOrientation : got {o}")
+    eo = cell.extract_extrinsic_orientation(o)
+    eo_perm_map = gem.Literal(quad_rule.extrinsic_orientation_permutation_map, dtype=gem.uint_type)
+    for ref_axis in range(len(quad_multiindex)):
+        io = cell.extract_intrinsic_orientation(o, ref_axis)
+        io_perm_map = gem.Literal(quad_rule.intrinsic_orientation_permutation_map_tuple[ref_axis], dtype=gem.uint_type)
+        # Effectively swap axes if needed.
+        ref_index = tuple((phys_index, gem.Indexed(eo_perm_map, (eo, ref_axis, phys_axis))) for phys_axis, phys_index in enumerate(quad_multiindex))
+        quad_index_permuted = gem.VariableIndex(gem.FlexiblyIndexed(io_perm_map, ((0, ((io, 1), )), (0, ref_index))))
+        quad_multiindex_permuted.append(quad_index_permuted)
+    return tuple(quad_multiindex_permuted)
 
 
 def compile_ufl(expression, context, interior_facet=False, point_sum=False):
