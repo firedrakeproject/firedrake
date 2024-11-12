@@ -112,12 +112,12 @@ def run_restriction(hierarchy, space, degrees, variant):
             assert numpy.allclose(fine_functional, coarse_functional)
 
 
-def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type, petsc_raises):
+def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
     if transfer_type == "injection":
         if space in {"DG", "DQ"} and complex_mode:
-            with petsc_raises(NotImplementedError):
+            with pytest.raises(NotImplementedError):
                 run_injection(hierarchy, space, degrees, variant)
         else:
             run_injection(hierarchy, space, degrees, variant)
