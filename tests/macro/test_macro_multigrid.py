@@ -140,7 +140,7 @@ mg_params = {
 
 
 @pytest.mark.parametrize("degree", (1,))
-def test_macro_multigrid_poisson(hierarchy, degree, variant):
+def test_macro_multigrid_poisson(hierarchy, degree, variant, petsc_raises):
     mesh = hierarchy[-1]
     V = FunctionSpace(mesh, "CG", degree, variant=variant)
     u = TrialFunction(V)
@@ -153,7 +153,7 @@ def test_macro_multigrid_poisson(hierarchy, degree, variant):
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=mg_params)
     if complex_mode and variant == "alfeld":
-        with pytest.raises(NotImplementedError):
+        with petsc_raises(NotImplementedError):
             solver.solve()
     else:
         solver.solve()
@@ -172,7 +172,7 @@ def square_hierarchy():
 
 
 @pytest.mark.parametrize("family", ("HCT-red", "HCT"))
-def test_macro_multigrid_biharmonic(square_hierarchy, family):
+def test_macro_multigrid_biharmonic(square_hierarchy, family, petsc_raises):
     mesh = square_hierarchy[-1]
     V = FunctionSpace(mesh, family, 3)
     u = TrialFunction(V)
@@ -185,7 +185,7 @@ def test_macro_multigrid_biharmonic(square_hierarchy, family):
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=mg_params)
     if complex_mode:
-        with pytest.raises(NotImplementedError):
+        with petsc_raises(NotImplementedError):
             solver.solve()
     else:
         solver.solve()
