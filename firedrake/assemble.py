@@ -1526,10 +1526,6 @@ class MatrixFreeAssembler(FormAssembler):
         if tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
 
-    @staticmethod
-    def _as_pyop2_type(tensor, indices=None):
-        raise AssertionError("Should not be called for matrix-free assembly")
-
 
 def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
     # N.B. Generating the global kernel is not a collective operation so the
