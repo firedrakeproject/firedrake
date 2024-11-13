@@ -247,11 +247,11 @@ class TensorBase(object, metaclass=ABCMeta):
 
         The function will fail if multiple domains are found.
         """
-        domains = self.ufl_domains()
-        assert all(domain == domains[0] for domain in domains), (
-            "All integrals must share the same domain of integration."
-        )
-        return domains[0]
+        try:
+            domain, = self.ufl_domains()
+        except ValueError:
+            raise ValueError("All integrals must share the same domain of integration.")
+        return domain
 
     @abstractmethod
     def ufl_domains(self):

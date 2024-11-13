@@ -1610,7 +1610,7 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        return tuple(self._form.ufl_domains())[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -1731,7 +1731,7 @@ def _as_global_kernel_arg_coefficient(_, self):
 
     ufl_element = V.ufl_element()
     if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((ufl_element.value_size,))
+        return op2.GlobalKernelArg((V.value_size,))
     else:
         return self._make_dat_global_kernel_arg(V, index=index)
 
@@ -1945,7 +1945,7 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        return tuple(self._form.ufl_domains())[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):
