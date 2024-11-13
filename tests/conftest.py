@@ -1,7 +1,7 @@
 """Global test configuration."""
 
 import pytest
-from firedrake.petsc import get_external_packages
+from firedrake.petsc import PETSc, get_external_packages
 
 
 def pytest_configure(config):
@@ -122,3 +122,34 @@ def check_empty_tape(request):
             assert len(tape.get_blocks()) == 0
 
     request.addfinalizer(fin)
+
+
+class _petsc_raises:
+    """Context manager for catching PETSc-raised exceptions.
+
+    The usual `pytest.raises` exception handler is not suitable for errors
+    raised inside a callback to PETSc because the error is wrapped inside a
+    `PETSc.Error` object and so this context manager unpacks this to access
+    the actual internal error.
+
+    Parameters
+    ----------
+    exc_type :
+        The exception type that is expected to be raised inside a PETSc callback.
+
+    """
+    def __init__(self, exc_type):
+        self.exc_type = exc_type
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, traceback):
+        if exc_type is PETSc.Error and isinstance(exc_val.__cause__, self.exc_type):
+            return True
+
+
+@pytest.fixture
+def petsc_raises():
+    # This function is needed because pytest does not support classes as fixtures.
+    return _petsc_raises

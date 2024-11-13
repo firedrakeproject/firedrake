@@ -843,8 +843,7 @@ class FunctionSpace(object):
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
-        from firedrake import FunctionSpace
-        return FunctionSpace(self.mesh(), self.ufl_element())
+        return type(self)(self.mesh(), self.ufl_element())
 
 
 class RestrictedFunctionSpace(FunctionSpace):
@@ -1161,8 +1160,7 @@ class MixedFunctionSpace(object):
         return self.dof_dset.field_ises
 
     def collapse(self):
-        from firedrake import MixedFunctionSpace
-        return MixedFunctionSpace([V_ for V_ in self])
+        return type(self)([V_ for V_ in self], self.mesh())
 
 
 class ProxyFunctionSpace(FunctionSpace):
