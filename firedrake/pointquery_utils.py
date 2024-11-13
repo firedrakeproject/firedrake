@@ -34,7 +34,7 @@ def make_wrapper(function, **kwargs):
 
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
-    src.append(compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance))
+    src.append(compile_coordinate_element(mesh, tolerance))
     src.append(make_wrapper(mesh.coordinates,
                             forward_args=["void*", "double*", RealType_c+"*"],
                             kernel_name="to_reference_coords_kernel",
@@ -129,9 +129,10 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     # Set up UFL form
     cell = ufl_coordinate_element.cell
     domain = ufl.Mesh(ufl_coordinate_element)
+    gdim = domain.geometric_dimension()
     K = ufl.JacobianInverse(domain)
     x = ufl.SpatialCoordinate(domain)
-    x0_element = finat.ufl.VectorElement("Real", cell, 0)
+    x0_element = finat.ufl.VectorElement("Real", cell, 0, dim=gdim)
     x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
     expr = ufl.dot(K, x - x0)
 
@@ -192,11 +193,21 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
 
 
 @PETSc.Log.EventDecorator()
-def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
+def compile_coordinate_element(mesh, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 
-    :arg ufl_coordinate_element: UFL element of the coordinates
-    :returns: C code as string
+    Parameters
+    ----------
+    mesh : MeshTopology
+        The mesh.
+
+    contains_eps : float
+        The tolerance used to verify that a point is contained by a cell.
+
+    Returns
+    -------
+    str
+        A string of C code.
     """
     if parameters is None:
         parameters = tsfc.default_parameters()
@@ -204,25 +215,24 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _ = tsfc.default_parameters()
         _.update(parameters)
         parameters = _
+
+    ufl_coordinate_element = mesh.ufl_coordinate_element()
     # Create FInAT element
     element = tsfc.finatinterface.create_element(ufl_coordinate_element)
-    gdim, = ufl_coordinate_element.reference_value_shape
-    cell = ufl_coordinate_element.cell
-    extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {
-        "geometric_dimension": gdim,
-        "topological_dimension": cell.topological_dimension(),
+        "geometric_dimension": mesh.geometric_dimension(),
+        "topological_dimension": mesh.topological_dimension(),
         "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(cell.topological_dimension()),
-        "X_isub_dX": X_isub_dX(cell.topological_dimension()),
-        "extruded_arg": ", int const *__restrict__ layers" if extruded else "",
-        "extr_comment_out": "//" if extruded else "",
-        "non_extr_comment_out": "//" if not extruded else "",
+        "dX_norm_square": dX_norm_square(mesh.topological_dimension()),
+        "X_isub_dX": X_isub_dX(mesh.topological_dimension()),
+        "extruded_arg": ", int const *__restrict__ layers" if mesh.extruded else "",
+        "extr_comment_out": "//" if mesh.extruded else "",
+        "non_extr_comment_out": "//" if not mesh.extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
         "RealType": RealType_c,
