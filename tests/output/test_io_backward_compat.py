@@ -150,7 +150,7 @@ def _get_mesh_and_V(params):
 def _get_expr(V):
     mesh = V.mesh()
     dim = mesh.geometric_dimension()
-    shape = V.ufl_element().value_shape
+    shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
         z = x + y
@@ -240,9 +240,8 @@ def test_io_backward_compat_base_load(version, params):
 
 def _get_expr_timestepping(V, i):
     mesh = V.mesh()
-    element = V.ufl_element()
     x, y = SpatialCoordinate(mesh)
-    shape = element.value_shape
+    shape = V.value_shape
     if shape == (4, ):
         return as_vector([x + i, y + i, x * y + i, i * i])
     else:

@@ -2920,7 +2920,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     gdim = topology.topology_dm.getCoordinateDim()
     cell = topology.ufl_cell()
     element = finat.ufl.VectorElement("DG", cell, 0, dim=gdim)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element)
+    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
