@@ -372,7 +372,7 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_soa_eq(self, dFdu_form, adj_sol, hessian_input,
                                    d2Fdu2, compute_bdy):
-        gc.collect()
+        # gc.collect()
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = firedrake.adjoint(dFdu_form)
@@ -536,7 +536,7 @@ class GenericSolveBlock(Block):
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        gc.collect()
+        # gc.collect()
         lhs = prepared[0]
         rhs = prepared[1]
         func = prepared[2]
@@ -647,7 +647,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return super().recompute_component(inputs, block_variable, idx, prepared)
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        gc.collect()
         self._ad_solver_replace_forms()
         self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
