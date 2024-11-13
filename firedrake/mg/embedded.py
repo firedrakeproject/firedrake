@@ -111,7 +111,7 @@ class TransferManager(object):
             # global Vector counting the number of cells that see each
             # dof.
             f = firedrake.Function(V)
-            firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.value_size,
+            firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.block_size,
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
                                {"A": (f, firedrake.INC)})

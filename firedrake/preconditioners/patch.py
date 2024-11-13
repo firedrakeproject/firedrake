@@ -580,7 +580,7 @@ def bcdofs(bc, ghost=True):
         if isinstance(Z.ufl_element(), VectorElement):
             offset += idx
             assert i == len(indices)-1  # assert we're at the end of the chain
-            assert Z.sub(idx).value_size == 1
+            assert Z.sub(idx).block_size == 1
         elif isinstance(Z.ufl_element(), MixedElement):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
