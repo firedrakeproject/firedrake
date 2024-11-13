@@ -228,8 +228,6 @@ class FunctionMixin(FloatingType):
         solver_options = options.get("solver_options", {})
         V = options.get("function_space", self.function_space())
         if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
             return Function(V)
 
         if not isinstance(value, (Cofunction, Function)):
