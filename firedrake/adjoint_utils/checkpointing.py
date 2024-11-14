@@ -1,7 +1,6 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
 from pyadjoint import get_working_tape, OverloadedType
 from pyadjoint.tape import TapePackageData
-from pyadjoint.checkpointing import DiskCheckpointingManager
 from pyop2.mpi import COMM_WORLD
 import tempfile
 import os
@@ -14,8 +13,7 @@ _checkpoint_init_data = False
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
            "pause_disk_checkpointing", "continue_disk_checkpointing",
-           "stop_disk_checkpointing", "checkpointable_mesh",
-           "AdjointDiskCheckpointing"]
+           "stop_disk_checkpointing", "checkpointable_mesh"]
 
 
 def current_checkpoint_file(init=None):
@@ -206,6 +204,16 @@ class DiskCheckpointer(TapePackageData):
         self.init_checkpoint_file = state["init"]
         self.current_checkpoint_file = state["current"]
 
+    def start_checkpointing(self):
+        enable_disk_checkpointing(self.dirname, self.comm, self.cleanup)
+
+    def continue_checkpointing(self):
+        continue_disk_checkpointing()
+
+    def pause_checkpointing(self):
+        pause_disk_checkpointing()
+
+
 
 def checkpointable_mesh(mesh):
     """Write a mesh to disk and read it back.
@@ -307,10 +315,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                               function.dat, name=self.name(), count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, CheckpointFunction):
-            return checkpoint.restore()
-        else:
-            return checkpoint
+        return checkpoint.restore()
 
 
 def maybe_disk_checkpoint(function):
@@ -349,36 +354,3 @@ class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
             raise ValueError("We must not have output and checkpoint as "
                              "DelegatedFunctionCheckpoint objects.")
         return checkpoint
-
-
-class AdjointDiskCheckpointing(DiskCheckpointingManager):
-    """Manager for the disk checkpointing process.
-
-    Parameters
-    ----------
-    dirname : str
-        The directory in which the disk checkpoints should be stored. If not
-        specified then the current working directory is used. Checkpoints are
-        stored in a temporary subdirectory of this directory.
-    comm : mpi4py.MPI.Intracomm
-        The MPI communicator over which the computation to be disk checkpointed
-        is defined. This will usually match the communicator on which the
-        mesh(es) are defined.
-    cleanup : bool
-        If set to False, checkpoint files will not be deleted when no longer
-        required. This is usually only useful for debugging.
-    """
-
-    def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True):
-        self.dirname = dirname
-        self.comm = comm
-        self.cleanup = cleanup
-
-    def start_checkpointing(self):
-        enable_disk_checkpointing(self.dirname, self.comm, self.cleanup)
-
-    def continue_checkpointing(self):
-        continue_disk_checkpointing()
-
-    def pause_checkpointing(self):
-        pause_disk_checkpointing()
