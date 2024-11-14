@@ -1,4 +1,5 @@
 import glob
+import importlib
 import os
 import subprocess
 import sys
@@ -6,6 +7,7 @@ from collections import namedtuple
 from pathlib import Path
 from os.path import abspath, basename, dirname, join, splitext
 
+import pyadjoint
 import pytest
 
 from firedrake.petsc import get_external_packages
@@ -15,7 +17,7 @@ Demo = namedtuple("Demo", ["loc", "requirements"])
 
 
 CWD = abspath(dirname(__file__))
-DEMO_DIR = join(CWD, "..", "..", "..", "demos")
+DEMO_DIR = join(CWD, "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
@@ -43,7 +45,7 @@ SERIAL_DEMOS = [
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
 ]
 PARALLEL_DEMOS = [
-    Demo(("full_waveform_inversion", "full_waveform_inversion"), []),
+    Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
 ]
 
 
@@ -131,7 +133,15 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
     subprocess.check_call(["pylit", rst_file, py_file])
-    return py_file
+    return Path(py_file)
+
+
+def _exec_file(py_file):
+    # To execute a file we import it. We therefore need to modify sys.path so the
+    # tempdir can be found.
+    sys.path.insert(0, str(py_file.parent))
+    importlib.import_module(py_file.with_suffix("").name)
+    sys.path.pop(0)  # cleanup
 
 
 @pytest.mark.skipcomplex
@@ -139,7 +149,10 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
 def test_serial_demo(demo, env, monkeypatch, tmpdir):
     _maybe_skip_demo(demo)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
-    subprocess.check_call([sys.executable, py_file], env=env)
+    _exec_file(py_file)
+
+    if "adjoint" in demo.requirements:
+        pyadjoint.get_working_tape().clear_tape()
 
 
 @pytest.mark.parallel(2)
@@ -148,4 +161,7 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir):
 def test_parallel_demo(demo, env, monkeypatch, tmpdir):
     _maybe_skip_demo(demo)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
-    subprocess.check_call([sys.executable, py_file], env=env)
+    _exec_file(py_file)
+
+    if "adjoint" in demo.requirements:
+        pyadjoint.get_working_tape().clear_tape()
