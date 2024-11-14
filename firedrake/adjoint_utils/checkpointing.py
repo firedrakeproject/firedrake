@@ -214,7 +214,6 @@ class DiskCheckpointer(TapePackageData):
         pause_disk_checkpointing()
 
 
-
 def checkpointable_mesh(mesh):
     """Write a mesh to disk and read it back.
 
