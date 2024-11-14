@@ -228,7 +228,7 @@ def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
     gdim = mesh.geometric_dimension()
-    ncomp = fs.ufl_element().value_size
+    ncomp = fs.value_size
 
     homogenize = gdim > 2
     if homogenize:

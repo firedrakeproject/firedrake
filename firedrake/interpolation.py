@@ -546,7 +546,8 @@ class CrossMeshInterpolator(Interpolator):
                 # For a VectorElement or TensorElement the correct
                 # VectorFunctionSpace equivalent is built from the scalar
                 # sub-element.
-                if V_dest.sub(0).value_shape != ():
+                ufl_scalar_element = ufl_scalar_element.sub_elements[0]
+                if ufl_scalar_element.reference_value_shape != ():
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
@@ -613,7 +614,7 @@ class CrossMeshInterpolator(Interpolator):
         # I first point evaluate my expression at these locations, giving a
         # P0DG function on the VOM. As described in the manual, this is an
         # interpolation operation.
-        shape = V_dest.value_shape
+        shape = V_dest.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:

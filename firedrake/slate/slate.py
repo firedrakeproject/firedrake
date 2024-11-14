@@ -198,7 +198,7 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         shapes = OrderedDict()
         for i, fs in enumerate(self.arg_function_spaces):
-            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
+            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.block_size)
                               for V in fs)
         return shapes
 
