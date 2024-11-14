@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - master
-      - dolci/disk_checkpointing
   # And all pull requests
   pull_request:
 
@@ -42,7 +41,7 @@ jobs:
           cd docs
           make validate-bibtex
       - name: Check documentation links
-        if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/dolci/disk_checkpointing' }}
+        if: ${{ github.ref == 'refs/heads/master' }}
         run: |
           . /home/firedrake/firedrake/bin/activate
           cd docs
@@ -67,7 +66,7 @@ jobs:
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/dolci/disk_checkpointing' }}
+    if: ${{ github.ref == 'refs/heads/master' }}
     permissions:
       pages: write
       id-token: write
