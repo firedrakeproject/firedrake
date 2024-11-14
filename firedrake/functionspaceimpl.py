@@ -546,17 +546,23 @@ class FunctionSpace:
             key = (nodes_per_entity, real_tensor_product, self.shape)
 
             if key in mesh._shared_data_cache:
-                axes = mesh._shared_data_cache[key]
+                axes = mesh._shared_data_cache["cacheA"][key]
             else:
                 axes = op3.AxisTree(mesh.flat_points)
 
-                ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
-                for pt in range(mesh.flat_points.size):
-                    ndofs[pt] = self.local_section.getDof(pt)
+                # we can cache this more generally because we don't care about the shape here
+                otherkey = ("ndofs_dat", nodes_per_entity, real_tensor_product)
+                try:
+                    subaxis = mesh._shared_data_cache["cacheB"][otherkey]
+                except KeyError:
+                    ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
+                    for pt in range(mesh.flat_points.size):
+                        ndofs[pt] = self.local_section.getDof(pt)
+                    ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
 
-                ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
+                    subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
+                    mesh._shared_data_cache["cacheB"][otherkey] = subaxis
 
-                subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
                 axes = axes.add_axis(subaxis, axes.root, "mylabel")
 
                 # add tensor shape
@@ -565,7 +571,7 @@ class FunctionSpace:
                 )
                 axes = axes.add_subtree(subaxes, subaxis, "XXX")
 
-                mesh._shared_data_cache[key] = axes
+                mesh._shared_data_cache["cacheA"][key] = axes
 
         # TODO: AxisForest?
         self.flat_axes = axes
