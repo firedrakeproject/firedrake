@@ -19,7 +19,6 @@ nb_dir = os.path.join(cwd, "..", "..", "docs", "notebooks")
 @pytest.fixture(params=glob.glob(os.path.join(nb_dir, "*.ipynb")),
                 ids=lambda x: os.path.basename(x))
 def ipynb_file(request):
-    # Notebook 08-composable-solvers.ipynb still has an issue, the cell is commented out
     return os.path.abspath(request.param)
 
 
