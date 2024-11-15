@@ -557,8 +557,14 @@ class FunctionSpace:
                 except KeyError:
                     ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
                     for pt in range(mesh.flat_points.size):
-                        ndofs[pt] = self.local_section.getDof(pt)
+                        pt_renum = mesh._dm_renumbering.indices[pt]
+                        # ndofs[pt] = self.local_section.getDof(pt)
+                        # ndofs[pt_renum] = self.local_section.getDof(pt)
+                        ndofs[pt] = self.local_section.getDof(pt_renum)
                     ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
+
+                    # this should be all mixed up
+                    breakpoint()
 
                     subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
                     mesh._shared_data_cache["cacheB"][otherkey] = subaxis

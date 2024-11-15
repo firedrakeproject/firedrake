@@ -1232,8 +1232,9 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     section.setChart(pStart, pEnd)
 
     if boundary_set:
-        renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm,
-            mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
+        pass
+        # renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm,
+        #     mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
     else:
         renumbering = mesh._dm_renumbering
         constrainedStart = -1
@@ -1960,96 +1961,50 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
         raise ValueError("Only DMPlex and DMSwarm are supported.")
     return coords
 
+# Bikeshedding: "label_ghost_points()"?
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def mark_entity_classes(PETSc.DM dm):
-    """Mark all points in a given DM according to the PyOP2 entity
-    classes:
+# def mark_entity_classes(PETSc.DM dm):
+def mark_owned_points(PETSc.DM dm) -> None:
+    """Mark points in a DM as being either owned or ghost (owned by another process).
 
-    core   : owned and not in send halo
-    owned  : owned and in send halo
-    ghost  : in halo
+    The points are marked using the label ``firedrake_is_ghost``, with ``1``
+    indicating ghost and ``0`` owned.
 
-    by inspecting the `pointSF` graph.
+    Point ownership is determined by inspecting the point star forest of the DM.
 
-    :arg dm: The DM object encapsulating the mesh topology
+    Parameters
+    ----------
+    dm :
+        The DM object encapsulating the mesh topology.
+
     """
     cdef:
-        PetscInt pStart, pEnd, cStart, cEnd
-        PetscInt c, ci, p
+        PETSc.SF point_sf
+
+        PetscInt p
         PetscInt nleaves
-        PetscInt *closure = NULL
-        PetscInt nclosure
         const PetscInt *ilocal = NULL
-        PetscBool non_exec
-        const PetscSFNode *iremote = NULL
-        PETSc.SF point_sf = None
-        PetscBool is_ghost, is_owned
-        DMLabel lbl_core, lbl_owned, lbl_ghost
+        DMLabel clabel
 
-    get_chart(dm.dm, &pStart, &pEnd)
-    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    if dm.hasLabel("pyop2_core") and dm.hasLabel("pyop2_owned") and dm.hasLabel("pyop2_ghost"):
-        return
-    else:
-        assert not dm.hasLabel("pyop2_core") and \
-               not dm.hasLabel("pyop2_owned") and \
-               not dm.hasLabel("pyop2_ghost")
-    dm.createLabel("pyop2_core")
-    dm.createLabel("pyop2_owned")
-    dm.createLabel("pyop2_ghost")
+    if dm.hasLabel("firedrake_is_ghost"):
+        raise AssertionError("mark_owned_points should only be called once")
 
-    CHKERR(DMGetLabel(dm.dm, b"pyop2_core", &lbl_core))
-    CHKERR(DMGetLabel(dm.dm, b"pyop2_owned", &lbl_owned))
-    CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &lbl_ghost))
+    dm.createLabel("firedrake_is_ghost")
+    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
 
+    # The label initially contains just zeros, indicating that a point is owned.
+    # We therefore do not need to tweak anything in serial.
     if dm.comm.size > 1:
-        # Mark ghosts from point overlap SF
+        # Mark ghost points using the point SF
         point_sf = dm.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
         for p in range(nleaves):
-            # If ilocal is NULL but we have leaves then ilocal is contiguous
-            # (0, 1, 2...)
+            # If `ilocal` is `NULL` then it means the leaves are contiguous
             if ilocal:
-                CHKERR(DMLabelSetValue(lbl_ghost, ilocal[p], 1))
+                CHKERR(DMLabelSetValue(clabel, ilocal[p], 1))
             else:
-                CHKERR(DMLabelSetValue(lbl_ghost, p, 1))
-    else:
-        # If sequential mark all points as core
-        for p in range(pStart, pEnd):
-            CHKERR(DMLabelSetValue(lbl_core, p, 1))
-        return
-
-    CHKERR(DMLabelCreateIndex(lbl_ghost, pStart, pEnd))
-    # If any entity in closure(cell) is in the halo, then all those
-    # entities in closure(cell) that are not in the halo are owned,
-    # but not core.
-    for c in range(cStart, cEnd):
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &closure)
-        is_owned = PETSC_FALSE
-        for ci in range(nclosure):
-            p = closure[2*ci]
-            CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
-            if is_ghost:
-                is_owned = PETSC_TRUE
-                break
-        if is_owned:
-            for ci in range(nclosure):
-                p = closure[2*ci]
-                CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
-                if not is_ghost:
-                    CHKERR(DMLabelSetValue(lbl_owned, p, 1))
-    if closure != NULL:
-        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
-    # Mark all remaining points as core
-    CHKERR(DMLabelCreateIndex(lbl_owned, pStart, pEnd))
-    for p in range(pStart, pEnd):
-        CHKERR(DMLabelHasPoint(lbl_owned, p, &is_owned))
-        CHKERR(DMLabelHasPoint(lbl_ghost, p, &is_ghost))
-        if not is_ghost and not is_owned:
-            CHKERR(DMLabelSetValue(lbl_core, p, 1))
-    CHKERR(DMLabelDestroyIndex(lbl_owned))
-    CHKERR(DMLabelDestroyIndex(lbl_ghost))
+                CHKERR(DMLabelSetValue(clabel, p, 1))
 
 
 @cython.boundscheck(False)
@@ -2108,49 +2063,49 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     CHKERR(PetscFree(plex_cell_classes))
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def get_entity_classes(PETSc.DM dm):
-    """Builds PyOP2 entity class offsets for all entity levels.
-
-    :arg dm: The DM object encapsulating the mesh topology
-    """
-    cdef:
-        np.ndarray[PetscInt, ndim=2, mode="c"] entity_class_sizes
-        np.ndarray[PetscInt, mode="c"] eStart, eEnd
-        PetscInt depth, d, i, ci, class_size, start, end
-        const PetscInt *indices = NULL
-        PETSc.IS class_is
-
-    depth = get_topological_dimension(dm) + 1
-
-    entity_class_sizes = np.zeros((depth, 3), dtype=IntType)
-    eStart = np.zeros(depth, dtype=IntType)
-    eEnd = np.zeros(depth, dtype=IntType)
-    for d in range(depth):
-        get_depth_stratum(dm.dm, d, &start, &end)
-        eStart[d] = start
-        eEnd[d] = end
-
-    for i, op2class in enumerate([b"pyop2_core",
-                                  b"pyop2_owned",
-                                  b"pyop2_ghost"]):
-        class_is = dm.getStratumIS(op2class, 1)
-        class_size = dm.getStratumSize(op2class, 1)
-        if class_size > 0:
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(class_size):
-                for d in range(depth):
-                    if eStart[d] <= indices[ci] < eEnd[d]:
-                        entity_class_sizes[d, i] += 1
-                        break
-            CHKERR(ISRestoreIndices(class_is.iset, &indices))
-
-    # PyOP2 entity class indices are additive
-    for d in range(depth):
-        for i in range(1, 3):
-            entity_class_sizes[d, i] += entity_class_sizes[d, i-1]
-    return entity_class_sizes
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# def get_entity_classes(PETSc.DM dm):
+#     """Builds PyOP2 entity class offsets for all entity levels.
+#
+#     :arg dm: The DM object encapsulating the mesh topology
+#     """
+#     cdef:
+#         np.ndarray[PetscInt, ndim=2, mode="c"] entity_class_sizes
+#         np.ndarray[PetscInt, mode="c"] eStart, eEnd
+#         PetscInt depth, d, i, ci, class_size, start, end
+#         const PetscInt *indices = NULL
+#         PETSc.IS class_is
+#
+#     depth = get_topological_dimension(dm) + 1
+#
+#     entity_class_sizes = np.zeros((depth, 3), dtype=IntType)
+#     eStart = np.zeros(depth, dtype=IntType)
+#     eEnd = np.zeros(depth, dtype=IntType)
+#     for d in range(depth):
+#         get_depth_stratum(dm.dm, d, &start, &end)
+#         eStart[d] = start
+#         eEnd[d] = end
+#
+#     for i, op2class in enumerate([b"pyop2_core",
+#                                   b"pyop2_owned",
+#                                   b"pyop2_ghost"]):
+#         class_is = dm.getStratumIS(op2class, 1)
+#         class_size = dm.getStratumSize(op2class, 1)
+#         if class_size > 0:
+#             CHKERR(ISGetIndices(class_is.iset, &indices))
+#             for ci in range(class_size):
+#                 for d in range(depth):
+#                     if eStart[d] <= indices[ci] < eEnd[d]:
+#                         entity_class_sizes[d, i] += 1
+#                         break
+#             CHKERR(ISRestoreIndices(class_is.iset, &indices))
+#
+#     # PyOP2 entity class indices are additive
+#     for d in range(depth):
+#         for i in range(1, 3):
+#             entity_class_sizes[d, i] += entity_class_sizes[d, i-1]
+#     return entity_class_sizes
 
 
 @cython.boundscheck(False)
@@ -2369,18 +2324,17 @@ def validate_mesh(PETSc.DM dm):
         raise ValueError("Provided mesh has some entities not reachable by traversing cells (maybe rogue vertices?)")
 
 
+# NOTE: RCM reordering could happen inside this function
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def plex_renumbering(PETSc.DM plex,
-                     np.ndarray entity_classes,
-                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
-                     boundary_set=None):
-    """
-    Build a global node renumbering as a permutation of Plex points.
+def compute_dm_renumbering(
+    mesh: MeshGeometry,
+    reordering: np.ndarray | None = None,
+    boundary_set=None,
+) -> PETSc.IS:
+    """Return a renumbering of DM points that maximises locality.
 
-    :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg entity_classes: Array of entity class offsets for
-         each dimension.
+    :arg dm: The DMPlex object encapsulating the mesh topology
     :arg reordering: A reordering from reordered to original plex
          points used to provide the traversal order of the cells
          (i.e. the inverse of the ordering obtained from
@@ -2398,112 +2352,119 @@ def plex_renumbering(PETSc.DM plex,
     is the Plex -> PyOP2 permutation. A tuple indicating the start and end of
     the core/owned constrained block is returned, for use in create_section.
     """
+    # TODO: clean this up
     cdef:
+        PETSc.IS renumbering_is
+        PETSc.DM dm
+
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
-        PetscInt pStart, pEnd, cell
-        np.ndarray[PetscInt, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
-        PetscInt *perm = NULL
-        PETSc.IS facet_is = None
-        PETSc.IS perm_is = None
-        PetscBT seen = NULL
-        PetscBT seen_boundary = NULL
-        PetscBool has_point
-        DMLabel labels[3]
+        PetscInt *renumbering = NULL
+        PetscBT seen_points = NULL
+        PetscInt is_ghost
+        DMLabel clabel
         bint reorder = reordering is not None
 
-    dim = get_topological_dimension(plex)
-    get_chart(plex.dm, &pStart, &pEnd)
-    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
-    CHKERR(PetscMalloc1(pEnd - pStart, &perm))
-    CHKERR(PetscBTCreate(pEnd - pStart, &seen))
-    if boundary_set:
-        CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
-    ncells = np.zeros(3, dtype=IntType)
+    print("AAA")
+
+    dm = mesh.topology_dm
+
+    p_start, p_end = 0, mesh.num_points
+
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    print("BBB")
+
+    CHKERR(PetscMalloc1(p_end - p_start, &renumbering))
+    CHKERR(PetscBTCreate(p_end - p_start, &seen_points))
+    print("CCC")
+
+    # if boundary_set:
+    #     CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
+    # ncells = np.zeros(3, dtype=IntType)
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &labels[0]))
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &labels[1]))
-    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &labels[2]))
-    for idx in range(3):
-        CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
-    entity_classes = entity_classes.astype(IntType)
+    # CHKERR(DMGetLabel(dm.dm, b"pyop2_core", &labels[0]))
+    # CHKERR(DMGetLabel(dm.dm, b"pyop2_owned", &labels[1]))
+    # CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &labels[2]))
+    # for idx in range(3):
+    #     CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
+    # TODO: Make a constant somewhere
+    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
 
     # Get boundary points (if the boundary_set exists) and count each type
-    constrained_core = 0
-    constrained_owned = 0
-    if boundary_set:
-        for marker in boundary_set:
-            if marker == "on_boundary":
-                label = "exterior_facets"
-                marker = 1
-            else:
-                label = FACE_SETS_LABEL
-            n = plex.getStratumSize(label, marker)
-            if n == 0:
-                continue
-            points = plex.getStratumIS(label, marker).indices
-            for i in range(n):
-                p = points[i]
-                if not PetscBTLookup(seen_boundary, p):
-                    for idx in range(3):
-                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
-                        if has_point:
-                            PetscBTSet(seen_boundary, p)
-                            if idx == 1:
-                                constrained_owned += 1
-                            elif idx == 0:
-                                constrained_core += 1
-                            break
+    # constrained_core = 0
+    # constrained_owned = 0
+    # if boundary_set:
+    #     for marker in boundary_set:
+    #         if marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #         n = dm.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         points = dm.getStratumIS(label, marker).indices
+    #         for i in range(n):
+    #             p = points[i]
+    #             if not PetscBTLookup(seen_boundary, p):
+    #                 for idx in range(3):
+    #                     CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
+    #                     if has_point:
+    #                         PetscBTSet(seen_boundary, p)
+    #                         if idx == 1:
+    #                             constrained_owned += 1
+    #                         elif idx == 0:
+    #                             constrained_core += 1
+    #                         break
 
-    # assign lists
-    lidx = np.zeros(4, dtype=IntType)
-    lidx[1] = sum(entity_classes[:, 0]) -  constrained_core
-    lidx[2] = sum(entity_classes[:, 1])
-    lidx[3] = lidx[2] - constrained_core - constrained_owned
+    owned_ptr = 0
+    ghost_ptr = mesh.num_owned_points
 
-    for c in range(pStart, pEnd):
+    for cell in range(mesh.num_cells):
         if reorder:
-            cell = reordering[c]
-        else:
-            cell = c
-        # We always re-order cell-wise so that we inherit any cache
-        # coherency from the reordering provided by the Plex
-        if cStart <= cell < cEnd:
-            # Get  cell closure
-            get_transitive_closure(plex.dm, cell, PETSC_TRUE, &nclosure, &closure)
-            for ci in range(nclosure):
-                p = closure[2*ci]
-                if not PetscBTLookup(seen, p):
-                    for idx in range(3):
-                        CHKERR(DMLabelHasPoint(labels[idx], p, &has_point))
-                        if has_point:
-                            PetscBTSet(seen, p)
-                            if boundary_set and PetscBTLookup(seen_boundary, p) and idx <= 1:
-                                # push boundary point to end of constrained owned dofs
-                                perm[lidx[3]] = p
-                                lidx[3] += 1
-                            else:
-                                perm[lidx[idx]] = p
-                                lidx[idx] += 1
-                            break
+            cell = reordering[cell]
+        print("DDD")
 
+        get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
+        for i in range(nclosure):
+            point = closure[2*i]
+            if PetscBTLookup(seen_points, point):
+                # We have already encountered this point, do nothing
+                continue
+            else:
+                PetscBTSet(seen_points, point)
+                print("owned_ptr ", owned_ptr)
+                CHKERR(DMLabelGetValue(clabel, point, &is_ghost))
+                if is_ghost == 1:
+                    renumbering[ghost_ptr] = point
+                    ghost_ptr += 1
+                else:
+                    renumbering[owned_ptr] = point
+                    owned_ptr += 1
+
+    assert owned_ptr == mesh.num_owned_points
+    assert ghost_ptr == mesh.num_points
+
+    print("FFF")
     if closure != NULL:
-        restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
-    for c in range(3):
-        CHKERR(DMLabelDestroyIndex(labels[c]))
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
 
-    CHKERR(PetscBTDestroy(&seen))
+    CHKERR(PetscBTDestroy(&seen_points))
 
-    if boundary_set:
-        CHKERR(PetscBTDestroy(&seen_boundary))
+    # if boundary_set:
+    #     CHKERR(PetscBTDestroy(&seen_boundary))
 
-    perm_is = PETSc.IS().create(comm=plex.comm)
-    perm_is.setType("general")
-    CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
-                               perm, PETSC_OWN_POINTER))
-    return perm_is, (lidx[1], lidx[3])
+    print("GGG")
+    renumbering_is = PETSc.IS().create(comm=dm.comm)
+    renumbering_is.setType("general")
+    CHKERR(
+        ISGeneralSetIndices(
+            renumbering_is.iset, mesh.num_points, renumbering, PETSC_OWN_POINTER
+        )
+    )
+    return renumbering_is
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

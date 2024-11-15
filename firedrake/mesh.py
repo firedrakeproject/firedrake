@@ -27,7 +27,7 @@ from pyop2.mpi import (
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one, single_valued
+from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one, single_valued, readonly
 from tsfc.finatinterface import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
@@ -704,20 +704,20 @@ class AbstractMeshTopology(abc.ABC):
             # Thus, when using CheckpointFile, it is recommended that the user set
             # distribution_name explicitly.
 
+            dmcommon.mark_owned_points(self.topology_dm)
+
             if perm_is:
-                self._dm_renumbering = perm_is
-            elif reorder:
-                # NOTE: This should surely be the default?!
-                # NOTE: This is not actually a terribly good renumbering as the
-                # numberings for the different entity types are not interleaved.
-                # We should go back to using the PyOP2 cell local renumbering
-                # from the paper.
+                dm_renumbering = perm_is
+            elif reorder:  # NOTE: This should surely be the default?!
                 with PETSc.Log.Event("Renumber mesh topology"):
-                    self._dm_renumbering = self.topology_dm.getOrdering(
-                        PETSc.Mat.OrderingType.RCM
-                    )
+                    rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
+                    cell_ordering = rcm_ordering_is.indices[:self.num_cells]
+
+                    dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+
             else:
-                self._dm_renumbering = None
+                dm_renumbering = None
+            self._dm_renumbering = dm_renumbering
 
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
@@ -927,8 +927,7 @@ class AbstractMeshTopology(abc.ABC):
         for dim in range(self.dimension+1):
             p_start, p_end = self._topology_dm.getDepthStratum(dim)
             ixs = np.argwhere((p_start <= perm) & (perm < p_end))
-            ixs.flags.writeable = False
-            indices.append(ixs)
+            indices.append(readonly(ixs))
         return tuple(indices)
 
     @cached_property
@@ -979,7 +978,7 @@ class AbstractMeshTopology(abc.ABC):
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
             return self._fiat_closure(index)
         else:
-            raise ValueError(f"{ordering} is not a recognised closure ordering option")
+            raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
     @cached_property
     def _closure_sizes(self):
@@ -1445,32 +1444,38 @@ class AbstractMeshTopology(abc.ABC):
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
 
+    @property
     @abc.abstractmethod
     def num_points(self) -> int:
         pass
 
+    @property
     @abc.abstractmethod
     def num_cells(self):
         pass
 
+    @property
     @abc.abstractmethod
     def num_facets(self):
         pass
 
+    @property
     @abc.abstractmethod
     def num_faces(self):
         pass
 
+    @property
     @abc.abstractmethod
     def num_edges(self):
         pass
 
+    @property
     @abc.abstractmethod
     def num_vertices(self):
         pass
 
     @abc.abstractmethod
-    def num_entities(self, depth):
+    def num_of_entity(self, depth):
         pass
 
     def size(self, depth):
@@ -2176,33 +2181,40 @@ class MeshTopology(AbstractMeshTopology):
     def dimension(self):
         return self.topology_dm.getDimension()
 
+    @property
     def num_points(self) -> int:
         start, end = self.topology_dm.getChart()
         assert start == 0
         return end
 
+    @property
+    def num_owned_points(self) -> int:
+        if self.comm.size > 1:
+            raise NotImplementedError("Should be retrievable from the is_ghost label")
+
+        return self.num_points
+
+    @property
     def num_cells(self) -> int:
-        cStart, cEnd = self.topology_dm.getHeightStratum(0)
-        return cEnd - cStart
+        return self.num_of_entity(self.dimension)
 
+    @property
     def num_facets(self) -> int:
-        fStart, fEnd = self.topology_dm.getHeightStratum(1)
-        return fEnd - fStart
+        return self.num_of_entity(self.dimension - 1)
 
+    @property
     def num_faces(self):
-        fStart, fEnd = self.topology_dm.getDepthStratum(2)
-        return fEnd - fStart
+        return self.num_of_entity(2)
 
+    @property
     def num_edges(self):
-        eStart, eEnd = self.topology_dm.getDepthStratum(1)
-        return eEnd - eStart
+        return self.num_of_entity(1)
 
+    @property
     def num_vertices(self):
-        vStart, vEnd = self.topology_dm.getDepthStratum(0)
-        return vEnd - vStart
+        return self.num_of_entity(0)
 
-    # old method
-    def num_entities(self, depth):
+    def num_of_entity(self, depth):
         eStart, eEnd = self.topology_dm.getDepthStratum(depth)
         return eEnd - eStart
 
@@ -2857,24 +2869,30 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
+    @property
     def num_points(self) -> int:
-        return self.num_cells()
+        return self.num_vertices
 
+    @property
     def num_cells(self) -> int:
-        return self.num_vertices()
+        return self.num_vertices
 
     # TODO I reckon that these should error instead
+    @property
     def num_facets(self):
         return 0
 
     # TODO I reckon that these should error instead
+    @property
     def num_faces(self):
         return 0
 
     # TODO I reckon that these should error instead
+    @property
     def num_edges(self):
         return 0
 
+    @property
     def num_vertices(self):
         return self.topology_dm.getLocalSize()
 
@@ -2882,7 +2900,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if d > 0:
             return 0
         else:
-            return self.num_vertices()
+            return self.num_vertices
 
     @cached_property
     def cells(self):
@@ -3174,7 +3192,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.ufl_coordinate_element().cell.geometric_dimension()))
+                                                         (self.num_vertices, self.ufl_coordinate_element().cell.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
@@ -3206,17 +3224,21 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     def _topology(self, val):
         self.topology = val
 
+    @property
     def num_cells(self):
-        return self.topology.num_cells()
+        return self.topology.num_cells
 
+    @property
     def num_facets(self):
-        return self.topology.num_facets()
+        return self.topology.num_facets
 
+    @property
     def num_edges(self):
-        return self.topology.num_edges()
+        return self.topology.num_edges
 
+    @property
     def num_vertices(self):
-        return self.topology.num_vertices()
+        return self.topology.num_vertices
 
     @property
     def _parent_mesh(self):
