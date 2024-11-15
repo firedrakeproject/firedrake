@@ -82,7 +82,8 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
 
 def _compile_expression_comm(*args, **kwargs):
     # args[0] is a slate_expr
-    return args[0].ufl_domains()[0].comm
+    domain, = args[0].ufl_domains()
+    return domain.comm
 
 
 @memory_and_disk_cache(

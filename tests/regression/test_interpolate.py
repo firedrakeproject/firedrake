@@ -471,7 +471,7 @@ def test_interpolation_tensor_convergence():
         V = TensorFunctionSpace(mesh, "RT", 1)
         x, y = SpatialCoordinate(mesh)
 
-        vs = V.ufl_element().value_shape
+        vs = V.value_shape
         expr = as_tensor(np.asarray([
             sin(2*pi*x*(i+1))*cos(4*pi*y*i)
             for i in range(np.prod(vs, dtype=int))

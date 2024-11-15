@@ -31,7 +31,7 @@ from pyop2.utils import as_tuple
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
-from ufl.domain import join_domains
+from ufl.domain import join_domains, sort_domains
 from ufl.form import Form
 import hashlib
 
@@ -198,7 +198,7 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         shapes = OrderedDict()
         for i, fs in enumerate(self.arg_function_spaces):
-            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.value_size)
+            shapes[i] = tuple(int(V.finat_element.space_dimension() * V.block_size)
                               for V in fs)
         return shapes
 
@@ -247,11 +247,11 @@ class TensorBase(object, metaclass=ABCMeta):
 
         The function will fail if multiple domains are found.
         """
-        domains = self.ufl_domains()
-        assert all(domain == domains[0] for domain in domains), (
-            "All integrals must share the same domain of integration."
-        )
-        return domains[0]
+        try:
+            domain, = self.ufl_domains()
+        except ValueError:
+            raise ValueError("All integrals must share the same domain of integration.")
+        return domain
 
     @abstractmethod
     def ufl_domains(self):
@@ -983,7 +983,7 @@ class TensorOp(TensorBase):
         the tensor.
         """
         collected_domains = [op.ufl_domains() for op in self.operands]
-        return join_domains(chain(*collected_domains))
+        return sort_domains(join_domains(chain(*collected_domains)))
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:

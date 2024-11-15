@@ -547,7 +547,7 @@ class CrossMeshInterpolator(Interpolator):
                 # VectorFunctionSpace equivalent is built from the scalar
                 # sub-element.
                 ufl_scalar_element = ufl_scalar_element.sub_elements[0]
-                if ufl_scalar_element.value_shape != ():
+                if ufl_scalar_element.reference_value_shape != ():
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
@@ -614,7 +614,7 @@ class CrossMeshInterpolator(Interpolator):
         # I first point evaluate my expression at these locations, giving a
         # P0DG function on the VOM. As described in the manual, this is an
         # interpolation operation.
-        shape = V_dest.ufl_element().value_shape
+        shape = V_dest.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
@@ -988,18 +988,16 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
-        dims = [numpy.prod(fs.ufl_element().value_shape, dtype=int)
-                for fs in V]
         loops = []
-        if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
+        if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
+                               % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
         if bcs and len(arguments) == 0:
-            loops.extend([partial(bc.apply, f) for bc in bcs])
+            loops.extend(partial(bc.apply, f) for bc in bcs)
 
         def callable(loops, f):
             for l in loops:
@@ -1024,13 +1022,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
 
-    if len(expr.ufl_shape) != len(V.ufl_element().value_shape):
+    if len(expr.ufl_shape) != len(V.value_shape):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                           % (len(expr.ufl_shape), len(V.ufl_element().value_shape)))
+                           % (len(expr.ufl_shape), len(V.value_shape)))
 
-    if expr.ufl_shape != V.ufl_element().value_shape:
+    if expr.ufl_shape != V.value_shape:
         raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                           % (expr.ufl_shape, V.ufl_element().value_shape))
+                           % (expr.ufl_shape, V.value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = as_domain(V)
