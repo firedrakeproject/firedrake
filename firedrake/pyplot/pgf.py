@@ -217,12 +217,12 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:
         raise NotImplementedError("Not yet implemented for functions on extruded meshes")
-    if elem.value_shape():
+    if V.value_shape:
         raise NotImplementedError("Currently only implemeted for scalar functions")
-    coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element()).reconstruct(degree=degree, variant="equispaced")
+    coordelem = get_embedding_dg_element(mesh.coordinates.function_space().ufl_element(), (dim, )).reconstruct(degree=degree, variant="equispaced")
     coordV = FunctionSpace(mesh, coordelem)
     coords = Function(coordV).interpolate(SpatialCoordinate(mesh))
-    elemdg = get_embedding_dg_element(elem).reconstruct(degree=degree, variant="equispaced")
+    elemdg = get_embedding_dg_element(elem, V.value_shape).reconstruct(degree=degree, variant="equispaced")
     Vdg = FunctionSpace(mesh, elemdg)
     fdg = Function(Vdg)
     method = get_embedding_method_for_checkpointing(elem)

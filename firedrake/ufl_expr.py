@@ -76,7 +76,7 @@ class Argument(ufl.argument.Argument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.ufl_element().value_shape != self.ufl_element().value_shape:
+        if function_space.value_shape != self.function_space().value_shape:
             raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
@@ -140,7 +140,7 @@ class Coargument(ufl.argument.Coargument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.ufl_element().value_shape != self.ufl_element().value_shape:
+        if function_space.value_shape != self.function_space().value_shape:
             raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
         return Coargument(function_space, number, part=part)
 

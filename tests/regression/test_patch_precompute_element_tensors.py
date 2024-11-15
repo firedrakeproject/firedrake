@@ -27,8 +27,7 @@ def test_patch_precompute_element_tensors(mesh, V):
     f = Constant((1, 1))
     F = inner(grad(u), grad(v))*dx + gamma*inner(div(u), div(v))*dx - inner(f, v)*dx + avg(inner(u, v))*dS
 
-    z = zero(V.ufl_element().value_shape)
-    bcs = DirichletBC(V, z, "on_boundary")
+    bcs = DirichletBC(V, 0, "on_boundary")
 
     sp = {
         "mat_type": "matfree",
