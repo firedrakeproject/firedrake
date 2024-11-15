@@ -152,7 +152,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG.
         """
-        cache = self.cache(DG)
+        cache = self.cache(V)
         key = V.dim()
         try:
             return cache._V_approx_inv_mass[key]
