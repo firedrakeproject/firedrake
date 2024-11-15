@@ -7,6 +7,7 @@ import loopy as lp
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
 
@@ -193,16 +194,18 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
 
 
 @PETSc.Log.EventDecorator()
-def compile_coordinate_element(mesh, contains_eps, parameters=None):
+def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, parameters: dict | None = None):
     """Generates C code for changing to reference coordinates.
 
     Parameters
     ----------
-    mesh : MeshTopology
+    mesh :
         The mesh.
 
-    contains_eps : float
+    contains_eps :
         The tolerance used to verify that a point is contained by a cell.
+    parameters :
+        Form compiler parameters, defaults to whatever TSFC defaults to.
 
     Returns
     -------
