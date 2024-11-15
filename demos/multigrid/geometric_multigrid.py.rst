@@ -191,7 +191,7 @@ bilinear form to the solver ourselves: ::
       "fieldsplit_0_pc_type": "mg",
       "fieldsplit_1_ksp_type": "preonly",
       "fieldsplit_1_pc_type": "python",
-      "fieldsplit_1_pc_python_type": "__main__.Mass",
+      "fieldsplit_1_pc_python_type": "geometric_multigrid.Mass",
       "fieldsplit_1_aux_pc_type": "bjacobi",
       "fieldsplit_1_aux_sub_pc_type": "icc",
   }
@@ -227,7 +227,7 @@ approximations.
         "mg_coarse_fieldsplit_0_pc_type": "lu",
         "mg_coarse_fieldsplit_1_ksp_type": "preonly",
         "mg_coarse_fieldsplit_1_pc_type": "python",
-        "mg_coarse_fieldsplit_1_pc_python_type": "__main__.Mass",
+        "mg_coarse_fieldsplit_1_pc_python_type": "geometric_multigrid.Mass",
         "mg_coarse_fieldsplit_1_aux_pc_type": "cholesky",
         "mg_levels_ksp_type": "richardson",
         "mg_levels_ksp_max_it": 1,
@@ -245,7 +245,7 @@ approximations.
         "mg_levels_fieldsplit_1_ksp_richardson_self_scale": None,
         "mg_levels_fieldsplit_1_ksp_max_it": 3,
         "mg_levels_fieldsplit_1_pc_type": "python",
-        "mg_levels_fieldsplit_1_pc_python_type": "__main__.Mass",
+        "mg_levels_fieldsplit_1_pc_python_type": "geometric_multigrid.Mass",
         "mg_levels_fieldsplit_1_aux_pc_type": "bjacobi",
         "mg_levels_fieldsplit_1_aux_sub_pc_type": "icc",
   }
