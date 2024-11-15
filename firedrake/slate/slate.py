@@ -31,7 +31,7 @@ from pyop2.utils import as_tuple
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
-from ufl.domain import join_domains
+from ufl.domain import join_domains, sort_domains
 from ufl.form import Form
 import hashlib
 
@@ -983,7 +983,7 @@ class TensorOp(TensorBase):
         the tensor.
         """
         collected_domains = [op.ufl_domains() for op in self.operands]
-        return join_domains(chain(*collected_domains))
+        return sort_domains(join_domains(chain(*collected_domains)))
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:

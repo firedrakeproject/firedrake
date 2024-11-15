@@ -1628,7 +1628,7 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return tuple(self._form.ufl_domains())[self._kinfo.domain_number]
+        return self._form.ufl_domains()[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -1970,7 +1970,7 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return tuple(self._form.ufl_domains())[self._kinfo.domain_number]
+        return self._form.ufl_domains()[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):
