@@ -146,7 +146,7 @@ def physical_node_locations(V):
     try:
         return cache[key]
     except KeyError:
-        Vc = firedrake.FunctionSpace(mesh, finat.ufl.VectorElement(element))
+        Vc = firedrake.VectorFunctionSpace(mesh, element)
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)

@@ -1375,8 +1375,8 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        fshape = (numpy.prod(Vf.shape), Vf.finat_element.space_dimension())
-        cshape = (numpy.prod(Vc.shape), Vc.finat_element.space_dimension())
+        fshape = (Vf.block_size, Vf.finat_element.space_dimension())
+        cshape = (Vc.block_size, Vc.finat_element.space_dimension())
 
         lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         lwork = max(lwork, max(numpy.prod(fshape), numpy.prod(cshape)))

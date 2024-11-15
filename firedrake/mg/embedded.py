@@ -40,8 +40,8 @@ class TransferManager(object):
         """A caching object for work vectors and matrices.
 
         :arg element: The element to use for the caching."""
-        def __init__(self, key):
-            self.embedding_element = get_embedding_dg_element(*key)
+        def __init__(self, ufl_element, value_shape):
+            self.embedding_element = get_embedding_dg_element(ufl_element, value_shape)
             self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -83,16 +83,12 @@ class TransferManager(object):
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
-    def cache(self, key):
+    def cache(self, V):
+        key = (V.ufl_element(), V.value_shape)
         try:
             return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(key))
-
-    def get_cache_key(self, V):
-        elem = V.ufl_element()
-        value_shape = V.value_shape
-        return elem, value_shape
+            return self.caches.setdefault(key, TransferManager.Cache(*key))
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -100,7 +96,7 @@ class TransferManager(object):
         :arg V: function space to compute weights for.
         :returns: A PETSc Vec.
         """
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(V)
         key = V.dim()
         try:
             return cache._V_dof_weights[key]
@@ -125,7 +121,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG
         """
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(V)
         key = V.dim()
         try:
             return cache._V_DG_mass[key]
@@ -140,7 +136,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat.
         """
-        cache = self.cache(self.get_cache_key(DG))
+        cache = self.cache(DG)
         key = DG.dim()
         try:
             return cache._DG_inv_mass[key]
@@ -156,7 +152,7 @@ class TransferManager(object):
         :arg DG: the DG space
         :returns: A PETSc Mat mapping from V -> DG.
         """
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(DG)
         key = V.dim()
         try:
             return cache._V_approx_inv_mass[key]
@@ -174,7 +170,7 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A PETSc KSP for inverting (V, V).
         """
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(V)
         key = V.dim()
         try:
             return cache._V_inv_mass_ksp[key]
@@ -196,7 +192,7 @@ class TransferManager(object):
         :returns: A Function in the embedding DG space.
         """
         needs_dual = ufl.duals.is_dual(V)
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(V)
         key = (V.dim(), needs_dual)
         try:
             return cache._DG_work[key]
@@ -213,7 +209,7 @@ class TransferManager(object):
         :arg V: a function space.
         :returns: A PETSc Vec for V.
         """
-        cache = self.cache(self.get_cache_key(V))
+        cache = self.cache(V)
         key = V.dim()
         try:
             return cache._work_vec[key]
@@ -226,7 +222,7 @@ class TransferManager(object):
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         try:
-            return self.cache(self.get_cache_key(V))._dat_versions[key] != dat_versions
+            return self.cache(V)._dat_versions[key] != dat_versions
         except KeyError:
             return True
 
@@ -234,7 +230,7 @@ class TransferManager(object):
         """Record the returned dat_versions of the source and target."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
-        self.cache(self.get_cache_key(V))._dat_versions[key] = dat_versions
+        self.cache(V)._dat_versions[key] = dat_versions
 
     @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):

@@ -283,7 +283,7 @@ def prolong_kernel(expression):
                "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "Rdim": numpy.prod(V.value_shape),
+               "Rdim": V.value_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),

@@ -988,18 +988,16 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
-        dims = [numpy.prod(fs.value_shape, dtype=int)
-                for fs in V]
         loops = []
-        if numpy.prod(expr.ufl_shape, dtype=int) != sum(dims):
+        if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), numpy.prod(expr.ufl_shape, dtype=int)))
+                               % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
         if bcs and len(arguments) == 0:
-            loops.extend([partial(bc.apply, f) for bc in bcs])
+            loops.extend(partial(bc.apply, f) for bc in bcs)
 
         def callable(loops, f):
             for l in loops:
