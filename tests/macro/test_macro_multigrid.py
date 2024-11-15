@@ -136,6 +136,7 @@ mg_params = {
     "mg_levels_pc_type": "jacobi",
     "mg_coarse_pc_type": "python",
     "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+    "mg_coarse_assembled_pc_type": "cholesky",
 }
 
 
