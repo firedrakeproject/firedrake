@@ -412,8 +412,9 @@ def apply_mapping(expression, element, domain):
         mesh = domain
     if domain is not None and mesh != domain:
         raise NotImplementedError("Multiple domains not supported")
-    if expression.ufl_shape != element.value_shape:
-        raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {element.value_shape}")
+    pvs = element.pullback.physical_value_shape(element, mesh)
+    if expression.ufl_shape != pvs:
+        raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {pvs}")
     mapping = element.mapping().lower()
     if mapping == "identity":
         rexpression = expression
@@ -451,7 +452,7 @@ def apply_mapping(expression, element, domain):
         sub_elem = element.sub_elements[0]
         shape = expression.ufl_shape
         flat = ufl.as_vector([expression[i] for i in numpy.ndindex(shape)])
-        vs = sub_elem.value_shape
+        vs = sub_elem.pullback.physical_value_shape(sub_elem, mesh)
         rvs = sub_elem.reference_value_shape
         seen = set()
         rpieces = []
@@ -472,7 +473,7 @@ def apply_mapping(expression, element, domain):
         # And reshape
         rexpression = as_tensor(numpy.asarray(rpieces).reshape(element.reference_value_shape))
     else:
-        raise NotImplementedError(f"Don't know how to handle mapping type {mapping} for expression of rank {element.value_shape}")
+        raise NotImplementedError(f"Don't know how to handle mapping type {mapping} for expression of rank {ufl.FunctionSpace(mesh, element).value_shape}")
     if rexpression.ufl_shape != element.reference_value_shape:
         raise ValueError(f"Mismatching reference shapes, got {rexpression.ufl_shape} expected {element.reference_value_shape}")
     return rexpression
