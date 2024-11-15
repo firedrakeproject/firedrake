@@ -2366,18 +2366,14 @@ def compute_dm_renumbering(
         DMLabel clabel
         bint reorder = reordering is not None
 
-    print("AAA")
-
     dm = mesh.topology_dm
 
     p_start, p_end = 0, mesh.num_points
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    print("BBB")
 
     CHKERR(PetscMalloc1(p_end - p_start, &renumbering))
     CHKERR(PetscBTCreate(p_end - p_start, &seen_points))
-    print("CCC")
 
     # if boundary_set:
     #     CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
@@ -2425,7 +2421,6 @@ def compute_dm_renumbering(
     for cell in range(mesh.num_cells):
         if reorder:
             cell = reordering[cell]
-        print("DDD")
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -2435,7 +2430,6 @@ def compute_dm_renumbering(
                 continue
             else:
                 PetscBTSet(seen_points, point)
-                print("owned_ptr ", owned_ptr)
                 CHKERR(DMLabelGetValue(clabel, point, &is_ghost))
                 if is_ghost == 1:
                     renumbering[ghost_ptr] = point
@@ -2447,7 +2441,6 @@ def compute_dm_renumbering(
     assert owned_ptr == mesh.num_owned_points
     assert ghost_ptr == mesh.num_points
 
-    print("FFF")
     if closure != NULL:
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
 
@@ -2456,7 +2449,6 @@ def compute_dm_renumbering(
     # if boundary_set:
     #     CHKERR(PetscBTDestroy(&seen_boundary))
 
-    print("GGG")
     renumbering_is = PETSc.IS().create(comm=dm.comm)
     renumbering_is.setType("general")
     CHKERR(
