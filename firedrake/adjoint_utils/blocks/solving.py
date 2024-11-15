@@ -9,7 +9,6 @@ from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
-import gc
 
 def extract_subfunction(u, V):
     """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
@@ -372,7 +371,6 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_soa_eq(self, dFdu_form, adj_sol, hessian_input,
                                    d2Fdu2, compute_bdy):
-        # gc.collect()
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = firedrake.adjoint(dFdu_form)
@@ -536,7 +534,6 @@ class GenericSolveBlock(Block):
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        # gc.collect()
         lhs = prepared[0]
         rhs = prepared[1]
         func = prepared[2]
@@ -654,7 +651,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return func
 
     def _adjoint_solve(self, dJdu, compute_bdy):
-        gc.collect()
         dJdu_copy = dJdu.copy()
         # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
         bcs = self._homogenize_bcs()
