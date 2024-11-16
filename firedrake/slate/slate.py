@@ -257,7 +257,7 @@ class TensorBase(object, metaclass=ABCMeta):
     def _expand_mixed_meshes(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
-            return join_domains(func(self, *args, **kwargs))
+            return sort_domains(join_domains(func(self, *args, **kwargs)))
         return wrapper
 
     @abstractmethod
