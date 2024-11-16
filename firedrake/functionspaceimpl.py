@@ -195,9 +195,9 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        bound = len(self._components)
-        if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+        #bound = len(self._components)
+        #if i < 0 or i >= bound:
+        #    raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
         if len(self) == 1:
             return self._components[i]
         else:
