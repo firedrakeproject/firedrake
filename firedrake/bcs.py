@@ -289,8 +289,10 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 warnings.simplefilter('always', DeprecationWarning)
                 warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
                               DeprecationWarning)
-        if len(V.boundary_set) and sub_domain not in V.boundary_set:
-            raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
+        if len(V.boundary_set):
+            subs = [sub_domain] if type(sub_domain) in {int, str} else sub_domain
+            if any(sub not in V.boundary_set for sub in subs):
+                raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
         super().__init__(V, sub_domain)
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"

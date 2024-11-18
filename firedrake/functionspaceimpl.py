@@ -880,7 +880,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return super().__new__(cls)
 
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
-        if all(hasattr(bc, "sub_domain") for bc in boundary_set):
+        if len(boundary_set) > 0 and all(hasattr(bc, "sub_domain") for bc in boundary_set):
             bcs = boundary_set
             boundary_set = []
             for bc in bcs:

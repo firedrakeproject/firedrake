@@ -22,6 +22,12 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
+def get_sub(V, indices):
+    for i in indices:
+        V = V.sub(i)
+    return V
+
+
 def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
@@ -88,8 +94,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.restrict = restrict
 
         if restrict and bcs:
-            V_res = RestrictedFunctionSpace(V, boundary_set=set([bc.sub_domain for bc in bcs]))
-            bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            V_res = RestrictedFunctionSpace(V, boundary_set=bcs)
+            bcs = [bc.reconstruct(V=get_sub(V_res, bc._indices)) for bc in bcs]
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             F_arg, = F.arguments()
