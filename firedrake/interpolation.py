@@ -996,7 +996,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if len(V) == 1:
             loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
         else:
-            assert len(arguments) == 0
+            if len(arguments) > 0:
+                raise NotImplementedError("Cannot interpolate a mixed expression with %d arguments" % len(arguments))
             offset = 0
             for Vsub, usub in zip(V, tensor):
                 shape = Vsub.value_shape

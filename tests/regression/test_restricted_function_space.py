@@ -179,7 +179,7 @@ def test_restricted_mixed_space():
     Q = FunctionSpace(mesh, "DG", 0)
     Z = V * Q
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
-    Z_restricted = RestrictedFunctionSpace(Z, boundary_set=bcs)
+    Z_restricted = RestrictedFunctionSpace(Z, bcs)
     compare_function_space_assembly(Z, Z_restricted, bcs)
 
 
