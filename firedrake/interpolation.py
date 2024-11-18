@@ -992,10 +992,25 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
                                % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
-        if len(V) > 1:
-            raise NotImplementedError(
-                "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+
+        if len(V) == 1:
+            loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+        else:
+            assert len(arguments) == 0
+            offset = 0
+            for Vsub, usub in zip(V, tensor):
+                shape = Vsub.value_shape
+                rank = len(shape)
+                components = [expr[offset + j] for j in range(Vsub.value_size)]
+                if rank == 0:
+                    Vexpr = components[0]
+                elif rank == 1:
+                    Vexpr = ufl.as_vector(components)
+                else:
+                    Vexpr = ufl.as_tensor(numpy.reshape(components, Vsub.value_shape).tolist())
+                loops.extend(_interpolator(Vsub, usub, Vexpr, subset, arguments, access, bcs=bcs))
+                offset += Vsub.value_size
+
         if bcs and len(arguments) == 0:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
