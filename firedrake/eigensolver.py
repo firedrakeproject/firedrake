@@ -1,6 +1,5 @@
 """Specify and solve finite element eigenproblems."""
 from firedrake.assemble import assemble
-from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
@@ -71,12 +70,12 @@ class LinearEigenproblem():
             M = inner(u, v) * dx
 
         if restrict and bcs:  # assumed u and v are in the same space here
-            V_res = RestrictedFunctionSpace(self.output_space, boundary_set=set([bc.sub_domain for bc in bcs]))
+            V_res = RestrictedFunctionSpace(self.output_space, boundary_set=set(bc.sub_domain for bc in bcs))
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)
             self.M = replace(M, {u: u_res, v: v_res})
             self.A = replace(A, {u: u_res, v: v_res})
-            self.bcs = [DirichletBC(V_res, bc.function_arg, bc.sub_domain) for bc in bcs]
+            self.bcs = [bc.reconstruct(V=V_res) for bc in bcs]
             self.restricted_space = V_res
         else:
             self.A = A  # LHS

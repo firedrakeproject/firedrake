@@ -860,17 +860,25 @@ class RestrictedFunctionSpace(FunctionSpace):
     output of the solver.
 
     :arg function_space: The :class:`FunctionSpace` to restrict.
-    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
-        useful for later identification.
     :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
         applied.
+    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
+        useful for later identification.
 
     Notes
     -----
     If using this class to solve or similar, a list of DirichletBCs will still
     need to be specified on this space and passed into the function.
     """
-    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+    def __new__(cls, *args, boundary_set=frozenset(), name=None, **kwargs):
+        if cls is not RestrictedFunctionSpace:
+            return super().__new__(cls)
+        function_space = args[0]
+        if len(function_space) > 1:
+            return MixedFunctionSpace([cls(Vsub, boundary_set=boundary_set) for Vsub in function_space], name=name)
+        return super().__new__(cls)
+
+    def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
@@ -884,8 +892,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      label=self._label)
         self.function_space = function_space
         self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(
-                                        [str(i) for i in self.boundary_set])))
+                             + "_".join(sorted(map(str, self.boundary_set))))
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)

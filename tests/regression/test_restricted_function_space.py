@@ -168,17 +168,27 @@ def test_restricted_function_space_coord_change(j):
     new_mesh = Mesh(Function(V).interpolate(as_vector([x, y])))
     new_V = FunctionSpace(new_mesh, "CG", j)
     bc = DirichletBC(new_V, 0, 1)
-    new_V_restricted = RestrictedFunctionSpace(new_V, name="Restricted", boundary_set=[1])
+    new_V_restricted = RestrictedFunctionSpace(new_V, boundary_set=[1], name="Restricted")
 
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
+def test_restricted_mixed_spaces():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "RT", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+    Z_restricted = RestrictedFunctionSpace(Z, boundary_set=[1])
+    bcs = [DirichletBC(Z.sub(0), 0, [1])]
+    compare_function_space_assembly(Z, Z_restricted, bcs)
+
+
 @pytest.mark.parametrize(["i", "j"], [(1, 0), (2, 0), (2, 1)])
-def test_restricted_mixed_spaces(i, j):
+def test_poisson_mixed_restricted_spaces(i, j):
     mesh = UnitSquareMesh(1, 1)
     DG = FunctionSpace(mesh, "DG", j)
     CG = VectorFunctionSpace(mesh, "CG", i)
-    CG_res = RestrictedFunctionSpace(CG, "Restricted", boundary_set=[4])
+    CG_res = RestrictedFunctionSpace(CG, boundary_set=[4], name="Restricted")
     W = CG * DG
     W_res = CG_res * DG
     bc = DirichletBC(W.sub(0), 0, 4)
