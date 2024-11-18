@@ -13,8 +13,8 @@ def test_physically_mapped_facet():
     V = FiniteElement("P", mesh.ufl_cell(), 1)
     R = FiniteElement("P", mesh.ufl_cell(), 1)
     Vv = VectorElement(BrokenElement(V))
-    Qhat = VectorElement(BrokenElement(V[facet]))
-    Vhat = VectorElement(V[facet])
+    Qhat = VectorElement(BrokenElement(V[facet]), dim=2)
+    Vhat = VectorElement(V[facet], dim=2)
     Z = FunctionSpace(mesh, MixedElement(U, Vv, Qhat, Vhat, R))
 
     z = Coefficient(Z)
