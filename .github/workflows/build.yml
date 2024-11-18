@@ -84,6 +84,7 @@ jobs:
             --install gadopt \
             --install asQ \
             --package-branch tsfc connorjward/remove-unnecessary-loopy \
+            --package-branch pyop2 connorjward/kill-warnings \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
