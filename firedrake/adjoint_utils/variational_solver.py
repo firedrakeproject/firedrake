@@ -46,7 +46,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
-                                "recompute_count": 0}
+                                "recompute_count": 0, "dJdu": None}
             self._ad_adj_cache = {}
 
         return wrapper
@@ -130,12 +130,15 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_adj_lvs_problem(self, block, adj_F):
         """Create the adjoint variational problem."""
-        from firedrake import Function, Cofunction, LinearVariationalProblem
+        from firedrake import Function, Cofunction, LinearVariationalProblem, TestFunction, dx
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()
         adj_sol = Function(block.function_space)
-        right_hand_side = Cofunction(block.function_space.dual())
+        dJdu = Function(block.function_space)
+        if not self._ad_solvers["dJdu"]:
+            self._ad_solvers["dJdu"] = dJdu
+        right_hand_side = dJdu * TestFunction(block.function_space) * dx
         tmp_problem = LinearVariationalProblem(
             adj_F, right_hand_side, adj_sol, bcs=bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
@@ -143,8 +146,8 @@ class NonlinearVariationalSolverMixin:
         # We do not want to modify the user-defined values. Hence, the adjoint
         # linear variational problem is created with a deep copy of the
         # `block.adj_F` coefficients.
-        _ad_count_map, J_replace_map, _ = self._build_count_map(
-            adj_F, block._dependencies)
+        _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
+            adj_F, block._dependencies, F=tmp_problem.F)
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,

@@ -10,6 +10,7 @@ import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 from .block_utils import isconstant
 
+
 def extract_subfunction(u, V):
     """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
     if V.index is not None:
@@ -671,7 +672,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
-        self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
+        self._ad_solvers["dJdu"].assign(dJdu.riesz_representation(riesz_map="l2"))
+
+        # self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
 
         # Solve the adjoint linear variational solver.
         self._ad_solvers["adjoint_lvs"].solve()
