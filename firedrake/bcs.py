@@ -313,10 +313,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self._function_arg
 
     @PETSc.Log.EventDecorator()
-    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False):
+    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False, indices=()):
         fs = self.function_space()
         if V is None:
             V = fs
+        for index in indices:
+            V = V.sub(index)
         if g is None:
             g = self._original_arg
         if sub_domain is None:
