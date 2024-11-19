@@ -403,6 +403,10 @@ def apply_mapping(expression, element, domain):
 
       G(X) = det(J)^2 K g(x) K^T  i.e. G_il(X)=(detJ)^2 K_ij g_jk K_lk
 
+    'covariant contravariant piola' mapping for g:
+
+      G(X) = det(J) J^T g(x) K^T     i.e. G_il(X) = det(J) J_ji g_jk(x) K_lk
+
     If 'contravariant piola' or 'covariant piola' (or their double
     variants) are applied to a matrix-valued function, the appropriate
     mappings are applied row-by-row.
@@ -443,6 +447,13 @@ def apply_mapping(expression, element, domain):
         *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
         kmn = (*k, m, n)
         rexpression = as_tensor(detJ**2 * K[i, m] * expression[kmn] * K[j, n], (*k, i, j))
+    elif mapping == "covariant contravariant piola":
+        J = Jacobian(mesh)
+        K = JacobianInverse(mesh)
+        detJ = JacobianDeterminant(mesh)
+        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
+        kmn = (*k, m, n)
+        rexpression = as_tensor(detJ * J[m, i] * expression[kmn] * K[j, n], (*k, i, j))
     elif mapping == "symmetries":
         # This tells us how to get from the pieces of the reference
         # space expression to the physical space one.
