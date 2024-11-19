@@ -102,25 +102,28 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         The :class:`EnsembleFunction` for the control x_{i} at the initial
         condition and at the end of each observation stage.
 
-    control
-        The background (prior) data for the initial condition :math:`x_{b}`.
-
     background_iprod
         The inner product to calculate the background error functional
         from the background error :math:`x_{0} - x_{b}`. Can include the
-        error covariance matrix.
+        error covariance matrix. Only used on ensemble rank 0.
+
+    background
+        The background (prior) data for the initial condition :math:`x_{b}`.
+        If not provided, the value of the first Function on the first ensemble
+        of the EnsembleFunction will be used.
 
     observation_err
         Given a state :math:`x`, returns the observations error
         :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the
         observations at the initial time and :math:`\\mathcal{H}_{0}` is
-        the observation operator for the initial time. Optional.
+        the observation operator for the initial time. Only used on
+        ensemble rank 0. Optional.
 
     observation_iprod
         The inner product to calculate the observation error functional
         from the observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`.
         Can include the error covariance matrix. Must be provided if
-        observation_err is provided.
+        observation_err is provided. Only used on ensemble rank 0
 
     weak_constraint
         Whether to use the weak or strong constraint 4DVar formulation.
@@ -131,8 +134,8 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
     """
 
     def __init__(self, control: Control,
-                 background: OverloadedType,
                  background_iprod: Optional[Callable[[OverloadedType], AdjFloat]],
+                 background: Optional[OverloadedType] = None,
                  observation_err: Optional[Callable[[OverloadedType], OverloadedType]] = None,
                  observation_iprod: Optional[Callable[[OverloadedType], AdjFloat]] = None,
                  weak_constraint: bool = True,
@@ -145,7 +148,10 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         self.initial_observations = observation_err is not None
 
         with stop_annotating():
-            self.background = background._ad_copy()
+            if background:
+                self.background = background._ad_copy()
+            else:
+                self.background = control.control.subfunctions[0]._ad_copy()
             _rename(self.background, "Background")
 
         if self.weak_constraint:
@@ -198,15 +204,6 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                         operation=observation_iprod,
                         control=self.initial_observation_error.functional,
                         functional_name="obs_err_vec_0_copy")
-
-            else:
-
-                if background_iprod is not None:
-                    raise ValueError("Only the first ensemble rank needs `background_iprod`")
-                if observation_iprod is not None:
-                    raise ValueError("Only the first ensemble rank needs `observation_iprod`")
-                if observation_err is not None:
-                    raise ValueError("Only the first ensemble rank needs `observation_err`")
 
             # create halo for previous state
             if self.ensemble and self.trank != 0:
@@ -308,15 +305,13 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         if trank == 0:
             Jlocal = (
                 self.background_norm(
-                    self.background_error(x[0]))
-            )
+                    self.background_error(x[0])))
 
             # observations at time 0
             if self.initial_observations:
                 Jlocal += (
                     self.initial_observation_norm(
-                        self.initial_observation_error(x[0]))
-                )
+                        self.initial_observation_error(x[0])))
         else:
             Jlocal = 0.
 
@@ -382,26 +377,28 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         # initial condition derivatives
         if trank == 0:
-            bkg_deriv = self.background_norm.derivative(adj_input=adj_input,
-                                                        options=intermediate_options)
-            derivs[0] += self.background_error.derivative(adj_input=bkg_deriv,
-                                                          options=options)
+            bkg_deriv = self.background_norm.derivative(
+                adj_input=adj_input, options=intermediate_options)
+
+            derivs[0] += self.background_error.derivative(
+                adj_input=bkg_deriv, options=options)
 
             # observations at time 0
             if self.initial_observations:
-                obs_deriv = self.initial_observation_norm.derivative(adj_input=adj_input,
-                                                                     options=intermediate_options)
-                derivs[0] += self.initial_observation_error.derivative(adj_input=obs_deriv,
-                                                                       options=options)
+                obs_deriv = self.initial_observation_norm.derivative(
+                    adj_input=adj_input, options=intermediate_options)
+
+                derivs[0] += self.initial_observation_error.derivative(
+                    adj_input=obs_deriv, options=options)
 
         # evaluate first forward model, which contributes to previous chunk
-        sderiv0 = self.stages[0].derivative(adj_input=adj_input, options=options)
+        sderiv0 = self.stages[0].derivative(
+            adj_input=adj_input, options=options)
 
         derivs[0] += sderiv0[0]
         derivs[1] += sderiv0[1]
 
         # post the derivative halo exchange
-        from firedrake import norm
         if self.ensemble:
             src = trank + 1
             dst = trank - 1
@@ -416,7 +413,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         # # evaluate all forward models on chunk except first while halo in flight
         for i in range(1, len(self.stages)):
-            sderiv = self.stages[i].derivative(adj_input=adj_input, options=options)
+            sderiv = self.stages[i].derivative(
+                adj_input=adj_input, options=options)
+
             derivs[i] += sderiv[0]
             derivs[i+1] += sderiv[1]
 
@@ -484,13 +483,14 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
         # indices of stage in global and local list
         stage_kwargs = {k: v for k, v in kwargs.items()}
-        stage_kwargs['local_index'] = 0
-        stage_kwargs['global_index'] = 0
 
         # record over ensemble
         if self.weak_constraint:
 
             trank = self.trank
+
+            if trank == 0:
+                global_index = 0
 
             # later ranks recv forward state and kwargs
             if trank > 0:
@@ -502,19 +502,17 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                     for i, (k, v) in enumerate(stage_kwargs.items()):
                         stage_kwargs[k] = _scalarRecv(
                             tcomm, dtype=type(v), source=src, tag=trank+i*100)
-                    # restart local stage counter
-                    stage_kwargs['local_index'] = 0
+
+                    global_index = _scalarRecv(
+                        tcomm, dtype=int, source=src, tag=trank+i*9000)
 
             # subsequent ranks start from halo
             controls = self._controls if trank == 0 else [self._control_prev, *self._controls]
 
             stage_sequence = ObservationStageSequence(
-                controls, self, stage_kwargs, sequential)
+                controls, self, global_index, stage_kwargs, sequential)
 
             yield stage_sequence
-
-            # grab the stages now they have been taped
-            self.stages = stage_sequence.stages
 
             # send forward state and kwargs
             if self.ensemble and trank != self.nchunks - 1:
@@ -530,6 +528,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
                         _scalarSend(
                             tcomm, v, dest=dst, tag=dst+i*100)
 
+                    _scalarSend(
+                        tcomm, global_index, dest=dst, tag=dst+i*9000)
+
         else:  # strong constraint
 
             yield ObservationStageSequence(
@@ -539,6 +540,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 class ObservationStageSequence:
     def __init__(self, controls: Control,
                  aaorf: AllAtOnceReducedFunctional,
+                 global_index: int,
                  stage_kwargs: dict = None,
                  sequential: bool = True):
         self.controls = controls
@@ -547,8 +549,8 @@ class ObservationStageSequence:
         self.ctx = StageContext(**(stage_kwargs or {}))
         self.index = 0
         self.weak_constraint = aaorf.weak_constraint
-        if self.weak_constraint:
-            self.stages = []
+        self.global_index = global_index
+        self.local_index = 0
 
     def __iter__(self):
         return self
@@ -559,12 +561,14 @@ class ObservationStageSequence:
             # start of the next stage
             next_control = self.controls[self.index]
 
+            stages = self.aaorf.stages
+
             # smuggle state forward and increment stage indices
             if self.index > 0:
-                self.ctx.local_index += 1
-                self.ctx.global_index += 1
+                self.local_index += 1
+                self.global_index += 1
 
-                state = self.stages[-1].controls[1].control
+                state = stages[-1].controls[1].control
                 with stop_annotating():
                     next_control.control.assign(state)
 
@@ -573,15 +577,17 @@ class ObservationStageSequence:
                 raise StopIteration
             self.index += 1
 
-            stage = WeakObservationStage(next_control, index=self.ctx.global_index)
-            self.stages.append(stage)
+            stage = WeakObservationStage(next_control,
+                                         local_index=self.local_index,
+                                         global_index=self.global_index)
+            stages.append(stage)
 
         else:  # strong constraint
 
             # increment stage indices
             if self.index > 0:
-                self.ctx.local_index += 1
-                self.ctx.global_index += 1
+                self.local_index += 1
+                self.global_index += 1
 
             # stop after we've recorded all stages
             if self.index >= self.nstages:
@@ -666,18 +672,24 @@ class WeakObservationStage:
     control
         The control x_{i-1} at the beginning of the stage
 
-    index
-        Optional integer to name controls and functionals with
+    local_index
+        The index of this stage in the timeseries on the
+        local ensemble member.
+
+    global_index
+        The index of this stage in the global timeseries.
 
     """
     def __init__(self, control: Control,
-                 index: Optional[int] = None):
+                 local_index: Optional[int] = None,
+                 global_index: Optional[int] = None):
         # "control" to use as initial condition.
         # Not actual `Control` for consistency with strong constraint
         self.control = control.control
 
         self.controls = Enlist(control)
-        self.index = index
+        self.local_index = local_index
+        self.global_index = global_index
         set_working_tape()
         self._stage_tape = get_working_tape()
 
@@ -729,18 +741,18 @@ class WeakObservationStage:
         with stop_annotating():
             # smuggle initial guess at this time into the control without the tape seeing
             self.controls.append(Control(state._ad_copy()))
-            if self.index:
-                _rename(self.controls[-1].control, f"Control_{self.index}")
+            if self.global_index:
+                _rename(self.controls[-1].control, f"Control_{self.global_index}")
 
         # model error links time-chunks by depending on both the
         # previous and current controls
 
         # RF to recalculate error vector (M_i - x_i)
         names = {
-            'functional_name': f"model_err_vec_{self.index}",
-            'control_name': [f"state_{self.index}_copy",
-                             f"Control_{self.index}_model_copy"]
-        } if self.index else {}
+            'functional_name': f"model_err_vec_{self.global_index}",
+            'control_name': [f"state_{self.global_index}_copy",
+                             f"Control_{self.global_index}_model_copy"]
+        } if self.global_index else {}
 
         self.model_error = isolated_rf(
             operation=lambda controls: _ad_sub(*controls),
@@ -749,8 +761,8 @@ class WeakObservationStage:
 
         # RF to recalculate inner product |M_i - x_i|_Q
         names = {
-            'control_name': f"model_err_vec_{self.index}_copy"
-        } if self.index else {}
+            'control_name': f"model_err_vec_{self.global_index}_copy"
+        } if self.global_index else {}
 
         self.model_norm = isolated_rf(
             operation=forward_model_iprod,
@@ -761,9 +773,9 @@ class WeakObservationStage:
 
         # RF to recalculate error vector (H(x_i) - y_i)
         names = {
-            'functional_name': f"obs_err_vec_{self.index}",
-            'control_name': f"Control_{self.index}_obs_copy"
-        } if self.index else {}
+            'functional_name': f"obs_err_vec_{self.global_index}",
+            'control_name': f"Control_{self.global_index}_obs_copy"
+        } if self.global_index else {}
 
         self.observation_error = isolated_rf(
             operation=observation_err,
@@ -772,8 +784,8 @@ class WeakObservationStage:
 
         # RF to recalculate inner product |H(x_i) - y_i|_R
         names = {
-            'functional_name': "obs_err_vec_{self.index}_copy"
-        } if self.index else {}
+            'functional_name': "obs_err_vec_{self.global_index}_copy"
+        } if self.global_index else {}
         self.observation_norm = isolated_rf(
             operation=observation_iprod,
             control=self.observation_error.functional,
