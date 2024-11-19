@@ -1,8 +1,6 @@
 import pytest
 from firedrake import *
 import numpy as np
-import subprocess
-import sys
 
 
 @pytest.fixture(params=["periodic-interval",
@@ -122,10 +120,16 @@ def test_step_function_loop(mesh, iterations=100):
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
 
+@pytest.mark.parallel
 @pytest.mark.skipcomplex
-def test_parallel_limiting(tmpdir):
-    import pickle
-    mesh = RectangleMesh(10, 4, 5000., 1000.)
+def test_parallel_limiting():
+    serial_result = _apply_limiter_with_comm(COMM_SELF)
+    parallel_result = _apply_limiter_with_comm(COMM_WORLD)
+    assert np.allclose(serial_result, parallel_result)
+
+
+def _apply_limiter_with_comm(comm):
+    mesh = RectangleMesh(10, 4, 5000., 1000., comm=comm)
     V = space(mesh)
     f = Function(V)
     x, *_ = SpatialCoordinate(mesh)
@@ -133,33 +137,6 @@ def test_parallel_limiting(tmpdir):
     limiter = VertexBasedLimiter(V)
     limiter.apply(f)
 
-    expect = np.asarray([norm(f),
-                         norm(limiter.centroids),
-                         norm(limiter.min_field),
-                         norm(limiter.max_field)])
-
-    tmpfile = tmpdir.join("a")
-    code = """
-import pickle
-from firedrake import *
-mesh = RectangleMesh(10, 4, 5000., 1000.)
-element = BrokenElement(mesh.coordinates.function_space().ufl_element().sub_elements[0])
-V = FunctionSpace(mesh, element)
-f = Function(V)
-x, *_ = SpatialCoordinate(mesh)
-f.project(sin(2*pi*x/3000.))
-limiter = VertexBasedLimiter(V)
-limiter.apply(f)
-
-fnorm = norm(f)
-centroid_norm = norm(limiter.centroids)
-min_norm = norm(limiter.min_field)
-max_norm = norm(limiter.max_field)
-if mesh.comm.rank == 0:
-    with open("{file}", "wb") as f:
-        pickle.dump([fnorm, centroid_norm, min_norm, max_norm], f)
-""".format(file=tmpfile)
-    subprocess.check_call(["mpiexec", "-n", "3", sys.executable, "-c", code])
-    with tmpfile.open("rb") as f:
-        actual = np.asarray(pickle.load(f))
-    assert np.allclose(expect, actual)
+    return np.asarray([
+        norm(f), norm(limiter.centroids), norm(limiter.min_field), norm(limiter.max_field)
+    ])

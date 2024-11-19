@@ -580,23 +580,23 @@ def bcdofs(bc, ghost=True):
         if isinstance(Z.ufl_element(), VectorElement):
             offset += idx
             assert i == len(indices)-1  # assert we're at the end of the chain
-            assert Z.sub(idx).value_size == 1
+            assert Z.sub(idx).block_size == 1
         elif isinstance(Z.ufl_element(), MixedElement):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
             else:
-                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).value_size for j in range(idx))
+                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).block_size for j in range(idx))
         else:
             raise NotImplementedError("How are you taking a .sub?")
 
         Z = Z.sub(idx)
 
     if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
-        bs = Z.parent.value_size
+        bs = Z.parent.block_size
         start = 0
         stop = 1
     else:
-        bs = Z.value_size
+        bs = Z.block_size
         start = 0
         stop = bs
     nodes = bc.nodes
@@ -868,7 +868,7 @@ class PatchBase(PCSNESBase):
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         numpy.array([W.value_size for
+                                         numpy.array([W.block_size for
                                                       W in V], dtype=PETSc.IntType),
                                          [W.cell_node_list for W in V],
                                          offsets,

@@ -79,7 +79,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             if not isinstance(domain, ufl.AbstractDomain):
                 cell = ufl.as_cell(domain)
-                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, gdim=cell.geometric_dimension)
+                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension())
                 domain = ufl.Mesh(coordinate_element)
 
             cell = domain.ufl_cell()
