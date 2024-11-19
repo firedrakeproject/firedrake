@@ -995,22 +995,23 @@ def make_interpolator(expr, V, subset, access, bcs=None):
 
         if len(V) == 1:
             loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
-        else:
-            if len(arguments) > 0:
-                raise NotImplementedError("Cannot interpolate a mixed expression with %d arguments" % len(arguments))
+        elif (hasattr(expr, "subfunctions") and len(expr.subfunctions) == len(V)
+              and all(sub_expr.ufl_shape == Vsub.value_shape for Vsub, sub_expr in zip(V, expr.subfunctions))):
+            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expr.subfunctions):
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+        elif len(arguments) == 0:
+            # Unflatten the expression into each of the mixed components
             offset = 0
-            for Vsub, usub in zip(V, tensor):
-                shape = Vsub.value_shape
-                rank = len(shape)
-                components = [expr[offset + j] for j in range(Vsub.value_size)]
-                if rank == 0:
-                    Vexpr = components[0]
-                elif rank == 1:
-                    Vexpr = ufl.as_vector(components)
+            for Vsub, sub_tensor in zip(V, tensor):
+                if len(Vsub.value_shape) == 0:
+                    sub_expr = expr[offset]
                 else:
-                    Vexpr = ufl.as_tensor(numpy.reshape(components, Vsub.value_shape).tolist())
-                loops.extend(_interpolator(Vsub, usub, Vexpr, subset, arguments, access, bcs=bcs))
+                    components = [expr[offset + j] for j in range(Vsub.value_size)]
+                    sub_expr = ufl.as_tensor(numpy.reshape(components, Vsub.value_shape))
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
                 offset += Vsub.value_size
+        else:
+            raise NotImplementedError("Cannot interpolate a mixed expression with %d arguments" % len(arguments))
 
         if bcs and len(arguments) == 0:
             loops.extend(partial(bc.apply, f) for bc in bcs)

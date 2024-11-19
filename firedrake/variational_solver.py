@@ -22,12 +22,6 @@ __all__ = ["LinearVariationalProblem",
            "NonlinearVariationalSolver"]
 
 
-def get_sub(V, indices):
-    for i in indices:
-        V = V.sub(i)
-    return V
-
-
 def check_pde_args(F, J, Jp):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
         raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
@@ -94,19 +88,17 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.restrict = restrict
 
         if restrict and bcs:
-            V_res = RestrictedFunctionSpace(V, boundary_set=bcs)
-            bcs = [bc.reconstruct(V=get_sub(V_res, bc._indices)) for bc in bcs]
+            V_res = RestrictedFunctionSpace(V, bcs)
+            bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             F_arg, = F.arguments()
-            replace_dict = {F_arg: v_res}
-            replace_dict[self.u] = self.u_restrict
-            self.F = replace(F, replace_dict)
+            self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             v_arg, u_arg = self.J.arguments()
-            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res})
+            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:
                 v_arg, u_arg = self.Jp.arguments()
-                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res})
+                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             self.restricted_space = V_res
         else:
             self.u_restrict = u
