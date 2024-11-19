@@ -16,7 +16,7 @@ def _get_expr(V, i):
     mesh = V.mesh()
     element = V.ufl_element()
     x, y = SpatialCoordinate(mesh)
-    shape = element.value_shape
+    shape = V.value_shape
     if element.family() == "Real":
         return 7. + i * i
     elif shape == ():

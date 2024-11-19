@@ -135,7 +135,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
 
 def physical_node_locations(V):
     element = V.ufl_element()
-    if element.value_shape:
+    if V.value_shape:
         assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
         element = element.sub_elements[0]
     mesh = V.mesh()
@@ -146,7 +146,7 @@ def physical_node_locations(V):
     try:
         return cache[key]
     except KeyError:
-        Vc = firedrake.FunctionSpace(mesh, finat.ufl.VectorElement(element))
+        Vc = firedrake.VectorFunctionSpace(mesh, element)
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)

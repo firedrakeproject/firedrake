@@ -633,7 +633,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.ufl_cell().geometric_dimension()
+        gdim = mesh.geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:

@@ -361,7 +361,7 @@ def test_interpolate_unitsquare_mixed():
 
     # Can't go from non-mixed to mixed
     V_src_2 = VectorFunctionSpace(m_src, "CG", 1)
-    assert V_src_2.ufl_element().value_shape == V_src.ufl_element().value_shape
+    assert V_src_2.value_shape == V_src.value_shape
     f_src_2 = Function(V_src_2)
     with pytest.raises(NotImplementedError):
         assemble(interpolate(f_src_2, V_dest))
@@ -754,6 +754,41 @@ def test_missing_dofs_parallel():
 @pytest.mark.parallel
 def test_exact_refinement_parallel():
     test_exact_refinement()
+
+
+def voting_algorithm_edgecases(nprocs):
+    # this triggers lots of cases where the VOM voting algorithm has to deal
+    # with points being claimed by multiple ranks: there are cases where each
+    # rank will claim another one owns a point, for example, and yet also all
+    # claim zero distance to the reference cell!
+    s = nprocs
+    nx = 2 * s
+    mx = 3 * nx
+    mh = [UnitCubeMesh(nx, nx, nx),
+          UnitCubeMesh(mx, mx, mx)]
+    family = "Lagrange"
+    degree = 1
+    Vc = FunctionSpace(mh[0], family, degree=degree)
+    Vf = FunctionSpace(mh[1], family, degree=degree)
+    uc = Function(Vc).interpolate(SpatialCoordinate(mh[0])[0])
+    uf = Function(Vf).interpolate(uc)
+    uf2 = Function(Vf).interpolate(SpatialCoordinate(mh[1])[0])
+    assert np.isclose(errornorm(uf, uf2), 0.0)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_voting_algorithm_edgecases_2_ranks():
+    voting_algorithm_edgecases(2)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_voting_algorithm_edgecases_3_ranks():
+    voting_algorithm_edgecases(3)
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_voting_algorithm_edgecases_4_ranks():
+    voting_algorithm_edgecases(4)
 
 
 @pytest.mark.parallel

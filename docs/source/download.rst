@@ -107,7 +107,7 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
-Firedrake requires Python 3.9 to 3.13. The installation script is
+Firedrake requires Python 3.10 to 3.13. The installation script is
 tested by CI on Ubuntu 24.04 LTS. On Ubuntu 22.04 or later, the system
 installed Python 3 is supported. On MacOS, the homebrew_ installed
 Python 3 is supported::
@@ -126,7 +126,7 @@ they have the system dependencies:
 * A Fortran compiler (for PETSc)
 * Blas and Lapack
 * Git, Mercurial
-* Python version 3.9-3.13
+* Python version 3.10-3.13
 * The Python headers
 * autoconf, automake, libtool
 * CMake
