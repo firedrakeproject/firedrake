@@ -225,10 +225,10 @@ class FDMPC(PCBase):
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
 
-        if Vbig.value_size == 1:
+        if Vbig.block_size == 1:
             self.fises = PETSc.IS().createGeneral(fdofs, comm=COMM_SELF)
         else:
-            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=COMM_SELF)
+            self.fises = PETSc.IS().createBlock(Vbig.block_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -245,7 +245,7 @@ class FDMPC(PCBase):
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
+            if Vfacet.finat_element.formdegree == 0 and Vfacet.block_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
                 interior_pc_type = PETSc.PC.Type.JACOBI
             elif symmetric:
@@ -560,7 +560,7 @@ class FDMPC(PCBase):
         :returns: a :class:`PETSc.Mat` interpolating V^k * d(V^k) onto
                   broken(V^k) * broken(V^{k+1}) on the reference element.
         """
-        value_size = V.value_size
+        bsize = V.block_size
         fe = V.finat_element
         tdim = fe.cell.get_spatial_dimension()
         formdegree = fe.formdegree
@@ -570,7 +570,7 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(fe)
-        key = (value_size, tdim, degree, formdegree, is_interior, is_facet, transpose, sort_interior)
+        key = (bsize, tdim, degree, formdegree, is_interior, is_facet, transpose, sort_interior)
         cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
@@ -637,8 +637,8 @@ class FDMPC(PCBase):
             A00.destroy()
             A11.destroy()
             A10.destroy()
-            if value_size != 1:
-                eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
+            if bsize != 1:
+                eye = petsc_sparse(numpy.eye(bsize), comm=result.getComm())
                 temp = result
                 result = temp.kron(eye)
                 temp.destroy()
@@ -1352,10 +1352,10 @@ class ImplicitSchurComplementKernel(ElementKernel):
         V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
         V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
         V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
-        idofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
-        fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
+        idofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
+        fdofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
         size = idofs.size + fdofs.size
-        assert size == V.finat_element.space_dimension() * V.value_size
+        assert size == V.finat_element.space_dimension() * V.block_size
         # Bilinear form on the space with interior and interface
         a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
         # Generate code to apply the action of A within the Schur complement action
@@ -1621,15 +1621,14 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
             fises.destroy()
             cises.destroy()
 
-    if Vf.value_size > 1:
+    if Vf.block_size > 1:
         temp = Dhat
-        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType), comm=temp.getComm())
+        eye = petsc_sparse(numpy.eye(Vf.block_size, dtype=PETSc.RealType), comm=temp.getComm())
         Dhat = temp.kron(eye)
         temp.destroy()
         eye.destroy()
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
-    block_size = Vf.dof_dset.layout_vec.getBlockSize()
     preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
@@ -1647,7 +1646,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
 
-    Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
+    Dmat = PETSc.Mat().createAIJ(sizes, Vf.block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
     assembler.arguments[0].data = Dmat.handle
     assembler()
@@ -1865,8 +1864,7 @@ class PoissonFDMPC(FDMPC):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
-        bsize = Vrow.dof_dset.layout_vec.getBlockSize()
-        cell_to_local, nel = extrude_node_map(Vrow.cell_node_map(), bsize=bsize)
+        cell_to_local, nel = extrude_node_map(Vrow.cell_node_map(), bsize=Vrow.block_size)
         get_rindices = partial(cell_to_global, self.lgmaps[Vrow], cell_to_local)
         Afdm, Dfdm, bdof, axes_shifts = self.assemble_reference_tensor(Vrow)
 
@@ -1877,7 +1875,7 @@ class PoissonFDMPC(FDMPC):
         PT_facet = self.coefficients.get("PT_facet")
 
         V = Vrow
-        bsize = V.value_size
+        bsize = V.block_size
         ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()

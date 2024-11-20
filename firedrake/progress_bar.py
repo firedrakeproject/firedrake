@@ -11,7 +11,7 @@ class _NullProgressBar:
     def __enter__(self):
         pass
 
-    def __exit__(self):
+    def __exit__(self, *args, **kwargs):
         pass
 
     def iter(self, iterator):

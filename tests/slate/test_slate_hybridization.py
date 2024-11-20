@@ -130,7 +130,7 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     assert u_err < 1e-11
 
 
-def test_slate_hybridization_wrong_option(setup_poisson):
+def test_slate_hybridization_wrong_option(setup_poisson, petsc_raises):
     a, L, W = setup_poisson
 
     w = Function(W)
@@ -145,18 +145,9 @@ def test_slate_hybridization_wrong_option(setup_poisson):
                                                'pc_fieldsplit_type': 'frog'}}}
     problem = LinearVariationalProblem(a, L, w)
     solver = LinearVariationalSolver(problem, solver_parameters=params)
-    with pytest.raises(ValueError):
-        # HybridizationPC isn't called directly from the Python interpreter,
-        # it's a callback that PETSc calls. This means that the call stack from pytest
-        # down to HybridizationPC goes via PETSc C code, which interferes with the exception
-        # before it is observed outside. Hence removing PETSc's error handler
-        # makes the problem go away, because PETSc stops interfering.
-        # We need to repush the error handler because popErrorHandler globally changes
-        # the system state for all future tests.
-        from firedrake.petsc import PETSc
-        PETSc.Sys.pushErrorHandler("ignore")
+
+    with petsc_raises(ValueError):
         solver.solve()
-        PETSc.Sys.popErrorHandler("ignore")
 
 
 def test_slate_hybridization_nested_schur(setup_poisson):

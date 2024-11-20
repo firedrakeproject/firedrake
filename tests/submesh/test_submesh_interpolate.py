@@ -21,9 +21,9 @@ def _get_expr(V):
         x, y, z = SpatialCoordinate(m)
     else:
         raise NotImplementedError("Not implemented")
-    if V.ufl_element().value_shape == ():
+    if V.value_shape == ():
         return cos(x) + x * exp(y) + sin(z)
-    elif V.ufl_element().value_shape == (2, ):
+    elif V.value_shape == (2, ):
         return as_vector([cos(x), sin(y)])
 
 
@@ -50,7 +50,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     # if there is no ambiguity on the subdomain boundary.
     # For testing, the following suffices.
     g.interpolate(f)
-    temp = Constant(999.) if V.ufl_element().value_shape == () else as_vector([Constant(999.)] * np.prod(V.ufl_element().value_shape, dtype=int))
+    temp = Constant(999.*np.ones(V.value_shape))
     g.interpolate(temp, subset=mesh.topology.cell_subset(label_value))  # pollute the data
     g.interpolate(gsub, subset=mesh.topology.cell_subset(label_value))
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14

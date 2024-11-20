@@ -276,7 +276,7 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
     Z = {"dg0": dg0, "rt1": rt1}[space]
     if dual:
         Z = Z.dual()
-    for component in range(Z.value_size):
+    for component in range(len(Z)):
         V1 = Z.sub(component)
         V2 = V1.reconstruct(mesh=mesh2)
         assert is_dual(V1) == is_dual(V2) == dual
@@ -293,7 +293,7 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
     if dual:
         Z = Z.dual()
     for index, Vsub in enumerate(Z):
-        for component in range(Vsub.value_size):
+        for component in range(len(Vsub._components)):
             V1 = Z.sub(index).sub(component)
             V2 = V1.reconstruct(mesh=mesh2)
             assert is_dual(V1) == is_dual(V2) == dual

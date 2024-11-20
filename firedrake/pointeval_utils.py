@@ -71,6 +71,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
+                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
@@ -115,7 +116,7 @@ def compile_element(expression, coordinates, parameters=None):
     extruded = isinstance(cell, TensorProductCell)
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": domain.geometric_dimension(),
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
