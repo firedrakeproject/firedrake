@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch pyadjoint JHopeCollins/set_working_tape_decorator
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
