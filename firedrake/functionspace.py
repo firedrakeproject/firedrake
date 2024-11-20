@@ -317,33 +317,11 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
         FunctionSpace object to restrict
     boundary_set :
         A set of subdomains of the mesh in which Dirichlet boundary conditions
-        will be applied. Alternatively, an iterable of boundary conditions.
+        will be applied.
     name :
         An optional name for the function space.
 
     """
-    from firedrake.bcs import BCBase
-    if len(function_space) > 1:
-        return MixedFunctionSpace([RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-                                   for Vsub in function_space], name=name)
-
-    if not isinstance(boundary_set, (tuple, list, set, frozenset)):
-        boundary_set = (boundary_set,)
-
-    flat_boundary_set = []
-    for sub_domain in boundary_set:
-        if isinstance(sub_domain, BCBase):
-            bc = sub_domain
-            if bc.function_space() == function_space:
-                sub_domain = bc.sub_domain
-            else:
-                continue
-        if isinstance(sub_domain, (str, int)):
-            flat_boundary_set.append(sub_domain)
-        else:
-            flat_boundary_set.extend(sub_domain)
-    boundary_set = flat_boundary_set
-
     return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
                                                                  boundary_set=boundary_set,
                                                                  name=name),

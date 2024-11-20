@@ -10,9 +10,8 @@ from firedrake.petsc import (
     DEFAULT_SNES_PARAMETERS
 )
 from firedrake.function import Function
-from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.bcs import DirichletBC, EquationBC
+from firedrake.bcs import DirichletBC, EquationBC, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import replace
 
@@ -88,7 +87,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.restrict = restrict
 
         if restrict and bcs:
-            V_res = RestrictedFunctionSpace(V, bcs)
+            V_res = restricted_function_space(V, bcs)
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)

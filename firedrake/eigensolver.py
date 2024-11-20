@@ -1,7 +1,7 @@
 """Specify and solve finite element eigenproblems."""
 from firedrake.assemble import assemble
+from firedrake.bcs import restricted_function_space
 from firedrake.function import Function
-from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
 from firedrake.petsc import OptionsManager, flatten_parameters
@@ -70,7 +70,7 @@ class LinearEigenproblem():
             M = inner(u, v) * dx
 
         if restrict and bcs:  # assumed u and v are in the same space here
-            V_res = RestrictedFunctionSpace(self.output_space, bcs)
+            V_res = restricted_function_space(self.output_space, bcs)
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)
             self.M = replace(M, {u: u_res, v: v_res})

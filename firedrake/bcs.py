@@ -23,7 +23,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
-__all__ = ['DirichletBC', 'homogenize', 'EquationBC']
+__all__ = ['DirichletBC', 'homogenize', 'EquationBC', 'restricted_function_space']
 
 
 class BCBase(object):
@@ -690,3 +690,38 @@ def homogenize(bc):
         return DirichletBC(bc.function_space(), 0, bc.sub_domain)
     else:
         raise TypeError("homogenize only takes a DirichletBC or a list/tuple of DirichletBCs")
+
+
+@PETSc.Log.EventDecorator("CreateFunctionSpace")
+def restricted_function_space(V, bcs, name=None):
+    """Create a :class:`.RestrictedFunctionSpace` from a list of boundary conditions.
+
+    Parameters
+    ----------
+    V :
+        FunctionSpace object to restrict
+    bcs :
+        A list of boundary conditions.
+    name :
+        An optional name for the function space.
+
+    """
+    if len(V) > 1:
+        spaces = [restricted_function_space(Vsub, bcs) for Vsub in V]
+        return firedrake.MixedFunctionSpace(spaces, name=name)
+
+    if not isinstance(bcs, (tuple, list)):
+        bcs = (bcs,)
+
+    boundary_set = []
+    for bc in bcs:
+        if bc.function_space() != V:
+            continue
+        for dbc in bc.dirichlet_bcs():
+            if isinstance(dbc.sub_domain, (str, int)):
+                boundary_set.append(dbc.sub_domain)
+            else:
+                boundary_set.extend(dbc.sub_domain)
+    if len(boundary_set) == 0:
+        return V
+    return firedrake.RestrictedFunctionSpace(V, boundary_set=boundary_set, name=name)

@@ -179,7 +179,7 @@ def test_restricted_mixed_space():
     Q = FunctionSpace(mesh, "DG", 0)
     Z = V * Q
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
-    Z_restricted = RestrictedFunctionSpace(Z, bcs)
+    Z_restricted = restricted_function_space(Z, bcs)
     compare_function_space_assembly(Z, Z_restricted, bcs)
 
 
@@ -187,7 +187,7 @@ def test_poisson_restricted_mixed_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "RT", 1)
     Q = FunctionSpace(mesh, "DG", 0)
-    Z = V*Q
+    Z = V * Q
 
     u, p = TrialFunctions(Z)
     v, q = TestFunctions(Z)
@@ -197,14 +197,10 @@ def test_poisson_restricted_mixed_space():
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
 
     w = Function(Z)
-    problem = LinearVariationalProblem(a, L, w, bcs=bcs, restrict=False)
-    solver = LinearVariationalSolver(problem)
-    solver.solve()
+    solve(a == L, w, bcs=bcs, restrict=False)
 
     w2 = Function(Z)
-    problem = LinearVariationalProblem(a, L, w2, bcs=bcs, restrict=True)
-    solver = LinearVariationalSolver(problem)
-    solver.solve()
+    solve(a == L, w2, bcs=bcs, restrict=True)
 
     assert errornorm(w.subfunctions[0], w2.subfunctions[0]) < 1.e-12
     assert errornorm(w.subfunctions[1], w2.subfunctions[1]) < 1.e-12
