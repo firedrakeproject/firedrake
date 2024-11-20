@@ -1,5 +1,5 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat, \
-    stop_annotating, no_annotations, get_working_tape, set_working_tape
+    stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from functools import wraps, cached_property
 from typing import Callable, Optional
@@ -9,7 +9,7 @@ from mpi4py import MPI
 __all__ = ['AllAtOnceReducedFunctional']
 
 
-@set_working_tape(decorator=True)
+@set_working_tape()
 def isolated_rf(operation, control,
                 functional_name=None,
                 control_name=None):
@@ -73,18 +73,6 @@ def _ad_sub(left, right):
     result._ad_imul(-1)
     result._ad_iadd(left)
     return result
-
-
-def _scalarSend(comm, x, **kwargs):
-    from numpy import ones
-    comm.Send(x*ones(1, dtype=type(x)), **kwargs)
-
-
-def _scalarRecv(comm, dtype=float, **kwargs):
-    from numpy import zeros
-    xtmp = zeros(1, dtype=dtype)
-    comm.Recv(xtmp, **kwargs)
-    return xtmp[0]
 
 
 class AllAtOnceReducedFunctional(ReducedFunctional):
@@ -260,7 +248,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return getattr(self.strong_reduced_functional, attr)
 
     @sc_passthrough
-    @no_annotations
+    @stop_annotating()
     def __call__(self, values: OverloadedType):
         """Computes the reduced functional with supplied control value.
 
@@ -335,7 +323,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return J
 
     @sc_passthrough
-    @no_annotations
+    @stop_annotating()
     def derivative(self, adj_input: float = 1.0, options: dict = {}):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
@@ -428,7 +416,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         return derivatives
 
     @sc_passthrough
-    @no_annotations
+    @stop_annotating()
     def hessian(self, m_dot: OverloadedType, options: dict = {}):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
@@ -460,7 +448,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         """
         raise ValueError("Not implemented yet")
 
-    @no_annotations
+    @stop_annotating()
     def hessian_matrix(self):
         # Other reduced functionals don't have this.
         if not self.weak_constraint:
@@ -477,59 +465,52 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self._accumulation_started = True
 
     @contextmanager
-    def recording_stages(self, sequential=True, **kwargs):
+    def recording_stages(self, sequential=True, **stage_kwargs):
         if not sequential:
             raise ValueError("Recording stages concurrently not yet implemented")
-
-        # indices of stage in global and local list
-        stage_kwargs = {k: v for k, v in kwargs.items()}
 
         # record over ensemble
         if self.weak_constraint:
 
             trank = self.trank
 
-            if trank == 0:
-                global_index = 0
+            global_index = 0
+            with stop_annotating():
+                xhalo = self.x[0]._ad_copy()
 
-            # later ranks recv forward state and kwargs
-            if trank > 0:
-                tcomm = self.ensemble.ensemble_comm
-                src = trank-1
+            # add our data onto the users context data
+            ekwargs = {k: v for k, v in stage_kwargs.items()}
+            ekwargs['global_index'] = global_index
+            ekwargs['xhalo'] = xhalo
+
+            # proceed one ensemble rank at a time
+            with self.ensemble.sequential(**ekwargs) as ectx:
+
+                # later ranks start from halo
+                if trank == 0:
+                    controls = self._controls
+                else:
+                    controls = [self._control_prev, *self._controls]
+                    with stop_annotating():
+                        controls[0].assign(ectx.xhalo)
+
+                # grab the user's data from the ensemble context
+                local_stage_kwargs = {
+                    k: getattr(ectx, k) for k in stage_kwargs.keys()
+                }
+
+                # initialise iterator for local stages
+                stage_sequence = ObservationStageSequence(
+                    controls, self, ectx.global_index,
+                    local_stage_kwargs, sequential)
+
+                # let the user record the local stages
+                yield stage_sequence
+
+                # send the state forward
                 with stop_annotating():
-                    self.ensemble.recv(self.xprev, source=src, tag=trank+000)
-
-                    for i, (k, v) in enumerate(stage_kwargs.items()):
-                        stage_kwargs[k] = _scalarRecv(
-                            tcomm, dtype=type(v), source=src, tag=trank+i*100)
-
-                    global_index = _scalarRecv(
-                        tcomm, dtype=int, source=src, tag=trank+i*9000)
-
-            # subsequent ranks start from halo
-            controls = self._controls if trank == 0 else [self._control_prev, *self._controls]
-
-            stage_sequence = ObservationStageSequence(
-                controls, self, global_index, stage_kwargs, sequential)
-
-            yield stage_sequence
-
-            # send forward state and kwargs
-            if self.ensemble and trank != self.nchunks - 1:
-                with stop_annotating():
-                    tcomm = self.ensemble.ensemble_comm
-                    dst = trank+1
-
                     state = self.stages[-1].controls[1].control
-                    self.ensemble.send(state, dest=dst, tag=dst+000)
-
-                    for i, k in enumerate(stage_kwargs.keys()):
-                        v = getattr(stage_sequence.ctx, k)
-                        _scalarSend(
-                            tcomm, v, dest=dst, tag=dst+i*100)
-
-                    _scalarSend(
-                        tcomm, global_index, dest=dst, tag=dst+i*9000)
+                    ectx.xhalo.assign(state)
 
         else:  # strong constraint
 
@@ -558,10 +539,10 @@ class ObservationStageSequence:
     def __next__(self):
 
         if self.weak_constraint:
+            stages = self.aaorf.stages
+
             # start of the next stage
             next_control = self.controls[self.index]
-
-            stages = self.aaorf.stages
 
             # smuggle state forward and increment stage indices
             if self.index > 0:
@@ -797,7 +778,7 @@ class WeakObservationStage:
         # stop the stage tape recording anything else
         set_working_tape()
 
-    @no_annotations
+    @stop_annotating()
     def __call__(self, values: OverloadedType,
                  rftype: Optional[str] = None):
         """Computes the reduced functional with supplied control value.
@@ -836,7 +817,7 @@ class WeakObservationStage:
 
         return J
 
-    @no_annotations
+    @stop_annotating()
     def derivative(self, adj_input: float = 1.0, options: dict = {},
                    rftype: Optional[str] = None):
         """Returns the derivative of the functional w.r.t. the control.
@@ -907,7 +888,7 @@ class WeakObservationStage:
 
         return derivatives
 
-    @no_annotations
+    @stop_annotating()
     def hessian(self, m_dot: OverloadedType, options: dict = {},
                 rftype: Optional[str] = None):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
