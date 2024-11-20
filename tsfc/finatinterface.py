@@ -172,7 +172,7 @@ def convert_finiteelement(element, **kwargs):
         finat_elem, deps = _create_element(element, **kwargs)
         return finat.FlattenedDimensions(finat_elem), deps
 
-    kw = {}
+    finat_kwargs = {}
     kind = element.variant()
     if kind is None:
         kind = 'spectral'  # default variant
@@ -182,9 +182,9 @@ def convert_finiteelement(element, **kwargs):
             lmbda = finat.GaussLobattoLegendre
         elif element.cell.cellname() == "interval" and kind in cg_interval_variants:
             lmbda = cg_interval_variants[kind]
-        elif kind.startswith('integral') or kind in ['demkowicz', 'fdm']:
+        elif any(map(kind.startswith, ['integral', 'demkowicz', 'fdm'])):
             lmbda = finat.IntegratedLegendre
-            kw["variant"] = kind
+            finat_kwargs["variant"] = kind
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
@@ -194,16 +194,16 @@ def convert_finiteelement(element, **kwargs):
         else:
             # Let FIAT handle the general case
             lmbda = finat.Lagrange
-            kw["variant"] = kind
+            finat_kwargs["variant"] = kind
 
     elif element.family() in ["Discontinuous Lagrange", "Discontinuous Lagrange L2"]:
         if kind == 'spectral':
             lmbda = finat.GaussLegendre
         elif element.cell.cellname() == "interval" and kind in dg_interval_variants:
             lmbda = dg_interval_variants[kind]
-        elif kind.startswith('integral') or kind in ['demkowicz', 'fdm']:
+        elif any(map(kind.startswith, ['integral', 'demkowicz', 'fdm'])):
             lmbda = finat.Legendre
-            kw["variant"] = kind
+            finat_kwargs["variant"] = kind
         elif kind in ['mgd', 'feec', 'qb', 'mse']:
             degree = element.degree()
             shift_axes = kwargs["shift_axes"]
@@ -213,12 +213,12 @@ def convert_finiteelement(element, **kwargs):
         else:
             # Let FIAT handle the general case
             lmbda = finat.DiscontinuousLagrange
-            kw["variant"] = kind
+            finat_kwargs["variant"] = kind
 
     elif element.variant() is not None:
-        kw["variant"] = element.variant()
+        finat_kwargs["variant"] = element.variant()
 
-    return lmbda(cell, element.degree(), **kw), set()
+    return lmbda(cell, element.degree(), **finat_kwargs), set()
 
 
 # Element modifiers and compound element types
