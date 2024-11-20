@@ -81,8 +81,8 @@ class ASMPatchPC(PCBase):
             tinyasm.SetASMLocalSubdomains(
                 asmpc, ises,
                 [W.dm.getDefaultSF() for W in V],
-                [W.value_size for W in V],
-                sum(W.value_size * W.dof_dset.total_size for W in V))
+                [W.block_size for W in V],
+                sum(W.block_size * W.dof_dset.total_size for W in V))
             asmpc.setUp()
         else:
             raise ValueError(f"Unknown backend type {backend}")
@@ -168,7 +168,7 @@ class ASMStarPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
+                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
@@ -247,7 +247,7 @@ class ASMVankaPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
+                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
@@ -296,7 +296,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype=IntType)
+                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -471,7 +471,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 else:
                                     begin = off + min(k, k+plane) * blayer_offset + dof
                                     end = off + max(k, k+plane) * blayer_offset
-                                zlice = slice(W.value_size * begin, W.value_size * end)
+                                zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)

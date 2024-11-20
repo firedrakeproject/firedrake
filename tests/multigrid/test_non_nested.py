@@ -59,7 +59,7 @@ def test_sphere_mg():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = (inner(u, v) + inner(u, v))*dx
+    a = (inner(grad(u), grad(v)) + inner(u, v))*dx
 
     f1 = exp((x+y+z)/R)*x*y*z/R**3
     F = inner(f1, v)*dx
@@ -91,4 +91,4 @@ def test_sphere_mg():
     prob = LinearVariationalProblem(a, F, w)
     solver = LinearVariationalSolver(prob, solver_parameters=mg_params)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() < 5
+    assert solver.snes.ksp.getIterationNumber() < 7

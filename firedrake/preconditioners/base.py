@@ -95,11 +95,11 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         if P.getType() == "python":
             ctx = P.getPythonContext()
             a = ctx.a
-            bcs = tuple(ctx.row_bcs)
+            bcs = tuple(ctx.bcs)
         else:
             ctx = get_appctx(pc.getDM())
             a = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
+            bcs = ctx.bcs_Jp
         if len(args):
             a = a(*args)
         return a, bcs
@@ -121,6 +121,8 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         old_appctx = get_appctx(dm).appctx
         u = Function(op.arguments()[-1].function_space())
         F = action(op, u)
+        if bcs:
+            bcs = tuple(bc._as_nonlinear_variational_problem_arg() for bc in bcs)
         nprob = NonlinearVariationalProblem(F, u,
                                             bcs=bcs,
                                             J=op,

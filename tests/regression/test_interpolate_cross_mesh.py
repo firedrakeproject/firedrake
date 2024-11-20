@@ -215,7 +215,7 @@ def parameters(request):
         expected = np.asarray(
             [np.outer(coords[i], coords[i]) for i in range(len(coords))]
         )
-        V_src = FunctionSpace(m_src, "Regge", 2)  # Not point evaluation nodes
+        V_src = FunctionSpace(m_src, "Regge", 2, variant="point")  # Not point evaluation nodes
         V_dest = TensorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = TensorFunctionSpace(m_dest, "DQ", 2)
     elif request.param == "spheresphere":
@@ -361,7 +361,7 @@ def test_interpolate_unitsquare_mixed():
 
     # Can't go from non-mixed to mixed
     V_src_2 = VectorFunctionSpace(m_src, "CG", 1)
-    assert V_src_2.ufl_element().value_shape == V_src.ufl_element().value_shape
+    assert V_src_2.value_shape == V_src.value_shape
     f_src_2 = Function(V_src_2)
     with pytest.raises(NotImplementedError):
         assemble(interpolate(f_src_2, V_dest))

@@ -1,45 +1,52 @@
-import pytest
-from os.path import abspath, basename, dirname, join, splitext
+import glob
+import importlib
 import os
 import subprocess
-import glob
 import sys
+from collections import namedtuple
+from pathlib import Path
+from os.path import abspath, basename, dirname, join, splitext
+
+import pyadjoint
+import pytest
+
 from firedrake.petsc import get_external_packages
 
 
-cwd = abspath(dirname(__file__))
-demo_dir = join(cwd, "..", "..", "demos")
-VTK_DEMOS = [
-    "benney_luke.py",
-    "burgers.py",
-    "camassaholm.py",
-    "geometric_multigrid.py",
-    "helmholtz.py",
-    "higher_order_mass_lumping.py",
-    "linear_fluid_structure_interaction.py",
-    "linear_wave_equation.py",
-    "ma-demo.py",
-    "navier_stokes.py",
-    "netgen_mesh.py",
-    "poisson_mixed.py",
-    "qg_1layer_wave.py",
-    "qgbasinmodes.py",
-    "qg_winddrivengyre.py",
-    "rayleigh-benard.py",
-    "stokes.py",
-    "test_extrusion_lsw.py",
+Demo = namedtuple("Demo", ["loc", "requirements"])
+
+
+CWD = abspath(dirname(__file__))
+DEMO_DIR = join(CWD, "..", "..", "demos")
+
+SERIAL_DEMOS = [
+    Demo(("benney_luke", "benney_luke"), ["vtk"]),
+    Demo(("burgers", "burgers"), ["vtk"]),
+    Demo(("camassa-holm", "camassaholm"), ["vtk"]),
+    Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
+    Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
+    Demo(("extruded_continuity", "extruded_continuity"), []),
+    Demo(("helmholtz", "helmholtz"), ["vtk"]),
+    Demo(("higher_order_mass_lumping", "higher_order_mass_lumping"), ["vtk"]),
+    Demo(("immersed_fem", "immersed_fem"), []),
+    Demo(("linear_fluid_structure_interaction", "linear_fluid_structure_interaction"), ["vtk"]),
+    Demo(("linear-wave-equation", "linear_wave_equation"), ["vtk"]),
+    Demo(("ma-demo", "ma-demo"), ["vtk"]),
+    Demo(("matrix_free", "navier_stokes"), ["mumps", "vtk"]),
+    Demo(("matrix_free", "poisson"), []),
+    Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
+    Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
+    Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
+    Demo(("netgen", "netgen_mesh"), ["mumps", "ngsPETSc", "netgen", "slepc", "vtk"]),
+    Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
+    Demo(("parallel-printing", "parprint"), []),
+    Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
+    Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
 ]
-
-parallel_demos = [
-    "full_waveform_inversion.py",
+PARALLEL_DEMOS = [
+    Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
 ]
-
-
-# Discover the demo files by globbing the demo directory
-@pytest.fixture(params=glob.glob("%s/*/*.py.rst" % demo_dir),
-                ids=lambda x: basename(x))
-def rst_file(request):
-    return abspath(request.param)
 
 
 @pytest.fixture
@@ -49,11 +56,64 @@ def env():
     return env
 
 
-@pytest.fixture
-def py_file(rst_file, tmpdir, monkeypatch):
+def test_no_missing_demos():
+    all_demo_locs = {
+        demo.loc
+        for demos in [SERIAL_DEMOS, PARALLEL_DEMOS]
+        for demo in demos
+    }
+    for rst_file in glob.glob(f"{DEMO_DIR}/*/*.py.rst"):
+        rst_path = Path(rst_file)
+        demo_dir = rst_path.parent.name
+        demo_name, _, _ = rst_path.name.split(".")
+        demo_loc = (demo_dir, demo_name)
+        assert demo_loc in all_demo_locs
+        all_demo_locs.remove(demo_loc)
+    assert not all_demo_locs, "Unrecognised demos listed"
+
+
+def _maybe_skip_demo(demo):
+    # Add pytest skips for missing imports or packages
+    if "mumps" in demo.requirements and "mumps" not in get_external_packages():
+        pytest.skip("MUMPS not installed with PETSc")
+
+    if "hypre" in demo.requirements and "hypre" not in get_external_packages():
+        pytest.skip("hypre not installed with PETSc")
+
+    if "slepc" in demo.requirements:
+        try:
+            # Do not use `pytest.importorskip` to check for slepc4py:
+            # It isn't sufficient to actually detect whether slepc4py
+            # is installed. Both petsc4py and slepc4py require
+            # `from xy4py import Xy`
+            # to actually load the library.
+            from slepc4py import SLEPc  # noqa: F401
+        except ImportError:
+            pytest.skip("SLEPc unavailable")
+
+    if "matplotlib" in demo.requirements:
+        pytest.importorskip("matplotlib", reason="Matplotlib unavailable")
+
+    if "netgen" in demo.requirements:
+        pytest.importorskip("netgen", reason="Netgen unavailable")
+
+    if "ngsPETSc" in demo.requirements:
+        pytest.importorskip("ngsPETSc", reason="ngsPETSc unavailable")
+
+    if "vtk" in demo.requirements:
+        try:
+            import vtkmodules.vtkCommonDataModel  # noqa: F401
+        except ImportError:
+            pytest.skip("VTK unavailable")
+
+
+def _prepare_demo(demo, monkeypatch, tmpdir):
     # Change to the temporary directory (monkeypatch ensures that this
     # is undone when the fixture usage disappears)
     monkeypatch.chdir(tmpdir)
+
+    demo_dir, demo_name = demo.loc
+    rst_file = f"{DEMO_DIR}/{demo_dir}/{demo_name}.py.rst"
 
     # Check if we need to generate any meshes
     geos = glob.glob("%s/*.geo" % dirname(rst_file))
@@ -70,67 +130,38 @@ def py_file(rst_file, tmpdir, monkeypatch):
 
     # Get the name of the python file that pylit will make
     name = splitext(basename(rst_file))[0]
-    output = str(tmpdir.join(name))
+    py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", rst_file, output])
-    return output
+    subprocess.check_call(["pylit", rst_file, py_file])
+    return Path(py_file)
 
 
-@pytest.mark.skipcomplex  # Will need to add a seperate case for a complex demo.
-def test_demo_runs(py_file, env):
-    # Add pytest skips for missing imports or packages
-    if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py", "navier_stokes.py", "netgen_mesh.py"):
-        if "mumps" not in get_external_packages():
-            pytest.skip("MUMPS not installed with PETSc")
+def _exec_file(py_file):
+    # To execute a file we import it. We therefore need to modify sys.path so the
+    # tempdir can be found.
+    sys.path.insert(0, str(py_file.parent))
+    importlib.import_module(py_file.with_suffix("").name)
+    sys.path.pop(0)  # cleanup
 
-    if basename(py_file) in ("stokes.py", "rayleigh-benard.py", "saddle_point_systems.py", "qg_1layer_wave.py"):
-        if "hypre" not in get_external_packages():
-            pytest.skip("hypre not installed with PETSc")
 
-    if basename(py_file) == "qgbasinmodes.py":
-        try:
-            # Do not use `pytest.importorskip` to check for slepc4py:
-            # It isn't sufficient to actually detect whether slepc4py
-            # is installed. Both petsc4py and slepc4py require
-            # `from xy4py import Xy`
-            # to actually load the library.
-            from slepc4py import SLEPc  # noqa: F401
-        except ImportError:
-            pytest.skip(reason="SLEPc unavailable, skipping qgbasinmodes.py")
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("demo", SERIAL_DEMOS, ids=["/".join(d.loc) for d in SERIAL_DEMOS])
+def test_serial_demo(demo, env, monkeypatch, tmpdir):
+    _maybe_skip_demo(demo)
+    py_file = _prepare_demo(demo, monkeypatch, tmpdir)
+    _exec_file(py_file)
 
-    if basename(py_file) in ("DG_advection.py", "qgbasinmodes.py"):
-        pytest.importorskip(
-            "matplotlib",
-            reason=f"Matplotlib unavailable, skipping {basename(py_file)}"
-        )
+    if "adjoint" in demo.requirements:
+        pyadjoint.get_working_tape().clear_tape()
 
-    if basename(py_file) == "netgen_mesh.py":
-        pytest.importorskip(
-            "netgen",
-            reason="Netgen unavailable, skipping Netgen test."
-        )
-        pytest.importorskip(
-            "ngsPETSc",
-            reason="ngsPETSc unavailable, skipping Netgen test."
-        )
-        try:
-            from slepc4py import SLEPc  # noqa: F401, F811
-        except ImportError:
-            pytest.skip(reason="SLEPc unavailable, skipping netgen_mesh.py")
 
-    if basename(py_file) in VTK_DEMOS:
-        try:
-            import vtkmodules.vtkCommonDataModel  # noqa: F401
-        except ImportError:
-            pytest.skip(reason=f"VTK unavailable, skipping {basename(py_file)}")
-    if basename(py_file) in parallel_demos:
-        if basename(py_file) == "full_waveform_inversion.py":
-            processes = 2
-        else:
-            raise NotImplementedError("You need to specify the number of processes for this test")
+@pytest.mark.parallel(2)
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
+def test_parallel_demo(demo, env, monkeypatch, tmpdir):
+    _maybe_skip_demo(demo)
+    py_file = _prepare_demo(demo, monkeypatch, tmpdir)
+    _exec_file(py_file)
 
-        executable = ["mpiexec", "-n", str(processes), sys.executable, py_file]
-    else:
-        executable = [sys.executable, py_file]
-
-    subprocess.check_call(executable, env=env)
+    if "adjoint" in demo.requirements:
+        pyadjoint.get_working_tape().clear_tape()
