@@ -55,5 +55,3 @@ class _AdjointModule(types.ModuleType):
 sys.modules[__name__].__class__ = _AdjointModule
 
 set_working_tape(Tape())
-disk_checkpointing_callback["error"] = "Please call enable_disk_checkpointing() "\
-    "before checkpointing on the disk."
