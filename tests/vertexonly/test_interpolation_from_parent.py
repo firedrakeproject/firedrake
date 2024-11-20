@@ -298,7 +298,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
 
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    vertexcoords = vm.coordinates.dat.data_ro
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
         == "Discontinuous Lagrange"
