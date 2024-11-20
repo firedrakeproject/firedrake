@@ -204,9 +204,6 @@ class DiskCheckpointer(TapePackageData):
         self.init_checkpoint_file = state["init"]
         self.current_checkpoint_file = state["current"]
 
-    def start_checkpointing(self):
-        enable_disk_checkpointing(self.dirname, self.comm, self.cleanup)
-
     def continue_checkpointing(self):
         continue_disk_checkpointing()
 

@@ -21,6 +21,7 @@ from pyadjoint.tape import Tape, set_working_tape, get_working_tape, \
                             pause_annotation, continue_annotation, \
                             stop_annotating, annotate_tape  # noqa F401
 from pyadjoint.reduced_functional import ReducedFunctional  # noqa F401
+from pyadjoint.checkpointing import disk_checkpointing_callback  # noqa F401
 from firedrake.adjoint_utils.checkpointing import \
     enable_disk_checkpointing, pause_disk_checkpointing, \
     continue_disk_checkpointing, stop_disk_checkpointing, \
@@ -54,3 +55,5 @@ class _AdjointModule(types.ModuleType):
 sys.modules[__name__].__class__ = _AdjointModule
 
 set_working_tape(Tape())
+disk_checkpointing_callback["error"] = "Please call enable_disk_checkpointing() "\
+    "before checkpointing on the disk."
