@@ -292,13 +292,19 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), 2*result)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="Interpolation of UFL expressions into mixed functions not supported")
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     tfs_fam, tfs_deg, tfs_typ = tfs
+
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
+    vertexcoords = vm.coordinates.dat.data_ro
+    if (
+        parentmesh.coordinates.function_space().ufl_element().family()
+        == "Discontinuous Lagrange"
+    ):
+        pytest.skip(f"Interpolating into f{tfs_fam} on a periodic mesh is not well-defined.")
+
     V1 = tfs_typ(parentmesh, tfs_fam, tfs_deg)
     V2 = FunctionSpace(parentmesh, "CG", 1)
     V = V1 * V2
@@ -311,30 +317,23 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     # Get Function in V1
     # use outer product to check Regge works
     expr1 = outer(x, x)
-    assert W1.shape == expr1.ufl_shape
-    assemble(interpolate(expr1, v1))
+    assert W1.value_shape == expr1.ufl_shape
+    v1.interpolate(expr1)
     result1 = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result1) == 0:
         result1 = result1.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     # Get Function in V2
     expr2 = reduce(add, SpatialCoordinate(parentmesh))
-    assemble(interpolate(expr2, v2))
+    v2.interpolate(expr2)
     result2 = np.sum(vertexcoords, axis=1)
+
     # Interpolate Function in V into W
     w_v = assemble(interpolate(v, W))
+
     # Split result and check
     w_v1, w_v2 = w_v.subfunctions
-    assert np.allclose(w_v1.dat.data_ro, result1)
-    assert np.allclose(w_v2.dat.data_ro, result2)
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    # Split result and check
-    w_v1, w_v2 = w_v.subfunctions
-    assert np.allclose(w_v1.dat.data_ro, result1)
-    assert np.allclose(w_v2.dat.data_ro, result2)
-    # Enough tests - don't both using it again for a different Function in V
+    assert np.allclose(w_v1.dat.data_ro.reshape(result1.shape), result1)
+    assert np.allclose(w_v2.dat.data_ro.reshape(result2.shape), result2)
 
 
 def test_scalar_real_interpolation(parentmesh, vertexcoords):
@@ -431,7 +430,6 @@ def test_tensor_function_interpolation_parallel(parentmesh, vertexcoords, tfs):
     test_tensor_function_interpolation(parentmesh, vertexcoords, tfs)
 
 
-@pytest.mark.xfail(reason="Interpolation of UFL expressions into mixed functions not supported")
 @pytest.mark.parallel
 def test_mixed_function_interpolation_parallel(parentmesh, vertexcoords, tfs):
     test_mixed_function_interpolation(parentmesh, vertexcoords, tfs)
