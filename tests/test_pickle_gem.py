@@ -6,7 +6,7 @@ import pytest
 
 @pytest.mark.parametrize('protocol', range(3))
 def test_pickle_gem(protocol):
-    f = gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))
+    f = gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,), dtype=gem.uint_type), (1,)))
     q = gem.Index()
     r = gem.Index()
     _1 = gem.Indexed(gem.Literal(numpy.random.rand(3, 6, 8)), (f, q, r))

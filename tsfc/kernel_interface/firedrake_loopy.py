@@ -85,11 +85,11 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         # Cell orientation
         if self.interior_facet:
-            cell_orientations = gem.Variable("cell_orientations", (2,))
+            cell_orientations = gem.Variable("cell_orientations", (2,), dtype=gem.uint_type)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),
                                        gem.Indexed(cell_orientations, (1,)))
         else:
-            cell_orientations = gem.Variable("cell_orientations", (1,))
+            cell_orientations = gem.Variable("cell_orientations", (1,), dtype=gem.uint_type)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
 
     def _coefficient(self, coefficient, name):
@@ -257,12 +257,12 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         # Facet number
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            facet = gem.Variable('facet', (1,))
+            facet = gem.Variable('facet', (1,), dtype=gem.uint_type)
             self._entity_number = {None: gem.VariableIndex(gem.Indexed(facet, (0,)))}
             facet_orientation = gem.Variable('facet_orientation', (1,), dtype=gem.uint_type)
             self._entity_orientation = {None: gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,)))}
         elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            facet = gem.Variable('facet', (2,))
+            facet = gem.Variable('facet', (2,), dtype=gem.uint_type)
             self._entity_number = {
                 '+': gem.VariableIndex(gem.Indexed(facet, (0,))),
                 '-': gem.VariableIndex(gem.Indexed(facet, (1,)))
