@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from numbers import Number
 _enable_disk_checkpoint = False
 _checkpoint_init_data = False
-disk_checkpointing_callback["error"] = "Please call enable_disk_checkpointing() "\
+disk_checkpointing_callback["firedrake"] = "Please call enable_disk_checkpointing() "\
     "before checkpointing on the disk."
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
