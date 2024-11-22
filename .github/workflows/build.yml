@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch tsfc ksagiyam/use_canonical_quadrature_point_ordering \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
