@@ -30,8 +30,8 @@ jobs:
       - name: Install Python
         run: |
           brew install python@3.12
-          $(brew --prefix)/bin/python3.12 -m pip install -U pip
-          $(brew --prefix)/bin/python3.12 -m pip install -U setuptools
+          $(brew --prefix)/bin/python3.12 -m pip install --user -U pip
+          $(brew --prefix)/bin/python3.12 -m pip install --user -U setuptools
       - name: Build Firedrake
         run: |
           cd ..
