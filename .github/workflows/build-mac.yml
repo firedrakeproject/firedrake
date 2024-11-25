@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Python
-        run: brew install python@3.12
+        run: brew install python@3.12 python-setuptools
       - name: Build Firedrake
         run: |
           cd ..
