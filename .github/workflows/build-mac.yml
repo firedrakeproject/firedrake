@@ -23,12 +23,15 @@ jobs:
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
-      FIREDRAKE_CI_TESTS: 1
-      PYOP2_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
       - uses: actions/checkout@v4
+      - name: Install Python
+        run: |
+          brew install python@3.12
+          $(brew --prefix)/bin/python3 -m pip install -U pip
+          $(brew --prefix)/bin/python3 -m pip install -U setuptools
       - name: Build Firedrake
         run: |
           cd ..
