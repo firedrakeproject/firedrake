@@ -83,6 +83,9 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch tsfc indiamai/new_def_integration \
+            --package-branch fiat indiamai/union_different_coeff_size \
+            --package-branch FInAT indiamai/new_def_integration \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
