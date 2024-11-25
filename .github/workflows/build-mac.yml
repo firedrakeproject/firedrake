@@ -28,6 +28,11 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
     steps:
       - uses: actions/checkout@v4
+      - name: Pre-run cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf firedrake_venv
       - name: Install Python
         run: brew install python@3.12 python-setuptools
       - name: Build Firedrake
@@ -44,3 +49,8 @@ jobs:
           python -m pytest -v tests/regression/ \
             -k "poisson_strong or stokes_mini or dg_advection"
         timeout-minutes: 30
+      - name: Post-run cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf firedrake_venv
