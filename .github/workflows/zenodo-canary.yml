@@ -25,7 +25,7 @@ jobs:
           pip install requests packaging
       - name: Zenodo API canary
         run: |
-          python firedrake/scripts/firedrake-install --test-doi-resolution
+          python scripts/firedrake-install --test-doi-resolution
       - name: Upload log
         uses: actions/upload-artifact@v4
         if: failure()

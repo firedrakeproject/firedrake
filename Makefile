@@ -17,6 +17,7 @@ lint:
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake scripts"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
+	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 	@echo "    Linting firedrake tests"
 	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting PyOP2"

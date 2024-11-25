@@ -8,7 +8,7 @@ Obtaining Firedrake
 
 Firedrake is installed using its install script::
 
-  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/firedrake/scripts/firedrake-install
+  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
 
 In the simplest cases, such as on a Mac with Homebrew installed or on
 an Ubuntu workstation on which the user has sudo acccess, the user can simply run::
@@ -232,7 +232,7 @@ You should now be able to run ``firedrake-update``.
 Installing Firedrake with pip (experimental, Linux only)
 --------------------------------------------------------
 
-Firedrake is working towards having support for binary installs. As such there is experimental support for installing Firedrake using ``pip``, avoiding the need for a ``firedrake-install`` script. At present only Linux is tested using this install method.
+Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script. At present only Linux is tested using this install method.
 
 Requirements
 ~~~~~~~~~~~~

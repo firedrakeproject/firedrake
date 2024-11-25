@@ -1397,7 +1397,7 @@ def quit(message):
 
 def build_update_script():
     log.info("Creating firedrake-update script.")
-    with open("firedrake/firedrake/scripts/firedrake-install", "r") as f:
+    with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
     try:
@@ -1410,7 +1410,7 @@ def build_update_script():
 
 
 if args.rebuild_script:
-    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../../.."))
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
 
     build_update_script()
 
