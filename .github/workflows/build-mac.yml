@@ -5,6 +5,9 @@ on:
     branches:
       - master
   pull_request:
+    # By default this workflow is run on the "opened", "synchronize" and
+    # "reopened" events. We add "labelled" so it will run if the PR is given a label.
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
   # Cancels jobs running if new commits are pushed
@@ -17,70 +20,42 @@ jobs:
   build:
     name: Build Firedrake
     runs-on: [self-hosted, macOS]
-    # container:
-    #   image: firedrakeproject/firedrake-env:latest
-    # strategy:
-    #   # Don't immediately kill real if complex fails and vice versa.
-    #   fail-fast: false
-      # matrix:
-      #   include:
-      #     - scalar-type: real
-      #       complex: ""
-      #       petsc_arch: default
-      #     - scalar-type: complex
-      #       complex: --complex
-      #       petsc_arch: complex
-    # env:
-    #   # PETSC_DIR and MPICH_DIR are set inside the docker image
-    #   FIREDRAKE_CI_TESTS: 1
-    #   PYOP2_CI_TESTS: 1
-    #   PETSC_ARCH: ${{ matrix.petsc_arch }}
-    #   OMP_NUM_THREADS: 1
-    #   OPENBLAS_NUM_THREADS: 1
-    #   COMPLEX: ${{ matrix.complex }}
-    #   RDMAV_FORK_SAFE: 1
+    # Only run this action if we are pushing to master or the PR is labelled "macOS"
+    if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
+    env:
+      FIREDRAKE_CI_TESTS: 1
+      PYOP2_CI_TESTS: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
     steps:
-      - name: Check environment
+      - uses: actions/checkout@v4
+      - name: Build Firedrake
         run: |
-          whoami
-          groups
-          pwd
-      # - uses: actions/checkout@v4
-      # - name: Cleanup
-      #   if: ${{ always() }}
-      #   run: |
-      #     cd ..
-      #     rm -rf firedrake_venv
-      # - name: Build Firedrake
-      #   run: |
-      #     cd ..
-      #     # Linting should ignore unquoted shell variable $COMPLEX
-      #     # shellcheck disable=SC2086
-      #     ./firedrake/scripts/firedrake-install \
-      #       $COMPLEX \
-      #       --honour-petsc-dir \
-      #       --mpicc="$MPICH_DIR"/mpicc \
-      #       --mpicxx="$MPICH_DIR"/mpicxx \
-      #       --mpif90="$MPICH_DIR"/mpif90 \
-      #       --mpiexec="$MPICH_DIR"/mpiexec \
-      #       --venv-name firedrake_venv \
-      #       --no-package-manager \
-      #       --disable-ssh \
-      #       --documentation-dependencies \
-      #       --torch \
-      #       --jax \
-      #       --netgen \
-      #       --slepc \
-      #       --install thetis \
-      #       --install gusto \
-      #       --install icepack \
-      #       --install irksome \
-      #       --install femlium \
-      #       --install fascd \
-      #       --install defcon \
-      #       --install gadopt \
-      #       --install asQ \
-      #       || (cat firedrake-install.log && /bin/false)
+          ./firedrake/scripts/firedrake-install \
+            $COMPLEX \
+            --honour-petsc-dir \
+            --mpicc="$MPICH_DIR"/mpicc \
+            --mpicxx="$MPICH_DIR"/mpicxx \
+            --mpif90="$MPICH_DIR"/mpif90 \
+            --mpiexec="$MPICH_DIR"/mpiexec \
+            --venv-name firedrake_venv \
+            --no-package-manager \
+            --disable-ssh \
+            --documentation-dependencies \
+            --torch \
+            --jax \
+            --netgen \
+            --slepc \
+            --install thetis \
+            --install gusto \
+            --install icepack \
+            --install irksome \
+            --install femlium \
+            --install fascd \
+            --install defcon \
+            --install gadopt \
+            --install asQ \
+            || (cat firedrake-install.log && /bin/false)
       # - name: Install test dependencies
       #   run: |
       #     . ../firedrake_venv/bin/activate
