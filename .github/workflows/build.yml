@@ -48,6 +48,11 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
     steps:
+      # testing
+      - name: Install extra apt deps that should be in .env Docker container
+        run: |
+          sudo apt update
+          sudo apt -y install liblapack-dev
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
