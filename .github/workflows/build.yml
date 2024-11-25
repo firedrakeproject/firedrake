@@ -90,6 +90,8 @@ jobs:
             --package-branch tsfc connorjward/pyop3 \
             --package-branch petsc connorjward/pyop3 \
             --package-branch pyop3 connorjward/tidy-layouts \
+            --package-branch fiat indiamai/union_different_coeff_size \
+            --package-branch FInAT indiamai/new_def_integration \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
