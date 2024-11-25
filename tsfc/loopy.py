@@ -47,7 +47,7 @@ def _assign_dtype(expression, self):
 
 @_assign_dtype.register(gem.Terminal)
 def _assign_dtype_terminal(expression, self):
-    return {self.scalar_type}
+    return {expression.dtype or self.scalar_type}
 
 
 @_assign_dtype.register(gem.Variable)
@@ -59,7 +59,7 @@ def _assign_dtype_variable(expression, self):
 @_assign_dtype.register(gem.Identity)
 @_assign_dtype.register(gem.Delta)
 def _assign_dtype_real(expression, self):
-    return {self.real_type}
+    return {expression.dtype or self.real_type}
 
 
 @_assign_dtype.register(gem.Literal)
@@ -70,15 +70,15 @@ def _assign_dtype_identity(expression, self):
 @_assign_dtype.register(gem.Power)
 def _assign_dtype_power(expression, self):
     # Conservative
-    return {self.scalar_type}
+    return {expression.dtype or self.scalar_type}
 
 
 @_assign_dtype.register(gem.MathFunction)
 def _assign_dtype_mathfunction(expression, self):
     if expression.name in {"abs", "real", "imag"}:
-        return {self.real_type}
+        return {expression.dtype or self.real_type}
     elif expression.name == "sqrt":
-        return {self.scalar_type}
+        return {expression.dtype or self.scalar_type}
     else:
         return set.union(*map(self, expression.children))
 
@@ -87,7 +87,7 @@ def _assign_dtype_mathfunction(expression, self):
 @_assign_dtype.register(gem.MaxValue)
 def _assign_dtype_minmax(expression, self):
     # UFL did correctness checking
-    return {self.real_type}
+    return {expression.dtype or self.real_type}
 
 
 @_assign_dtype.register(gem.Conditional)
@@ -100,7 +100,7 @@ def _assign_dtype_conditional(expression, self):
 @_assign_dtype.register(gem.LogicalAnd)
 @_assign_dtype.register(gem.LogicalOr)
 def _assign_dtype_logical(expression, self):
-    return {numpy.int8}
+    return {expression.dtype or numpy.int8}
 
 
 def assign_dtypes(expressions, scalar_type):
