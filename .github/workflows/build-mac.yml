@@ -47,7 +47,9 @@ jobs:
         run: |
           . ../firedrake_venv/bin/activate
           python -m pytest -v tests/regression/ \
-            -k "poisson_strong or stokes_mini or dg_advection"
+            -k "poisson_strong or stokes_mini or dg_advection" -m "not parallel"
+          mpiexec -np 3 python -m pytest -v tests/regression/ \
+            -k "poisson_strong or stokes_mini or dg_advection" -m "parallel[3]"
         timeout-minutes: 30
       - name: Post-run cleanup
         if: ${{ always() }}
