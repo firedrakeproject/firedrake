@@ -8,7 +8,7 @@ Obtaining Firedrake
 
 Firedrake is installed using its install script::
 
-  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/firedrake/scripts/firedrake-install
 
 In the simplest cases, such as on a Mac with Homebrew installed or on
 an Ubuntu workstation on which the user has sudo acccess, the user can simply run::
